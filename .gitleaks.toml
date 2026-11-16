@@ -1,0 +1,25 @@
+# gitleaks — MeshGuard (P0-T04): toàn bộ rule mặc định + rule cho credential của Headscale (RT-12, ID-05).
+title = "meshguard"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "headscale-api-or-preauth-key"
+description = "Headscale API key hoặc pre-auth key (hskey-api-… / hskey-auth-…)"
+regex = '''hskey-(?:api|auth)-[A-Za-z0-9_-]{4,}-[A-Za-z0-9_-]{8,}'''
+keywords = ["hskey-"]
+
+[[allowlists]]
+description = "Không phải secret (2026-11-16): fingerprint công khai của khóa ký GPG trong script tải image, tên giao thức Noise của WireGuard trong nhật ký nghiên cứu"
+regexTarget = "line"
+regexes = [
+  '''KEY_FPR="[0-9A-F]{40}"''',
+  '''Noise_IKpsk2_25519_ChaChaPoly_BLAKE2s''',
+]
+
+[[rules]]
+id = "headscale-auth-request-id"
+description = "Auth ID của luồng web authentication (hskey-authreq-…): ai có nó có thể phê duyệt thiết bị đang chờ"
+regex = '''hskey-authreq-[A-Za-z0-9_-]{16,}'''
+keywords = ["hskey-authreq-"]

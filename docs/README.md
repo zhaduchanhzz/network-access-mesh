@@ -2,7 +2,7 @@
 
 Bộ tài liệu kiến trúc và kế hoạch triển khai của MeshGuard ZTNA (multi-tenant Zero Trust Mesh VPN trên Headscale + official Tailscale Client).
 
-> **Trạng thái:** Bản thiết kế chờ review và phê duyệt kiến trúc (kết quả PLAN MODE). Chưa có application code, container, migration, thay đổi firewall/DNS/SSH hay thao tác nào trên server được thực hiện. Thiết kế **chưa được coi là production-ready** cho tới khi qua kiểm thử và kiểm toán bảo mật (Rule XIX.20).
+> **Trạng thái:** Kiến trúc **đã được chủ dự án phê duyệt** ngày 2026-11-16 (biên bản: `docs/planning/evidence/architecture-approval.md`); dự án đang ở **Phase 0** (Build Mode), G0 chưa đạt (còn P0-T07 — `docs/planning/evidence/G0.md`). Chưa có application code, container MeshGuard, migration, thay đổi firewall hay DNS. Theo chỉ đạo của chủ dự án, ngày 2026-11-16 đã: cài SSH key của dự án lên Proxmox và VPS, tạo user triển khai trên VPS, tạo 6 VM trên Proxmox và dừng 3 dự án cũ trên VPS để giải phóng cổng 80/443/3478 (nhật ký và lệnh hoàn tác: `docs/planning/evidence/infrastructure-bootstrap.md`; kết quả discovery: Appendix A.4). Thiết kế **chưa được coi là production-ready** cho tới khi qua kiểm thử và kiểm toán bảo mật (Rule XIX.20).
 > **Ngày lập:** 2026-11-16 · **Phiên bản tham chiếu đã xác minh qua GitHub Releases API:** Headscale `v0.29.7` (2026-10-30) · Tailscale client `v1.104.7` (2026-11-12).
 > **Bản sửa đổi:** Rev 3 (2026-11-16). *Rev 2* — bổ sung quyết định của người dùng: các endpoint cần public đi qua **VPS Public Gateway** (§15.3, §14.9, ADR-25); chuyển STUN sang responder dùng chung tại điểm vào công khai (§10, ADR-11). *Rev 3* — tích hợp kết quả **phản biện đối kháng** của 8 reviewer độc lập — là 8 agent AI phản biện tự động, mỗi agent một góc nhìn, không thay cho thẩm định của chuyên gia bên ngoài (186 phát hiện: 1 nghiêm trọng, 50 cao, 106 trung bình, 29 thấp); tổng hợp và cách xử lý ở Appendix D, bản ghi nguyên văn ở `docs/planning/review-findings.md`. File này là **bản master**; các file khác trong `docs/` được trích sinh từ đây bằng `tools/split_plan.py` — sửa ở master rồi sinh lại.
 
@@ -50,6 +50,8 @@ Bộ tài liệu kiến trúc và kế hoạch triển khai của MeshGuard ZTNA
 | [planning/review-log.md](planning/review-log.md) | Review Log & Dispositions — §D |
 | [adr/architecture-decision-records.md](adr/architecture-decision-records.md) | Architecture Decision Records — §24 |
 | [planning/review-findings.md](planning/review-findings.md) | Bản ghi nguyên văn các phát hiện của vòng phản biện (không sinh từ master; tổng hợp và cách xử lý ở Appendix D) |
+| [architecture/research-evidence.md](architecture/research-evidence.md) | Nhật ký bằng chứng nghiên cứu: 874 nhận định kèm trích dẫn và nguồn đã pin (không sinh từ master; P0-T08) |
+| [planning/evidence/](planning/evidence/README.md) | Bằng chứng thực hiện: quy ước, biên bản phê duyệt kiến trúc, task bị chặn, sổ kết quả kiểm chứng, báo cáo gate (không sinh từ master) |
 
 ## Quy ước đọc tài liệu
 

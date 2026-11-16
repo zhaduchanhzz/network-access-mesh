@@ -1,10 +1,10 @@
 # MeshGuard ZTNA — Roadmap
 
 > **Cập nhật:** 2026-11-16 · đã đối chiếu với Implementation Master Plan **Rev 3** (bản cuối sau vòng phản biện). File này **viết tay**, không sinh tự động: ai sửa bản master thì đối chiếu và cập nhật file này trong cùng thay đổi. Nguồn sự thật: [docs/planning/implementation-master-plan.md](docs/planning/implementation-master-plan.md) (§19–§23, §25).
-> **Trạng thái dự án:** đang ở **Phase 0** — đã có bản thiết kế và kế hoạch, **chờ chủ dự án phê duyệt kiến trúc**. Chưa có mã ứng dụng, container hay thay đổi nào trên server. Thiết kế **chưa** được coi là production-ready.
-> **Cần chủ dự án làm (chi tiết ở mục 6):** (1) **ngay bây giờ** — đổi mật khẩu root của VPS (đã bị lộ khi trao đổi) và cấp SSH key cho user triển khai; (2) phê duyệt kiến trúc: 25 ADR và các quyết định D-1…D-14; (3) cung cấp đủ 8 đầu vào của gate G0 (domain + DNS provider, thông số host và VPS, thiết bị thử, Git/CI/registry, phương án IdP, số người vận hành, xác nhận rủi ro pháp lý).
+> **Trạng thái dự án:** kiến trúc **đã được phê duyệt** (2026-11-16 — [biên bản](docs/planning/evidence/architecture-approval.md)); đang ở **Phase 0**; **G0 chưa đạt** — 7/8 đầu vào đã có, còn CI runner (P0-T07) ([tiến độ G0](docs/planning/evidence/G0.md)). Hạ tầng đã khởi tạo theo chỉ đạo của chủ dự án (2026-11-16): 6 VM trên Proxmox, SSH key của dự án trên Proxmox và VPS, 3 dự án cũ trên VPS đã dừng để giải phóng cổng ([nhật ký](docs/planning/evidence/infrastructure-bootstrap.md)). Chưa có mã ứng dụng hay container MeshGuard. Thiết kế **chưa** được coi là production-ready.
+> **Cần chủ dự án làm (chi tiết ở mục 6):** (1) chuyển repo GitHub sang private, rồi cấp token đăng ký runner (hiệu lực 1 giờ) — việc cuối cùng còn chặn G0; Phase 1 tự bắt đầu khi xong (Go có điều kiện ngày 2026-11-16); (2) tắt pipeline deploy của 3 dự án cũ trên VPS; (3) xem lại 6 quyết định đã được ghi nhận là chấp nhận theo khuyến nghị khi bạn duyệt plan (mục 6) và báo nếu muốn đổi.
 
-**Thuật ngữ và mã dùng trong file:** *gate* G0…G7 = điểm Go/No-Go cuối mỗi phase — có bằng chứng và chủ dự án xác nhận thì mới sang phase kế · *AC-nn* = tiêu chí nghiệm thu MVP · *ADR-nn* = quyết định kiến trúc (25 quyết định, đều đang chờ duyệt) · *D-n* = quyết định cần chủ dự án đưa ra · *R-nn* = rủi ro · *P\<phase\>-Tnn* = task · *tailnet* = một mạng riêng do một Headscale instance quản lý · *edge* = cụm Caddy + CrowdSec dùng chung, đứng trước mọi tenant · *DERP* = relay mã hóa, dùng khi hai thiết bị không nối trực tiếp được · *STUN* = dịch vụ giúp thiết bị biết địa chỉ công khai của mình để nối trực tiếp · *dual control (2P)* = thao tác phá hủy phải có người thứ hai phê duyệt · *spike* = thử nghiệm kỹ thuật ngắn để lộ rủi ro sớm.
+**Thuật ngữ và mã dùng trong file:** *gate* G0…G7 = điểm Go/No-Go cuối mỗi phase — có bằng chứng và chủ dự án xác nhận thì mới sang phase kế · *AC-nn* = tiêu chí nghiệm thu MVP · *ADR-nn* = quyết định kiến trúc (25 quyết định, đã được duyệt 2026-11-16) · *D-n* = quyết định cần chủ dự án đưa ra · *R-nn* = rủi ro · *P\<phase\>-Tnn* = task · *tailnet* = một mạng riêng do một Headscale instance quản lý · *edge* = cụm Caddy + CrowdSec dùng chung, đứng trước mọi tenant · *DERP* = relay mã hóa, dùng khi hai thiết bị không nối trực tiếp được · *STUN* = dịch vụ giúp thiết bị biết địa chỉ công khai của mình để nối trực tiếp · *dual control (2P)* = thao tác phá hủy phải có người thứ hai phê duyệt · *spike* = thử nghiệm kỹ thuật ngắn để lộ rủi ro sớm.
 
 ## 1. Đích đến
 
@@ -24,15 +24,18 @@ MeshGuard ZTNA là nền tảng SaaS Zero Trust Mesh VPN tự lưu trữ, đa te
 | Nghiên cứu 4 repository tham khảo, Headscale `v0.29.7`, Tailscale client `v1.104.7` | Xong — **chỉ đọc** mã nguồn và tài liệu, chưa chạy thử gì; các giả định trọng yếu chờ kiểm chứng thực tế ở Phase 1–5 (mục 7) |
 | Implementation Master Plan và bộ tài liệu `docs/` | Xong — Rev 3: 25 mục + Appendix A–D, 149 task |
 | Phản biện tự động: 8 agent AI phản biện độc lập, mỗi agent một góc nhìn — 186 phát hiện (1 nghiêm trọng, 50 cao, 106 trung bình, 29 thấp) | Đã tích hợp vào Rev 3 và được kiểm chứng lại: 183 đã xử lý, 3 xử lý một phần (hoãn có chủ đích, có task chịu trách nhiệm). Bảng xử lý từng phát hiện: [docs/planning/review-log.md](docs/planning/review-log.md). Phản biện tự động **không** thay cho thẩm định của chuyên gia; plan có rà soát bảo mật độc lập ở G2 và pen test bên ngoài ở Phase 6 |
-| Phê duyệt kiến trúc và các quyết định D-1…D-14 | **Chờ chủ dự án** |
-| Thông tin môi trường để qua G0 (mục 6) | **Chờ chủ dự án** |
-| Triển khai (server, VPS, mã nguồn) | Chưa bắt đầu — chỉ bắt đầu sau khi được phê duyệt |
+| Phê duyệt kiến trúc và 25 ADR | **Đã phê duyệt** (2026-11-16) — [biên bản](docs/planning/evidence/architecture-approval.md) |
+| Quyết định D-1…D-14 | **Đã chốt:** D-1 (`gta5web.online` tại Cloudflare, domain qua biến môi trường `MG_BASE_DOMAIN`), D-2, D-3 (Keycloak tự host, 3 realm), D-4, D-5, D-6 (lộ trình tư vấn pháp lý), D-7, D-8, D-9, D-11 (≥ 2 người vận hành), D-12 (GitHub + GitHub Actions với runner tự host + GHCR), D-14 (chốt host production trước G6), D-10 (SSH key đã có; chủ dự án quyết định **không đổi** mật khẩu root đã lộ, chấp nhận rủi ro; bản sao trên máy vận hành đã xóa; tắt đăng nhập SSH bằng mật khẩu ở P1-T15). **Một phần:** D-13 (`sudo` không mật khẩu tạm thời toàn quyền, thu hẹp ở Phase 1) |
+| Phase 0 | Đang thực hiện. Xong: tách tài liệu (P0-T01), ghi nhận phê duyệt (P0-T02, trừ tên người chịu trách nhiệm từng rủi ro), thông tin môi trường (P0-T05 — [kết quả discovery](docs/deployment/ubuntu-server-inventory.md)), [quy ước bằng chứng và sổ kiểm chứng](docs/planning/evidence/README.md) (P0-T06), [nhật ký bằng chứng nghiên cứu](docs/architecture/research-evidence.md) (P0-T08 phần 1). Bị chặn chờ chủ dự án: P0-T07, cùng phần CI của P0-T04 và phần image tự build của P0-T03 ([danh sách](docs/planning/evidence/blocked.md)). Xong thêm (2026-11-16): phần upstream của P0-T03 (`versions.lock`, mọi digest kiểm với registry), phần không có CI của P0-T04 (khung repo, `make docs-check`, secret scan, pre-commit). Làm tiếp: P0-T08 phần 2 |
+| Đầu vào của G0 (mục 6) | 7/8 đã có, 1 một phần (CI runner) — [tiến độ G0](docs/planning/evidence/G0.md) |
+| Hạ tầng | Đã tạo trên NVMe 2 TB của Proxmox: host staging `mg-staging`, runner CI `mg-ci-runner`, 4 VM client thử (2 trong LAN, 2 sau NAT của OPNsense). VPS: 3 dự án cũ đã dừng (giữ dữ liệu, có lệnh hoàn tác), cổng 80/443/3478 trống — [nhật ký](docs/planning/evidence/infrastructure-bootstrap.md) |
+| Triển khai MeshGuard; mã nguồn ứng dụng | Chưa bắt đầu — Phase 1 chỉ bắt đầu sau G0 |
 
 ## 3. Toàn cảnh
 
 ```mermaid
 flowchart LR
-  A([Phê duyệt kiến trúc<br/>đang chờ]) --> P0[Phase 0<br/>Research & Architecture]
+  A([Phê duyệt kiến trúc<br/>xong 2026-11-16]) --> P0[Phase 0<br/>Research & Architecture<br/>đang thực hiện]
   P0 -->|G0| P1[Phase 1<br/>Infrastructure Foundation]
   P0 -. sau G0, chỉ task backend không chạm host .-> P2
   P1 -->|G1| P2[Phase 2<br/>SaaS Backend]
@@ -167,15 +170,18 @@ Cột cuối liệt kê các phase có chạy phép thử của tiêu chí:
 
 | Thời điểm | Cần gì | Chặn gì nếu thiếu |
 |---|---|---|
-| **Ngay** (chậm nhất trước G0) | G0(3): **đổi mật khẩu root của VPS** — đã bị lộ khi trao đổi (D-10); cấp SSH key cho user triển khai trên cả hai máy; chọn cơ chế nâng quyền không dùng mật khẩu (D-13) | Mọi thao tác trên host LAN và VPS |
-| Trước G0 | Phê duyệt kiến trúc: chuyển 25 ADR từ Proposed sang Accepted (ghi thành biên bản) và xác nhận các quyết định D-1…D-14 | Toàn bộ triển khai |
-| Trước G0 | G0(1): domain + DNS provider có API (D-1) | G0 và toàn bộ Phase 1 (official client cần chứng chỉ công khai); task backend không chạm host chỉ được chạy trước nếu chủ dự án chấp thuận bằng văn bản |
-| Trước G0 | G0(2): thông số host LAN và VPS; ngưỡng đạt cho phép đo edge với nhiều network và phục hồi sau reboot | Discovery và sizing ở Phase 1 |
-| Trước G0 | G0(4): ít nhất 4 thiết bị thử trên ít nhất 2 hệ điều hành; ít nhất 1 mạng ngoài LAN | Các phép thử với client thật ở Phase 1 |
-| Trước G0 | G0(5): Git hosting, CI runner có Docker, container registry (D-12) | Pin digest, CI, mọi task có "CI xanh" |
-| Trước G0 | G0(6): phương án IdP sơ bộ cho ít nhất 3 issuer tách biệt — platform + 2 tenant (D-3) | Phase 2 (đăng nhập) |
-| Trước G0 | G0(7): số người vận hành cho dual control (D-11) | Phase 3 (phê duyệt hai người) |
-| Ngay ở Phase 0 | G0(8): xác nhận đã đọc rủi ro pháp lý R-01 và mở yêu cầu tư vấn pháp lý | G0; ý kiến sơ bộ phải có trước G2 |
+| **Xong 2026-11-16** | G0(3): SSH key trên cả hai máy, user triển khai trên VPS, nâng quyền không dùng mật khẩu (D-13). Chủ dự án quyết định **không đổi** mật khẩu root đã lộ (D-10, chấp nhận rủi ro); bản sao trên máy vận hành đã xóa | — |
+| **Ngay** (chậm nhất trước G0) | G0(5) (D-12): chuyển repo GitHub sang **private**; cấp token đăng ký runner (GitHub → Settings → Actions → Runners → New self-hosted runner, hiệu lực 1 giờ). Đã xong: Docker + runner 2.338.2 trên `mg-ci-runner`, workflow thử `runner-smoke` | G0, kéo theo Phase 1; CI, mọi task có "CI xanh" |
+| **Xong 2026-11-16** | Phê duyệt kiến trúc: 25 ADR chuyển sang Accepted ([biên bản](docs/planning/evidence/architecture-approval.md)) | — |
+| **Xong 2026-11-16** | G0(1): `gta5web.online` tại Cloudflare (D-1) — nameserver đã kiểm, không có CAA, các tên dự kiến chưa bị dùng | — |
+| **Xong 2026-11-16** | G0(2): host staging = VM `mg-staging` (8 vCPU, 24 GB RAM, 250 GB); VPS 2 vCPU, 1,9 GB RAM; ngưỡng đo edge và phục hồi sau reboot theo plan đã duyệt | — |
+| **Xong 2026-11-16** | G0(4): 4 VM Linux (2 trong LAN, 2 sau NAT của OPNsense) + máy Windows của chủ dự án. Thử trên máy Windows sẽ tạm cắt đường Tailscale hiện có của máy đó tới LAN | — |
+| **Xong** | G0(6) (D-3): Keycloak tự host, 3 realm (platform, tenant-a, tenant-b) — đã chốt, host staging đủ RAM | — |
+| **Xong** | G0(7) (D-11): từ 2 người vận hành trở lên — dual control đúng thiết kế | — |
+| **Xong 2026-11-16** | G0(8): ghi nhận qua việc duyệt R-01 và D-6; chủ dự án tự mở yêu cầu tư vấn pháp lý | Ý kiến sơ bộ phải có trước G2 |
+| Trước Phase 1 | DHCP reservation trên router cho `mg-staging` (192.168.1.8) và `mg-ci-runner` (192.168.1.19) | Bản ghi DNS và tunnel tới VPS |
+| Trước P1-T05 | API token Cloudflare chỉ có quyền sửa DNS của zone, tự đặt thành file secret trên host staging; email cho ACME account | Cấp chứng chỉ ở Phase 1 |
+| Trước P1-T15 | Tắt pipeline deploy của 3 dự án cũ (hoặc gỡ key deploy của chúng khỏi root của VPS); quyết định giữ hay dừng dịch vụ thư `mail.vnflashlearner.click` — chứng chỉ của nó hết hạn 2027-01-02 và không còn được gia hạn | Gateway trên VPS (cổng 80/443/3478 có thể bị chiếm lại) |
 | Trước G2 | Ý kiến pháp lý sơ bộ bằng văn bản về việc dùng official client cho dịch vụ thương mại (R-01, D-6); xác nhận đã cất giữ 2 bản sao offline của khóa sinh ra trong nghi thức khóa (KEK, khóa khôi phục backup) | G2, tức toàn bộ Phase 3 trở đi |
 | Phase 3 | SMTP cho thư mời và thông báo | Lời mời Tenant Owner |
 | Đầu Phase 5 (sau G4a, trước khi dựng lab) | Nếu phần Internet của G1 còn "pending": quyết định "MVP LAN-only" bằng văn bản (P2P và relay chỉ được chứng minh qua NAT nội bộ; phần Internet là ngoại lệ còn nợ); thiết bị cho đủ 5 hệ điều hành của ma trận tương thích | Lab mạng thật và mọi phép thử trên thiết bị thật của Phase 5 |
@@ -183,7 +189,7 @@ Cột cuối liệt kê các phase có chạy phép thử của tiêu chí:
 | Phase 6 | Kho backup offsite; máy thứ hai cho diễn tập mất host; đơn vị pen test bên ngoài | G6 |
 | Trước G6 | Host cho môi trường production — máy nào, ở đâu (D-14); ý kiến pháp lý đầy đủ (D-6) | G6 và go-live |
 
-Sáu quyết định còn lại đã có khuyến nghị của plan, chỉ cần xác nhận:
+Sáu quyết định dưới đây đã được **ghi nhận là chấp nhận theo khuyến nghị** khi bạn duyệt plan ngày 2026-11-16 — báo nếu muốn đổi quyết định nào:
 - D-2: đường public đi qua VPS (đã chốt).
 - D-4: thời hạn đăng nhập lại của thiết bị (`node.expiry`), mặc định 90 ngày.
 - D-5: chấp nhận rủi ro một host cho dev/staging, không dùng cho production.
@@ -216,10 +222,11 @@ Chuỗi phụ thuộc ở mức task: [docs/planning/dependency-graph.md](docs/p
 | R-01 — điều khoản của Tailscale về việc dùng official client cho dịch vụ thương mại | Chặn G2 nếu chưa có ý kiến sơ bộ; có thể chặn go-live thương mại | Mở yêu cầu tư vấn ở Phase 0; ý kiến sơ bộ trước G2, đầy đủ trước G6 |
 | R-05 — DERP qua Caddy chưa được upstream kiểm chứng | Chặn G1 | Spike sớm ở Phase 1; có phương án lùi |
 | R-07 — một host duy nhất: SPOF và dùng chung kernel | Không dùng cho production | Backup offsite, diễn tập dựng lại; production đặt trên host chốt ở D-14, multi-host ở Phase 7 |
-| R-23 — VPS gateway: mật khẩu root đã lộ, thêm điểm lỗi nối tiếp | Chặn phần Internet-facing | Đổi mật khẩu + SSH key trước mọi thao tác; VPS không giữ khóa TLS hay dữ liệu tenant |
+| R-23 — VPS gateway: mật khẩu root đã lộ, thêm điểm lỗi nối tiếp | Chặn phần Internet-facing | SSH key đã có (2026-11-16); chủ dự án không đổi mật khẩu root (chấp nhận rủi ro) ⇒ tắt đăng nhập SSH bằng mật khẩu ở P1-T15; VPS không giữ khóa TLS hay dữ liệu tenant |
 | R-02, R-03 — mô hình Docker + reverse proxy nằm ngoài hỗ trợ của upstream; API Headscale thay đổi ở 0.30 | Phát sinh việc khi nâng cấp | Contract test theo phiên bản; pin phiên bản; không tự nâng minor |
 | R-24 — thiếu thiết bị thử hoặc mạng ngoài LAN | Chặn G5 | Chốt danh sách thiết bị từ G0; bổ sung đủ 5 hệ điều hành trước khi dựng lab Phase 5 |
-| R-25 — chỉ có một người vận hành | Dual control không thực hiện được | Chốt D-11: thêm người hoặc chọn chế độ thay thế |
+| R-25 — chỉ có một người vận hành | Đã gỡ: D-11 chốt từ 2 người trở lên | — |
+| R-28 — CI runner tự host: job CI chạy code của repo trên máy runner | Runner đặt sai chỗ ⇒ một workflow lỗi hoặc bị chiếm có quyền root trên nơi giữ dữ liệu tenant | Runner trên máy/VM riêng (không phải host LAN staging), mỗi job một runner dùng một lần, chặn workflow từ fork, token tối thiểu quyền |
 
 Sổ rủi ro và nợ kỹ thuật đầy đủ: [docs/planning/risks-and-technical-debt.md](docs/planning/risks-and-technical-debt.md).
 
@@ -249,4 +256,6 @@ Sổ rủi ro và nợ kỹ thuật đầy đủ: [docs/planning/risks-and-techn
 | Quyết định kiến trúc (ADR) | [docs/adr/architecture-decision-records.md](docs/adr/architecture-decision-records.md) |
 | Hướng dẫn thực thi và các quyết định cần chủ dự án | [docs/planning/build-mode-instructions.md](docs/planning/build-mode-instructions.md) |
 | Kết quả phản biện: bảng xử lý từng phát hiện; bản ghi nguyên văn | [docs/planning/review-log.md](docs/planning/review-log.md); [docs/planning/review-findings.md](docs/planning/review-findings.md) |
+| Bằng chứng thực hiện: biên bản phê duyệt, tiến độ G0, task bị chặn, sổ kết quả kiểm chứng | [docs/planning/evidence/](docs/planning/evidence/README.md) |
+| Nhật ký bằng chứng nghiên cứu (874 nhận định, trích dẫn và nguồn đã pin) | [docs/architecture/research-evidence.md](docs/architecture/research-evidence.md) |
 | Mục lục toàn bộ tài liệu | [docs/README.md](docs/README.md) |

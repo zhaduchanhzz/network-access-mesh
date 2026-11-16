@@ -20,4 +20,5 @@
 | Peer relays ↔ client stable | **REQUIRES VALIDATION** | CL-13 |
 | Private CA / self-signed ↔ official client | **UNSUPPORTED như giả định chung** | CL-02, CL-03 |
 | Cloudflare Proxy/Tunnel ↔ Headscale | **UNSUPPORTED** | HS-15 |
+| Phiên bản đã pin (P0-T03, 2026-11-16) — nguồn sự thật là `versions.lock` | Digest kiểm trực tiếp với registry chính thức | Headscale v0.29.7; Caddy 2.11.9 + `caddy-dns/cloudflare` v0.2.4 + `caddy-crowdsec-bouncer` v0.15.0 (build bằng xcaddy v0.4.7); CrowdSec v1.8.2; PostgreSQL 18.7; HAProxy 3.4.7 (l4proxy); Tailscale v1.104.7 (build `stund`); Go 1.27.4; Node 26.13.1; Alpine 3.24.4 (sqlite 3.53.4); Docker Engine 29.9.3 + Compose 5.7.1 cho host staging |
 | Rootless Docker ↔ giữ IP nguồn ở cổng publish | **REQUIRES VALIDATION** | ST-10: không giữ theo mặc định; có cấu hình giữ được — chưa thử; MVP dùng rootful |

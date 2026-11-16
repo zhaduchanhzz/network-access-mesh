@@ -1,0 +1,15 @@
+# pre-commit (P0-T04). Cài: pip install pre-commit && pre-commit install
+# Hook bên ngoài pin theo commit SHA (§25.1 quy tắc 8); phiên bản ghi trong versions.lock.
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: 83d9cd684c87d95d656c1458ef04895a7f1cbd8e  # frozen: v8.30.1
+    hooks:
+      - id: gitleaks   # tự đọc .gitleaks.toml ở gốc repo (rule cho credential Headscale)
+  - repo: local
+    hooks:
+      - id: docs-check
+        name: docs-check (lint master, sinh lại docs/, ROADMAP, §21.2, REQUIRES VALIDATION, link)
+        entry: python tools/docs_check.py
+        language: python
+        pass_filenames: false
+        files: ^(docs/|tools/|ROADMAP\.md|README\.md)

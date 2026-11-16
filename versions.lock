@@ -1,0 +1,161 @@
+# versions.lock — phiên bản và digest được phép dùng (P0-T03; §25.1 quy tắc 8 của master).
+#
+# - Mọi image trong compose/Dockerfile phải pin đúng digest ở đây; Host Agent chỉ chạy image có digest trong
+#   danh sách này (§11.1). Thay đổi chỉ qua PR, ghi lý do (bản vá bảo mật, nâng minor theo §17.6).
+# - Digest lấy từ registry chính thức qua Registry HTTP API v2 (registry-1.docker.io, ghcr.io, gcr.io) ngày
+#   2026-11-16; với mỗi manifest và config blob đã kiểm sha256(nội dung) == Docker-Content-Digest.
+# - Commit của mã nguồn lấy từ GitHub API (tag được tham chiếu đến commit).
+# - Chính sách: ưu tiên bản phát hành đã ≥ 14 ngày; bản mới hơn chỉ được chọn khi là bản vá bảo mật (ghi ở `note`).
+# - `user` = user mặc định trong config của image; `run_as` = UID:GID dùng khi chạy (§14.2), "chọn ở <task>" nếu chưa chốt.
+
+schema = 1
+resolved = "2026-11-16"
+platform = "linux/amd64"   # host staging, runner CI và VPS đều amd64 (Appendix A.4)
+
+# ---------------------------------------------------------------- images chạy trong hệ thống
+
+[images.headscale]
+image = "docker.io/headscale/headscale"
+tag = "v0.29.7"
+index = "sha256:11f81665e842809db9fe3006a38c56a66e968baa5abd4bac498e86445572b970"
+amd64 = "sha256:4f36e125a41713eedc98a7baa5ab6849fd8c4f769281d832997eb2e59d7ace37"
+user = "0"
+run_as = "run_uid riêng của từng instance (§14.5; V-04)"
+released = "2026-10-30"
+note = "Cùng digest với ghcr.io/juanfont/headscale:v0.29.7. Biến thể -debug tồn tại nhưng không được phép dùng ở staging/production"
+
+[images.caddy]
+image = "docker.io/library/caddy"
+tag = "2.11.9-alpine"
+index = "sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0"
+amd64 = "sha256:fc9cbc100585871d18d4e451cca7021785c90a7006087427ae5ceb3e4efe6424"
+user = "root"
+run_as = "chọn ở P1-T04 (image edge tự build, non-root)"
+released = "2026-11-05"
+note = "Base runtime của image edge. Bản vá bảo mật (GHSA FastCGI, sửa regression của 2.11.8) — dưới 14 ngày tuổi, chấp nhận"
+
+[images.crowdsec]
+image = "docker.io/crowdsecurity/crowdsec"
+tag = "v1.8.2"
+index = "sha256:65b74942f7e7ed5c60fde4ac15fc4ba715904c398c8b16dd451f4907d90347d4"
+amd64 = "sha256:2191029f82fce28971706f146cd0cde20a5d39dc9a0ccef7dfffc503d74bc707"
+user = "root"
+run_as = "chọn ở P1-T06"
+released = "2026-10-26"
+revision = "3d369d64eb3e9ba770ed39aedc83ffd3170aef4c"   # label của image = commit của tag v1.8.2 (đã đối chiếu)
+
+[images.postgres]
+image = "docker.io/library/postgres"
+tag = "18.7-trixie"
+index = "sha256:2ea8630df176ad090ec92136dee850397c5af8781e4bcf2e4162593691c61bbc"
+amd64 = "sha256:c7fedce47eff6a78cb35dad6b627f0d684107f75ab15c0870e40c093766ba452"
+user = "root"
+run_as = "999:999"   # user postgres trong Dockerfile của docker-library; entrypoint hạ quyền từ root
+released = "2026-11-12"
+note = "Bản vá bảo mật — dưới 14 ngày tuổi, chấp nhận"
+
+[images.haproxy]   # l4proxy trên VPS (§14.9)
+image = "docker.io/library/haproxy"
+tag = "3.4.7-alpine3.24"
+index = "sha256:b9fe316f718d5015c5cfebd8ca019591f3e44656f61d93cb8b59a1028961e530"
+amd64 = "sha256:6746a50592aad0e8c670c2d97c6b76823599b7f9440a344a33cc5ee7243aefcf"
+user = "haproxy"
+run_as = "99:99"     # theo Dockerfile của docker-library
+released = "2026-10-14"
+note = "Nhánh LTS 3.4"
+
+[images.distroless-static]   # runtime cho api, worker, stund
+image = "gcr.io/distroless/static-debian13"
+tag = "nonroot"
+index = "sha256:aafe993665bf6200db38a02c11a9351e782a84b6a45e7f33b6695638c88e3931"
+amd64 = "sha256:816dc4d589459a7fe33b8a2e69edb70da56ffad7161f4b415937fa2bfe7e92e8"
+user = "65532"
+run_as = "65532:65532"
+note = "Tag di động — chỉ dùng theo digest"
+
+[images.alpine]   # base cho container trợ giúp backup SQLite (§17.1)
+image = "docker.io/library/alpine"
+tag = "3.24.4"
+index = "sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf"
+amd64 = "sha256:0f49f331d9212aff11b932863be4eb01cdf962969aa86dab7d1ee21ac6f5f52b"
+user = "root"
+run_as = "run_uid của instance được backup (§17.1)"
+released = "2026-11-05"
+note = "Gói sqlite 3.53.4-r0 (≥ 3.51.3; Debian trixie chỉ có 3.46.1). Trước khi build image trợ giúp (P3-T11) kiểm lại các CVE được báo là sửa ở SQLite 3.54.0 — chưa xác minh"
+
+# ---------------------------------------------------------------- image chỉ dùng để build
+
+[images.caddy-builder]
+image = "docker.io/library/caddy"
+tag = "2.11.9-builder-alpine"
+index = "sha256:646fee578e680989ca5c7fd1ce6f1de574d19fd71ef2221810cc0510a9f40c86"
+amd64 = "sha256:29f98311e17e583811355fa62cc080f71d6f3aa19cf09a9e1494d30579f8bebf"
+released = "2026-11-05"
+note = "Chứa xcaddy v0.4.7 và Go 1.27.4"
+
+[images.golang]
+image = "docker.io/library/golang"
+tag = "1.27.4-trixie"
+index = "sha256:f18c3d73a184fb0582828510722e723b63a93f7188d11dd223d9be6f6880e65d"
+amd64 = "sha256:2cd7e1ebf475c6208122d2b9cefc638d98fcc8dfd8554c8872c9dd0c21f4ac61"
+released = "2026-11-10"
+note = "Builder cho api/worker/agent/stund. Bản vá bảo mật — dưới 14 ngày tuổi, chấp nhận. Tag được push lại sau ngày phát hành — luôn dùng digest"
+
+[images.node]
+image = "docker.io/library/node"
+tag = "26.13.1-trixie-slim"
+index = "sha256:e6bedef217677b276c591795e169840edd9096dbf13f29df8ef8d1856b8820bc"
+amd64 = "sha256:a5a5adfee3013de54504e0e6aff49993acf7daed072e86be75b8818c0f6ac258"
+released = "2026-11-10"
+note = "Builder cho web (Active LTS). Bản vá bảo mật — dưới 14 ngày tuổi, chấp nhận"
+
+# ---------------------------------------------------------------- mã nguồn và module
+
+[sources.tailscale]
+repo = "github.com/tailscale/tailscale"
+tag = "v1.104.7"
+commit = "cbc74fe48ef1b1649f69a4d9a602319427e25102"
+purpose = "Build stund (GW-01); derper chỉ ở Phase 7"
+
+[sources.caddy-dns-cloudflare]
+module = "github.com/caddy-dns/cloudflare"
+version = "v0.2.4"
+commit = "a8737d095ad5a48ca031cea6ab704057dbc2d250"
+date = "2026-03-23"
+purpose = "ACME DNS-01 cho wildcard *.mesh.<domain> (ADR-09, D-1)"
+
+[sources.caddy-crowdsec-bouncer]
+module = "github.com/hslatman/caddy-crowdsec-bouncer"
+version = "v0.15.0"
+commit = "4a6ce1d3094dbfd270fecf2a91aaab81663d0cb4"
+date = "2026-11-02"
+
+[sources.gitleaks]
+repo = "github.com/gitleaks/gitleaks"
+version = "v8.30.1"
+commit = "83d9cd684c87d95d656c1458ef04895a7f1cbd8e"
+date = "2026-03-21"
+purpose = "Secret scan ở pre-commit và CI"
+
+[sources.actions-runner]
+repo = "github.com/actions/runner"
+version = "v2.338.2"
+asset = "actions-runner-linux-x64-2.338.2.tar.gz"
+sha256 = "baebf204307bac6193480852732f0aba2ae97b6c5597c244f4d5558390147c40"   # theo release notes của actions/runner
+date = "2026-10-26"
+note = "Cài trên VM mg-ci-runner. Runner tự cập nhật theo bản phát hành của GitHub (GitHub chỉ giao job cho runner còn trong khoảng phiên bản được hỗ trợ) — phiên bản ở đây là bản cài ban đầu"
+
+[toolchains]
+go = "1.27.4"
+node = "26.13.1"
+xcaddy = "v0.4.7"
+sqlite_min = "3.51.3"
+
+[host]   # cài ở P1-T02 (host staging) từ kho chính thức của Docker; VPS hiện dùng gói docker.io của Ubuntu (A.4)
+docker_engine = "29.9.3"    # moby release docker-v29.9.3, 2026-11-03
+docker_compose = "5.7.1"    # 2026-11-11
+
+[pending]
+keycloak = "Pin ở P2-T05 (D-3)"
+monitoring = "Prometheus, Alertmanager, Grafana, Loki, Alloy, exporters — pin ở P6-T01"
+own_images = "Digest của image tự build (edge, api, worker, agent, web, stund) — quy ước ở P0-T07 sau khi GHCR thử được"

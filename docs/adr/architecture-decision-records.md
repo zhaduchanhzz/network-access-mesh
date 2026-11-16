@@ -5,7 +5,7 @@
 
 ## 24. Architecture Decision Records
 
-Mỗi ADR gồm: Rationale · Trade-offs · Security implications · Operational implications · Alternatives · Validation requirements. Trạng thái tất cả: **Proposed — chờ người dùng phê duyệt**.
+Mỗi ADR gồm: Rationale · Trade-offs · Security implications · Operational implications · Alternatives · Validation requirements. Trạng thái tất cả: **Accepted** — chủ dự án phê duyệt toàn bộ plan ngày 2026-11-16 (biên bản: `docs/planning/evidence/architecture-approval.md`). Thay đổi một ADR về sau cần một ADR thay thế được chủ dự án duyệt (§25.1 quy tắc 3).
 
 | ADR | Quyết định | Rationale | Trade-offs | Security implications | Operational implications | Alternatives đã xét | Validation requirements |
 |---|---|---|---|---|---|---|---|

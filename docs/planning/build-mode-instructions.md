@@ -31,7 +31,7 @@ Phần này dành cho Coding Agent khi người dùng chuyển sang BUILD MODE. 
 | Bước | Hành động | Task |
 |---|---|---|
 | 0 | **Đã thực hiện (2026-11-16):** plan được ghi vào `docs/planning/implementation-master-plan.md` và tách thành cây `docs/` bằng `tools/split_plan.py` | P0-T01 |
-| 1 | Khởi tạo Git repo cục bộ (nhánh làm việc); xin người dùng trả lời Appendix A.1 và các quyết định mở (§25.4); chốt Git hosting, CI runner và registry | P0-T05, P0-T02, P0-T07 |
+| 1 | Khởi tạo Git repo cục bộ (nhánh làm việc); xin người dùng trả lời Appendix A.1 và các quyết định mở (§25.4); chốt Git hosting, CI runner và registry — **đang thực hiện** (2026-11-16): chủ dự án đã tạo repo trên GitHub, chốt CI (GitHub Actions, runner tự host — D-12) và registry (GHCR); chờ trả lời A.1, gồm máy chạy runner (`docs/planning/evidence/blocked.md`) | P0-T05, P0-T02, P0-T07 |
 | 2 | Dựng khung repo (Makefile, pre-commit, CI khung, `make docs-check`); khung test strategy và sổ đăng ký kiểm chứng | P0-T04, P0-T06 |
 | 3 | Pin phiên bản/digest vào `versions.lock` | P0-T03 |
 | 4 | Sau G0: chạy discovery chỉ-đọc trên host, cập nhật inventory | P1-T01 |
@@ -39,7 +39,7 @@ Phần này dành cho Coding Agent khi người dùng chuyển sang BUILD MODE. 
 | 6 | Build image edge/`stund`; dựng core tối thiểu; cấp wildcard certificate (CA staging trước); template instance; **spike sớm DERP qua Caddy** — thất bại thì dừng và báo cáo | P1-T04, P1-T06, P1-T05, P1-T07, P1-T05a |
 | 7 | PoC non-root, Tenant A rồi Tenant B, cấu hình edge + conformance test | P1-T11, P1-T08…T10a |
 | 8 | Áp policy thử; chạy các phép thử với client thật trong LAN (V-01…V-05, IT-09, IT-14); restart độc lập; diễn tập dựng lại | P1-T12a, P1-T12, P1-T12b…T13, P1-T19 |
-| 9 | VPS: sau khi người dùng **đổi mật khẩu root** và cấp SSH key — discovery, hardening, tunnel, gateway, DNS public; kiểm thử từ mạng ngoài (V-02, V-16…V-19); viết báo cáo G1 | P1-T15…T18, P1-T14 |
+| 9 | VPS (SSH key đã có từ 2026-11-16; chủ dự án không đổi mật khẩu root — D-10): discovery, hardening gồm tắt đăng nhập bằng mật khẩu, tunnel, gateway, DNS public; kiểm thử từ mạng ngoài (V-02, V-16…V-19); viết báo cáo G1 | P1-T15…T18, P1-T14 |
 | 10 | Song song từ sau G0: các task backend không chạm host (P2-T01…); **chỉ khi G1 đạt** mới triển khai backend lên host (P2-T16) | Phase 2 |
 
 ### 25.3 File trọng yếu sẽ được tạo trước (không có file nào tồn tại hiện nay)
@@ -65,19 +65,19 @@ Phần này dành cho Coding Agent khi người dùng chuyển sang BUILD MODE. 
 
 ### 25.4 Quyết định cần người dùng xác nhận trước/ở G0
 
-| # | Quyết định | Khuyến nghị của plan |
-|---|---|---|
-| D-1 | Domain + DNS provider có API cho DNS-01 | Bắt buộc để nghiệm thu MVP (ADR-09) |
-| D-2 | Exposure path cho giai đoạn Internet-facing (A / B / C) | **Đã quyết: B — VPS Public Gateway** (người dùng chỉ định VPS cho các endpoint cần public, 2026-11-16) |
-| D-9 | Vai trò của VPS: gateway tầng 4 không state (ADR-25) hay chạy luôn edge + Headscale của tenant trên VPS (Path C) | Gateway tầng 4 — không đặt khóa TLS/dữ liệu tenant trên VPS; xem lại khi có số đo V-20 |
-| D-10 | Đổi mật khẩu root của VPS (đã lộ trong hội thoại) và cấp SSH key cho user triển khai | **Bắt buộc trước P1-T15**; không thao tác nào trên VPS được thực hiện trước đó |
-| D-3 | IdP: Keycloak do nền tảng host, hay IdP sẵn có của tổ chức | Sơ bộ ở G0, chốt sau P1-T01: Keycloak 3 realm (platform, tenant-a, tenant-b) nếu host còn đủ RAM sau khi dành ~1,5 GB cho IdP (ST-04); nếu không: IdP nhẹ một-issuer cho mỗi tenant (chỉ cho lab), hoặc IdP sẵn có **chỉ khi** cung cấp được ≥ 3 issuer tách biệt (platform + 2 tenant) — một issuer duy nhất không đủ cho IT-01 và AC-06/07 |
-| D-4 | `node.expiry` mặc định | 90 ngày |
-| D-5 | Chấp nhận rủi ro single-host (ADR-24) cho dev/staging | Chấp nhận, không dùng cho production |
-| D-14 | Host cho môi trường production: máy nào, ở đâu (theo Path C — edge + tenant runtime trên host có IP công khai, Management Plane đặt cùng host hay tách riêng — hoặc multi-host) | Chốt **trước G6** (không chặn G0); cho tới khi chốt, plan chỉ tuyên bố "đủ điều kiện go-live" và không có môi trường production (§19) |
-| D-6 | Tư vấn pháp lý R-01 | Ý kiến sơ bộ bằng văn bản trước G2; đầy đủ trước G6 |
-| D-7 | Ngôn ngữ tài liệu `docs/` | Giữ như plan (tiếng Việt + thuật ngữ tiếng Anh) |
-| D-8 | Bật chia sẻ tín hiệu CrowdSec Central API | Tắt mặc định |
-| D-11 | Số người vận hành nền tảng cho dual control (2P) | ≥ 2 người; nếu chỉ có 1: chọn chế độ thay thế "trì hoãn thực thi có thông báo cho Tenant Owner" và ghi vào ADR-13 |
-| D-12 | Git hosting, CI runner có Docker, container registry | Chốt ở P0-T07 trước khi pin digest |
-| D-13 | Cơ chế nâng quyền không dùng mật khẩu trên host LAN và VPS | sudoers `NOPASSWD` có phạm vi cho user triển khai, hoặc người dùng tự chạy script đặc quyền do agent sinh rồi trả output |
+| # | Quyết định | Khuyến nghị của plan | Trạng thái |
+|---|---|---|---|
+| D-1 | Domain + DNS provider có API cho DNS-01 | Bắt buộc để nghiệm thu MVP (ADR-09) | **Đã quyết** (2026-11-16): domain `gta5web.online`, DNS tại Cloudflare (có API cho DNS-01). Đã kiểm ngày 2026-11-16: nameserver của Cloudflare, không có bản ghi CAA, các tên `app.`, `admin.`, `auth.`, `*.mesh.` chưa được dùng (Appendix A.4). Domain là giá trị của biến môi trường `MG_BASE_DOMAIN`, không ghi cứng trong source hay template. Bản ghi phải ở chế độ DNS only, không bật proxy của Cloudflare (HS-15). Còn thiếu cho P1-T05: API token Cloudflare chỉ có quyền sửa DNS của zone này, do chủ dự án tạo và tự đặt thành file secret trên host staging |
+| D-2 | Exposure path cho giai đoạn Internet-facing (A / B / C) | **Đã quyết: B — VPS Public Gateway** (người dùng chỉ định VPS cho các endpoint cần public, 2026-11-16) | **Đã quyết** (2026-11-16) |
+| D-9 | Vai trò của VPS: gateway tầng 4 không state (ADR-25) hay chạy luôn edge + Headscale của tenant trên VPS (Path C) | Gateway tầng 4 — không đặt khóa TLS/dữ liệu tenant trên VPS; xem lại khi có số đo V-20 | **Chấp nhận** theo khuyến nghị khi duyệt plan (2026-11-16) |
+| D-10 | Đổi mật khẩu root của VPS và của Proxmox (cả hai đã lộ trong hội thoại ngày 2026-11-16) và cấp SSH key cho user triển khai | **Bắt buộc trước P1-T15** và trước mọi triển khai lên host staging | **Đã quyết — chấp nhận rủi ro** (2026-11-16): chủ dự án quyết định **không đổi** mật khẩu root của VPS và của Proxmox, thay bằng việc xóa các bản sao mật khẩu. Đã xóa toàn bộ 13 bản sao dạng rõ còn trên máy vận hành (đều nằm trong transcript của phiên làm việc; repo, memory, log và file tạm không có bản nào). Bản đã đi qua dịch vụ AI trong hội thoại nằm ngoài khả năng xóa, nên mật khẩu vẫn dùng được trên hai máy (R-23, T-19). SSH key của dự án đã có trên Proxmox (root) và VPS (user `mgdeploy`). Biện pháp bù: tắt đăng nhập SSH bằng mật khẩu trên VPS ở P1-T15 (hiện chủ dự án chọn **chưa tắt**); Proxmox không có IPv6 công khai, IPv4 nằm trong LAN |
+| D-3 | IdP: Keycloak do nền tảng host, hay IdP sẵn có của tổ chức | Sơ bộ ở G0, chốt sau P1-T01: Keycloak 3 realm (platform, tenant-a, tenant-b) nếu host còn đủ RAM sau khi dành ~1,5 GB cho IdP (ST-04); nếu không: IdP nhẹ một-issuer cho mỗi tenant (chỉ cho lab), hoặc IdP sẵn có **chỉ khi** cung cấp được ≥ 3 issuer tách biệt (platform + 2 tenant) — một issuer duy nhất không đủ cho IT-01 và AC-06/07 | **Đã chốt** (2026-11-16): Keycloak tự host, 3 realm (platform, tenant-a, tenant-b). Điều kiện RAM đạt: host staging (VM 104) có 24 GB RAM (Appendix A.4) |
+| D-4 | `node.expiry` mặc định | 90 ngày | **Chấp nhận** theo khuyến nghị khi duyệt plan (2026-11-16) |
+| D-5 | Chấp nhận rủi ro single-host (ADR-24) cho dev/staging | Chấp nhận, không dùng cho production | **Chấp nhận** theo khuyến nghị khi duyệt plan (2026-11-16) |
+| D-14 | Host cho môi trường production: máy nào, ở đâu (theo Path C — edge + tenant runtime trên host có IP công khai, Management Plane đặt cùng host hay tách riêng — hoặc multi-host) | Chốt **trước G6** (không chặn G0); cho tới khi chốt, plan chỉ tuyên bố "đủ điều kiện go-live" và không có môi trường production (§19) | **Chấp nhận** lộ trình khi duyệt plan (2026-11-16): chốt host production trước G6; chưa chọn máy |
+| D-6 | Tư vấn pháp lý R-01 | Ý kiến sơ bộ bằng văn bản trước G2; đầy đủ trước G6 | **Chấp nhận** khi duyệt plan (2026-11-16): chủ dự án đã đọc R-01 (G0(8)) và tự mở yêu cầu tư vấn pháp lý; ý kiến sơ bộ bằng văn bản trước G2, đầy đủ trước G6 |
+| D-7 | Ngôn ngữ tài liệu `docs/` | Giữ như plan (tiếng Việt + thuật ngữ tiếng Anh) | **Chấp nhận** theo khuyến nghị khi duyệt plan (2026-11-16) |
+| D-8 | Bật chia sẻ tín hiệu CrowdSec Central API | Tắt mặc định | **Chấp nhận** theo khuyến nghị khi duyệt plan (2026-11-16) |
+| D-11 | Số người vận hành nền tảng cho dual control (2P) | ≥ 2 người; nếu chỉ có 1: chọn chế độ thay thế "trì hoãn thực thi có thông báo cho Tenant Owner" và ghi vào ADR-13 | **Đã quyết** (2026-11-16): từ 2 người vận hành trở lên — dual control đúng thiết kế, không cần chế độ thay thế |
+| D-12 | Git hosting, CI runner có Docker, container registry | Chốt ở P0-T07 trước khi pin digest | **Đã quyết** (2026-11-16): GitHub + GitHub Actions chạy trên **runner tự host** + GHCR (image private, pin theo digest). Điều kiện (R-28): runner đặt trên máy hoặc VM riêng, **không** phải host LAN staging, không mount `/opt/meshguard` hay Docker socket của host đó; runner ephemeral (mỗi job một runner dùng một lần); workflow từ fork phải được duyệt trước khi chạy; token GHCR quyền tối thiểu. Máy chạy runner: VM 105 `mg-ci-runner`, tách khỏi host staging, đã có Docker (Appendix A.4). Repo GitHub đang public (kiểm 2026-11-16); chủ dự án quyết định **chuyển sang private** trước khi gắn runner, và chọn runner **bền vững** (đăng ký một lần, job chạy trong container) thay cho ephemeral — ngoại lệ có chủ đích của R-28. Đã cài Docker và runner 2.338.2 trên VM 105 (chưa đăng ký); đã viết workflow thử `runner-smoke` (push/pull GHCR). Còn: repo private, đăng ký runner, chạy thử (P0-T07) |
+| D-13 | Cơ chế nâng quyền không dùng mật khẩu trên host LAN và VPS | sudoers `NOPASSWD` có phạm vi cho user triển khai, hoặc người dùng tự chạy script đặc quyền do agent sinh rồi trả output | **Đã thực hiện tạm** (2026-11-16): user `mgdeploy` có `sudo` NOPASSWD **toàn quyền** trên VPS và trên các VM (mặc định của cloud-init); Proxmox dùng SSH key của root. Thu hẹp sudoers về phạm vi cần thiết ở P1-T02 (host staging) và P1-T15 (VPS) |

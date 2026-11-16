@@ -274,6 +274,14 @@ def readme(front: list[str], sections: dict[str, Section]) -> list[str]:
         "| [planning/review-findings.md](planning/review-findings.md) | Bản ghi nguyên văn các phát hiện của vòng phản biện "
         "(không sinh từ master; tổng hợp và cách xử lý ở Appendix D) |"
     )
+    out.append(
+        "| [architecture/research-evidence.md](architecture/research-evidence.md) | Nhật ký bằng chứng nghiên cứu: "
+        "874 nhận định kèm trích dẫn và nguồn đã pin (không sinh từ master; P0-T08) |"
+    )
+    out.append(
+        "| [planning/evidence/](planning/evidence/README.md) | Bằng chứng thực hiện: quy ước, biên bản phê duyệt kiến trúc, "
+        "task bị chặn, sổ kết quả kiểm chứng, báo cáo gate (không sinh từ master) |"
+    )
     conv = sections.get("conventions")
     if conv:
         out += ["", *strip_trailing_rule(conv.render())]

@@ -1,0 +1,62 @@
+# Thử runner tự host + GHCR (P0-T07): build một image nhỏ, push lên GHCR bằng GITHUB_TOKEN, xóa bản cục bộ
+# rồi pull lại theo digest. Không dùng action bên thứ ba; image nền pin theo digest trong versions.lock.
+# Job xếp hàng chờ tới khi runner có nhãn `meshguard` online (tối đa 24 giờ).
+name: runner-smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [".github/workflows/runner-smoke.yml"]
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: runner-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    runs-on: [self-hosted, linux, x64, meshguard]
+    timeout-minutes: 15
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}/runner-smoke
+      BASE: docker.io/library/alpine@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
+    steps:
+      - name: Runner và Docker
+        run: |
+          uname -srm
+          docker version --format 'engine {{.Server.Version}}, client {{.Client.Version}}'
+          echo "DOCKER_CONFIG=${RUNNER_TEMP}/docker-config" >> "$GITHUB_ENV"   # credential chỉ sống trong job này
+
+      - name: Build
+        run: |
+          mkdir -p "${RUNNER_TEMP}/smoke"
+          printf 'FROM %s\nRUN echo "meshguard runner smoke %s" > /smoke.txt\nCMD ["cat", "/smoke.txt"]\n' "$BASE" "$GITHUB_SHA" > "${RUNNER_TEMP}/smoke/Dockerfile"
+          docker build --pull -t "${IMAGE}:${GITHUB_RUN_ID}" \
+            --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" "${RUNNER_TEMP}/smoke"
+
+      - name: Push lên GHCR
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printf '%s' "$TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker push "${IMAGE}:${GITHUB_RUN_ID}"
+          DIGEST=$(docker inspect --format '{{index .RepoDigests 0}}' "${IMAGE}:${GITHUB_RUN_ID}")
+          echo "pushed: ${DIGEST}"
+          echo "DIGEST=${DIGEST}" >> "$GITHUB_ENV"
+
+      - name: Pull lại theo digest
+        run: |
+          docker image rm "${IMAGE}:${GITHUB_RUN_ID}" >/dev/null
+          docker pull "$DIGEST"
+          docker run --rm --network none "$DIGEST"
+          echo "### GHCR push/pull OK: \`${DIGEST}\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Dọn
+        if: always()
+        run: |
+          docker logout ghcr.io || true
+          docker image rm "${DIGEST:-none}" >/dev/null 2>&1 || true
