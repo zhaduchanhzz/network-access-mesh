@@ -1,0 +1,190 @@
+# Authentication, Authorization & Permission Matrix
+
+> **Trích sinh tự động** từ [implementation-master-plan.md](../planning/implementation-master-plan.md) bằng `tools/split_plan.py` — **không sửa tay**; sửa bản master rồi sinh lại.
+> Nguồn: §8. Số mục `§` và các mã (HS-…, ADR-…, AC-…, T-…) tham chiếu theo bản master. Nhãn bằng chứng: xem [README](../README.md).
+
+## 8. Authentication & Authorization
+
+### 8.1 Bốn mặt phẳng danh tính (không được trộn lẫn)
+
+| Mặt phẳng | Chủ thể | Cơ chế xác thực | Nơi lưu authoritative |
+|---|---|---|---|
+| Portal identity | Nhân sự nền tảng, Tenant Admin, End User đăng nhập Portal | OIDC tại IdP → session phía server (BFF) | IdP (thông tin đăng nhập, MFA) · PostgreSQL (`identities`, role) |
+| Tailnet identity | Headscale user sở hữu node | Do backend tạo/ánh xạ khi enrollment (hoặc OIDC gốc của Headscale nếu tenant bật) | Headscale SQLite của tenant; liên kết ở `tenant_memberships.headscale_user_id` |
+| Machine identity | Node (machine key / node key) | Khóa do official Tailscale Client sinh và giữ trên thiết bị | Headscale (cache ở `device_inventory_cache`) |
+| Service identity | api / worker / agent / edge | Unix socket + peer credential, token nội bộ qua Docker secret; mTLS khi multi-host | Docker secret dạng file cho credential khởi động (token nội bộ của edge, token Agent — §7.6, §14.2); SecretStore cho credential cấp lúc chạy (API key của instance) |
+
+### 8.2 Identity Provider model (ADR-12)
+
+**Hợp đồng:** nền tảng chỉ nói **OIDC**; backend là Relying Party đa issuer (bảng `identity_providers`); **không** xây authentication server riêng; MFA do IdP thực thi (Headscale không đọc `acr`/`amr` — ID-10; backend ghi nhận `acr`/`amr` nếu IdP cung cấp và dùng `max_age`/`prompt=login` cho step-up).
+
+**Issuer theo tenant:** mỗi tenant có issuer riêng, nền tảng có issuer riêng. Lợi ích: token của tenant này vô nghĩa ở tenant khác (khác issuer + khác khóa ký), tenant có thể liên kết IdP doanh nghiệp của họ, và khớp tự nhiên với giới hạn "một issuer mỗi Headscale instance" (ID-01).
+
+| Phương án | Cách ly issuer | Vận hành | Đánh giá |
+|---|---|---|---|
+| **Keycloak, realm theo tenant + realm `platform`** (mặc định MVP) | Mạnh (issuer + khóa ký riêng/realm) | Tự động hóa bằng Admin REST API; ~1,25 GB RAM cơ sở (ST-04) | Chọn cho MVP **nếu** host đủ RAM (dành ≥ 1,5 GB — phụ thuộc Appendix A mục 2). Quy mô số realm chưa có số liệu chính thức ⇒ load test trước mốc 100 tenant |
+| Keycloak Organizations trong một realm | Yếu hơn (một issuer; phân biệt bằng claim) | Nhẹ hơn khi nhiều tenant | Chỉ là phương án lùi **có điều kiện**: phải tuân thủ quy tắc issuer dùng chung bên dưới, ràng buộc bằng claim `organization` do IdP phát (không dùng domain email làm ranh giới), và **cấm phương thức C** cho tenant trên issuer dùng chung. Chưa đáp ứng ⇒ realm-per-tenant hoặc IdP của tenant là mô hình duy nhất được hỗ trợ; V-15 không đạt ⇒ đổi sản phẩm IdP, không chuyển sang Organizations |
+| Zitadel (virtual instance theo tenant) | Mạnh | Go, nhẹ hơn; AGPL-3.0 | Cần rà soát pháp lý về AGPL |
+| **IdP do tenant mang tới** (Entra ID, Google Workspace, Okta, Keycloak riêng…) | Mạnh nhất (khác tổ chức) | Tenant tự vận hành; ta chỉ lưu issuer/client | Driver `external` (issuer do tenant cung cấp, do nhân sự nền tảng khai báo) thuộc MVP nhờ cùng code path đa issuer; onboarding tự phục vụ và SCIM là P7-T06; là hướng chính cho khách enterprise |
+| IdP nhẹ một-issuer cho mỗi tenant (ví dụ Pocket ID) | Mạnh | Thêm 1 container/tenant | Chỉ cân nhắc cho lab khi thiếu RAM |
+
+**Quy tắc cho issuer dùng chung (shared-issuer rule):** một đăng ký IdP là bộ ba *(issuer, client_id, ràng buộc tổ chức)* chứ không phải chỉ issuer. Với issuer phục vụ nhiều tổ chức (Google Workspace, Entra đa tenant, Keycloak Organizations…) thì "khác issuer + khác khóa ký" **không** còn là ranh giới, nên `required_claims` (ví dụ `hd`, `tid`, `organization`) và/hoặc danh sách domain email đã xác minh là **bắt buộc**, và callback từ chối token **trước khi** upsert identity. Hai tenant dùng chung một issuer được phép nếu khác `client_id` và ràng buộc tổ chức. Khi tenant bật OIDC gốc của Headscale (phương thức C), trình render config chỉ chấp nhận khi có ít nhất một bộ lọc `allowed_domains`/`allowed_groups`/`allowed_users` không rỗng (ID-02) — nếu không, bất kỳ ai IdP xác thực cho client đó đều thành Headscale user của tenant. Với issuer **dùng chung nhiều tổ chức**, bộ lọc của Headscale không phải ranh giới tổ chức (Headscale không kiểm được claim tổ chức — ID-02; domain email không chứng minh tư cách thành viên tổ chức), nên trình render **từ chối phương thức C** trừ khi chính IdP giới hạn client đó cho đúng một tổ chức và điều này đã được chứng minh bằng phép thử cách ly riêng ở P5-T10 (user thuộc tổ chức khác trên cùng issuer không đăng ký được node).
+
+**Đổi IdP của tenant** là một quy trình di trú tường minh (không phải sửa một trường): hàng IdP mới ở trạng thái `pending`; từng thành viên liên kết lại bằng cách chứng minh cả hai identity trong một phiên (`identity_links`) hoặc Owner mời lại hàng loạt; hàng cũ ở trạng thái `retiring` cho tới khi cắt chuyển; có step-up, audit và thông báo; **không bao giờ** tự khớp theo email. **Phạm vi MVP:** luồng di trú này (endpoint tạo hàng `pending`, đăng nhập liên kết, cắt chuyển) **chưa được xây** — thuộc P7-T06. Ở MVP `PATCH /identity-provider` chỉ sửa `claim_mapping`, `required_claims`, `allowed_email_domains` và client secret của hàng `active`; vì `issuer`/`client_id` không đổi được nên không có thao tác nào khóa cả tenant (kể cả Owner) ra ngoài.
+
+**Khởi tạo ban đầu:** hai Super Admin đầu tiên được tạo bằng lệnh chạy trên host `meshguard admin bootstrap-super-admin --subject <sub>`: lệnh tạo trực tiếp hàng `identities` (IdP platform, `sub`) + `platform_users` — không dùng bảng lời mời, vì `tenant_invitations` chỉ có từ migration `0007` và chỉ thuộc phạm vi tenant — ghi audit `actor_type=system`, và **chỉ chạy được khi số Super Admin đang hoạt động < 2** (< 1 nếu D-11 chọn chế độ một người vận hành); từ đó trở đi việc gán Super Admin phải qua API + 2P. Thêm nhân sự nền tảng về sau (`POST /platform/users`) đi theo cùng cách: người đó phải có tài khoản ở IdP platform trước, request mang `sub` + role, backend tạo sẵn `identities` + `platform_users` — không có lời mời phạm vi platform; lần đăng nhập đầu khớp theo `(idp_id, sub)`, không bao giờ theo email. Ở Phase 2 (chưa có lời mời), membership TO/TA của hai tenant thử A/B được gán bằng `meshguard admin seed-membership` theo `(IdP của tenant, sub)`. Tenant Owner đầu tiên được tạo bằng **lời mời** (`tenant_invitations`) ở bước `tenant.configure` của orchestrator; `TenantCreate` mang thông tin `identity_provider {driver, issuer?, client_id?, client_secret?}`. Với mô hình Keycloak do nền tảng host, gửi lời mời cần SMTP.
+
+**IdP driver** (module `internal/idp`; bước `idp.ensure` của orchestrator; interface `EnsureIssuer, EnsureClient, InviteUser, DisableUser, RemoveIssuer, CheckDiscovery`): `keycloak` (tạo realm từ template: client Portal, chính sách MFA, brute-force detection, tùy chọn identity brokering) và `external` (chỉ ghi nhận issuer/client do tenant cung cấp, kiểm tra discovery). Driver là interface; không code nghiệp vụ nào phụ thuộc Keycloak.
+
+**SSRF — URL do tenant cung cấp:** issuer, `jwks_uri`, token/userinfo endpoint (và sau này domain riêng) đều là URL do tenant kiểm soát nhưng được backend gọi từ bên trong mạng quản trị. Mọi lời gọi như vậy đi qua **một HTTP client đã hardening**: chỉ `https` cổng 443; không theo redirect (hoặc kiểm lại từng chặng); phân giải một lần rồi dial đúng IP đã kiểm (chống DNS rebinding); từ chối loopback, RFC1918, `169.254.0.0/16`, `100.64.0.0/10`, ULA, multicast và mọi pool Docker; giới hạn kích thước/thời gian; không đưa nội dung phản hồi upstream vào `Problem.detail`; kiểm tra `issuer` trong discovery trùng issuer đã lưu ở mỗi lần làm mới. Client này đi ra qua `mg-egress`. Vì api/worker đồng thời là thành viên `mg-admin`/`mg-data`, network **không** phải ranh giới ở đây: lớp chặn là bước kiểm IP đích trong client (từ chối cả dạng IPv4-mapped IPv6 và mọi subnet Docker của nền tảng), có test riêng cho từng subnet nội bộ (T-21).
+
+**Quản trị IdP không được là cửa sau vào tenant:** (1) `issuer` của một hàng `identity_providers` là **bất biến** — đổi IdP luôn là tạo hàng mới + liên kết lại (ở trên); mọi thay đổi do nền tảng khởi xướng lên IdP của tenant cần tenant phê duyệt hoặc break-glass 2P, và ghi audit hiển thị cho tenant. (2) Realm template của Keycloak **tắt impersonation**; IdP driver dùng service account theo từng realm với quyền tối thiểu (tạo/khóa user, gửi required action) thay vì admin của master realm; admin event của Keycloak (reset credential, sửa user, đổi client) được chuyển vào `audit_events` của tenant. (3) Console quản trị Keycloak nằm sau cùng lớp 2P + step-up + giới hạn IP như break-glass, có cảnh báo mỗi lần đăng nhập. (4) **Công bố trung thực:** với IdP do nền tảng host, người vận hành nền tảng về nguyên tắc có thể trở thành bất kỳ user nào của tenant; khách hàng cần tách bạch này nên dùng IdP của chính họ.
+
+**Khi tenant bật OIDC gốc của Headscale (phương thức C, §7.4):** một client riêng cho instance với redirect URI `https://<slug>.<mesh_domain>/oidc/callback` (cố định — ID-01), PKCE bật, secret qua `client_secret_path`. Lựa chọn `only_start_if_oidc_is_available`: đặt `false` khi IdP chạy cùng host với instance (tránh việc IdP gián đoạn chặn control plane khởi động lại) kèm job phát hiện "instance đang chạy không có OIDC" và restart có kiểm soát (job `instance.oidc_check` — §13.5); đặt `true` khi IdP là dịch vụ độc lập có HA. Mọi thay đổi OIDC là job `instance.reconfigure` (cần restart — ID-03).
+
+**Vòng đời danh tính:** Headscale không tự kiểm tra lại user với IdP (ID-03, ID-04) ⇒ offboarding là hành động của backend (`DELETE /users/{membershipId}`: khóa membership, thu hồi mọi session Portal, expire mọi node và pre-auth key của user); đối soát định kỳ với IdP (Admin API/SCIM) là hạng mục P7-T06; với IdP do nền tảng host, offboarding còn vô hiệu user ở IdP qua driver (P4-T09, V-23).
+
+### 8.3 Luồng đăng nhập Portal (Backend-for-Frontend)
+
+1. Browser gọi `GET /api/v1/auth/login?scope=tenant&tenant=<slug>` (hoặc `scope=platform` trên origin quản trị). Backend tra `identity_providers` để chọn IdP đang `active` của tenant — **IdP được chọn từ DB theo tenant, không nhận từ client**.
+2. Authorization Code + PKCE (S256). Backend ghi một hàng `auth_requests` (hash của `state`, `idp_id`, `nonce`, PKCE verifier đã mã hóa, origin, hạn ≤ 10 phút) và đặt cookie `__Host-mg_authreq` ràng buộc trình duyệt; redirect tới IdP. MFA do IdP thực thi.
+3. **Mỗi IdP một redirect URI riêng**: `GET /api/v1/auth/callback/{idpId}` (đăng ký đúng URI này tại IdP tương ứng). **Trước khi gọi token endpoint**, callback từ chối nếu: `auth_requests.idp_id` ≠ `{idpId}`, origin không khớp, cookie ràng buộc không khớp, hoặc hàng đã dùng/hết hạn; nếu metadata của IdP công bố `authorization_response_iss_parameter_supported` thì tham số `iss` phải bằng issuer đã lưu (RFC 9207). Sau đó mới đổi code, kiểm tra chữ ký, `iss`, `aud`, `nonce`, `exp`, và các ràng buộc `required_claims` / email đã xác minh / domain của IdP đó (§8.2); chỉ khi tất cả đạt mới upsert `identities (idp_id, sub)` và nạp role. Thiết kế này chặn tấn công **IdP mix-up** (một tenant mang IdP độc hại để lấy code của IdP tenant khác — T-20).
+4. Tạo session phía server; trả cookie `__Host-mg_session` (opaque 256-bit, lưu **hash**; `Secure; HttpOnly; SameSite=Lax; Path=/`). Browser **không** giữ ID/access token, **không** giữ Headscale API key.
+5. Unsafe method yêu cầu header `X-CSRF-Token` (token lấy từ `GET /api/v1/auth/session`) + kiểm tra `Origin`/`Sec-Fetch-Site`. CORS tắt (portal same-origin).
+6. Timeout: tenant user idle 30 phút / tuyệt đối 12 giờ; nhân sự nền tảng idle 15 phút / tuyệt đối 8 giờ. Xoay session id khi đăng nhập và khi đổi quyền. Thu hồi phía server có hiệu lực ngay.
+7. **Step-up**: hành động nhạy cảm (xóa tenant, đổi Owner/Admin, đổi IdP, đổi thiết lập bảo mật của tenant, duyệt support grant, duyệt yêu cầu dual control, break-glass, apply policy nếu tenant bật) yêu cầu `auth_time` ≤ 15 phút; nếu quá hạn ⇒ `401` kèm `code=reauth_required`, portal chuyển hướng `prompt=login`.
+8. **Phiên chỉ mang danh tính.** Session không chứa role: `Authorizer` nạp membership, role, trạng thái và grant từ DB ở **mỗi request** (nếu có cache thì ≤ 30 giây theo identity và bị xóa ngay khi membership/role/grant đổi); khóa, offboard hoặc đổi role thu hồi mọi session của identity đó trong cùng transaction. Middleware từ chối session có `origin` khác origin của request — không chỉ dựa vào cookie `__Host-`. CSRF token được dẫn xuất từ session id thô (`HMAC-SHA256(key = session id, msg = "csrf-v1")`): tính lại ở mỗi request, không lưu, không cần khóa riêng, và mất hiệu lực cùng lúc với phiên. Step-up chỉ được ghi nhận khi ID token **mới** có claim `auth_time` trong 15 phút; IdP không trả `auth_time` ⇒ từ chối step-up. Route phạm vi tenant (`/tenants/{t}/…`) được phục vụ trên **cả hai** origin: trên `app.<domain>` chỉ nhận session của identity thuộc tenant; trên `admin.<domain>` chỉ nhận principal platform có Support Access Grant còn hiệu lực cho đúng tenant đó (§8.7).
+
+Hai origin tách biệt dùng chung một bản build SPA: `app.<domain>` (Tenant Portal) và `admin.<domain>` (Platform Console — có thể giới hạn theo IP/VPN ở edge). Cookie `__Host-` gắn theo host nên session không dùng chéo.
+
+### 8.4 Role model
+
+| Phạm vi | Role | Mô tả ngắn |
+|---|---|---|
+| Platform | **Super Admin (SA)** | Toàn quyền cấu hình nền tảng, role, IdP; thao tác phá hủy cần dual control |
+| Platform | **Platform Operator (PO)** | Vận hành hạ tầng và vòng đời tenant/instance; không sửa role/IdP/settings bảo mật |
+| Platform | **Platform Support (PS)** | Xem metadata registry + health; vào tenant **chỉ** qua Support Access Grant |
+| Platform | **Platform Viewer (PV)** | Chỉ đọc metadata nền tảng; không vào dữ liệu nội bộ tenant |
+| Tenant | **Tenant Owner (TO)** | Toàn quyền trong tenant, gồm membership Owner, IdP, billing, yêu cầu xóa tenant |
+| Tenant | **Tenant Admin (TA)** | Quản trị thiết bị, user, group, policy, DNS, routes, enrollment, settings |
+| Tenant | **Tenant Operator (TP)** | Vận hành hằng ngày: đổi tên/thu hồi thiết bị, duyệt enrollment thường, chẩn đoán |
+| Tenant | **Tenant Viewer (TV)** | Chỉ đọc (kể cả audit) |
+| Tenant | **End User (EU)** | Tự phục vụ: thiết bị **của chính mình** |
+
+**Bất biến (được kiểm bằng test tự động):**
+
+1. **IdP binding** — một identity gắn với `idp_id` (issuer + client_id + ràng buộc tổ chức); identity từ IdP của tenant X chỉ có thể có membership ở tenant X; identity từ IdP platform chỉ có thể có role platform. IdP của một tenant bị chiếm không tạo được quyền platform hay quyền ở tenant khác.
+2. **Không có quyền tenant ngầm định** — role platform không bao hàm quyền nội bộ tenant. Truy cập cần Support Access Grant (§8.7).
+3. **Không tự leo thang** — không gán role cao hơn role của chính mình; không gỡ/hạ Tenant Owner cuối cùng; gán role SA cần SA thứ hai phê duyệt. Ngoại lệ khởi tạo: khi có ít hơn hai SA đang hoạt động, việc gán SA được thực hiện bằng lệnh trên host `meshguard admin bootstrap-super-admin` (§8.2, P2-T11a — lệnh chỉ chạy được khi số SA đang hoạt động dưới ngưỡng nêu ở §8.2) thay cho người duyệt thứ hai; hệ thống cảnh báo khi số SA hoạt động < 2 (khi đó mọi thao tác 2P không thực hiện được).
+3a. **Quy tắc role đích** — người có `tenant.user:manage`, `tenant.membership:assign` hoặc `tenant.invitation:manage` chỉ tác động được lên membership (hoặc tạo/thu hồi lời mời) mà role hiện tại **và** role mới — hoặc role ghi trong lời mời — đều thấp hơn hẳn role của mình (Owner không bị giới hạn này; role Owner chỉ được cấp qua `POST /ownership-transfer`, ngoài lời mời Owner đầu tiên do orchestrator tạo). Tenant Admin không khóa/offboard được Owner hay Admin khác, và không mời hay gán được role Admin.
+3b. **"Của chính mình"** — với End User, thiết bị "của mình" là thiết bị có `owner_membership_id` = người gọi **và không có tag**.
+4. **Deny-by-default** — mỗi operation trong OpenAPI khai báo đúng một `x-permission` (operation phụ thuộc nội dung body được **tách thành operation riêng** để giữ quy tắc này; ngoại lệ duy nhất, có ca test riêng: `PUT /users/{id}/role` khai báo `x-permission: tenant.membership:assign` kèm `x-permission-secondary: tenant.membership:assign_admin` — service kiểm thêm quyền phụ này khi role hiện tại hoặc role mới của membership là Tenant Admin); test duyệt toàn bộ spec, thiếu khai báo ⇒ fail build.
+5. **Tenant bị suspend** — mọi thao tác ghi của role tenant bị từ chối (`403`, `code=tenant_suspended`); TO vẫn đọc được billing và audit.
+6. **Che giấu tồn tại** — ID thuộc tenant khác trả `404` (không phải `403`) để không lộ sự tồn tại của tài nguyên.
+
+### 8.5 Permission Matrix — phạm vi Platform
+
+✔ = cho phép · **2P** = cho phép nhưng cần người thứ hai phê duyệt (dual control) · — = từ chối.
+
+| Permission | API action | SA | PO | PS | PV |
+|---|---|---|---|---|---|
+| `platform.tenant:read` | `GET /platform/tenants`, `GET /platform/tenants/{id}` (chỉ metadata registry) | ✔ | ✔ | ✔ | ✔ |
+| `platform.tenant:create` | `POST /platform/tenants` | ✔ | ✔ | — | — |
+| `platform.tenant:update` | `PATCH /platform/tenants/{id}` (tên, plan, quota) | ✔ | ✔ | — | — |
+| `platform.tenant:suspend` | `POST /platform/tenants/{id}/suspend`, `/resume` | ✔ | ✔ | — | — |
+| `platform.tenant:delete` | `DELETE /platform/tenants/{id}` | 2P | — | — | — |
+| `platform.approval:read` / `:decide` | `GET /platform/approvals[/{id}]` / `POST /platform/approvals/{id}/approve`, `/reject` (người duyệt ≠ người yêu cầu; step-up) | ✔ / ✔ | ✔ / chỉ cho restore | — | ✔ / — |
+| `platform.instance:read` | `GET /platform/instances[/{id}]` | ✔ | ✔ | ✔ | ✔ |
+| `platform.instance:operate` | `POST /platform/instances/{id}/restart`, `/reconfigure`, `/backup` | ✔ | ✔ | — | — |
+| `platform.instance:upgrade` | `POST /platform/instances/{id}/upgrade` | ✔ | ✔ | — | — |
+| `platform.instance:restore` | `POST /platform/instances/{id}/restore` | 2P | 2P | — | — |
+| `platform.instance:quarantine` / `:release` | `POST /platform/instances/{id}/quarantine` / `/release` | ✔ / 2P | ✔ / 2P | — | — |
+| `platform.host:read` / `:manage` | `GET` / `POST,PATCH /platform/hosts` | ✔ / ✔ | ✔ / ✔ | ✔ / — | ✔ / — |
+| `platform.relay:read` / `:manage` | `GET` / `POST,PATCH,DELETE /platform/relay-regions` | ✔ / ✔ | ✔ / ✔ | ✔ / — | ✔ / — |
+| `platform.health:read` | `GET /platform/health` | ✔ | ✔ | ✔ | ✔ |
+| `platform.job:read` / `:control` | `GET /platform/jobs[/{id}]` / `POST /platform/jobs/{id}/retry`, `/cancel`, `/rollback` (ngữ nghĩa ở §11.3) | ✔ / ✔ | ✔ / ✔ | ✔ / — | ✔ / — |
+| `platform.settings:read` / `:update` | `GET` / `PUT /platform/settings/{key}` | ✔ / ✔ | ✔ / — | — / — | ✔ / — |
+| `platform.idp:read` / `:manage` | `GET` / `POST,PATCH /platform/identity-providers` (`issuer` bất biến; thay đổi lên hàng `scope='tenant'` cần Tenant Owner phê duyệt hoặc break-glass 2P, ghi audit hiển thị cho tenant + thông báo Owner — §8.2) | ✔ / ✔ (IdP của tenant: 2P) | ✔ / — | — / — | ✔ / — |
+| `platform.user:read` / `:assign` | `GET` / `POST,PATCH,DELETE /platform/users` | ✔ / ✔ (không gồm role SA) | ✔ / — | — / — | ✔ / — |
+| `platform.user:assign_super_admin` | `PUT /platform/users/{id}/super-admin-role` (gán/gỡ role SA — operation riêng theo bất biến 4 ở §8.4; ngoại lệ khởi tạo ở bất biến 3) | 2P | — | — | — |
+| `platform.plan:read` / `:manage` | `GET` / `POST,PATCH /platform/plans` | ✔ / ✔ | ✔ / — | ✔ / — | ✔ / — |
+| `platform.usage:read` | `GET /platform/usage` | ✔ | ✔ | — | ✔ |
+| `platform.audit:read` | `GET /platform/audit` (sự kiện platform) | ✔ | ✔ | — | ✔ |
+| `platform.security_event:read` | `GET /platform/security-events` | ✔ | ✔ | ✔ | ✔ |
+| `platform.support_grant:request` | `POST /platform/support-grants` | ✔ | ✔ | ✔ | — |
+| `platform.support_grant:read` | `GET /platform/support-grants` | ✔ | ✔ | ✔ | ✔ |
+| `platform.support_grant:revoke` | `POST /platform/support-grants/{id}/revoke` | ✔ | — | — | — |
+| `platform.support_grant:breakglass` | `POST /platform/support-grants/{id}/approve-breakglass` | 2P | — | — | — |
+| `platform.support_grant:read` / `:revoke` | `GET /platform/support-grants` / `POST /platform/support-grants/{id}/revoke` (thu hồi grant bất kỳ — §8.7) | ✔ / ✔ | ✔ / — | ✔ / — | ✔ / — |
+| `platform.backup:read` | `GET /platform/backups` | ✔ | ✔ | — | ✔ |
+
+### 8.6 Permission Matrix — phạm vi Tenant
+
+✔ = cho phép · ○ = chỉ trên tài nguyên **của chính mình** · — = từ chối. Cột **Staff** = nhân sự nền tảng: luôn "—" nếu không có grant. Quyền của staff được định nghĩa bằng **hai system role phạm vi support** có `role_permissions` đúng bằng cột này: `support_operator` (các ô **G**) và `support_admin` (thêm các ô **G (Admin)**, chỉ cấp qua break-glass); `support_access_grants.effective_role_key` tham chiếu một trong hai role đó — không bao giờ là Tenant Owner.
+
+Quy tắc 2P: thao tác đánh dấu **2P** trả `202` kèm `Location: /api/v1/platform/approvals/{id}`; job chỉ được enqueue sau khi người thứ hai duyệt (bảng `approval_requests`), sau khi kiểm lại hash payload, và cả hai bên đều phải step-up. Yêu cầu chưa được duyệt hết hạn sau 24 giờ (mặc định đề xuất, cấu hình ở `system_settings`). Thao tác cần người thứ hai **trong tenant** (tắt 4-eyes, đổi thành viên group *sensitive* — §7.3) dùng cùng cơ chế và cùng bảng với `tenant_id` của tenant đó: trả `202` kèm `Location: /api/v1/tenants/{tenantId}/approvals/{id}`; người duyệt cần quyền `tenant.approval:decide` và phải khác người yêu cầu. Phía tenant, thao tác **tắt** 4-eyes đang bật qua `PUT /settings/security` dùng cùng cơ chế (4-eyes của policy/route vẫn đi theo vòng đời riêng ở §7.3): trả `202` kèm `Location: /api/v1/tenants/{tenantId}/approvals/{id}`, do một Tenant Owner/Admin **khác** duyệt (`tenant.approval:decide`), dùng chung bảng `approval_requests` (hàng có `tenant_id`) với cùng quy tắc kiểm hash payload và step-up; tenant chỉ có một người đủ quyền duyệt thì chưa tắt được 4-eyes cho tới khi có người thứ hai. Thao tác cần người thứ hai **trong phạm vi tenant** (tắt 4-eyes; duyệt route khi `routes.four_eyes` bật; đổi thành viên group `sensitive`) dùng cùng bảng với `scope='tenant'` và trả `202` kèm `Location: /api/v1/tenants/{tenantId}/approvals/{id}`; người duyệt phải có `tenant.approval:decide` **và** permission của chính thao tác được duyệt (riêng yêu cầu tắt 4-eyes: một Owner hoặc Admin khác), khác người yêu cầu và phải step-up; thao tác chỉ được thực thi từ yêu cầu đã duyệt có `payload_sha256` còn khớp. Endpoint phạm vi tenant chỉ thấy yêu cầu `scope='tenant'` — yêu cầu 2P của nền tảng về tenant đó (xóa, restore) không hiện ở đây.
+
+| Permission | API action (tiền tố `/tenants/{tenantId}`) | TO | TA | TP | TV | EU | Staff |
+|---|---|---|---|---|---|---|---|
+| `tenant.tenant:read` | `GET /` — tức chính `/tenants/{tenantId}` (tenant của mình) | ✔ | ✔ | ✔ | ✔ | ✔ | G |
+| `tenant.dashboard:read` | `GET /dashboard` | ✔ | ✔ | ✔ | ✔ | — | G |
+| `tenant.device:read` | `GET /devices`, `GET /devices/{id}` | ✔ | ✔ | ✔ | ✔ | ○ | G |
+| `tenant.device:rename` | `PATCH /devices/{id}` | ✔ | ✔ | ✔ | — | ○ | G |
+| `tenant.device:tag` | `PUT /devices/{id}/tags` | ✔ | ✔ | — | — | — | G (Admin) |
+| `tenant.device:expire` | `POST /devices/{id}/expire` (revoke) | ✔ | ✔ | ✔ | — | ○ | G |
+| `tenant.device:delete` | `DELETE /devices/{id}` | ✔ | ✔ | — | — | ○ | G (Admin) |
+| `tenant.device:sync` | `POST /devices/sync` | ✔ | ✔ | ✔ | — | — | G |
+| `tenant.tag:read` / `:manage` | `GET` / `POST,PATCH,DELETE /tags` (danh mục tag) | ✔ / ✔ | ✔ / ✔ | ✔ / — | ✔ / — | — | G / — |
+| `tenant.user:read` | `GET /users[/{id}]` | ✔ | ✔ | ✔ | ✔ | — | G |
+| `tenant.user:manage` | `PATCH /users/{id}` (trạng thái, hồ sơ), `DELETE /users/{id}` (offboard), `DELETE /users/{id}/sessions` — theo quy tắc role đích 3a | ✔ | ✔ | — | — | — | — |
+| `tenant.invitation:manage` | `GET/POST /invitations`, `DELETE /invitations/{id}`, `POST /invitations/{id}/resend` — role ghi trong lời mời theo quy tắc role đích 3a | ✔ | ✔ | — | — | — | — |
+| `tenant.membership:assign` | `PUT /users/{id}/role` — đúng **một** `x-permission`; role đích do quy tắc 3a quyết định (role hiện tại và role mới đều thấp hơn hẳn role của người gọi ⇒ chỉ Owner gán/gỡ được role Admin); không nhận role Owner | ✔ | ✔ | — | — | — | — |
+| `tenant.membership:assign_admin` | `POST /ownership-transfer` (cấp/chuyển role Owner; step-up) | ✔ | — | — | — | — | — |
+| `tenant.group:read` / `:manage` | `GET` / `POST,PATCH,DELETE /groups`, `PUT /groups/{id}/members` | ✔ / ✔ | ✔ / ✔ | ✔ / — | ✔ / — | — | G / — |
+| `tenant.enrollment:request` | `POST /enrollment/requests` (thiết bị của mình), `POST /enrollment/requests/{id}/start` (yêu cầu của chính mình, đã được duyệt), `POST /enrollment/web-auth/claim` | ✔ | ✔ | ✔ | — | ✔ (nếu tenant cho phép self-enroll) | — |
+| `tenant.enrollment:approve` | `POST /enrollment/requests/{id}/approve`, `/reject` | ✔ | ✔ | ✔ | — | — | G |
+| `tenant.enrollment:issue_privileged` | `POST /enrollment/keys` (key gắn tag / reusable / ephemeral / cho người khác) | ✔ | ✔ | — | — | — | — |
+| `tenant.enrollment:read` | `GET /enrollment/requests[/{id}]`, `GET /enrollment/instructions` | ✔ | ✔ | ✔ | ✔ | ○ | G |
+| `tenant.enrollment:revoke` | `POST /enrollment/requests/{id}/revoke` | ✔ | ✔ | ✔ | — | ○ | G |
+| `tenant.policy:read` | `GET /policies`, `/policies/current`, `/policies/{v}`, `/policies/{v}/diff` | ✔ | ✔ | ✔ | ✔ | — | G |
+| `tenant.policy:edit` | `POST /policies`, `PATCH /policies/{v}`, `/validate`, `/submit` | ✔ | ✔ | — | — | — | — |
+| `tenant.policy:approve` | `POST /policies/{v}/approve`, `/reject` (tenant bật 4-eyes: không tự duyệt bản của mình; không bật: người soạn tự xác nhận — `review_mode=self`, §7.3) | ✔ | ✔ | — | — | — | — |
+| `tenant.policy:apply` | `POST /policies/{v}/apply`, `/rollback` | ✔ | ✔ | — | — | — | G (Admin) |
+| `tenant.dns:read` / `:update` | `GET /dns`, `GET /dns/records` / `PUT /dns/settings`, `POST,DELETE /dns/records` | ✔ / ✔ | ✔ / ✔ | ✔ / — | ✔ / — | — | G / — |
+| `tenant.route:read` | `GET /routes` | ✔ | ✔ | ✔ | ✔ | — | G |
+| `tenant.route:approve` | `POST /routes/approve`, `/revoke` (gồm exit node) | ✔ | ✔ | — | — | — | — |
+| `tenant.resource:read` / `:manage` | `GET` / `POST,PATCH,DELETE /resources` | ✔ / ✔ | ✔ / ✔ | ✔ / — | ✔ / — | — | G / — |
+| `tenant.diagnostics:read` | `GET /diagnostics/instance` (trạng thái instance của cả tenant) | ✔ | ✔ | ✔ | — | — | G |
+| `tenant.diagnostics:run` | `POST /diagnostics/connectivity` (EU: chỉ với thiết bị của chính mình) | ✔ | ✔ | ✔ | — | ○ | G |
+| `tenant.relay:read` | `GET /relay` | ✔ | ✔ | ✔ | ✔ | — | G |
+| `tenant.usage:read` | `GET /usage` | ✔ | ✔ | — | ✔ | — | G |
+| `tenant.billing:read` | `GET /billing` | ✔ | — | — | — | — | — |
+| `tenant.audit:read` | `GET /audit` | ✔ | ✔ | — | ✔ | — | G |
+| `tenant.notification:read` | `GET /notifications`, `POST /notifications/{id}/read` (chỉ thông báo gửi cho chính mình) | ○ | ○ | ○ | ○ | ○ | — |
+| `tenant.settings:read` / `:update` | `GET` / `PATCH /settings` (thiết lập thường) | ✔ / ✔ | ✔ / ✔ | ✔ / — | ✔ / — | — | G / — |
+| `tenant.settings:update_security` | `PUT /settings/security` — bật/tắt 4-eyes, self-enroll, chế độ danh tính/enrollment, `node_expiry`; step-up + audit + thông báo; **tắt** 4-eyes khi đang bật cần người thứ hai duyệt (qua `/approvals` của tenant) | ✔ | — | — | — | — | — |
+| `tenant.idp:read` / `:update` | `GET` / `PATCH /identity-provider` (không đổi `issuer`/`client_id`; step-up) | ✔ / ✔ | ✔ / — | — | — | — | — |
+| `tenant.support_grant:read` / `:decide` | `GET /support-grants` / `POST /support-grants/{id}/approve`, `/reject`, `/revoke` | ✔ / ✔ | ✔ / ✔ | — | ✔ / — | — | — |
+| `tenant.approval:read` / `:decide` | `GET /approvals[/{id}]` / `POST /approvals/{id}/approve`, `/reject` (thao tác trong tenant cần người thứ hai: tắt 4-eyes, duyệt route khi `routes.four_eyes` bật, đổi thành viên group *sensitive*; người duyệt ≠ người yêu cầu; step-up) | ✔ / ✔ | ✔ / ✔ | — | ✔ / — | — | — |
+| `tenant.job:read` | `GET /jobs[/{id}]` | ✔ | ✔ | ✔ | ✔ | — | G |
+| `tenant.lifecycle:request_delete` | `POST /request-deletion` | ✔ | — | — | — | — | — |
+
+### 8.7 Support Access Grant (thao tác hỗ trợ có kiểm soát)
+
+1. Nhân sự nền tảng tạo yêu cầu: tenant, role hiệu lực mong muốn, lý do, mã ticket, thời lượng (mặc định ≤ 8 giờ).
+2. **Tenant Owner/Admin phê duyệt** trong Portal. Trường hợp khẩn cấp không liên lạc được tenant: **break-glass** — cần hai Super Admin (người yêu cầu ≠ người duyệt), tạo `security_event` mức cao và thông báo cho Tenant Owner.
+3. Trong thời hạn grant, mọi request của nhân sự đó vào tenant mang `actor_type=support` + `support_grant_id`; audit hiển thị cho tenant (transparency).
+4. Grant tự hết hạn; tenant hoặc Super Admin thu hồi được bất cứ lúc nào (có hiệu lực ở request kế tiếp).
+5. Super Admin **không** có khả năng giải mã payload WireGuard: private key của node không rời thiết bị. Rủi ro còn lại — control plane có thể chèn node/policy vào tailnet — được nêu ở §18 (T-03) vì Tailnet Lock không khả dụng trên Headscale.
+
+### 8.8 Các lớp thực thi authorization (defense in depth)
+
+| Lớp | Vị trí | Kiểm tra |
+|---|---|---|
+| 1 | HTTP middleware | Session hợp lệ; principal; `x-permission` của route so với role trong **tenant lấy từ path** |
+| 2 | Service | Object-level: tài nguyên nạp lên phải có `tenant_id` = tenant trong path, nếu không ⇒ `404`; kiểm tra "own resource" cho EU; quota |
+| 3 | Repository | `TenantStore` bắt buộc nhận `tenant_id`; mọi truy vấn chạy trong `WithTenantTx` |
+| 4 | PostgreSQL | RLS + FK ghép theo tenant |
+| 5 | Headscale Adapter | `Registry.ForTenant(tenantID)` là **cách duy nhất** lấy client của một instance; địa chỉ instance và API key lấy từ Tenant Registry/SecretStore, không bao giờ từ input của request |
+
+Mọi quyết định từ chối đều ghi `audit_events (outcome=denied)` qua đường ghi detached, dưới tenant của actor (§6.1); chuỗi từ chối chéo tenant bất thường sinh `security_events`.
