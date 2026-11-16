@@ -1,10 +1,16 @@
 {
   "lan_ipv4": "192.168.1.8",
-  "public_entry_ipv4": "192.168.1.8",
+  "public_entry_ipv4": "116.118.3.46",
   "acme": "production",
   "image": "ghcr.io/zhaduchanhzz/network-access-mesh/edge@sha256:9ec3b439981854185ae162b23be6dc974419d6d5443bc9b0198b92b41d685c08",
   "dns_resolvers": [
     "1.1.1.1",
     "8.8.8.8"
-  ]
+  ],
+  "tunnel": {
+    "edge_tunnel_ipv4": "10.248.0.2",
+    "peer_ipv4": "10.248.0.1",
+    "http_port": 8080,
+    "https_port": 8443
+  }
 }

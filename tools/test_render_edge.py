@@ -10,6 +10,7 @@ parameters are rejected. Standard library only; exit code 0 = pass.
 """
 from __future__ import annotations
 
+import ipaddress
 import json
 import pathlib
 import re
@@ -95,6 +96,41 @@ def check_structure(caddyfile: str, params: dict) -> list[str]:
         errors.append("wildcard bind address")
     if "{labels." in code:
         errors.append("hard-coded {labels.N} (EG-03)")
+    tunnel = params.get("tunnel")
+    if tunnel:
+        peer = tunnel["peer_ipv4"]
+        for port in (tunnel["https_port"], tunnel["http_port"]):
+            block = re.search(rf"servers 10\.249\.0\.2:{port} \{{(.*?)\n\t\}}", code, re.S)
+            if not block:
+                errors.append(f"no server options for tunnel port {port}")
+                continue
+            b = block.group(1)
+            if "fallback_policy require" not in b:
+                errors.append(f"tunnel port {port}: PROXY header not required")
+            deny = re.search(r"deny (.+)", b).group(1).split()
+            if any(ipaddress.ip_address(peer) in ipaddress.ip_network(n) for n in deny if ":" not in n):
+                errors.append(f"tunnel port {port}: peer {peer} is denied")
+            covered = sum(ipaddress.ip_network(n).num_addresses for n in deny if ":" not in n)
+            if covered != 2 ** 32 - 1:
+                errors.append(f"tunnel port {port}: deny list does not cover every other IPv4 address")
+            if port == tunnel["https_port"] and not (0 <= b.find("proxy_protocol") < b.find("\t\t\ttls")):
+                errors.append("tunnel TLS port: proxy_protocol must come before tls (GW-02)")
+        if code.find(f"servers 10.249.0.2:{tunnel['https_port']}") > code.find("\tservers {"):
+            errors.append("generic servers block must come after the tunnel blocks (first match wins)")
+        # a headerless connection from a non-peer is closed before any other handler, on both public sites (V-17)
+        guard = f"@direct_tunnel vars {{http.request.local.port}} {tunnel['https_port']} {tunnel['http_port']}"
+        for name, start in (("TLS site", r"^\*\."), ("HTTP site", r"^http://(?!:)")):
+            site = re.search(start + r".*?\n(.*?)\n\}", code, re.S | re.M)
+            body = site.group(1) if site else ""
+            first_handle = re.search(r"(?m)^\thandle\b.*$", body)
+            if guard not in body:
+                errors.append(f"{name}: tunnel guard matcher missing")
+            elif not first_handle or not first_handle.group(0).startswith("\thandle @direct_tunnel"):
+                errors.append(f"{name}: tunnel guard is not the first handle")
+            elif "handle @direct_tunnel {\n\t\tabort\n\t}" not in body:
+                errors.append(f"{name}: tunnel guard does not abort")
+    elif "@direct_tunnel" in code:
+        errors.append("tunnel guard rendered without a tunnel")
     return errors
 
 

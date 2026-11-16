@@ -1,0 +1,77 @@
+# P1-T18 — kiểm thử từ Internet và từ client lab (output nguyên văn; IP công khai của mạng chủ dự án đã che: 118.68.116.x)
+
+## DNS công khai (dig từ host staging, resolver 1.1.1.1) — 2026-11-16 18:08 UTC
+A tenant-a.mesh.gta5web.online @1.1.1.1: 116.118.3.46
+A x7-anything.mesh.gta5web.online @1.1.1.1: 116.118.3.46
+AAAA tenant-a.mesh.gta5web.online @1.1.1.1:
+CAA mesh.gta5web.online @1.1.1.1: 0 issue "letsencrypt.org; validationmethods=dns-01; accounturi=https://acme-v02.api.letsencrypt.org/acme/acct/4006227222" 0 issuewild "letsencrypt.org; validationmethods=dns-01; accounturi=https://acme-v02.api.letsencrypt.org/acme/acct/4006227222"
+CAA tenant-a.mesh.gta5web.online @1.1.1.1:
+
+## V-19 — Caddy dùng tạm trên host staging, tài khoản ACME MỚI ở CA staging của Let's Encrypt, DNS-01 hợp lệ (Cloudflare), tên v19-probe.mesh.gta5web.online
+waited ~12 s
+info | new ACME account registered |
+error | challenge failed | {'type': 'urn:ietf:params:acme:error:caa', 'title': '', 'detail': 'While processing CAA for v19-probe.mesh.gta5web.online: CAA record for mesh.gta5web.online prevents issuance', 'instance': '', 'subproblems': None}
+error | validating authorization | {'type': 'urn:ietf:params:acme:error:caa', ...}
+throwaway removed
+
+## V-02 — client trong LAN (DNS công khai ⇒ VPS); derp-map và netcheck trên a1 (Tailscale 1.104.7)
+a1 derp-map: [('901', 'mg-tenant-a', [('tenant-a.mesh.gta5web.online', '116.118.3.46', 3478)])]
+	* UDP: true
+	* IPv4: yes, 118.68.116.x:63828
+	* Nearest DERP: MeshGuard tenant-a
+
+## V-02 — `sudo tailscale debug derp <region>` (2026-11-16 17:06–17:09 UTC)
+== 192.168.1.21 (mg-tenant-a)
+ "Info": [
+  "Region 901 == \"mg-tenant-a\"",
+  "Successfully established a DERP connection with node \"tenant-a.mesh.gta5web.online\"",
+  "Node \"tenant-a.mesh.gta5web.online\" returned IPv4 STUN response: 118.68.116.x:54302"
+ ],
+ "Warnings": [
+  "Having only a single DERP region (i.e. removing the default Tailscale-provided regions) is a single point of failure and could hamper connectivity"
+ ],
+ "Errors": [
+  "Error connecting to node \"tenant-a.mesh.gta5web.online\" @ \"tenant-a.mesh.gta5web.online:443\" over IPv6: dial tcp6: lookup tenant-a.mesh.gta5web.online on 127.0.0.x:53: no such host"
+ ]
+== 192.168.1.22 (mg-tenant-b)
+ "Info": [
+  "Region 901 == \"mg-tenant-b\"",
+  "Successfully established a DERP connection with node \"tenant-b.mesh.gta5web.online\"",
+  "Node \"tenant-b.mesh.gta5web.online\" returned IPv4 STUN response: 118.68.116.x:59054"
+ ],
+ (Warnings, Errors: như trên — một region duy nhất; không có AAAA)
+
+## V-16 — lần chạy đầu (khoảng 17:00 UTC): a2 sau NAT OPNsense, TS_DEBUG_ALWAYS_USE_DERP=true, kéo 20 MiB từ a1
+UDP sockets of tailscaled: 0
+pong from lab-a1 (100.64.0.1) via DERP(mg-tenant-a) in 93ms
+HTTP 200, 20971520 B, 3805457 B/s
+sha256=05c01a576a6aeacf elapsed=5.52s derp_bytes=+22406956 direct_ipv4_bytes=+0
+100.64.0.1  lab-a1  lab-a  linux  active; relay "mg-tenant-a", tx 694604 rx 22406956
+(nguồn trên a1: sha256=05c01a576a6aeacf)
+
+## Diễn tập dựng lại gateway mg-gateway trên VPS (down → xóa /opt/meshguard/gateway → render từ repo → up)
+ Container mg-l4proxy  Removed
+gateway removed:
+ Container mg-l4proxy  Started
+gateway rebuilt from repo; tenant-a /key via public DNS+VPS: HTTP 200 after 14086 ms total (down → rebuild → serving)
+STUN OK: server saw 118.68.116.x:64464
+pong from lab-a2 (100.64.0.2) via DERP(mg-tenant-a) in 89ms
+100.64.0.2  lab-a2  lab-a  linux  active; relay "mg-tenant-a", tx 23458396 rx 642196
+
+## AC-20 từ Internet (máy Windows của chủ dự án; tests: ext_ac20 dùng lại danh sách path của conformance.py)
+### 17:24 UTC — edge template_version 3
+TCP scan 116.118.3.46: 1065 ports (1-1024 + 41 service ports) — open [22, 80, 443, 587]; closed(RST) 0; filtered/timeout 1061
+PASS AC-20 external (3 hostnames): 127 checks passed, 0 failed
+### 18:04 UTC — edge template_version 4 (sau khi thêm @direct_tunnel)
+TCP scan 116.118.3.46: 1065 ports (1-1024 + 41 service ports) — open [22, 80, 443, 587]; closed(RST) 0; filtered/timeout 1061
+PASS AC-20 external (3 hostnames): 127 checks passed, 0 failed
+STUN OK: server saw 118.68.116.x:53296
+
+## Sau reload template_version 4 (18:01:06 UTC) — stream cũ đóng theo stream_close_delay 5m rồi client nối lại
+18:06:25
+tenant-a online nodes: 2
+tenant-b online nodes: 2
+edge streams via VPS (:8443 from 10.248.0.1): 6; LAN-direct :443: 2
+upgraded streams closed in last 10 min: 8
+pong from lab-a2 (100.64.0.2) via DERP(mg-tenant-a) in 96ms
+pong from lab-b2 (100.64.0.2) via DERP(mg-tenant-b) in 91ms

@@ -55,7 +55,19 @@ run "$OP" metrics --edge 10.249.3.2:9091 --token-file "$SEC/obs/edge_metrics_tok
 echo "== internal listeners from a container on mg-edge only (future web/api/idp)"
 run "$PP" unreachable --targets 10.249.2.2:8081,10.249.3.2:9091
 echo "== every edge listener from inside a tenant network (edge IP on that network and the listener IPs)"
-run "$EP" unreachable --targets "$EDGE_TNET:80,$EDGE_TNET:443,$EDGE_TNET:8081,$EDGE_TNET:9091,10.249.0.2:443,10.249.2.2:8081,10.249.3.2:9091"
+run "$EP" unreachable --targets "$EDGE_TNET:80,$EDGE_TNET:443,$EDGE_TNET:8080,$EDGE_TNET:8081,$EDGE_TNET:8443,$EDGE_TNET:9091,10.249.0.2:443,10.249.0.2:8080,10.249.0.2:8443,10.249.2.2:8081,10.249.3.2:9091"
+
+# Tunnel-facing listener (P1-T17, template_version ≥ 3): only the VPS end of the tunnel may connect, with a PROXY
+# header (V-17). From a container on mg-edge and from the host itself (source ≠ tunnel peer) nothing may answer —
+# neither without a header nor with a forged one.
+TUN=$(docker port mg-edge 8443/tcp 2>/dev/null | head -1 | cut -d: -f1)
+if [ -n "$TUN" ]; then
+  echo "== tunnel-facing listener ($TUN:8080/8443 → 10.249.0.2) from non-peer sources"
+  run "$PP" tunnel-reject --targets 10.249.0.2:8443,10.249.0.2:8080 --sni "$ECHO.$DOMAIN"
+  python3 -I "$DIR/conformance.py" tunnel-reject --targets "$TUN:8443,$TUN:8080" --sni "$ECHO.$DOMAIN" || rc=1
+else
+  echo "== no tunnel-facing listener published (template_version < 3 or Local Development only)"
+fi
 
 if [ -n "$TENANTS" ]; then
   T=${TENANTS%%,*}

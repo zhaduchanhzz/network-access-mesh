@@ -11,6 +11,10 @@ Params (no secret — secrets are referenced by {file.*} placeholders and compos
   acme           "staging" or "production" (Let's Encrypt; staging first — P1-T05)
   image          edge image pinned by digest (versions.lock)
   dns_resolvers  public resolvers for the DNS-01 propagation check (split-horizon safe — P1-T06)
+  tunnel         optional {"edge_tunnel_ipv4", "peer_ipv4", "http_port", "https_port"}: tunnel-facing listeners for
+                 the VPS gateway (§14.6, §14.9). The edge publishes the two ports on the host's tunnel IP only and
+                 REQUIRES a PROXY v2 header from the tunnel peer; a header from any other source is rejected and a
+                 headerless connection from any other source is closed by the @direct_tunnel guard (GW-02, V-17).
 
 Writes <out_dir>/caddy/Caddyfile and <out_dir>/compose.edge.yaml. Output is deterministic — guarded by
 tools/test_render_edge.py (golden files). Standard library only.
@@ -26,7 +30,7 @@ import string
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-TEMPLATE_VERSION = "2"
+TEMPLATE_VERSION = "4"
 CADDYFILE_TMPL = ROOT / "infrastructure" / "caddy" / "Caddyfile.tmpl"
 COMPOSE_TMPL = ROOT / "infrastructure" / "compose" / "compose.edge.yaml.tmpl"
 
@@ -46,6 +50,59 @@ REQUIRED = ["lan_ipv4", "public_entry_ipv4", "acme", "image", "dns_resolvers"]
 
 class ParamError(ValueError):
     pass
+
+
+def deny_all_but(peer: str) -> list[str]:
+    """CIDRs covering every IPv4 address except `peer`, plus all of IPv6 — the deny list of the proxy_protocol
+    wrapper: sources in `allow` would get USE (header optional), so the peer is left to `fallback_policy require`."""
+    nets = ipaddress.ip_network("0.0.0.0/0").address_exclude(ipaddress.ip_network(f"{peer}/32"))
+    return [str(n) for n in sorted(nets)] + ["::/0"]
+
+
+def tunnel_values(p: dict, edge_ip: str, mesh_domain: str) -> dict[str, str]:
+    t = p.get("tunnel")
+    if not t:
+        return {"tunnel_servers": "", "tunnel_tls_site": "", "tunnel_http_site": "", "tunnel_ports": "",
+                "tunnel_guard": "", "tunnel_summary": "không có (Local Development, chỉ LAN-direct)"}
+    tun = ipaddress.IPv4Address(t["edge_tunnel_ipv4"])
+    peer = ipaddress.IPv4Address(t["peer_ipv4"])
+    if not (tun.is_private and peer.is_private) or tun == peer:
+        raise ParamError("tunnel addresses must be two distinct private IPv4 addresses")
+    http_port, https_port = int(t.get("http_port", 8080)), int(t.get("https_port", 8443))
+    if {http_port, https_port} & {80, 443, 8081, 9091} or http_port == https_port:
+        raise ParamError("tunnel ports must differ from 80/443 and from the internal listener ports")
+    deny = " ".join(deny_all_but(str(peer)))
+
+    def server(port: int, tls: bool) -> str:
+        lines = [f"\tservers {edge_ip}:{port} {{", "\t\tlistener_wrappers {", "\t\t\tproxy_protocol {",
+                 "\t\t\t\ttimeout 5s", f"\t\t\t\tdeny {deny}", "\t\t\t\tfallback_policy require", "\t\t\t}"]
+        if tls:
+            lines.append("\t\t\ttls")        # TLS after PROXY protocol (GW-02)
+        lines += ["\t\t}", "\t\tprotocols h1 h2"]
+        if tls:
+            lines.append("\t\tstrict_sni_host on")
+        lines.append("\t}")
+        return "\n".join(lines) + "\n"
+
+    # proxy_protocol cannot refuse a non-peer that sends NO header: `deny` maps to REJECT, which only rejects
+    # connections that carry a header (go-proxyproto), and REQUIRE would accept a forged one. A connection that did
+    # carry the peer's header has the header's destination as its local address (the VPS entry, port 443/80); a
+    # connection made straight to the tunnel-facing listener still has the listener port ⇒ close it (V-17, P1-T18).
+    guard = ("\t# Vào thẳng listener tunnel-facing mà không qua PROXY header của VPS (địa chỉ đích còn là cổng tunnel)\n"
+             "\t# ⇒ đóng kết nối, trước mọi handle khác (proxy_protocol chỉ REJECT nguồn bị deny khi chúng GỬI header).\n"
+             f"\t@direct_tunnel vars {{http.request.local.port}} {https_port} {http_port}\n"
+             "\thandle @direct_tunnel {\n\t\tabort\n\t}\n")
+    return {
+        "tunnel_servers": server(https_port, True) + server(http_port, False),
+        "tunnel_tls_site": f", *.{mesh_domain}:{https_port}",
+        "tunnel_http_site": f", http://:{http_port}",
+        "tunnel_ports": f'      - "{tun}:{http_port}:{http_port}/tcp"   # tunnel-facing (VPS gateway)\n'
+                        f'      - "{tun}:{https_port}:{https_port}/tcp"\n',
+        "tunnel_guard": guard,
+        "tunnel_summary": f"{edge_ip}:{https_port} (TLS) và :{http_port}, publish trên IP tunnel {tun}; "
+                          f"bắt buộc PROXY v2 từ {peer}, header từ nguồn khác bị từ chối, kết nối không header "
+                          f"từ nguồn khác bị đóng ở tầng HTTP (@direct_tunnel)",
+    }
 
 
 def validate(p: dict) -> dict:
@@ -91,6 +148,7 @@ def render(params: dict) -> dict[str, str]:
         **EDGE_IPS,
         **INTERNAL,
     }
+    v.update(tunnel_values(p, EDGE_IPS["edge_ip"], mesh_domain))
     return {
         "caddy/Caddyfile": string.Template(CADDYFILE_TMPL.read_text(encoding="utf-8")).substitute(v),
         "compose.edge.yaml": string.Template(COMPOSE_TMPL.read_text(encoding="utf-8")).substitute(v),

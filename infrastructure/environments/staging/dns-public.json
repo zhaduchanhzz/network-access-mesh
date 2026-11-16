@@ -1,0 +1,7 @@
+[
+  {"type": "A", "name": "*.mesh.gta5web.online", "content": "116.118.3.46", "ttl": 300},
+  {"type": "CAA", "name": "mesh.gta5web.online", "ttl": 3600,
+   "data": {"flags": 0, "tag": "issue", "value": "letsencrypt.org; validationmethods=dns-01; accounturi=https://acme-v02.api.letsencrypt.org/acme/acct/4006227222"}},
+  {"type": "CAA", "name": "mesh.gta5web.online", "ttl": 3600,
+   "data": {"flags": 0, "tag": "issuewild", "value": "letsencrypt.org; validationmethods=dns-01; accounturi=https://acme-v02.api.letsencrypt.org/acme/acct/4006227222"}}
+]

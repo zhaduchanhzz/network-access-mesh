@@ -1,0 +1,49 @@
+# Sinh bởi tools/render_gateway.py từ infrastructure/gateway/compose.gateway.yaml.tmpl (template_version ${template_version}).
+# KHÔNG sửa tay — render lại. Project mg-gateway trên VPS (§14.9): l4proxy (HAProxy, TCP) + stund (STUN dùng chung).
+# Không có secret, khóa TLS hay dữ liệu tenant trên VPS. Đặt tại /opt/meshguard/gateway/; haproxy.cfg cùng thư mục.
+# Host network: bind đúng IPv4 công khai của VPS (không [::]), giữ IP nguồn của client cho PROXY header.
+name: mg-gateway
+
+services:
+  l4proxy:
+    image: ${haproxy_image}
+    container_name: mg-l4proxy
+    network_mode: host
+    user: "0:0"                     # bind 80/443 rồi hạ quyền xuống user haproxy (global user/group trong haproxy.cfg)
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE, SETUID, SETGID]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    tmpfs:
+      - /tmp:size=8m
+    volumes:
+      - type: bind
+        source: /opt/meshguard/gateway/haproxy.cfg
+        target: /usr/local/etc/haproxy/haproxy.cfg
+        read_only: true
+        bind:
+          create_host_path: false
+    mem_limit: 256m
+    pids_limit: 128
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "5"}
+    labels:
+      meshguard.role: gateway
+
+  stund:
+    image: ${stund_image}
+    container_name: mg-stund
+    network_mode: host              # UDP 3478; HTTP debug chỉ 127.0.0.1:3479 (lệnh mặc định của image)
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+    pids_limit: 64
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "5"}
+    labels:
+      meshguard.role: gateway

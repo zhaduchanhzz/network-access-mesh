@@ -2,6 +2,7 @@
 # KHÔNG sửa tay — render lại. Edge của MeshGuard (§14.6): mesh domain ${mesh_domain}, CA ${acme}.
 # - Site public chỉ bind IP tĩnh của edge trên mg-edge (${edge_ip}); cổng publish của host DNAT tới IP này (V-30).
 # - Listener nội bộ: admin trên mg-admin (${edge_admin_ip}:${admin_port}), metrics trên mg-obs (${edge_obs_ip}:${metrics_port}).
+# - Listener tunnel-facing (VPS gateway — §14.6, GW-02): ${tunnel_summary}
 # - Không có giá trị secret nào trong file: token DNS, khóa bouncer, token admin/metrics chỉ được tham chiếu bằng
 #   placeholder {file.*}, Caddy đọc file lúc provision hoặc lúc so khớp (secret dạng file — §14.2).
 # - CrowdSec ở chế độ chỉ-quan-sát tới G1 (app crowdsec kết nối LAPI nhưng chưa route nào dùng handler crowdsec).
@@ -11,7 +12,7 @@
 	default_bind ${edge_ip}
 	auto_https disable_redirects
 	acme_ca ${acme_ca}
-	servers {
+${tunnel_servers}	servers {
 		protocols h1 h2
 		strict_sni_host on
 	}
@@ -56,9 +57,9 @@
 }
 
 # Control plane + DERP của mọi tenant: <slug>.${mesh_domain} → hs-<slug>:8080 trên network riêng của tenant.
-*.${mesh_domain} {
+*.${mesh_domain}${tunnel_tls_site} {
 	import access_log
-	tls {
+${tunnel_guard}	tls {
 		dns cloudflare {file./run/secrets/cloudflare_dns_token}
 		resolvers ${dns_resolvers}
 	}
@@ -109,9 +110,9 @@ Disallow: /
 
 # :80 — /generate_204 trả 204 (kiểm captive portal của client; vang lại challenge như derper), còn lại chuyển
 # HTTPS bằng phản hồi nhanh khác 101 (EG-07).
-http:// {
+http://${tunnel_http_site} {
 	import access_log
-	@gen204 path /generate_204
+${tunnel_guard}	@gen204 path /generate_204
 	@challenge header_regexp X-Tailscale-Challenge ^[A-Za-z0-9._-]{1,64}$$
 	handle @gen204 {
 		header @challenge X-Tailscale-Response "response {http.request.header.X-Tailscale-Challenge}"

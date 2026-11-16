@@ -1,0 +1,44 @@
+# IT-14 (P1-T12c) chạy lại trên edge template_version 4, chế độ (ii), 2026-11-16 ~18:03 UTC
+route 10.249.0.0/16 via edge 10.250.0.3
+route 10.250.0.0/16 via edge 10.250.0.3
+route default via host 10.250.0.1
+--- routes: default via 10.250.0.1 dev eth0 ;10.249.0.0/16 via 10.250.0.3 dev eth0 ;10.250.0.0/29 dev eth0 scope link  src 10.250.0.4 ;10.250.0.0/16 via 10.250.0.3 dev eth0 ;
+PASS own hs :9090/metrics: 200
+PASS own hs :9090/debug/policy: 403
+PASS edge-on-tenant-net 10.250.0.3:80: failed(rc=1 no output)
+PASS edge-on-tenant-net 10.250.0.3:443: failed(rc=1 no output)
+PASS edge-on-tenant-net 10.250.0.3:8080: failed(rc=1 no output)
+PASS edge-on-tenant-net 10.250.0.3:8081: failed(rc=1 no output)
+PASS edge-on-tenant-net 10.250.0.3:8443: failed(rc=1 no output)
+PASS edge-on-tenant-net 10.250.0.3:9091: failed(rc=1 no output)
+PASS edge-on-tenant-net 10.250.0.3:2019: failed(rc=1 no output)
+PASS edge public 10.249.0.2:443: failed(rc=1 no output)
+PASS edge public 10.249.0.2:80: failed(rc=1 no output)
+PASS edge tunnel-facing 10.249.0.2:8443: failed(rc=1 no output)
+PASS edge tunnel-facing 10.249.0.2:8080: failed(rc=1 no output)
+PASS edge admin 10.249.2.2:8081: failed(rc=1 no output)
+PASS edge metrics 10.249.3.2:9091: failed(rc=1 no output)
+PASS host tunnel IP 10.248.0.2:8443: failed(rc=1 no output)
+PASS host tunnel IP 10.248.0.2:8080: failed(rc=1 no output)
+PASS host tunnel IP 10.248.0.2:22: failed(rc=1 no output)
+PASS VPS via tunnel 10.248.0.1:22: failed(rc=1 no output)
+PASS VPS via tunnel 10.248.0.1:443: failed(rc=1 no output)
+PASS other tenant hs 10.250.0.10:8080: failed(rc=1 no output)
+PASS other tenant hs 10.250.0.10:9090: failed(rc=1 no output)
+PASS postgres 10.249.1.2:5432: failed(rc=1 no output)
+PASS crowdsec lapi 10.249.4.2:8080: failed(rc=1 no output)
+PASS crowdsec metrics 10.249.4.2:6060: failed(rc=1 no output)
+PASS host via bridge gw 10.250.0.1:22: failed(rc=1 no output)
+PASS host via bridge gw 10.250.0.1:80: failed(rc=1 no output)
+PASS host via bridge gw 10.250.0.1:443: failed(rc=1 no output)
+PASS host LAN IP 192.168.1.8:22: failed(rc=1 no output)
+PASS host LAN IP 192.168.1.8:80: failed(rc=1 no output)
+PASS host LAN IP 192.168.1.8:443: failed(rc=1 no output)
+PASS LAN host 192.168.1.14:22: failed(rc=1 no output)
+PASS LAN host 192.168.1.14:8006: failed(rc=1 no output)
+PASS Internet 1.1.1.1:443: failed(rc=1 no output)
+PASS Internet 8.8.8.8:53: failed(rc=1 no output)
+PASS dns own alias hs-tenant-a: resolves
+PASS dns hs-tenant-b: no answer
+PASS dns example.com: no answer
+PASS dns api.github.com: no answer

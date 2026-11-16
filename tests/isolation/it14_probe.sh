@@ -28,10 +28,14 @@ echo "--- routes: $(ip route | tr '\n' ';')"
 s=$(http_status "http://$OWN:9090/metrics"); [ "$s" = 200 ] && say ok "own hs :9090/metrics" "$s" || say bad "own hs :9090/metrics" "$s"
 s=$(http_status "http://$OWN:9090/debug/policy"); [ "$s" = 403 ] && say ok "own hs :9090/debug/policy" "$s" || say bad "own hs :9090/debug/policy (expect 403)" "$s"
 # edge via its IP on THIS network: no listener may answer there
-for p in 80 443 8081 9091 2019; do tcp "edge-on-tenant-net" "$EDGE_T" "$p"; done
+for p in 80 443 8080 8081 8443 9091 2019; do tcp "edge-on-tenant-net" "$EDGE_T" "$p"; done
 # edge listener IPs on other networks (reachable only through the edge's interface on this network)
 tcp "edge public" 10.249.0.2 443; tcp "edge public" 10.249.0.2 80
+tcp "edge tunnel-facing" 10.249.0.2 8443; tcp "edge tunnel-facing" 10.249.0.2 8080
 tcp "edge admin" 10.249.2.2 8081; tcp "edge metrics" 10.249.3.2 9091
+# WireGuard tunnel to the VPS (P1-T16): host end (where the tunnel-facing ports are published) and VPS end
+tcp "host tunnel IP" 10.248.0.2 8443; tcp "host tunnel IP" 10.248.0.2 8080; tcp "host tunnel IP" 10.248.0.2 22
+tcp "VPS via tunnel" 10.248.0.1 22; tcp "VPS via tunnel" 10.248.0.1 443
 # other tenant, core services, host, LAN, Internet
 tcp "other tenant hs" "$OTHER" 8080; tcp "other tenant hs" "$OTHER" 9090
 tcp "postgres" "$PG" 5432; tcp "crowdsec lapi" "$CS" 8080; tcp "crowdsec metrics" "$CS" 6060

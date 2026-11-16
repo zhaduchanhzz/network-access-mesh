@@ -1,0 +1,34 @@
+# Sinh bởi tools/render_gateway.py từ infrastructure/gateway/haproxy.cfg.tmpl (template_version ${template_version}).
+# KHÔNG sửa tay — render lại. l4proxy của VPS Public Gateway (§14.9): chỉ chuyển tiếp TCP, không terminate TLS, không
+# có chứng chỉ; gửi PROXY v2 tới listener tunnel-facing của edge qua tunnel WireGuard (GW-03).
+global
+    log stdout format raw local0 info
+    maxconn 20000
+    user haproxy
+    group haproxy
+
+defaults
+    mode tcp
+    log global
+    option tcplog
+    option dontlognull
+    timeout connect 5s
+    # stream control (long-poll Noise) và DERP sống lâu, nhàn rỗi tới vài phút giữa các keepalive (V-18)
+    timeout client 2h
+    timeout server 2h
+    timeout client-fin 30s
+    timeout server-fin 30s
+
+frontend https_in
+    bind ${vps_public_ipv4}:443
+    default_backend edge_https
+
+frontend http_in
+    bind ${vps_public_ipv4}:80
+    default_backend edge_http
+
+backend edge_https
+    server edge ${edge_tunnel_ipv4}:${https_port} send-proxy-v2
+
+backend edge_http
+    server edge ${edge_tunnel_ipv4}:${http_port} send-proxy-v2

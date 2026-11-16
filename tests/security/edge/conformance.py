@@ -10,6 +10,8 @@ are stripped. Subcommands (each prints PASS/FAIL lines; exit code 0 = every chec
   admin       --edge IP:PORT --token-file F --echo SLUG [--log FILE] [--other-token-file F]
   metrics     --edge IP:PORT --token-file F --echo SLUG [--log FILE] [--other-token-file F]
   unreachable --targets IP:PORT[,IP:PORT...]                         (every target must refuse or time out)
+  tunnel-reject --targets IP:PORT[,...] --sni HOST [--tls-ports 8443] (tunnel-facing listener, from a non-peer source:
+              no TLS/HTTP answer with or without a forged PROXY header — V-17)
   real-api    --via admin|public --edge ADDR --key-file F --instance SLUG [--token-file F] [--mesh-domain D]
               (a real, short-lived Headscale API key read from a root-only file; never printed)
 
@@ -330,6 +332,58 @@ def cmd_unreachable(a) -> int:
     return res.done("unreachable targets")
 
 
+def no_answer(host: str, port: int, prefix: bytes, sni: str | None, path: str) -> tuple[bool, str]:
+    """Connect, send `prefix` (e.g. a PROXY header), then one HTTP request over TLS (sni set) or plain HTTP.
+    True when no HTTP response comes back (refused, reset, closed, TLS failure). A completed TLS handshake alone is
+    not an answer: the certificate is public; what matters is that no request is served."""
+    try:
+        raw = socket.create_connection((host, port), timeout=3)
+    except OSError as e:
+        return True, f"{type(e).__name__} on connect"
+    conn = raw
+    try:
+        raw.settimeout(4)
+        if prefix:
+            raw.sendall(prefix)
+        hs = ""
+        if sni:
+            try:
+                conn = ssl.create_default_context().wrap_socket(raw, server_hostname=sni)
+                hs = "TLS ok, "
+            except (OSError, ssl.SSLError, ValueError) as e:
+                return True, f"TLS handshake failed ({type(e).__name__})"
+        req = f"GET {path} HTTP/1.1\r\nHost: {sni or 'conformance.invalid'}\r\nConnection: close\r\n\r\n"
+        try:
+            conn.sendall(req.encode())
+            data = conn.recv(64)
+        except (OSError, ssl.SSLError) as e:
+            return True, f"{hs}no HTTP answer ({type(e).__name__})"
+        if data.startswith(b"HTTP/"):
+            return False, f"{hs}answered {data[:20]!r}"
+        return True, f"{hs}closed without answer"
+    finally:
+        conn.close()
+
+
+def cmd_tunnel_reject(a) -> int:
+    """Tunnel-facing listener (P1-T17, GW-02, V-17): proxy_protocol REQUIRE for the tunnel peer, `deny` (REJECT a
+    header) for every other source, plus the @direct_tunnel guard for headerless connections. From any source other
+    than the peer, no request may be served — without a PROXY header and with a forged one."""
+    res = Result()
+    for t in a.targets:
+        host, port = t.rsplit(":", 1)
+        tls = port in a.tls_ports
+        forged = f"PROXY TCP4 203.0.113.7 {host} 40000 {port}\r\n".encode()
+        paths = ("/key?v=113", "/robots.txt", "/bootstrap-dns") if tls else ("/generate_204", "/key?v=113")
+        for label, prefix in (("no PROXY header", b""), ("forged PROXY v1 header", forged)):
+            for path in paths:
+                ok, detail = no_answer(host, int(port), prefix, a.sni if tls else None, path)
+                res.check(ok, f"{t} {label} {path}: not served", detail)
+                if ok:
+                    print(f"  ok   {t} {label} {path}: {detail}")
+    return res.done("tunnel-facing listener from a non-peer source")
+
+
 def cmd_real_api(a) -> int:
     """A real, short-lived Headscale API key: accepted through the admin listener, useless through the public one."""
     res = Result()
@@ -375,6 +429,10 @@ def main() -> int:
         p.add_argument("--log")
     p = sub.add_parser("unreachable")
     p.add_argument("--targets", type=lambda s: s.split(","), required=True)
+    p = sub.add_parser("tunnel-reject")
+    p.add_argument("--targets", type=lambda s: s.split(","), required=True)
+    p.add_argument("--sni", required=True, help="a real tenant hostname, so a TLS answer would prove acceptance")
+    p.add_argument("--tls-ports", type=lambda s: s.split(","), default=["8443"])
     p = sub.add_parser("real-api")
     p.add_argument("--via", choices=["admin", "public"], required=True)
     p.add_argument("--edge", required=True)
@@ -384,7 +442,7 @@ def main() -> int:
     p.add_argument("--mesh-domain")
     a = ap.parse_args()
     return {"public": cmd_public, "stopped": cmd_stopped, "admin": cmd_admin, "metrics": cmd_metrics,
-            "unreachable": cmd_unreachable, "real-api": cmd_real_api}[a.cmd](a)
+            "unreachable": cmd_unreachable, "tunnel-reject": cmd_tunnel_reject, "real-api": cmd_real_api}[a.cmd](a)
 
 
 if __name__ == "__main__":

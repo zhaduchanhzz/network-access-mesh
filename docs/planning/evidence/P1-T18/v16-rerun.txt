@@ -1,0 +1,9 @@
+# V-16 chạy lại sau diễn tập dựng lại gateway — a2 (sau NAT OPNsense, TS_DEBUG_ALWAYS_USE_DERP=true) kéo 20 MiB từ a1 (100.64.0.1:8000); file nguồn mới: sha256 acbd4ca7a749402d
+a2 env: TS_DEBUG_ALWAYS_USE_DERP=true
+17:52:20
+UDP sockets of tailscaled: 0
+pong from lab-a1 (100.64.0.1) via DERP(mg-tenant-a) in 92ms
+HTTP 200, 20971520 B, 3172620 B/s
+sha256=acbd4ca7a749402d elapsed=6.62s derp_bytes=+22406860 direct_ipv4_bytes=+0
+100.64.0.1  lab-a1  lab-a  linux  active; relay "mg-tenant-a", tx 658108 rx 22406860  
+17:52:29

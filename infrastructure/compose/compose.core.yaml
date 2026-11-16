@@ -38,7 +38,9 @@ services:
     labels:
       meshguard.role: core
 
-  stund:   # chế độ Local Development: STUN dùng chung nghe UDP 3478 trên host LAN (khi có VPS thì chạy trên VPS — §10.1)
+  stund:   # CHỈ chế độ Local Development: STUN dùng chung nghe UDP 3478 trên host LAN. Khi có VPS gateway, stund chạy trên
+           # VPS (infrastructure/gateway — §10.1, P1-T18) ⇒ service này nằm trong profile local-dev, `up` mặc định không start.
+    profiles: [local-dev]
     image: ghcr.io/zhaduchanhzz/network-access-mesh/stund@sha256:30a359fddac7027dc9abd794c0405ebfff72c2ce79043e331353c5060483fce0
     network_mode: host
     read_only: true

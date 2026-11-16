@@ -5,7 +5,7 @@
   "net_cidr": "10.250.0.8/29",
   "run_uid": 30002,
   "derp_region_id": 901,
-  "derp_ipv4": "192.168.1.8",
+  "derp_ipv4": "116.118.3.46",
   "node_expiry": "2160h",
   "nameservers": [
     "1.1.1.1",

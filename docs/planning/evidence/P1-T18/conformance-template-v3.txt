@@ -1,0 +1,43 @@
+# Edge conformance (P1-T10a) chạy lại sau P1-T17 — template_version 3, 2026-11-16 17:53 UTC (FAIL: listener tunnel-facing trả lời kết nối không có PROXY header)
+17:53:27
+== edge on mg-t-conf-echo: 10.250.255.243; echo upstream pid 32604
+PASS public listener: 383 checks passed, 0 failed
+PASS admin listener: 50 checks passed, 0 failed
+PASS metrics listener: 21 checks passed, 0 failed
+== internal listeners from a container on mg-edge only (future web/api/idp)
+  ok   10.249.2.2:8081: TimeoutError timed out
+  ok   10.249.3.2:9091: TimeoutError timed out
+PASS unreachable targets: 2 checks passed, 0 failed
+== every edge listener from inside a tenant network (edge IP on that network and the listener IPs)
+  ok   10.250.255.243:80: ConnectionRefusedError Connection refused
+  ok   10.250.255.243:443: ConnectionRefusedError Connection refused
+  ok   10.250.255.243:8080: ConnectionRefusedError Connection refused
+  ok   10.250.255.243:8081: ConnectionRefusedError Connection refused
+  ok   10.250.255.243:8443: ConnectionRefusedError Connection refused
+  ok   10.250.255.243:9091: ConnectionRefusedError Connection refused
+  ok   10.249.0.2:443: OSError Network is unreachable
+  ok   10.249.0.2:8080: OSError Network is unreachable
+  ok   10.249.0.2:8443: OSError Network is unreachable
+  ok   10.249.2.2:8081: OSError Network is unreachable
+  ok   10.249.3.2:9091: OSError Network is unreachable
+PASS unreachable targets: 11 checks passed, 0 failed
+== tunnel-facing listener (10.248.0.2:8080/8443 → 10.249.0.2) from non-peer sources
+FAIL 10.249.0.2:8443 no PROXY header: no answer: TLS handshake succeeded
+  ok   10.249.0.2:8443 forged PROXY v1 header: TLS handshake failed (SSLEOFError)
+FAIL 10.249.0.2:8080 no PROXY header: no answer: answered b'HTTP/1.1 204 No Cont'
+  ok   10.249.0.2:8080 forged PROXY v1 header: closed without answer
+FAIL tunnel-facing listener from a non-peer source: 2 checks passed, 2 failed
+FAIL 10.248.0.2:8443 no PROXY header: no answer: TLS handshake succeeded
+  ok   10.248.0.2:8443 forged PROXY v1 header: TLS handshake failed (SSLEOFError)
+FAIL 10.248.0.2:8080 no PROXY header: no answer: answered b'HTTP/1.1 204 No Cont'
+  ok   10.248.0.2:8080 forged PROXY v1 header: closed without answer
+FAIL tunnel-facing listener from a non-peer source: 2 checks passed, 2 failed
+== real API key of tenant-a (1 h, expired right after)
+PASS real Headscale API key via admin listener: 1 checks passed, 0 failed
+PASS real Headscale API key via public listener: 1 checks passed, 0 failed
+  expired API key prefix hskey-api-<prefix>-***
+== tenant stopped
+PASS stopped tenant: 3 checks passed, 0 failed
+EDGE CONFORMANCE: FAIL
+exit=1
+17:53:56

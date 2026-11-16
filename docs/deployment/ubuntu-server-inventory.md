@@ -105,6 +105,7 @@ Mọi VM dùng cloud image Ubuntu 24.04 (noble): `SHA256SUMS` được kiểm ch
 | 10 | Ngoài dịch vụ hệ thống: Docker, postfix, dovecot, opendkim. Còn 2 cron và 1 timer của dự án cũ (`vnflashlearner-docker-cleanup`, `vnflashlearner-postgres-backup`, `vnflash-mail-certs.timer`): đã đọc mã, vô hại khi các dự án đã dừng (không khởi động lại container, không xóa volume hay bản dump) |
 | 12 | NTP đồng bộ; 367 gói chờ cập nhật; `unattended-upgrades` chạy |
 | — | User triển khai `mgdeploy` (SSH key của dự án, `sudo` NOPASSWD toàn quyền — thu hẹp ở P1-T15) |
+| Sau P1-T15…P1-T18 (2026-11-16) | SSH chỉ bằng khóa (`PasswordAuthentication no`, `PermitRootLogin prohibit-password`); firewall trên máy `inet mg_vps` (vào mặc định chặn; mở TCP 22, 80, 443, 25, 587, UDP 3478, 51820); 367 gói đã vá, **chờ reboot** (libc6, dbus, apparmor) và 9 gói kernel bị giữ lại; giữ Docker gói `docker.io` 29.1.3; `mg-gateway` (`l4proxy` + `stund`) và tunnel `mg-wg0` chạy; quét từ Internet chỉ thấy 22, 80, 443, 587 (`docs/planning/evidence/P1-T15.md`, `P1-T18.md`) |
 
 **Host staging — kết quả A.2 (VM 104)**
 
@@ -116,13 +117,14 @@ Mọi VM dùng cloud image Ubuntu 24.04 (noble): `SHA256SUMS` được kiểm ch
 | 6 | Lúc discovery chưa có Docker; đã cài Docker 29.9.3 + Compose 5.7.1 ngày 2026-11-16 (P1-T02 làm sớm theo chỉ đạo của chủ dự án) |
 | 8–9 | Chỉ dịch vụ mặc định của cloud image; chỉ SSH (22) nghe trên mọi địa chỉ, cả IPv4 và IPv6 |
 | 10 | ufw tắt, không có rule nftables, `INPUT` mặc định `ACCEPT` |
-| 11, 13 | IP ra Internet của LAN: chưa đo (lệnh đo làm lộ IP cho dịch vụ bên thứ ba — cần chủ dự án đồng ý) |
+| 11, 13 | IP ra Internet của LAN: lúc discovery chưa đo (lệnh đo làm lộ IP cho dịch vụ bên thứ ba). Từ P1-T15 đo bằng `stund` của chính dự án trên VPS: một IPv4 công khai (che trong bằng chứng); router có CGNAT hay không vẫn chưa kiểm — không cần cho Path B. Port forwarding (13): không dùng (Path B, §15.3) |
+| 12, 14 | Domain/DNS: chứng chỉ wildcard qua DNS-01 (P1-T05); `*.mesh.` A → IP VPS (DNS-only) + CAA (P1-T18). Từ Internet (P1-T18): `/key?v=113` trả 200 qua VPS, `netcheck` và `debug derp` đạt với client trong LAN; client ở mạng ngoài (4G) còn pending |
 | 15 | NTP đồng bộ, múi giờ UTC |
 | 16 | SSH chỉ bằng key (`PasswordAuthentication no`); root chỉ bằng key |
 | 17 | `net.ipv4.ip_forward = 0`; `rmem_max`/`wmem_max` = 212992; `fs.inotify.max_user_instances` = 128 |
 | 18 | AppArmor bật; `unattended-upgrades` chạy; 0 gói chờ cập nhật |
 
-**Domain (D-1):** `gta5web.online` dùng nameserver của Cloudflare; không có bản ghi CAA (Let's Encrypt được phép); các tên `app.`, `admin.`, `auth.`, `mesh.` và tên mẫu dưới `*.mesh.` chưa tồn tại (kiểm ngày 2026-11-16).
+**Domain (D-1):** `gta5web.online` dùng nameserver của Cloudflare; không có bản ghi CAA (Let's Encrypt được phép); các tên `app.`, `admin.`, `auth.`, `mesh.` và tên mẫu dưới `*.mesh.` chưa tồn tại (kiểm ngày 2026-11-16). Từ P1-T18 (2026-11-16): `*.mesh.gta5web.online` A → IP VPS (DNS-only); CAA trên `mesh.gta5web.online` chỉ cho Let's Encrypt, `dns-01`, đúng tài khoản ACME production của edge (`infrastructure/environments/staging/dns-public.json`).
 
 **Trạng thái từng mục A.1 (đầu ra P0-T05)**
 
