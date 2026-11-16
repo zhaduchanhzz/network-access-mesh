@@ -40,5 +40,5 @@
 | V-32 | Edge trả tĩnh `/bootstrap-dns` không ảnh hưởng client (§14.6) | P1-T12 | G1 | chưa chạy | — |
 | V-33 | Edge gắn ~100–300 network tenant lúc chạy (thời gian attach, restart/recreate, phân giải tên upstream) và nền tảng tự phục hồi sau reboot host / restart `dockerd` | P1-T20, P1-T21, P3-T14, P6-T08 | G1 (sơ bộ) / G3 / G6 | chưa chạy | — |
 | V-34 | STUN publish trực tiếp theo tenant qua Docker, gồm IPv6 (EG-10, §2.7) — **chỉ** khi dùng phương án dự phòng (a) ở §10.3 | Chỉ mở khi V-02 không đạt (P1-T18) | G1 | chưa chạy | — |
-| V-35 | Host staging không lộ cổng nào ra Internet qua IPv6 công khai của LAN (thêm 2026-11-16 sau discovery, Appendix A.4) | P1-T02, P1-T06 | G1 | chưa chạy | — |
+| V-35 | Host staging không lộ cổng nào ra Internet qua IPv6 công khai của LAN (thêm 2026-11-16 sau discovery, Appendix A.4) | P1-T02, P1-T06 | G1 | đạt (functional) phía host — chưa thử từ mạng IPv6 bên ngoài | [P1-T02.md](P1-T02.md) |
 | V-36 | derper riêng của tenant sau proxy tầng 4 SNI passthrough dùng chung cổng 443 (DP-09) — **chỉ** khi dùng phương án lùi (e) ở §10.3 (thêm 2026-11-16 khi `docs-check` phát hiện REQUIRES VALIDATION chưa có mã) | Chỉ mở khi V-01 không đạt (P1-T05a) | G1 | chưa chạy | — |
