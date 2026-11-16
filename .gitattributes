@@ -9,3 +9,4 @@ Makefile        text eol=lf
 *.yaml          text eol=lf
 *.toml          text eol=lf
 versions.lock   text eol=lf
+*.md            text eol=lf

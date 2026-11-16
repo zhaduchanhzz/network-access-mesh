@@ -156,6 +156,22 @@ purpose = "CI (.github/workflows/ci.yml)"
 runner = "ubuntu-24.04 (runner của GitHub — repo public, D-12)"
 gitleaks_linux_x64_sha256 = "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"   # gitleaks_8.30.1_checksums.txt
 
+[ids]   # UID/GID số cố định (§14.2, P1-T03) — compose dùng `user:` và `group_add:` theo các số này
+edge_uid = 10001                  # image edge tự build chạy non-root với UID này (P1-T04)
+api_worker_uid = 65532            # distroless nonroot
+postgres_uid = 999                # image postgres (trên host, GID 999 là systemd-journal — vô hại vì secrets/ là root 0700)
+prometheus_uid = 65534
+crowdsec_uid = 0                  # image chính thức chạy root
+tenant_run_uid_range = "30000-39999"   # cấp theo instance (P3-T04)
+mg-sec-app = 20001
+mg-sec-api = 20002
+mg-sec-worker = 20003
+mg-sec-migrate = 20004
+mg-sec-edge = 20005
+mg-sec-obs = 20006
+mg-sec-backup = 20007
+mg-sec-ship = 20008
+
 [toolchains]
 go = "1.27.4"
 node = "26.13.1"
