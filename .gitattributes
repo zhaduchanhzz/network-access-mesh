@@ -19,3 +19,4 @@ Caddyfile text eol=lf
 *.local text eol=lf
 *.ts            text eol=lf
 *.mjs           text eol=lf
+*.sql           text eol=lf

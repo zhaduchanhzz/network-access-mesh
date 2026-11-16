@@ -1,17 +1,21 @@
 # CI cho mã Go (P2-T01): kiểm checksum module, gofmt, code sinh từ api/openapi.yaml khớp bản đã commit (P2-T02),
-# go vet, test có race detector (gồm test kiến trúc §13.6, test "canary secret" và test định tuyến của mọi operation),
-# golangci-lint, govulncheck. Chạy trong image golang pin theo digest; công cụ pin theo SHA-256 / phiên bản module
-# (kiểm qua checksum DB của Go; oapi-codegen là chỉ thị `tool` trong go.mod). Repo public: không dùng secret nào.
+# `sqlc diff` (mã sinh khớp database/migrations + database/queries — P2-T03), go vet, test có race detector (gồm
+# test kiến trúc §13.6, test "canary secret", test định tuyến của mọi operation và test tích hợp internal/store trên
+# PostgreSQL thật: IT-17, RLS, partition, migration trên DB có dữ liệu, truy vấn CI về quyền trên partition),
+# golangci-lint, govulncheck. Chạy trong image golang pin theo digest; PostgreSQL là service container pin theo
+# digest (versions.lock [images.postgres]); công cụ pin theo SHA-256 / phiên bản module (oapi-codegen là chỉ thị
+# `tool` trong go.mod). Mật khẩu superuser của cụm thử chỉ dùng một lần, ghép từ run id — cụm chỉ tồn tại trong
+# mạng của job, không phải secret. Repo public: không dùng secret nào.
 name: go
 
 on:
   push:
     branches: [main]
     paths: ["**/*.go", "go.mod", "go.sum", ".golangci.yml", ".github/workflows/go.yml", "api/openapi.yaml",
-            "internal/httpapi/gen/config.yaml"]
+            "internal/httpapi/gen/config.yaml", "database/**"]
   pull_request:
     paths: ["**/*.go", "go.mod", "go.sum", ".golangci.yml", ".github/workflows/go.yml", "api/openapi.yaml",
-            "internal/httpapi/gen/config.yaml"]
+            "internal/httpapi/gen/config.yaml", "database/**"]
 
 permissions:
   contents: read
@@ -19,15 +23,28 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     container:
       image: docker.io/library/golang@sha256:f18c3d73a184fb0582828510722e723b63a93f7188d11dd223d9be6f6880e65d   # 1.27.4-trixie
+    services:
+      postgres:
+        image: docker.io/library/postgres@sha256:2ea8630df176ad090ec92136dee850397c5af8781e4bcf2e4162593691c61bbc   # 18.7-trixie
+        env:
+          POSTGRES_PASSWORD: ci-${{ github.run_id }}-${{ github.run_attempt }}
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
     env:
       GOTOOLCHAIN: local
       GOFLAGS: -mod=readonly
       GOLANGCI_VERSION: "2.15.0"
       GOLANGCI_SHA256: "9b7fe6a6bf6334b98decf8d86b11415ea7889afdabdd1959fdce23af2a9ebcea"
       GOVULNCHECK_VERSION: "v1.9.0"
+      SQLC_VERSION: "v1.31.1"
+      MG_TEST_PG_ADMIN_URL: postgres://postgres:ci-${{ github.run_id }}-${{ github.run_attempt }}@postgres:5432/postgres?sslmode=disable
+      MG_TEST_PG_REQUIRED: "1"   # thiếu PostgreSQL ⇒ test tích hợp FAIL, không được bỏ qua
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -45,7 +62,9 @@ jobs:
           git diff --exit-code -- internal/httpapi/gen || { echo "::error::internal/httpapi/gen lệch spec — chạy 'make api-gen' rồi commit"; exit 1; }
       - name: go vet
         run: go vet ./...
-      - name: go test (race)
+      - name: sqlc diff (mã sinh khớp schema + queries)
+        run: go run "github.com/sqlc-dev/sqlc/cmd/sqlc@${SQLC_VERSION}" diff -f database/sqlc.yaml
+      - name: go test (race) — gồm test tích hợp PostgreSQL của internal/store
         run: go test -race -count=1 ./...
       - name: golangci-lint
         run: |

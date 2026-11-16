@@ -196,6 +196,7 @@ upload_artifact = "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646
 golangci_lint = "v2.15.0"   # 2026-10-16
 golangci_lint_linux_amd64_sha256 = "9b7fe6a6bf6334b98decf8d86b11415ea7889afdabdd1959fdce23af2a9ebcea"
 govulncheck = "golang.org/x/vuln/cmd/govulncheck@v1.9.0"   # 2026-10-11, kiểm qua checksum DB của Go
+sqlc = "github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1"   # 2026-04-22 (P2-T03), commit a95e91d; chạy bằng `go run` (CGO, pg_query_go v6), kiểm qua checksum DB của Go
 
 [ids]   # UID/GID số cố định (§14.2, P1-T03) — compose dùng `user:` và `group_add:` theo các số này
 edge_uid = 10001                  # image edge tự build chạy non-root với UID này (P1-T04)
@@ -221,6 +222,9 @@ go = "1.27.4"
 "github.com/prometheus/client_golang" = "v1.25.0"
 "github.com/oapi-codegen/oapi-codegen/v2" = "v2.8.2"   # 2026-10-31; chỉ thị `tool` trong go.mod (go tool oapi-codegen) — sinh internal/httpapi/gen từ api/openapi.yaml (P2-T02); hỗ trợ OpenAPI 3.1. Phụ thuộc của tool nằm trong go.mod dạng indirect, không vào binary api/worker
 "github.com/oapi-codegen/runtime" = "v1.8.0"   # 2026-10-23; runtime của code sinh (bind tham số, kiểu UUID) — v1.9.0 mới 7 ngày tuổi lúc pin
+"github.com/jackc/pgx/v5" = "v5.12.0"          # 2026-10-31 (P2-T03): pgxpool + stdlib; v5.13.0 (2026-11-11) chưa đủ 14 ngày
+"github.com/pressly/goose/v3" = "v3.29.0"      # 2026-10-11 (P2-T03): migration SQL nhúng; v3.30.x (2026-11-10/12) chưa đủ 14 ngày
+"github.com/google/uuid" = "v1.6.0"            # 2024-01-23 (P2-T03): kiểu UUID của mã sinh sqlc và store
 
 [npm]   # apps/web — package-lock.json (integrity sha512) là nguồn sự thật; ở P2-T02 chỉ dùng để sinh type TypeScript từ api/openapi.yaml
 "openapi-typescript" = "7.13.0"   # 2026-02-11
