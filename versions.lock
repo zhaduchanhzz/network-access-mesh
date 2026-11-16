@@ -54,6 +54,17 @@ run_as = "999:999"   # user postgres trong Dockerfile của docker-library; entr
 released = "2026-11-12"
 note = "Bản vá bảo mật — dưới 14 ngày tuổi, chấp nhận"
 
+[images.keycloak]   # IdP (D-3: Keycloak tự host, realm platform/tenant-a/tenant-b — P2-T05); base của image mg-idp
+image = "quay.io/keycloak/keycloak"
+tag = "26.8.2"
+index = "sha256:c68e286cacd87b942ac1939a0a1481461109d6acd3a57dc496969a319a76bbf0"
+amd64 = "sha256:4da21f9a53bcbac1026a0d654b740a81e98e5de4c45457076acc74b4d94b1551"
+user = "1000"
+run_as = "1000:1000 — chạy qua image mg-idp (build tối ưu từ base này: infrastructure/docker/idp), rootfs chỉ đọc"
+released = "2026-11-05"
+revision = "e514445f9dcdabc5bdcf67cab56c1e49655de067"   # commit của tag 26.8.2 trong keycloak/keycloak (GitHub API)
+note = "Bản vá bảo mật (~30 CVE, gồm stored XSS trang login và chiếm tài khoản qua race xác thực) — dưới 14 ngày tuổi, chấp nhận. Digest kiểm qua Registry API v2 của quay.io ngày 2026-11-17 (sha256 của index, manifest amd64 và config blob khớp Docker-Content-Digest; config build 2026-11-12). Tag 26.8.2 đã bị push lại khi rebuild base (05/11, 09/11, 12/11) — chỉ dùng theo digest"
+
 [images.haproxy]   # l4proxy trên VPS (§14.9)
 image = "docker.io/library/haproxy"
 tag = "3.4.7-alpine3.24"
@@ -231,6 +242,6 @@ docker_engine = "29.9.3"    # moby release docker-v29.9.3, 2026-11-03
 docker_compose = "5.7.1"    # 2026-11-11
 
 [pending]
-keycloak = "Pin ở P2-T05 (D-3)"
+mg_idp = "Image idp (Keycloak 26.8.2 build tối ưu — infrastructure/docker/idp, P2-T05) CHƯA vào workflow images: grype v0.121.1 báo 1 Critical (CVE-2026-91403, java-21-openjdk-headless, Red Hat 'will not fix' — sửa qua ca-certificates) ⇒ gate --fail-on critical chặn; chờ chủ dự án quyết. Khi có digest GHCR: ghi [images.mg-idp] — tools/render_idp.py tự lấy từ đó"
 monitoring = "Prometheus, Alertmanager, Grafana, Loki, Alloy, exporters — pin ở P6-T01"
 own_images = "edge và stund đã pin (P1-T04); api, worker, agent, web pin khi build ở Phase 2–4. Quy ước: tag = commit SHA, pin theo digest lấy từ GHCR sau khi workflow images xanh"

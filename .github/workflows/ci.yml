@@ -23,11 +23,12 @@ jobs:
         run: python3 tools/docs_check.py
       - name: docs/ khớp với master đã commit
         run: git diff --exit-code -- docs/ || { echo "::error::docs/ lệch với master — chạy 'make docs' rồi commit"; exit 1; }
-      - name: Golden test của các tool render (instance Headscale, edge)
+      - name: Golden test của các tool render (instance Headscale, edge, IdP)
         run: |
           python3 tools/test_mgenv.py
           python3 tools/test_render_instance.py
           python3 tools/test_render_edge.py
+          python3 tools/test_render_idp.py
 
   secret-scan:
     runs-on: ubuntu-24.04
