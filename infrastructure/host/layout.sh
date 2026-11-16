@@ -18,8 +18,10 @@ for g in "${!GIDS[@]}"; do
   fi
 done
 
-sudo install -d -o root -g root -m 0755 "$R" "$R/core" "$R/tenants"
+sudo install -d -o root -g root -m 0755 "$R" "$R/core" "$R/core/caddy" "$R/core/crowdsec" "$R/core/crowdsec/acquis.d" \
+                                         "$R/tenants" "$R/logs"
 sudo install -d -o root -g root -m 0750 "$R/run"
+sudo install -d -o 10001 -g 10001 -m 0750 "$R/logs/edge"   # access log của edge (UID 10001); crowdsec đọc qua nhóm 10001
 sudo install -d -o root -g root -m 0700 "$R/secrets" "$R/backups"
 for d in postgres idp edge tenants; do sudo install -d -o root -g root -m 0700 "$R/backups/$d"; done
 for d in postgres crowdsec edge app obs; do sudo install -d -o root -g root -m 0700 "$R/secrets/$d"; done

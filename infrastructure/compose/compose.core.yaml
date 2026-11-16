@@ -1,5 +1,5 @@
-# Project mg-core (P1-T06, §14.4) — Management Plane. Bản Phase 1: postgres + stund; crowdsec được thêm cùng edge
-# (P1-T06 phần 2, cần token DNS cho chứng chỉ). Image pin theo digest (versions.lock); secret dạng file (§14.2).
+# Project mg-core (P1-T06, §14.4) — Management Plane. Bản Phase 1: postgres, stund, crowdsec (edge là project
+# riêng mg-edge — compose.edge.yaml). Image pin theo digest (versions.lock); secret dạng file (§14.2).
 # Network do infrastructure/host/networks.sh tạo trước (external). Đặt tại /opt/meshguard/core/compose.core.yaml.
 name: mg-core
 
@@ -53,13 +53,73 @@ services:
     labels:
       meshguard.role: core
 
+  # CrowdSec dùng chung tại edge (§14.7). Không có đường ra lúc chạy: mg-sec là internal; hub (collection Caddy) được
+  # nạp sẵn vào volume một lần qua compose.crowdsec-hub.yaml (thêm mg-egress). Không chia sẻ tín hiệu với Central
+  # API (D-8). Bouncer "caddy" đăng ký từ file secret /run/secrets/bouncer_key_caddy (không qua biến môi trường).
+  # Chỉ quan sát tới G1: edge chưa route nào dùng handler crowdsec.
+  crowdsec:
+    image: docker.io/crowdsecurity/crowdsec@sha256:65b74942f7e7ed5c60fde4ac15fc4ba715904c398c8b16dd451f4907d90347d4   # v1.8.2
+    container_name: mg-crowdsec
+    environment:
+      DISABLE_ONLINE_API: "true"
+      NO_HUB_UPGRADE: "true"
+      USE_WAL: "true"
+      COLLECTIONS: "crowdsecurity/caddy"
+    group_add: ["10001"]            # đọc access log của edge (thư mục 0750, file 0640, nhóm 10001)
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    volumes:
+      - crowdsec-config:/etc/crowdsec
+      - crowdsec-data:/var/lib/crowdsec/data
+      - type: bind
+        source: /opt/meshguard/core/crowdsec/acquis.d/caddy.yaml
+        target: /etc/crowdsec/acquis.d/caddy.yaml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /opt/meshguard/logs/edge
+        target: /var/log/caddy
+        read_only: true
+        bind:
+          create_host_path: false
+    secrets:
+      - source: crowdsec_bouncer_key
+        target: bouncer_key_caddy
+    networks:
+      mg-sec:
+        aliases: [crowdsec]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 512m
+    pids_limit: 256
+    healthcheck:
+      test: ["CMD", "cscli", "lapi", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "5"}
+    labels:
+      meshguard.role: core
+
 secrets:
   pg_superuser_password:
     file: /opt/meshguard/secrets/postgres/superuser_password
+  crowdsec_bouncer_key:
+    file: /opt/meshguard/secrets/crowdsec/bouncer_key
 
 volumes:
   pg-data:
+  crowdsec-config:
+  crowdsec-data:
 
 networks:
   mg-data:
+    external: true
+  mg-sec:
     external: true

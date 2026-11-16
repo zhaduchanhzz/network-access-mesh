@@ -1,0 +1,7 @@
+{
+  "base_domain": "example.com.vn",
+  "lan_ipv4": "192.0.2.10",
+  "acme": "production",
+  "image": "ghcr.io/zhaduchanhzz/network-access-mesh/edge@sha256:0a03d9dd8fbae6c42c6861d041ee785c37506aa5f30bd9ce9290c824cb960fdc",
+  "dns_resolvers": ["1.1.1.1", "8.8.8.8"]
+}

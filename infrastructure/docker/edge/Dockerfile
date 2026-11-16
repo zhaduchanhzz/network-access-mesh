@@ -6,11 +6,15 @@
 # Chạy non-root (UID 10001). Binary KHÔNG mang file capability (XCADDY_SETCAP=0): Docker đặt
 # ip_unprivileged_port_start=0 trong network namespace của container, nên tiến trình non-root bind được 80/443 và
 # compose dùng được cap_drop: ALL mà không cần NET_BIND_SERVICE.
+# /usr/bin/healthprobe (healthprobe/main.go, chỉ thư viện chuẩn): HEALTHCHECK của compose — distroless không có curl.
 ARG CADDY_BUILDER=docker.io/library/caddy:2.11.9-builder-alpine@sha256:646fee578e680989ca5c7fd1ce6f1de574d19fd71ef2221810cc0510a9f40c86
 ARG RUNTIME=gcr.io/distroless/static-debian13:nonroot@sha256:aafe993665bf6200db38a02c11a9351e782a84b6a45e7f33b6695638c88e3931
 
 FROM ${CADDY_BUILDER} AS build
 ENV XCADDY_SETCAP=0 GOTOOLCHAIN=local CGO_ENABLED=0
+COPY healthprobe/main.go /src/healthprobe/main.go
+RUN mkdir -p /out \
+ && cd /src/healthprobe && go build -trimpath -ldflags='-s -w' -o /out/healthprobe main.go
 RUN mkdir -p /out /rootfs/config/caddy /rootfs/data/caddy /rootfs/etc/caddy \
  && xcaddy build v2.11.9 \
       --with github.com/caddy-dns/cloudflare@v0.2.4 \
@@ -26,6 +30,7 @@ RUN mkdir -p /out /rootfs/config/caddy /rootfs/data/caddy /rootfs/etc/caddy \
 
 FROM ${RUNTIME}
 COPY --from=build /out/caddy /usr/bin/caddy
+COPY --from=build /out/healthprobe /usr/bin/healthprobe
 COPY --from=build /out/modules.txt /usr/share/caddy/modules.txt
 COPY --from=build --chown=10001:10001 /rootfs/config /config
 COPY --from=build --chown=10001:10001 /rootfs/data /data

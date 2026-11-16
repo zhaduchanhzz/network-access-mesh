@@ -1,0 +1,13 @@
+# Override CHỈ dùng khi nạp hub cho CrowdSec (P1-T06, §14.3): thêm đường ra mg-egress để entrypoint tải index
+# (`cscli hub update --with-content`) và cài collection vào volume crowdsec-config/crowdsec-data.
+#   Nạp:      docker compose -f compose.core.yaml -f compose.crowdsec-hub.yaml up -d crowdsec
+#   Kiểm:     docker exec mg-crowdsec cscli collections list -o json   (ghi phiên bản + hash vào bằng chứng)
+#   Trả lại:  docker compose -f compose.core.yaml up -d crowdsec        (recreate, chỉ còn mg-sec — không có đường ra)
+services:
+  crowdsec:
+    networks:
+      mg-egress: {}
+
+networks:
+  mg-egress:
+    external: true

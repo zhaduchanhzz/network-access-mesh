@@ -2,8 +2,8 @@
 # Firewall của host LAN staging (P1-T02, §14.1, V-35, AC-20).
 # - Bảng riêng `inet mg_host`, áp cho cả IPv4 và IPv6; không đụng bảng của Docker, không dùng `flush ruleset`.
 # - Chiều vào mặc định chặn; chỉ mở SSH từ LAN (IPv4), DHCP và ICMP cần thiết. SSH qua IPv6 bị chặn (V-35).
-# - Không cho kết nối mới từ ngoài vào container qua eth0; cổng của edge được mở có chủ đích ở P1-T06/P1-T10
-#   bằng rule riêng, sau khi chủ dự án chấp thuận.
+# - Không cho kết nối mới từ ngoài vào container qua eth0, trừ cổng 80/443 của edge từ LAN (P1-T06); cổng khác
+#   của edge (P1-T10, tunnel) được mở bằng rule riêng, sau khi chủ dự án chấp thuận.
 # Áp dụng: sudo nft -f mg-staging-firewall.nft     Hoàn tác: sudo nft delete table inet mg_host
 table inet mg_host
 delete table inet mg_host
@@ -35,6 +35,8 @@ table inet mg_host {
 
     chain forward {
         type filter hook forward priority filter - 1; policy accept;
-        iifname "eth0" ct state new drop                                    # chưa có cổng container nào được mở
+        # Cổng publish của edge (P1-T06): sau DNAT, đích là IP tĩnh của edge trên mg-edge; chỉ từ LAN, chỉ IPv4.
+        iifname "eth0" ip saddr @lan4 ip daddr 10.249.0.2 tcp dport { 80, 443 } ct state new accept
+        iifname "eth0" ct state new drop                                    # mọi container khác: không mở từ ngoài
     }
 }

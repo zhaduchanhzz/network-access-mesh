@@ -1,0 +1,7 @@
+# Acquisition của CrowdSec (§14.7): access log JSON của edge (một file cho mọi site; tách tenant theo request.host).
+# Đặt tại /opt/meshguard/core/crowdsec/acquis.d/caddy.yaml, mount chỉ-đọc vào /etc/crowdsec/acquis.d/.
+source: file
+filenames:
+  - /var/log/caddy/access.log
+labels:
+  type: caddy
