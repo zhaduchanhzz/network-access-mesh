@@ -16,7 +16,7 @@
 | V-08 | Client 1.104.x trên 5 hệ điều hành | P1-T12e (sơ bộ), P5-T03 | G5 | chưa chạy | — |
 | V-09 | Độ trễ thu hồi và lan truyền policy; hành vi peer offline | P5-T04, P5-T07 | G5 | chưa chạy | — |
 | V-10 | Tunnel direct khi control plane của tenant ngừng | P1-T13 | G1/G5 | **đạt (network E2E verified, LAN NAT)** cho restart có kiểm soát: control của A ngừng ~2,7 s, luồng TCP trên tunnel direct gián đoạn tối đa 52 ms (nhịp 50 ms); ngừng hẳn: P6-T09 | [P1-T13.md](P1-T13.md) |
-| V-11 | Hành vi client khi Noise key đổi / restore bản cũ | P3-T11 | G3/G6 | chưa chạy | — |
+| V-11 | Hành vi client khi Noise key đổi / restore bản cũ | P3-T11 | G3/G6 | **dữ liệu sơ bộ (P1-T19)**: Noise key đổi (dựng lại instance) ⇒ client cũ vẫn `Running` bằng netmap cache, mọi lời gọi control thất bại, không tự chuyển sang cần đăng nhập — phải đăng ký lại; phần restore bản cũ: P3-T11/P6 | [P1-T19.md](P1-T19.md) |
 | V-12 | `VACUUM INTO` trên DB đang hoạt động + restore | P3-T11, P6-T04 | G3/G6 | chưa chạy | — |
 | V-13 | Tài nguyên/instance, mật độ/host, chi phí polling (bcrypt) | P6-T08 | G6 | chưa chạy | — |
 | V-14 | CrowdSec không khóa nhầm NAT của tenant | P6-T07b | G6 | chưa chạy | — |
