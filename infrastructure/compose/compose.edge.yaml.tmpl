@@ -33,6 +33,10 @@ services:
         target: cloudflare_dns_token
       - source: edge_bouncer_key
         target: bouncer_key
+      - source: edge_admin_token      # listener admin (mg-admin) — cùng giá trị với app/edge_admin_token
+        target: admin_token
+      - source: edge_metrics_token    # listener metrics (mg-obs) — cùng giá trị với obs/edge_metrics_token
+        target: metrics_token
     ports:                          # IPv4 tường minh: không bind 0.0.0.0 hay [::] (§14.4, §15.4)
       - "${lan_ipv4}:80:80/tcp"
       - "${lan_ipv4}:443:443/tcp"
@@ -79,6 +83,10 @@ secrets:
     file: /opt/meshguard/secrets/edge/cloudflare_dns_token
   edge_bouncer_key:
     file: /opt/meshguard/secrets/edge/bouncer_key
+  edge_admin_token:
+    file: /opt/meshguard/secrets/edge/admin_token
+  edge_metrics_token:
+    file: /opt/meshguard/secrets/edge/metrics_token
 
 volumes:
   edge-data:

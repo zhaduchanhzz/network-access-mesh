@@ -1,10 +1,10 @@
 # Sinh bởi tools/render_edge.py từ infrastructure/caddy/Caddyfile.tmpl (template_version ${template_version}).
 # KHÔNG sửa tay — render lại. Edge của MeshGuard (§14.6): mesh domain ${mesh_domain}, CA ${acme}.
 # - Site public chỉ bind IP tĩnh của edge trên mg-edge (${edge_ip}); cổng publish của host DNAT tới IP này (V-30).
-# - Không có giá trị secret nào trong file: token DNS và khóa bouncer chỉ được tham chiếu bằng placeholder {file.*},
-#   Caddy đọc file lúc provision (secret dạng file — §14.2).
-# - Listener admin (mg-admin) và metrics (mg-obs) được thêm ở P1-T10; CrowdSec ở chế độ chỉ-quan-sát tới G1
-#   (app crowdsec kết nối LAPI nhưng chưa route nào dùng handler crowdsec).
+# - Listener nội bộ: admin trên mg-admin (${edge_admin_ip}:${admin_port}), metrics trên mg-obs (${edge_obs_ip}:${metrics_port}).
+# - Không có giá trị secret nào trong file: token DNS, khóa bouncer, token admin/metrics chỉ được tham chiếu bằng
+#   placeholder {file.*}, Caddy đọc file lúc provision hoặc lúc so khớp (secret dạng file — §14.2).
+# - CrowdSec ở chế độ chỉ-quan-sát tới G1 (app crowdsec kết nối LAPI nhưng chưa route nào dùng handler crowdsec).
 {
 	admin unix//run/caddy/admin.sock
 	persist_config off
@@ -13,6 +13,7 @@
 	acme_ca ${acme_ca}
 	servers {
 		protocols h1 h2
+		strict_sni_host on
 	}
 	log {
 		output stdout
@@ -37,6 +38,23 @@
 	}
 }
 
+# Log của listener nội bộ: tách khỏi access log mà CrowdSec đọc; xóa header mang token (Caddy chỉ tự che
+# Authorization/Cookie, KHÔNG che X-MG-Token).
+(internal_log) {
+	log {
+		output file /var/log/caddy/internal.log {
+			mode 0640
+			roll_size 20MiB
+			roll_keep 5
+		}
+		format filter {
+			wrap json
+			request>headers>X-Mg-Token delete
+			request>headers>Authorization delete
+		}
+	}
+}
+
 # Control plane + DERP của mọi tenant: <slug>.${mesh_domain} → hs-<slug>:8080 trên network riêng của tenant.
 *.${mesh_domain} {
 	import access_log
@@ -49,7 +67,29 @@
 	# Allow-list path (§14.6); mọi path khác — gồm /api/*, /swagger*, /verify, /version, /health, /metrics — là 404.
 	@tenant {
 		vars_regexp tenant {http.request.host} ^([a-z][a-z0-9-]{1,30}[a-z0-9])\.${mesh_domain_re}$$
-		path /ts2021 /key /machine/ping-response /derp /derp/* /bootstrap-dns /register/* /auth/* /oidc/callback
+		path /ts2021 /key /machine/ping-response /derp /derp/* /register/* /auth/* /oidc/callback
+	}
+	# /bootstrap-dns KHÔNG proxy (RT-15: không xác thực, Headscale tra DNS phía server từ network internal):
+	# trả tĩnh tên tenant → IP điểm vào công khai (V-32). Ngoặc nhọn của JSON được escape cho bộ thay placeholder.
+	@bootstrap_dns {
+		vars_regexp bootstrap {http.request.host} ^([a-z][a-z0-9-]{1,30}[a-z0-9])\.${mesh_domain_re}$$
+		path /bootstrap-dns
+	}
+	@unsafe_path path_regexp unsafe \x5c
+	handle @bootstrap_dns {
+		header Content-Type application/json
+		header Cache-Control "no-store"
+		respond `\{"{http.request.host}":["${public_entry_ipv4}"]\}` 200
+	}
+	handle /robots.txt {
+		respond `User-agent: *
+Disallow: /
+` 200
+	}
+	# Path có "\" (kể cả dạng %5c) không bao giờ được proxy: matcher của Caddy so path đã giải mã và đã làm sạch
+	# ("/./", "/../", "//" — caddyserver/caddy#4407) nhưng không coi "\" là dấu phân cách (P1-T10a).
+	handle @unsafe_path {
+		respond 404
 	}
 	handle @tenant {
 		reverse_proxy hs-{re.tenant.1}.:8080 {
@@ -80,5 +120,64 @@ http:// {
 	}
 	handle {
 		redir https://{host}{uri} 308
+	}
+}
+
+# Listener admin nội bộ (§14.6): api/worker gọi REST API của ĐÚNG một tenant qua header X-MG-Instance.
+# Nguồn ngoài subnet mg-admin ⇒ đóng kết nối; thiếu/sai X-MG-Token ⇒ 403; chỉ /api/v1/* và GET /version;
+# token nội bộ và header chọn instance bị gỡ trước khi tới Headscale; API key của instance đi nguyên (Authorization).
+http://:${admin_port} {
+	bind ${edge_admin_ip}
+	import internal_log
+	@outside not remote_ip ${admin_subnet}
+	# Hai điều kiện: định dạng (file token đọc lỗi thì placeholder rỗng — header rỗng không được lọt) và giá trị.
+	@unauthorized not {
+		header_regexp X-MG-Token ^[A-Za-z0-9]{40}$$
+		header X-MG-Token {file./run/secrets/admin_token}
+	}
+	@allowed {
+		header_regexp instance X-MG-Instance ^([a-z][a-z0-9-]{1,30}[a-z0-9])$$
+		expression path('/api/v1/*') || (method('GET') && path('/version'))
+	}
+	@unsafe_path path_regexp unsafe \x5c
+	route {
+		abort @outside
+		respond @unauthorized 403
+		respond @unsafe_path 404
+		reverse_proxy @allowed hs-{re.instance.1}.:8080 {
+			header_up -X-MG-Token
+			header_up -X-MG-Instance
+		}
+		respond 404
+	}
+	handle_errors 502 503 504 {
+		respond 404
+	}
+}
+
+# Listener metrics nội bộ (§14.6): Prometheus đọc /instance/<slug>/metrics ⇒ hs-<slug>:9090/metrics.
+# Không bao giờ proxy /debug/*; token riêng (Authorization: Bearer) bị gỡ trước khi tới Headscale.
+http://:${metrics_port} {
+	bind ${edge_obs_ip}
+	import internal_log
+	@outside not remote_ip ${obs_subnet}
+	@unauthorized not {
+		header_regexp Authorization ^Bearer\s[A-Za-z0-9]{40}$$
+		header Authorization "Bearer {file./run/secrets/metrics_token}"
+	}
+	@metrics path_regexp instance ^/instance/([a-z][a-z0-9-]{1,30}[a-z0-9])/metrics$$
+	route {
+		abort @outside
+		respond @unauthorized 403
+		handle @metrics {
+			rewrite * /metrics
+			reverse_proxy hs-{re.instance.1}.:9090 {
+				header_up -Authorization
+			}
+		}
+		respond 404
+	}
+	handle_errors 502 503 504 {
+		respond 404
 	}
 }

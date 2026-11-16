@@ -6,6 +6,8 @@ Usage:  python tools/render_edge.py <params.json> <out_dir>
 Params (no secret — secrets are referenced by {file.*} placeholders and compose secret files):
   base_domain    domain of D-1; mesh domain = mesh.<base_domain>. If omitted, MG_BASE_DOMAIN is used.
   lan_ipv4       IPv4 the host publishes 80/443 on (never 0.0.0.0 — §15.4)
+  public_entry_ipv4  IPv4 clients use to reach the edge (static /bootstrap-dns answer — §14.6, V-32): the LAN IP
+                 in Local Development, the VPS IP once the gateway is in use (P1-T18)
   acme           "staging" or "production" (Let's Encrypt; staging first — P1-T05)
   image          edge image pinned by digest (versions.lock)
   dns_resolvers  public resolvers for the DNS-01 propagation check (split-horizon safe — P1-T06)
@@ -24,7 +26,7 @@ import string
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-TEMPLATE_VERSION = "1"
+TEMPLATE_VERSION = "2"
 CADDYFILE_TMPL = ROOT / "infrastructure" / "caddy" / "Caddyfile.tmpl"
 COMPOSE_TMPL = ROOT / "infrastructure" / "compose" / "compose.edge.yaml.tmpl"
 
@@ -37,7 +39,9 @@ ACME = {
 # Static IPs of the edge on the shared platform networks (infrastructure/host/networks.sh: lower half of each /24,
 # dynamic allocation is limited to the upper half with --ip-range).
 EDGE_IPS = {"edge_ip": "10.249.0.2", "edge_admin_ip": "10.249.2.2", "edge_obs_ip": "10.249.3.2"}
-REQUIRED = ["lan_ipv4", "acme", "image", "dns_resolvers"]
+# Internal listeners (§14.6): only callers inside the matching subnet are served, everything else is aborted.
+INTERNAL = {"admin_subnet": "10.249.2.0/24", "admin_port": "8081", "obs_subnet": "10.249.3.0/24", "metrics_port": "9091"}
+REQUIRED = ["lan_ipv4", "public_entry_ipv4", "acme", "image", "dns_resolvers"]
 
 
 class ParamError(ValueError):
@@ -55,6 +59,9 @@ def validate(p: dict) -> dict:
     ip = ipaddress.IPv4Address(p["lan_ipv4"])
     if ip.is_unspecified or ip.is_loopback or ip.is_multicast or ip.is_link_local:
         raise ParamError("lan_ipv4 must be a unicast host address (never 0.0.0.0 — §15.4)")
+    entry = ipaddress.IPv4Address(p["public_entry_ipv4"])
+    if entry.is_unspecified or entry.is_loopback or entry.is_multicast or entry.is_link_local:
+        raise ParamError("public_entry_ipv4 must be a unicast host address")
     if p["acme"] not in ACME:
         raise ParamError(f"acme must be one of {sorted(ACME)}")
     if not IMAGE_RE.match(p["image"]):
@@ -79,8 +86,10 @@ def render(params: dict) -> dict[str, str]:
         "acme_ca": ACME[p["acme"]],
         "dns_resolvers": " ".join(p["dns_resolvers"]),
         "lan_ipv4": p["lan_ipv4"],
+        "public_entry_ipv4": p["public_entry_ipv4"],
         "image": p["image"],
         **EDGE_IPS,
+        **INTERNAL,
     }
     return {
         "caddy/Caddyfile": string.Template(CADDYFILE_TMPL.read_text(encoding="utf-8")).substitute(v),
