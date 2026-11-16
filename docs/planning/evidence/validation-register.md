@@ -6,11 +6,11 @@
 
 | Mã | Điều cần kiểm chứng | Task | Gate | Kết quả | Bằng chứng |
 |---|---|---|---|---|---|
-| V-01 | DERP + control upgrade qua Caddy | P1-T05a, P1-T12 | G1 | chưa chạy | — |
+| V-01 | DERP + control upgrade qua Caddy | P1-T05a, P1-T12 | G1 | **đạt — network E2E verified (LAN NAT)** ở spike P1-T05a: 2 client thật (một sau NAT), ép relay, 20 MiB TCP qua `DERP(mg-spike)`, sha256 khớp; đường qua VPS gateway: P1-T18 | [P1-T05a.md](P1-T05a.md) |
 | V-02 | STUN dùng chung (`stund` tại điểm vào công khai) trả đúng IP/port công khai và được client của mọi tenant dùng | P1-T18, P5-T02a | G1 | chưa chạy | — |
-| V-03 | Upstream động theo nhãn + attach network lúc chạy | P1-T12d, P1-T10a | G1 | chưa chạy | — |
+| V-03 | Upstream động theo nhãn + attach network lúc chạy | P1-T12d, P1-T10a | G1 | **đạt một phần (functional)**: gắn/gỡ network tenant lúc chạy, 0 stream bị đóng, không reload, 24/24 ping qua DERP; còn đo truy vấn DNS ra ngoài và tenant đang dừng (P1-T12d, P1-T10a) | [P1-T08.md](P1-T08.md) |
 | V-04 | Headscale chạy non-root, read-only | P1-T11 | G1 | đạt (functional) | [P1-T11.md](P1-T11.md) |
-| V-05 | Chặn `/verify` không ảnh hưởng embedded DERP | P1-T05a | G1 | chưa chạy | — |
+| V-05 | Chặn `/verify` không ảnh hưởng embedded DERP | P1-T05a | G1 | **đạt — network E2E verified (LAN NAT)**: `/verify` ⇒ 404 ở edge, relay với `verify_clients: true` vẫn chạy | [P1-T05a.md](P1-T05a.md) |
 | V-06 | Key tạo không kèm `expiration`; policy rỗng; mã lỗi HTTP của `SetPolicy`; `/key` cần `?v=`; decoder policy với khóa khác kiểu chữ, khóa `#`, giá trị `null` | P2-T10 | G2 | chưa chạy | — |
 | V-07 | Chuyển hướng `/register/<auth_id>` về Portal | P4-T07 | G4a | chưa chạy | — |
 | V-08 | Client 1.104.x trên 5 hệ điều hành | P1-T12e (sơ bộ), P5-T03 | G5 | chưa chạy | — |
@@ -35,10 +35,10 @@
 | V-27 | Official client liên lạc những host nào của Tailscale Inc. khi dùng Headscale (CL-16), và `TS_NO_LOGS_NO_SUPPORT` có chặn được việc gửi log hay không | P1-T12e (sơ bộ, Linux), P5-T03 | G5 | chưa chạy | — |
 | V-28 | Hành vi adapter nêu theo đọc source của reviewer, chưa chạy thử: `GetNode` so với `ListNodes` (`subnet_routes`, user của tagged node); `SetTags` với danh sách rỗng; `AuthRegister` trên machine key đã có node — của chính user (re-auth, không tạo node mới) và của user khác (§7.4, §13.4) | P2-T10 | G2 | chưa chạy | — |
 | V-29 | Peer relays với client stable hiện hành (CL-13, §10.5) | P5-T11 (tùy chọn) | Không chặn gate (chỉ khi người dùng yêu cầu) | chưa chạy | — |
-| V-30 | Site public của edge chỉ `bind` IP trên `mg-edge` mà mọi cổng publish (LAN-direct, tunnel-facing) vẫn hoạt động; từ network tenant không tới được site hay listener nào của edge (§14.3) | P1-T10, P1-T12c | G1 | chưa chạy | — |
+| V-30 | Site public của edge chỉ `bind` IP trên `mg-edge` mà mọi cổng publish (LAN-direct, tunnel-facing) vẫn hoạt động; từ network tenant không tới được site hay listener nào của edge (§14.3) | P1-T10, P1-T12c | G1 | **đạt một phần**: site public chỉ bind 10.249.0.2 vẫn nhận lưu lượng DNAT từ cổng publish LAN-direct; còn tunnel-facing (P1-T16/T17) và phía network tenant (P1-T12c) | [P1-T06.md](P1-T06.md) |
 | V-31 | cAdvisor không có Docker socket vẫn ghép được nhãn tenant: nhãn `id` chứa container ID và join được với `meshguard_instance_info` (§16.1) | P6-T01 | G6 | chưa chạy | — |
 | V-32 | Edge trả tĩnh `/bootstrap-dns` không ảnh hưởng client (§14.6) | P1-T12 | G1 | chưa chạy | — |
 | V-33 | Edge gắn ~100–300 network tenant lúc chạy (thời gian attach, restart/recreate, phân giải tên upstream) và nền tảng tự phục hồi sau reboot host / restart `dockerd` | P1-T20, P1-T21, P3-T14, P6-T08 | G1 (sơ bộ) / G3 / G6 | chưa chạy | — |
 | V-34 | STUN publish trực tiếp theo tenant qua Docker, gồm IPv6 (EG-10, §2.7) — **chỉ** khi dùng phương án dự phòng (a) ở §10.3 | Chỉ mở khi V-02 không đạt (P1-T18) | G1 | chưa chạy | — |
-| V-35 | Host staging không lộ cổng nào ra Internet qua IPv6 công khai của LAN (thêm 2026-11-16 sau discovery, Appendix A.4) | P1-T02, P1-T06 | G1 | đạt (functional) phía host — chưa thử từ mạng IPv6 bên ngoài | [P1-T02.md](P1-T02.md) |
+| V-35 | Host staging không lộ cổng nào ra Internet qua IPv6 công khai của LAN (thêm 2026-11-16 sau discovery, Appendix A.4) | P1-T02, P1-T06 | G1 | đạt (functional) phía host — chưa thử từ mạng IPv6 bên ngoài | [P1-T02.md](P1-T02.md), [P1-T06.md](P1-T06.md) (cổng 80/443 của edge chỉ bind 192.168.1.8) |
 | V-36 | derper riêng của tenant sau proxy tầng 4 SNI passthrough dùng chung cổng 443 (DP-09) — **chỉ** khi dùng phương án lùi (e) ở §10.3 (thêm 2026-11-16 khi `docs-check` phát hiện REQUIRES VALIDATION chưa có mã) | Chỉ mở khi V-01 không đạt (P1-T05a) | G1 | chưa chạy | — |

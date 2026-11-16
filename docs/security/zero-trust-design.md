@@ -157,6 +157,6 @@ Quy tắc: không secret trong biến môi trường, file compose, image, repo 
 
 ### 7.7 Network segmentation & edge protection
 
-- Mạng Docker: `mg-edge` (edge ↔ api/web/idp), `mg-data` (api/worker ↔ PostgreSQL), `mg-obs` (monitoring), `mg-admin` (api/worker/prober ↔ listener admin của edge), `mg-egress` (đường ra có kiểm soát), `mg-crowdsec` (edge ↔ crowdsec), socket riêng cho worker ↔ agent, và **một network cho mỗi tenant** `mg-t-<slug>` chỉ gồm Headscale của tenant + edge. Chi tiết ở §14.
+- Mạng Docker: `mg-edge` (edge ↔ api/web/idp), `mg-data` (api/worker ↔ PostgreSQL), `mg-obs` (monitoring), `mg-admin` (api/worker/prober ↔ listener admin của edge), `mg-egress` (đường ra có kiểm soát), `mg-sec` (edge ↔ crowdsec), socket riêng cho worker ↔ agent, và **một network cho mỗi tenant** `mg-t-<slug>` chỉ gồm Headscale của tenant + edge. Chi tiết ở §14.
 - Edge là điểm thực thi chính sách duy nhất giữa Internet/Management Plane và instance của tenant: allow-list path public, listener nội bộ cho `/api/v1/*`, listener metrics chỉ cho `/metrics`.
 - CrowdSec dùng chung một bộ tại edge, phạm vi xử lý được tinh chỉnh để không khóa nhầm IP NAT egress của cả một tenant; CrowdSec **không** thấy nội dung kênh Noise và không thấy UDP STUN (§14, §16).

@@ -13,7 +13,7 @@
 | R-02 | Mô hình triển khai nằm ngoài phạm vi hỗ trợ của upstream (Docker, reverse proxy; "not enterprise software") | HS-03, RT-03, HS-23 | Cao | Bộ integration + network E2E riêng; tái hiện lỗi không qua proxy trước khi báo upstream; pin version | Tech lead |
 | R-03 | API Headscale thay đổi phá vỡ (0.30 thay REST v1, bỏ gRPC); mỗi minor đều có breaking change | RT-11 | Cao | Adapter có lớp version + contract test; pin theo instance; không tự nâng minor | Tech lead |
 | R-04 | Giới hạn quy mô một tailnet ("100s of devices" nếu ít biến động); `autogroup:self` tốn tài nguyên | HS-23, HS-08 | Trung bình–Cao | Quota thiết bị theo plan; đo ở Phase 6; tier host riêng cho tenant lớn | Product |
-| R-05 | DERP qua Caddy chưa được upstream kiểm chứng | §10.1, V-01 | Cao (chặn G1) | PoC sớm nhất có thể; phương án lùi: PoC (e) trước, (c) là cuối cùng (§10.3) | Tech lead |
+| R-05 | DERP qua Caddy chưa được upstream kiểm chứng — spike P1-T05a **đạt** ở LAN NAT (2026-11-16); còn đường qua VPS gateway (P1-T18) | §10.1, V-01 | Cao (chặn G1) | PoC sớm nhất có thể; phương án lùi: PoC (e) trước, (c) là cuối cùng (§10.3) | Tech lead |
 | R-06 | STUN dùng chung là thành phần chung của mọi tenant; chỉ có một STUN endpoint/IP nên khả năng nhận diện hard NAT bị hạn chế | V-02, §10.4 | Trung bình | Test `netcheck`; `stund` stateless nên dễ khởi động lại/nhân bản; thêm STUN ở IP thứ hai khi multi-host | Tech lead |
 | R-07 | Single host: SPOF và cách ly dùng chung kernel | T-14, §3.5 | Cao (đã công bố) | Backup offsite, runbook; lộ trình multi-host; tier riêng | Người dùng (chấp nhận rủi ro) |
 | R-08 | Reload edge đóng stream của mọi tenant | EG-02 | Trung bình | Định tuyến không cần reload; `stream_close_delay`; cửa sổ bảo trì | SRE |

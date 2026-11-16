@@ -22,6 +22,8 @@ sudo install -d -o root -g root -m 0755 "$R" "$R/core" "$R/core/caddy" "$R/core/
                                          "$R/tenants" "$R/logs"
 sudo install -d -o root -g root -m 0750 "$R/run"
 sudo install -d -o 10001 -g 10001 -m 0750 "$R/logs/edge"   # access log của edge (UID 10001); crowdsec đọc qua nhóm 10001
+# File log phải có sẵn trước khi crowdsec khởi động: file datasource không nhận file tạo sau lúc start (P1-T06)
+sudo test -e "$R/logs/edge/access.log" || sudo install -o 10001 -g 10001 -m 0640 /dev/null "$R/logs/edge/access.log"
 sudo install -d -o root -g root -m 0700 "$R/secrets" "$R/backups"
 for d in postgres idp edge tenants; do sudo install -d -o root -g root -m 0700 "$R/backups/$d"; done
 for d in postgres crowdsec edge app obs; do sudo install -d -o root -g root -m 0700 "$R/secrets/$d"; done

@@ -87,13 +87,13 @@ note = "Gói sqlite 3.53.4-r0 (≥ 3.51.3; Debian trixie chỉ có 3.46.1). Trư
 
 [images.mg-edge]
 image = "ghcr.io/zhaduchanhzz/network-access-mesh/edge"
-tag = "f02794ccecc28107eba1bb228d90bdd662bbf1df"
-index = "sha256:0a03d9dd8fbae6c42c6861d041ee785c37506aa5f30bd9ce9290c824cb960fdc"   # một manifest linux/amd64
-amd64 = "sha256:0a03d9dd8fbae6c42c6861d041ee785c37506aa5f30bd9ce9290c824cb960fdc"
+tag = "a2fdc93e4a89ddbedc3b63a2f5f4c7e7815bf98b"
+index = "sha256:9ec3b439981854185ae162b23be6dc974419d6d5443bc9b0198b92b41d685c08"   # một manifest linux/amd64
+amd64 = "sha256:9ec3b439981854185ae162b23be6dc974419d6d5443bc9b0198b92b41d685c08"
 user = "10001:10001"
 run_as = "10001:10001 + nhóm mg-sec-edge (20005); cap_drop ALL, read-only"
 released = "2026-11-16"
-note = "Caddy 2.11.9 + caddy-dns/cloudflare v0.2.4 + caddy-crowdsec-bouncer v0.15.0 + caddy-ratelimit v0.1.0 trên distroless static-debian13. grype v0.121.1: 0 Critical, 1 High chưa có bản vá (GHSA-mgcc-cww5-fp2q, go-jose/v3 v3.0.5), 5 Medium"
+note = "Caddy 2.11.9 + caddy-dns/cloudflare v0.2.4 + caddy-crowdsec-bouncer v0.15.0 + caddy-ratelimit v0.1.0 + /usr/bin/healthprobe (P1-T06) trên distroless static-debian13. Gate grype (0 Critical) đạt; bản trước (f02794c, sha256:0a03d9dd…): 1 High chưa có bản vá (GHSA-mgcc-cww5-fp2q, go-jose/v3 v3.0.5), 5 Medium"
 
 [images.mg-stund]
 image = "ghcr.io/zhaduchanhzz/network-access-mesh/stund"

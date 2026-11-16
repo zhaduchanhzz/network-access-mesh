@@ -1,0 +1,6 @@
+{
+  "lan_ipv4": "192.168.1.8",
+  "acme": "production",
+  "image": "ghcr.io/zhaduchanhzz/network-access-mesh/edge@sha256:9ec3b439981854185ae162b23be6dc974419d6d5443bc9b0198b92b41d685c08",
+  "dns_resolvers": ["1.1.1.1", "8.8.8.8"]
+}

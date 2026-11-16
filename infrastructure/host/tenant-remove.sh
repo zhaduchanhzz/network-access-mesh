@@ -9,6 +9,7 @@ IID=$(docker inspect -f '{{index .Config.Labels "meshguard.instance_id"}}' "mg-h
 [[ "$IID" =~ ^[0-9a-f-]{36}$ ]] || { echo "không xác định được instance_id của $SLUG — dừng"; exit 1; }
 D=/opt/meshguard/tenants/$IID
 [ -f "$D/compose.yaml" ] && docker compose -f "$D/compose.yaml" down --timeout 60 2>&1 | tail -1
+docker network disconnect "mg-t-$SLUG" mg-edge >/dev/null 2>&1 || true   # edge được gắn lúc chạy (reattach-edge.sh)
 docker network rm "mg-t-$SLUG" >/dev/null 2>&1 || true
 rm -rf -- "$D"
 echo "đã gỡ $SLUG (instance $IID)"

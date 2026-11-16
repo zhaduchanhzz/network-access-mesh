@@ -15,7 +15,10 @@ NETS="mg-edge       10.249.0.0/24    no        10.249.0.128/25
       mg-idp-data   10.249.6.0/24    yes       -"
 while read -r name subnet internal range; do
   if docker network inspect "$name" >/dev/null 2>&1; then
-    have=$(docker network inspect -f '{{(index .IPAM.Config 0).Subnet}} {{or (index .IPAM.Config 0).IPRange "-"}}' "$name")
+    # JSON thay cho template: với Docker 29, IPRange rỗng in ra "invalid Prefix" qua --format
+    have=$(docker network inspect "$name" | python3 -c 'import json, sys
+c = json.load(sys.stdin)[0]["IPAM"]["Config"][0]
+print(c.get("Subnet", ""), c.get("IPRange") or "-")')
     [ "$have" = "$subnet $range" ] || {
       echo "$name tồn tại với '$have' (cần '$subnet $range') — dừng; gỡ container khỏi network, docker network rm $name rồi chạy lại"
       exit 1; }

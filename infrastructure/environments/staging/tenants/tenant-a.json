@@ -1,0 +1,18 @@
+{
+  "tenant_id": "61668e62-4fc4-4c5c-85c1-60f692d645b9",
+  "instance_id": "0a583337-d4b0-4cd0-a52e-d99e4a812707",
+  "slug": "tenant-a",
+  "net_cidr": "10.250.0.0/29",
+  "run_uid": 30001,
+  "derp_region_id": 901,
+  "derp_ipv4": "192.168.1.8",
+  "node_expiry": "2160h",
+  "nameservers": [
+    "1.1.1.1",
+    "1.0.0.1"
+  ],
+  "image": "docker.io/headscale/headscale@sha256:11f81665e842809db9fe3006a38c56a66e968baa5abd4bac498e86445572b970",
+  "mem_limit": "512m",
+  "cpus": "1.0",
+  "pids_limit": 256
+}

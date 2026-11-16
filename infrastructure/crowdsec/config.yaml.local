@@ -1,0 +1,10 @@
+# Ghi đè cấu hình CrowdSec (được merge vào /etc/crowdsec/config.yaml). Mount chỉ-đọc từ
+# /opt/meshguard/core/crowdsec/config.yaml.local.
+#
+# hub_branch cố định ⇒ cscli không gọi https://version.crowdsec.net/latest để chọn nhánh hub trước mỗi lần
+# cài/cập nhật (cmd/crowdsec-cli/core/require/branch.go, v1.8.2). Network mg-sec không có đường ra: thiếu khóa này,
+# bước cài lại parser docker-logs của entrypoint thất bại và container lặp khởi động lại (P1-T06).
+# "master" là nhánh hub đã dùng khi nạp (v1.8.2 là bản mới nhất lúc nạp, 2026-11-16); đổi phiên bản CrowdSec thì
+# xem lại giá trị này (bản cũ hơn bản mới nhất dùng nhánh trùng tên phiên bản).
+cscli:
+  hub_branch: master

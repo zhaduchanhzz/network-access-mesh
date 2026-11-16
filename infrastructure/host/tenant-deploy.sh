@@ -1,7 +1,7 @@
 #!/bin/bash
 # Dựng thủ công một Headscale instance (Phase 1 — P1-T08/P1-T09/P1-T11) theo thứ tự §11.3:
 #   thư mục (§14.2) → network --internal --subnet <net_cidr> → start → chờ healthy → policy deny-all qua CLI.
-# KHÔNG gắn edge (bước riêng, chỉ khi Caddyfile đang chạy đã có allow-list path). KHÔNG tạo API key.
+# KHÔNG gắn edge (bước riêng: reattach-edge.sh, chỉ khi Caddyfile đang chạy đã có allow-list path). KHÔNG tạo API key.
 # Đầu vào: thư mục do tools/render_instance.py sinh ra.   Dùng: sudo bash tenant-deploy.sh <rendered_dir>
 # Hoàn tác: sudo bash tenant-remove.sh <slug> --i-understand-this-deletes-data
 set -euo pipefail
@@ -45,3 +45,6 @@ echo "4. healthy sau ~$((i * 2)) s"
 docker exec "mg-hs-$SLUG" headscale policy set --file /etc/headscale/bootstrap-policy.hujson >/dev/null
 got=$(docker exec "mg-hs-$SLUG" headscale policy get -o json | tr -d ' \n\t')
 case "$got" in *'"grants":[]'*) echo "5. policy deny-all đã áp và đọc lại khớp";; *) echo "policy đọc lại không khớp — dừng"; exit 1;; esac
+# Dấu "đã qua bước policy" — reattach-edge.sh chỉ gắn edge vào network của instance có dấu này (§11.3 bước 12 → 14)
+printf '%s %s\n' "$(date -u +%FT%TZ)" "$(printf %s "$got" | sha256sum | cut -c1-64)" > "$D/meta/policy-bootstrap.ok"
+chmod 0400 "$D/meta/policy-bootstrap.ok"

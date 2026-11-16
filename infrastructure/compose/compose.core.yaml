@@ -72,6 +72,12 @@ services:
     volumes:
       - crowdsec-config:/etc/crowdsec
       - crowdsec-data:/var/lib/crowdsec/data
+      - type: bind                  # hub_branch cố định: không gọi version.crowdsec.net khi không có đường ra
+        source: /opt/meshguard/core/crowdsec/config.yaml.local
+        target: /etc/crowdsec/config.yaml.local
+        read_only: true
+        bind:
+          create_host_path: false
       - type: bind
         source: /opt/meshguard/core/crowdsec/acquis.d/caddy.yaml
         target: /etc/crowdsec/acquis.d/caddy.yaml
