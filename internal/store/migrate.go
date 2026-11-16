@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"sort"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
@@ -45,7 +46,7 @@ func OpenMigrator(rawURL string, cred Credentials) (*sql.DB, error) {
 }
 
 // Migrate applies every pending forward-only migration (goose, embedded SQL — §4.3, §6.1) under a session lock
-// that keeps two migrate jobs from running at once.
+// that keeps two migrate jobs from running at once, then the seeds (Seed).
 func Migrate(ctx context.Context, db *sql.DB) error {
 	p, err := newProvider(db)
 	if err != nil {
@@ -54,10 +55,45 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 	if _, err := p.Up(ctx); err != nil {
 		return fmt.Errorf("store: migrate: %w", err)
 	}
+	return Seed(ctx, db)
+}
+
+// seedLockKey is the transaction-level advisory lock that serializes two seed runs on one database.
+const seedLockKey int64 = 0x6d67_7365_6564 // "mgseed"
+
+// Seed applies database/seeds/*.sql in file-name order, in one transaction, as the migration role: idempotent
+// reference data that follows the code rather than the schema — the RBAC seed generated from §8.4–§8.6 (P2-T07).
+// Each run brings the seeded rows exactly to the committed content, so it runs after every migration.
+func Seed(ctx context.Context, db *sql.DB) error {
+	files, err := fs.Glob(database.Seeds, "seeds/*.sql")
+	if err != nil {
+		return err
+	}
+	sort.Strings(files)
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("store: seed: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock($1)", seedLockKey); err != nil {
+		return fmt.Errorf("store: seed lock: %w", err)
+	}
+	for _, f := range files {
+		q, err := database.Seeds.ReadFile(f)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, string(q)); err != nil { // no arguments ⇒ simple protocol, several statements
+			return fmt.Errorf("store: seed %s: %w", f, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("store: seed: %w", err)
+	}
 	return nil
 }
 
-// MigrateTo applies pending migrations up to and including version.
+// MigrateTo applies pending migrations up to and including version (no seeds: they need the latest schema).
 func MigrateTo(ctx context.Context, db *sql.DB, version int64) error {
 	p, err := newProvider(db)
 	if err != nil {

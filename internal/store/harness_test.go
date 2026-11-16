@@ -158,9 +158,15 @@ func randomHex(n int) string {
 	return hex.EncodeToString(b)
 }
 
+// clusterLockKey serializes the creation of test databases across test processes: roles are cluster-wide and
+// `go test ./...` runs packages in parallel, so two packages migrating (CREATE ROLE) or setting role passwords
+// (ALTER ROLE) at once would race. Every package whose tests migrate a database (internal/store, internal/authz…)
+// holds this session-level advisory lock on database postgres — advisory locks are per database — while it does.
+const clusterLockKey int64 = 0x6d67_7465_7374 // "mgtest"
+
 // newDatabase creates a bootstrapped database migrated to version (0 = latest, < 0 = bootstrap only) and returns
 // its name. Database creation is serialised: roles are cluster-wide, and two migrations creating the same role at
-// once would race.
+// once would race (within this process: e.mu; across test processes: clusterLockKey).
 func (e *pgEnv) newDatabase(t *testing.T, version int64) string {
 	t.Helper()
 	ctx := ctxT(t)
@@ -168,6 +174,10 @@ func (e *pgEnv) newDatabase(t *testing.T, version int64) string {
 	defer e.mu.Unlock()
 	name := "mgt_" + randomHex(6)
 	admin := e.connectAdmin(t, "postgres")
+	if _, err := admin.Exec(ctx, "SELECT pg_advisory_lock($1)", clusterLockKey); err != nil {
+		t.Fatalf("cluster lock: %v", err)
+	}
+	defer func() { _, _ = admin.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", clusterLockKey) }()
 	if _, err := admin.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{name}.Sanitize()); err != nil {
 		t.Fatalf("create database: %v", err)
 	}

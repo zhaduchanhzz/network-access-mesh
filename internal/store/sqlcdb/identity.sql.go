@@ -203,7 +203,7 @@ func (q *Queries) GetIdentityProvider(ctx context.Context, id uuid.UUID) (Identi
 }
 
 const listRolesByScope = `-- name: ListRolesByScope :many
-SELECT id, scope, key, name, is_system, created_at FROM roles
+SELECT id, scope, key, name, rank, is_system, created_at FROM roles
 WHERE scope = $1
 ORDER BY key
 `
@@ -222,6 +222,7 @@ func (q *Queries) ListRolesByScope(ctx context.Context, scope string) ([]Role, e
 			&i.Scope,
 			&i.Key,
 			&i.Name,
+			&i.Rank,
 			&i.IsSystem,
 			&i.CreatedAt,
 		); err != nil {
@@ -272,4 +273,73 @@ func (q *Queries) ListTenantMemberships(ctx context.Context, tenantID uuid.UUID)
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateTenantMembershipRole = `-- name: UpdateTenantMembershipRole :one
+UPDATE tenant_memberships
+SET role_id = $1, updated_at = now(), version = version + 1
+WHERE tenant_id = $2 AND id = $3
+RETURNING id, tenant_id, identity_id, role_id, role_scope, status, headscale_user_id, headscale_username, invited_by, created_at, updated_at, version
+`
+
+type UpdateTenantMembershipRoleParams struct {
+	RoleID   uuid.UUID
+	TenantID uuid.UUID
+	ID       uuid.UUID
+}
+
+// Pool tenant. Chỉ chạy sau authz.GuardMembershipChange trong cùng transaction (§8.4 bất biến 3, 3a, Owner cuối
+// cùng); FK ghép (role_id, role_scope) từ chối role không thuộc phạm vi tenant.
+func (q *Queries) UpdateTenantMembershipRole(ctx context.Context, arg UpdateTenantMembershipRoleParams) (TenantMembership, error) {
+	row := q.db.QueryRow(ctx, updateTenantMembershipRole, arg.RoleID, arg.TenantID, arg.ID)
+	var i TenantMembership
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.IdentityID,
+		&i.RoleID,
+		&i.RoleScope,
+		&i.Status,
+		&i.HeadscaleUserID,
+		&i.HeadscaleUsername,
+		&i.InvitedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Version,
+	)
+	return i, err
+}
+
+const updateTenantMembershipStatus = `-- name: UpdateTenantMembershipStatus :one
+UPDATE tenant_memberships
+SET status = $1, updated_at = now(), version = version + 1
+WHERE tenant_id = $2 AND id = $3
+RETURNING id, tenant_id, identity_id, role_id, role_scope, status, headscale_user_id, headscale_username, invited_by, created_at, updated_at, version
+`
+
+type UpdateTenantMembershipStatusParams struct {
+	Status   string
+	TenantID uuid.UUID
+	ID       uuid.UUID
+}
+
+// Pool tenant. Khóa/offboard (status rời 'active') cũng phải qua authz.GuardMembershipChange trước.
+func (q *Queries) UpdateTenantMembershipStatus(ctx context.Context, arg UpdateTenantMembershipStatusParams) (TenantMembership, error) {
+	row := q.db.QueryRow(ctx, updateTenantMembershipStatus, arg.Status, arg.TenantID, arg.ID)
+	var i TenantMembership
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.IdentityID,
+		&i.RoleID,
+		&i.RoleScope,
+		&i.Status,
+		&i.HeadscaleUserID,
+		&i.HeadscaleUsername,
+		&i.InvitedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Version,
+	)
+	return i, err
 }
