@@ -1,0 +1,28 @@
+# MeshGuard — proxy của bản demo headscale-admin (repo tham khảo R2, KHÔNG thuộc kiến trúc — ADR-16 giữ nguyên).
+# headscale-admin chỉ gửi "Authorization: Bearer <API key của tenant-c>"; proxy gắn token nội bộ của listener admin
+# (§14.6) và GHIM instance = tenant-c ⇒ panel không chọn được tenant khác, không bao giờ thấy token nội bộ.
+# Chỉ nghe trên IP của proxy trong network internal mg-demo-int (nơi duy nhất có panel); không publish cổng nào.
+{
+	admin off
+	auto_https off
+	persist_config off
+	log {
+		output stdout
+		format json
+		level WARN
+	}
+}
+
+http://:9000 {
+	bind 10.249.250.2
+	@api path /api/v1/*
+	handle @api {
+		reverse_proxy 10.249.2.2:8081 {
+			header_up X-MG-Token {file./run/secrets/admin_token}
+			header_up X-MG-Instance tenant-c
+		}
+	}
+	handle {
+		respond 404
+	}
+}
