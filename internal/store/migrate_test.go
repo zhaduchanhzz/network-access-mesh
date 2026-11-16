@@ -21,6 +21,7 @@ func TestMigrationsUpWithData(t *testing.T) {
 	defer func() { _ = mig.Close() }()
 
 	f := newFixture()
+	unlock := e.lockCluster(t) // the migrations create cluster-wide roles
 	for v := int64(1); v <= 6; v++ {
 		if err := MigrateTo(ctx, mig, v); err != nil {
 			t.Fatalf("migration %04d on a database with data: %v", v, err)
@@ -30,6 +31,7 @@ func TestMigrationsUpWithData(t *testing.T) {
 		}
 		fixtureSteps[v](f, t, su) // rows for the tables this migration created
 	}
+	unlock()
 	counts := func() map[string]int64 {
 		out := map[string]int64{}
 		for _, r := range rlsTables {
@@ -58,7 +60,9 @@ func TestMigrationsUpWithData(t *testing.T) {
 	}
 
 	e.mu.Lock()
+	unlock = e.lockCluster(t)
 	e.setAppPasswordsLocked(t, db)
+	unlock()
 	e.mu.Unlock()
 	s := e.openStore(t, db, "mg_api_tenant", "mg_api_platform", 2)
 	if err := s.WithTenantTx(ctx, f.a.id, func(q *sqlcdb.Queries) error {

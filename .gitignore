@@ -3,6 +3,8 @@
 .env.*
 !.env.example
 secrets/
+# ngoại lệ: mã Go của module SecretStore (P2-T04) — chỉ có code và test, không có giá trị secret
+!/internal/secrets/
 *.pem
 *.key
 *.p12
