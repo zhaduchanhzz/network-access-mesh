@@ -1,0 +1,49 @@
+# CI cho mã Go (P2-T01): kiểm checksum module, gofmt, go vet, test có race detector (gồm test kiến trúc §13.6 và
+# test "canary secret"), golangci-lint, govulncheck. Chạy trong image golang pin theo digest; công cụ pin theo
+# SHA-256 / phiên bản module (kiểm qua checksum DB của Go). Repo public: không dùng secret nào.
+name: go
+
+on:
+  push:
+    branches: [main]
+    paths: ["**/*.go", "go.mod", "go.sum", ".golangci.yml", ".github/workflows/go.yml"]
+  pull_request:
+    paths: ["**/*.go", "go.mod", "go.sum", ".golangci.yml", ".github/workflows/go.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    container:
+      image: docker.io/library/golang@sha256:f18c3d73a184fb0582828510722e723b63a93f7188d11dd223d9be6f6880e65d   # 1.27.4-trixie
+    env:
+      GOTOOLCHAIN: local
+      GOFLAGS: -mod=readonly
+      GOLANGCI_VERSION: "2.15.0"
+      GOLANGCI_SHA256: "9b7fe6a6bf6334b98decf8d86b11415ea7889afdabdd1959fdce23af2a9ebcea"
+      GOVULNCHECK_VERSION: "v1.9.0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - name: go mod verify
+        run: go mod verify
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then echo "::error::cần gofmt: $unformatted"; exit 1; fi
+      - name: go vet
+        run: go vet ./...
+      - name: go test (race)
+        run: go test -race -count=1 ./...
+      - name: golangci-lint
+        run: |
+          curl -fsSLo /tmp/golangci.tgz "https://github.com/golangci/golangci-lint/releases/download/v${GOLANGCI_VERSION}/golangci-lint-${GOLANGCI_VERSION}-linux-amd64.tar.gz"
+          echo "${GOLANGCI_SHA256}  /tmp/golangci.tgz" | sha256sum -c -
+          tar -xzf /tmp/golangci.tgz -C /tmp
+          "/tmp/golangci-lint-${GOLANGCI_VERSION}-linux-amd64/golangci-lint" run ./...
+      - name: govulncheck
+        run: go run "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}" ./...

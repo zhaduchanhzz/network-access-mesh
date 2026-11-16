@@ -1,4 +1,4 @@
-# Build image tự làm (P1-T04): edge (Caddy + module) và stund. Mỗi image: build từ base pin theo digest, kiểm nội dung,
+# Build image tự làm (P1-T04, P2-T01): edge (Caddy + module), stund, api, worker. Mỗi image: build từ base pin theo digest, kiểm nội dung,
 # sinh SBOM (syft), quét lỗ hổng (grype — chặn nếu có mức Critical), rồi mới push lên GHCR. Digest đưa vào
 # versions.lock bằng commit riêng. Action và công cụ pin theo commit SHA / SHA-256, chọn bản đã ≥ 14 ngày tuổi.
 name: images
@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ["infrastructure/docker/**", ".github/workflows/images.yml"]
+    paths: ["infrastructure/docker/**", "apps/**", "internal/**", "go.mod", "go.sum", ".github/workflows/images.yml"]
 
 permissions:
   contents: read
@@ -20,7 +20,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: [edge, stund]
+        include:
+          - {image: edge,   dockerfile: infrastructure/docker/edge/Dockerfile,  context: infrastructure/docker/edge,  app: ""}
+          - {image: stund,  dockerfile: infrastructure/docker/stund/Dockerfile, context: infrastructure/docker/stund, app: ""}
+          - {image: api,    dockerfile: infrastructure/docker/app/Dockerfile,   context: ".",                         app: api}
+          - {image: worker, dockerfile: infrastructure/docker/app/Dockerfile,   context: ".",                         app: worker}
     env:
       IMAGE: ghcr.io/${{ github.repository }}/${{ matrix.image }}
       SYFT_VERSION: "1.56.0"
@@ -43,10 +47,12 @@ jobs:
 
       - name: Build
         run: |
-          docker build --pull -t "${IMAGE}:${GITHUB_SHA}" \
+          args=()
+          if [ -n "${{ matrix.app }}" ]; then args+=(--build-arg "APP=${{ matrix.app }}" --build-arg "VERSION=${GITHUB_SHA::12}" --build-arg "COMMIT=${GITHUB_SHA}"); fi
+          docker build --pull -f "${{ matrix.dockerfile }}" "${args[@]}" -t "${IMAGE}:${GITHUB_SHA}" \
             --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
             --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
-            "infrastructure/docker/${{ matrix.image }}"
+            "${{ matrix.context }}"
 
       - name: Kiểm nội dung image
         run: |
@@ -61,6 +67,15 @@ jobs:
               test "$user" = "65532:65532"
               out=$(docker run --rm "${IMAGE}:${GITHUB_SHA}" -h 2>&1 || true)
               echo "$out" | grep -q -- '-stun' ;;
+            api|worker)
+              test "$user" = "65532:65532"
+              docker run -d --name smoke --read-only --cap-drop ALL -p 127.0.0.1:19090:9090 "${IMAGE}:${GITHUB_SHA}"
+              for i in $(seq 1 20); do curl -fsS http://127.0.0.1:19090/healthz >/dev/null 2>&1 && break; sleep 1; done
+              curl -fsS http://127.0.0.1:19090/healthz
+              curl -fsS http://127.0.0.1:19090/readyz
+              curl -fsS http://127.0.0.1:19090/metrics | grep -q '^meshguard_build_info{'
+              docker logs smoke 2>&1 | tail -3
+              docker rm -f smoke >/dev/null ;;
           esac
           echo "user=$user OK"
 

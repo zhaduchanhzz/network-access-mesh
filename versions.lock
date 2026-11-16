@@ -193,6 +193,9 @@ syft_linux_amd64_sha256 = "1c2493cfcf52d3367d6cb25780d9190c111c2219c34c820574c43
 grype = "v0.121.1"      # 2026-11-02 — tương tự (v0.121.3 mới 7 ngày)
 grype_linux_amd64_sha256 = "bc3ea3f9e6fd56ac781c08c6c5e614271b79f438200757f6932085c19b0a4657"
 upload_artifact = "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9"   # v7.0.2, 2026-10-07
+golangci_lint = "v2.15.0"   # 2026-10-16
+golangci_lint_linux_amd64_sha256 = "9b7fe6a6bf6334b98decf8d86b11415ea7889afdabdd1959fdce23af2a9ebcea"
+govulncheck = "golang.org/x/vuln/cmd/govulncheck@v1.9.0"   # 2026-10-11, kiểm qua checksum DB của Go
 
 [ids]   # UID/GID số cố định (§14.2, P1-T03) — compose dùng `user:` và `group_add:` theo các số này
 edge_uid = 10001                  # image edge tự build chạy non-root với UID này (P1-T04)
@@ -211,6 +214,11 @@ mg-sec-edge = 20005
 mg-sec-obs = 20006
 mg-sec-backup = 20007
 mg-sec-ship = 20008
+
+[go]   # module Go của Management Plane (go.mod/go.sum là nguồn sự thật; bảng này chỉ để tra nhanh)
+module = "github.com/zhaduchanhzz/network-access-mesh"
+go = "1.27.4"
+"github.com/prometheus/client_golang" = "v1.25.0"
 
 [toolchains]
 go = "1.27.4"

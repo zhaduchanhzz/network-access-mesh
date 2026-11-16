@@ -1,0 +1,21 @@
+# golangci-lint v2 (P2-T01) — phiên bản pin trong versions.lock và .github/workflows/go.yml.
+version: "2"
+run:
+  timeout: 5m
+linters:
+  default: standard
+  enable:
+    - gosec
+    - errorlint
+    - bodyclose
+    - noctx
+  exclusions:
+    rules:
+      # G101 (chuỗi "giống credential") trong test là tên biến môi trường / đường dẫn file giả, không phải secret;
+      # secret thật được chặn bởi gitleaks và test canary.
+      - path: _test\.go
+        linters: [gosec]
+        text: G101
+formatters:
+  enable:
+    - gofmt
