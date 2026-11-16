@@ -9,7 +9,7 @@
 | V-01 | DERP + control upgrade qua Caddy | P1-T05a, P1-T12 | G1 | chưa chạy | — |
 | V-02 | STUN dùng chung (`stund` tại điểm vào công khai) trả đúng IP/port công khai và được client của mọi tenant dùng | P1-T18, P5-T02a | G1 | chưa chạy | — |
 | V-03 | Upstream động theo nhãn + attach network lúc chạy | P1-T12d, P1-T10a | G1 | chưa chạy | — |
-| V-04 | Headscale chạy non-root, read-only | P1-T11 | G1 | chưa chạy | — |
+| V-04 | Headscale chạy non-root, read-only | P1-T11 | G1 | đạt (functional) | [P1-T11.md](P1-T11.md) |
 | V-05 | Chặn `/verify` không ảnh hưởng embedded DERP | P1-T05a | G1 | chưa chạy | — |
 | V-06 | Key tạo không kèm `expiration`; policy rỗng; mã lỗi HTTP của `SetPolicy`; `/key` cần `?v=`; decoder policy với khóa khác kiểu chữ, khóa `#`, giá trị `null` | P2-T10 | G2 | chưa chạy | — |
 | V-07 | Chuyển hướng `/register/<auth_id>` về Portal | P4-T07 | G4a | chưa chạy | — |

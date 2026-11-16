@@ -30,6 +30,7 @@ table inet mg_host {
             destination-unreachable, packet-too-big, time-exceeded, parameter-problem } accept
 
         ip saddr @lan4 tcp dport 22 accept                                 # SSH chỉ từ LAN, chỉ IPv4
+        ip saddr @lan4 udp dport 3478 accept                               # stund (Local Development, P1-T06)
     }
 
     chain forward {
