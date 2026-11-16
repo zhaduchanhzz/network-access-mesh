@@ -1,0 +1,91 @@
+# Build image tự làm (P1-T04): edge (Caddy + module) và stund. Mỗi image: build từ base pin theo digest, kiểm nội dung,
+# sinh SBOM (syft), quét lỗ hổng (grype — chặn nếu có mức Critical), rồi mới push lên GHCR. Digest đưa vào
+# versions.lock bằng commit riêng. Action và công cụ pin theo commit SHA / SHA-256, chọn bản đã ≥ 14 ngày tuổi.
+name: images
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["infrastructure/docker/**", ".github/workflows/images.yml"]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [edge, stund]
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}/${{ matrix.image }}
+      SYFT_VERSION: "1.56.0"
+      SYFT_SHA256: "1c2493cfcf52d3367d6cb25780d9190c111c2219c34c820574c43e8bae15c528"
+      GRYPE_VERSION: "0.121.1"
+      GRYPE_SHA256: "bc3ea3f9e6fd56ac781c08c6c5e614271b79f438200757f6932085c19b0a4657"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Cài syft và grype (kiểm SHA-256)
+        run: |
+          cd "$RUNNER_TEMP"
+          curl -fsSLo syft.tgz "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz"
+          echo "${SYFT_SHA256}  syft.tgz" | sha256sum -c -
+          curl -fsSLo grype.tgz "https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_linux_amd64.tar.gz"
+          echo "${GRYPE_SHA256}  grype.tgz" | sha256sum -c -
+          tar -xzf syft.tgz syft && tar -xzf grype.tgz grype
+
+      - name: Build
+        run: |
+          docker build --pull -t "${IMAGE}:${GITHUB_SHA}" \
+            --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            "infrastructure/docker/${{ matrix.image }}"
+
+      - name: Kiểm nội dung image
+        run: |
+          user=$(docker image inspect -f '{{.Config.User}}' "${IMAGE}:${GITHUB_SHA}")
+          case "${{ matrix.image }}" in
+            edge)
+              test "$user" = "10001:10001"
+              docker run --rm --entrypoint caddy "${IMAGE}:${GITHUB_SHA}" list-modules \
+                | grep -E '^(dns\.providers\.cloudflare|http\.handlers\.crowdsec|http\.handlers\.rate_limit)$'
+              docker run --rm --cap-drop ALL --entrypoint caddy "${IMAGE}:${GITHUB_SHA}" version ;;
+            stund)
+              test "$user" = "65532:65532"
+              out=$(docker run --rm "${IMAGE}:${GITHUB_SHA}" -h 2>&1 || true)
+              echo "$out" | grep -q -- '-stun' ;;
+          esac
+          echo "user=$user OK"
+
+      - name: SBOM (syft)
+        run: |
+          "${RUNNER_TEMP}/syft" "${IMAGE}:${GITHUB_SHA}" -q -o spdx-json="${RUNNER_TEMP}/sbom-${{ matrix.image }}.spdx.json"
+          echo "packages in SBOM: $(grep -c '"SPDXID": "SPDXRef-Package' "${RUNNER_TEMP}/sbom-${{ matrix.image }}.spdx.json")"
+
+      - name: Quét lỗ hổng (grype) — chặn nếu có mức Critical
+        run: '"${RUNNER_TEMP}/grype" "sbom:${RUNNER_TEMP}/sbom-${{ matrix.image }}.spdx.json" --fail-on critical'
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: sbom-${{ matrix.image }}
+          path: ${{ runner.temp }}/sbom-${{ matrix.image }}.spdx.json
+          retention-days: 90
+
+      - name: Push lên GHCR
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          export DOCKER_CONFIG="${RUNNER_TEMP}/docker-config"
+          printf '%s' "$TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker push "${IMAGE}:${GITHUB_SHA}"
+          digest=$(docker inspect --format '{{index .RepoDigests 0}}' "${IMAGE}:${GITHUB_SHA}")
+          echo "pushed: ${digest}"
+          echo "### ${{ matrix.image }}: \`${digest}\`" >> "$GITHUB_STEP_SUMMARY"
+          docker logout ghcr.io
