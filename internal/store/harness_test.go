@@ -158,14 +158,30 @@ func randomHex(n int) string {
 	return hex.EncodeToString(b)
 }
 
-// newDatabase creates a bootstrapped database migrated to version (0 = latest, < 0 = bootstrap only) and returns
-// its name. Database creation is serialised: roles are cluster-wide, and two migrations creating the same role at
-// once would race.
+// clusterLock is the advisory lock key (database "postgres") that serialises role creation and role password changes
+// with the other test processes of the same cluster — `go test ./...` runs packages in parallel and
+// internal/store/storetest takes the same key (storetest.ClusterLock; not imported here: import cycle).
+const clusterLock int64 = 0x6d675f74657374
+
+// lockCluster takes clusterLock and returns the function that releases it.
+func (e *pgEnv) lockCluster(t *testing.T) func() {
+	t.Helper()
+	admin := e.connectAdmin(t, "postgres")
+	if _, err := admin.Exec(ctxT(t), "SELECT pg_advisory_lock($1)", clusterLock); err != nil {
+		t.Fatalf("cluster lock: %v", err)
+	}
+	return func() { _, _ = admin.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", clusterLock) }
+}
+
+// newDatabase creates a bootstrapped database migrated to version (0 = latest including River's schema, < 0 =
+// bootstrap only) and returns its name. Database creation is serialised: roles are cluster-wide, and two migrations
+// creating the same role at once would race.
 func (e *pgEnv) newDatabase(t *testing.T, version int64) string {
 	t.Helper()
 	ctx := ctxT(t)
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	defer e.lockCluster(t)()
 	name := "mgt_" + randomHex(6)
 	admin := e.connectAdmin(t, "postgres")
 	if _, err := admin.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{name}.Sanitize()); err != nil {
@@ -195,6 +211,9 @@ func (e *pgEnv) newDatabase(t *testing.T, version int64) string {
 	defer func() { _ = db.Close() }()
 	if version == 0 {
 		err = Migrate(ctx, db)
+		if err == nil {
+			_, err = MigrateQueue(ctx, e.storeURL(name), e.creds(t, "mg_migrator"))
+		}
 	} else {
 		err = MigrateTo(ctx, db, version)
 	}

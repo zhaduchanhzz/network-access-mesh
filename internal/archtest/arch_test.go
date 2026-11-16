@@ -188,7 +188,9 @@ func TestCheckerCatchesViolations(t *testing.T) {
 
 // drivers are the packages that can open or drive a database connection. Only internal/store (and its
 // sub-packages) may import them (§6.1, §8.8 layer 3); pgx/v5/pgtype (value types in generated models) is allowed.
-var drivers = []string{"database/sql", "github.com/jackc/pgx", "github.com/pressly/goose", "github.com/lib/pq"}
+// River's drivers and migrator count too (P2-T12): internal/jobs uses River's types, internal/store its connections.
+var drivers = []string{"database/sql", "github.com/jackc/pgx", "github.com/pressly/goose", "github.com/lib/pq",
+	"github.com/riverqueue/river/riverdriver", "github.com/riverqueue/river/rivermigrate"}
 
 func isDriver(path string) bool {
 	if strings.HasPrefix(path, "github.com/jackc/pgx/v5/pgtype") {

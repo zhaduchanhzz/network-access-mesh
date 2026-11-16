@@ -13,6 +13,7 @@ func TestMigrationsUpWithData(t *testing.T) {
 	e := requireDB(t)
 	ctx := ctxT(t)
 	db := e.newDatabase(t, -1) // bootstrapped, not migrated
+	defer e.lockCluster(t)()   // these migrations create the cluster-wide roles on a fresh cluster
 	su := e.connectAdmin(t, db)
 	mig, err := OpenMigrator(e.storeURL(db), e.creds(t, "mg_migrator"))
 	if err != nil {

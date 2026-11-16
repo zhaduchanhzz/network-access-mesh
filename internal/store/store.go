@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"strings"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/riverqueue/river"
 
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store/sqlcdb"
 )
@@ -48,15 +50,19 @@ type Credentials struct {
 type Config struct {
 	// URL is a postgres:// URL without user and password, e.g. postgres://postgres:5432/meshguard?sslmode=disable.
 	URL      string
-	Tenant   Credentials // a member of mg_app_tenant
-	Platform Credentials // a member of mg_app_platform
-	MaxConns int32       // per pool; 0 keeps the pgxpool default
+	Tenant   Credentials  // a member of mg_app_tenant
+	Platform Credentials  // a member of mg_app_platform
+	MaxConns int32        // per pool; 0 keeps the pgxpool default
+	Logger   *slog.Logger // River's logger (queue.go); nil discards
 }
 
-// Store owns the tenant and the platform pool.
+// Store owns the tenant and the platform pool, and the insert-only queue client used by WithTenantJobTx and
+// WithPlatformJobTx.
 type Store struct {
 	tenant   *pgxpool.Pool
 	platform *pgxpool.Pool
+	cfg      Config
+	inserter *river.Client[pgx.Tx]
 }
 
 // Open creates both pools and verifies that each logs in as a role of the right group (and neither is a superuser
@@ -71,7 +77,7 @@ func Open(ctx context.Context, cfg Config) (*Store, error) {
 		tenant.Close()
 		return nil, fmt.Errorf("store: platform pool: %w", err)
 	}
-	s := &Store{tenant: tenant, platform: platform}
+	s := &Store{tenant: tenant, platform: platform, cfg: cfg}
 	if err := checkPoolRole(ctx, tenant, GroupTenant); err != nil {
 		s.Close()
 		return nil, fmt.Errorf("store: tenant pool: %w", err)
@@ -79,6 +85,10 @@ func Open(ctx context.Context, cfg Config) (*Store, error) {
 	if err := checkPoolRole(ctx, platform, GroupPlatform); err != nil {
 		s.Close()
 		return nil, fmt.Errorf("store: platform pool: %w", err)
+	}
+	if s.inserter, err = newInserter(cfg.Logger); err != nil {
+		s.Close()
+		return nil, fmt.Errorf("store: queue inserter: %w", err)
 	}
 	return s, nil
 }
@@ -140,6 +150,16 @@ func SQLState(err error) string {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
 		return pgErr.Code
+	}
+	return ""
+}
+
+// SQLConstraint returns the constraint or index named by a PostgreSQL error ("" if none) — for example the partial
+// unique index provisioning_jobs_lock_key when a second lifecycle job of a tenant tries to start (§13.5 (d)).
+func SQLConstraint(err error) string {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.ConstraintName
 	}
 	return ""
 }
