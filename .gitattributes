@@ -12,3 +12,6 @@ versions.lock   text eol=lf
 *.md            text eol=lf
 Dockerfile      text eol=lf
 *.json          text eol=lf
+*.go            text eol=lf
+go.mod          text eol=lf
+go.sum          text eol=lf
