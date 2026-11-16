@@ -21,6 +21,7 @@ Mọi giá trị phụ thuộc môi trường nằm trong **một** file, **khô
 | `MG_TUNNEL_HOST_IPV4`, `MG_TUNNEL_VPS_IPV4`, `MG_TUNNEL_PORT`, `MG_TUNNEL_HTTP_PORT`, `MG_TUNNEL_HTTPS_PORT` | tunnel WireGuard, listener tunnel-facing của edge, đích của `l4proxy`, firewall host |
 | `MG_ACME`, `MG_ACME_ACCOUNT_URI` | CA của edge; `accounturi` trong CAA |
 | `MG_DNS_RESOLVERS`, `MG_TENANT_NAMESERVERS` | kiểm tra DNS-01 của edge; nameserver tenant phát cho client |
+| `MG_IDP_ID_PLATFORM`, `MG_IDP_ID_TENANT_A`, `MG_IDP_ID_TENANT_B` | id của 3 IdP (Keycloak realm) trong redirect URI `/api/v1/auth/callback/<id>` và trong bảng `identity_providers` (P2-T05, P2-T11) |
 
 **Cơ chế:**
 
@@ -138,3 +139,4 @@ Chỉ sửa `staging.env`, rồi thực hiện:
 | 2026-11-16 | R-01 (pháp lý) được chủ dự án xác nhận thông qua — điều kiện trước G2 đạt | [R-01](docs/planning/evidence/R-01.md) |
 | 2026-11-16 | P2-T02: hợp đồng OpenAPI v1 (28 operation) + spec-lint + sinh code Go/TS — chưa triển khai lên host | [P2-T02](docs/planning/evidence/P2-T02.md) |
 | 2026-11-16 | P2-T03: schema PostgreSQL (migration 0001–0006, RLS, role, partition audit) + `internal/store` — chưa triển khai lên host | [P2-T03](docs/planning/evidence/P2-T03.md) |
+| 2026-11-16 | P2-T05: Keycloak 26.8.2 + 3 realm (MFA bắt buộc) dựng và thử trên VM build — chưa lên host; thêm `MG_IDP_ID_*` vào env file | [P2-T05](docs/planning/evidence/P2-T05.md) |

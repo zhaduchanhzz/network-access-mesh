@@ -1,0 +1,129 @@
+# Sinh bởi tools/render_idp.py từ infrastructure/compose/compose.idp.yaml.tmpl (template_version ${template_version}).
+# KHÔNG sửa tay — render lại. Project mg-idp (P2-T05, §8.2, §14.3, §14.4): Keycloak (một issuer cho mỗi realm:
+# platform, tenant-a, tenant-b) + PostgreSQL riêng của IdP (idp-db, chỉ trên mg-idp-data — không đụng PostgreSQL của
+# nền tảng). Tách khỏi mg-core (như mg-edge) để nâng cấp/khởi động lại IdP không recreate dịch vụ core.
+# Đặt tại /opt/meshguard/core/compose.idp.yaml; realm đã render ở /opt/meshguard/core/idp/realms/ (không secret),
+# script khởi tạo DB ở /opt/meshguard/core/idp/initdb/, secret ở /opt/meshguard/secrets/idp/
+# (infrastructure/idp/secrets.sh). Network do infrastructure/host/networks.sh tạo trước (external).
+# Không secret trong biến môi trường hay file này (§7.6): Keycloak đọc mật khẩu DB và admin khởi tạo từ file cấu hình
+# /run/secrets/keycloak.conf (--config-file — nguồn cấu hình dạng file của Keycloak), postgres đọc *_FILE.
+name: mg-idp
+
+services:
+  idp-db:
+    image: docker.io/library/postgres@sha256:2ea8630df176ad090ec92136dee850397c5af8781e4bcf2e4162593691c61bbc   # 18.7-trixie
+    user: "999:999"
+    read_only: true
+    tmpfs:
+      - /var/run/postgresql:size=1m,mode=0775,uid=999,gid=999
+      - /tmp:size=64m,mode=1777
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/secrets/idp_db_superuser_password   # superuser chỉ để bảo trì
+    secrets:
+      - idp_db_superuser_password
+      - idp_db_password             # mật khẩu role keycloak — chỉ initdb/10-keycloak-db.sql đọc, một lần
+    volumes:
+      - idp-db-data:/var/lib/postgresql
+      - type: bind                  # tạo role keycloak (KHÔNG superuser) + DB keycloak khi khởi tạo data dir
+        source: /opt/meshguard/core/idp/initdb
+        target: /docker-entrypoint-initdb.d
+        read_only: true
+        bind:
+          create_host_path: false
+    networks: [mg-idp-data]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    shm_size: 128m
+    mem_limit: 512m
+    pids_limit: 128
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "keycloak", "-d", "keycloak"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    stop_grace_period: 60s
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "5"}
+    labels:
+      meshguard.role: idp
+
+  idp:
+    image: ${idp_image}   # infrastructure/docker/idp: Keycloak 26.8.2 build tối ưu (versions.lock)
+    user: "1000:1000"
+    read_only: true                 # được nhờ image build tối ưu: `start --optimized` không ghi gì vào /opt/keycloak
+    depends_on:
+      idp-db:
+        condition: service_healthy
+    # --config-file đứng TRƯỚC lệnh (tùy chọn cấp kc.sh). --import-realm: nhập realm chưa có từ data/import
+    # (realm đã tồn tại thì bỏ qua — đổi realm đang chạy đi qua Admin API / IdP driver, không qua file).
+    command: ["--config-file=/run/secrets/keycloak.conf", "start", "--optimized", "--import-realm"]
+    environment:                    # chỉ giá trị KHÔNG bí mật
+      KC_HOSTNAME: https://${auth_host}   # issuer = https://${auth_host}/realms/<realm>
+      KC_PROXY_HEADERS: xforwarded    # TLS kết thúc ở edge (§14.6)
+      KC_PROXY_TRUSTED_ADDRESSES: ${edge_ip}   # chỉ tin X-Forwarded-* từ IP tĩnh của edge trên mg-edge
+      KC_HTTP_ENABLED: "true"         # HTTP thuần chỉ trong network Docker; không publish cổng nào
+      KC_HTTP_PORT: "8080"
+      KC_HTTP_MANAGEMENT_PORT: "9000" # /health, /metrics: cổng quản trị nội bộ, edge KHÔNG định tuyến tới
+      KC_DB_URL: jdbc:postgresql://idp-db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_CACHE: local                 # một node (MVP): không cluster JGroups
+      KC_LOG_CONSOLE_OUTPUT: json
+    secrets:
+      - source: idp_keycloak_conf
+        target: keycloak.conf
+    tmpfs:
+      - /opt/keycloak/data:size=64m,mode=0700,uid=1000,gid=1000
+      - /tmp:size=64m,mode=1777
+    volumes:
+      - type: bind                  # realm đã render (không secret: client secret do Keycloak sinh lúc import)
+        source: /opt/meshguard/core/idp/realms
+        target: /opt/keycloak/data/import
+        read_only: true
+        bind:
+          create_host_path: false
+    networks:
+      mg-edge:                      # edge → idp:8080 (auth.<domain>)
+        aliases: [idp]
+      mg-idp-data: {}               # → idp-db
+      mg-egress:                    # đường ra có kiểm soát (SMTP, IdP doanh nghiệp — §14.3)
+        gw_priority: 1
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 1536m                # ST-04: ~1,25 GB cơ sở; dành 1,5 GB (D-3)
+    pids_limit: 512
+    healthcheck:                    # image không có curl: HTTP thô qua /dev/tcp của bash tới cổng quản trị
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && head -n1 <&3 | grep -q ' 200 '"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 180s
+      start_interval: 5s
+    restart: unless-stopped
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "5"}
+    labels:
+      meshguard.role: idp
+
+secrets:
+  idp_keycloak_conf:                # root:1000 0440 — db-password, bootstrap-admin-*
+    file: /opt/meshguard/secrets/idp/keycloak.conf
+  idp_db_password:                  # root:999 0440 — cùng giá trị db-password ở trên (mỗi consumer một bản, §14.2)
+    file: /opt/meshguard/secrets/idp/db_password
+  idp_db_superuser_password:        # root:999 0440
+    file: /opt/meshguard/secrets/idp/db_superuser_password
+
+volumes:
+  idp-db-data:
+
+networks:
+  mg-edge:
+    external: true
+  mg-idp-data:
+    external: true
+  mg-egress:
+    external: true

@@ -18,8 +18,8 @@ secret-scan: ## Quét secret trong repo (cần gitleaks; cấu hình .gitleaks.t
 	@command -v gitleaks >/dev/null || { echo "gitleaks chưa cài — xem README"; exit 1; }
 	gitleaks git --config .gitleaks.toml --redact --no-banner .
 
-render-test: ## Test tham số môi trường (mgenv) + golden test của tool render (instance Headscale, edge)
-	$(PYTHON) tools/test_mgenv.py && $(PYTHON) tools/test_render_instance.py && $(PYTHON) tools/test_render_edge.py
+render-test: ## Test tham số môi trường (mgenv) + golden test của tool render (instance Headscale, edge, IdP)
+	$(PYTHON) tools/test_mgenv.py && $(PYTHON) tools/test_render_instance.py && $(PYTHON) tools/test_render_edge.py && $(PYTHON) tools/test_render_idp.py
 
 api-lint: ## Spec-lint api/openapi.yaml (x-permission, x-task, tenant chỉ từ path, action path, problem+json) + test của lint
 	$(PYTHON) tools/openapi_lint.py && $(PYTHON) tools/test_openapi_lint.py

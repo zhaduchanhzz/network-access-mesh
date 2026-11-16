@@ -1,0 +1,40 @@
+# P2-T05 — CHỈ cho stack thử trên máy dev/CI (tests/idp/run_dev.sh); không bao giờ dùng trên host staging/production.
+# Ghép SAU compose.idp.yaml đã render: chỉ đổi tên network (tiền tố riêng của lượt thử, cùng subnet với bản thật) và
+# đường dẫn secret/bind sang thư mục làm việc của lượt thử. Không ghi đè thiết lập nào của service (image, user,
+# read_only, cap, biến môi trường, healthcheck giữ nguyên như bản render).
+services:
+  idp-db:
+    volumes:
+      - type: bind
+        source: ${MGT_WORK}/core/idp/initdb
+        target: /docker-entrypoint-initdb.d
+        read_only: true
+        bind:
+          create_host_path: false
+  idp:
+    volumes:
+      - type: bind
+        source: ${MGT_WORK}/core/idp/realms
+        target: /opt/keycloak/data/import
+        read_only: true
+        bind:
+          create_host_path: false
+
+secrets:
+  idp_keycloak_conf:
+    file: ${MGT_WORK}/secrets/idp/keycloak.conf
+  idp_db_password:
+    file: ${MGT_WORK}/secrets/idp/db_password
+  idp_db_superuser_password:
+    file: ${MGT_WORK}/secrets/idp/db_superuser_password
+
+networks:
+  mg-edge:
+    name: ${MGT_PREFIX}-edge
+    external: true
+  mg-idp-data:
+    name: ${MGT_PREFIX}-idp-data
+    external: true
+  mg-egress:
+    name: ${MGT_PREFIX}-egress
+    external: true
