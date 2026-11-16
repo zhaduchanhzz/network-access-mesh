@@ -1,0 +1,89 @@
+# Sinh bởi tools/render_instance.py từ infrastructure/headscale/templates (template_version 1).
+# KHÔNG sửa tay — render lại. Tenant: tenant-a (instance aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa). Headscale v0.29.7 (§14.5, §10.1).
+server_url: https://tenant-a.mesh.example.com
+listen_addr: 0.0.0.0:8080
+metrics_listen_addr: 0.0.0.0:9090
+grpc_listen_addr: 127.0.0.1:50443
+grpc_allow_insecure: false
+trusted_proxies:
+  - 10.250.0.0/29
+
+noise:
+  private_key_path: /var/lib/headscale/noise_private.key
+
+prefixes:
+  v4: 100.64.0.0/10
+  v6: fd7a:115c:a1e0::/48
+  allocation: sequential
+
+derp:
+  server:
+    enabled: true
+    region_id: 901
+    region_code: "mg-tenant-a"
+    region_name: "MeshGuard tenant-a"
+    verify_clients: true
+    stun_listen_addr: "0.0.0.0:3478"
+    private_key_path: /var/lib/headscale/derp_server_private.key
+    automatically_add_embedded_derp_region: true
+    ipv4: 192.0.2.10
+    ipv6: ""
+  urls: []
+  paths: []
+  auto_update_enabled: false
+  update_frequency: 3h
+
+disable_check_updates: true
+
+node:
+  expiry: 2160h
+  ephemeral:
+    inactivity_timeout: 30m
+  routes:
+    ha:
+      probe_interval: 10s
+      probe_timeout: 5s
+
+database:
+  type: sqlite
+  debug: false
+  sqlite:
+    path: /var/lib/headscale/db.sqlite
+    write_ahead_log: true
+    wal_autocheckpoint: 1000
+
+tls_cert_path: ""
+tls_key_path: ""
+tls_letsencrypt_hostname: ""
+
+log:
+  level: info
+  format: json
+
+policy:
+  mode: database
+  path: ""
+
+dns:
+  magic_dns: true
+  base_domain: tenant-a.tail.example.com
+  override_local_dns: true
+  nameservers:
+    global:
+      - 1.1.1.1
+      - 1.0.0.1
+    split: {}
+  search_domains: []
+  extra_records_path: /etc/headscale-records/extra-records.json
+
+unix_socket: /var/run/headscale/headscale.sock
+unix_socket_permission: "0770"
+
+logtail:
+  enabled: false
+
+taildrop:
+  enabled: true
+
+auto_update:
+  enabled: false

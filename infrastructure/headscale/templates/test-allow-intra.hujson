@@ -1,0 +1,12 @@
+// Fixture CHỈ dùng cho phép thử có client (§22.1, P1-T12a): cho phép mọi node trong cùng tenant nói chuyện với nhau,
+// để mỗi client thấy ≥ 1 peer cùng tenant. Trả về bootstrap-policy.hujson ngay trước P1-T14. Không dùng ở production.
+{
+  "grants": [
+    {
+      "src": ["autogroup:member", "autogroup:tagged"],
+      "dst": ["autogroup:member", "autogroup:tagged"],
+      "ip": ["*"]
+    }
+  ],
+  "ssh": []
+}

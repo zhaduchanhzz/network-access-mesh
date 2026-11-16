@@ -1,0 +1,6 @@
+// Baseline deny-all (§7.1, §11.3 bước 12): áp TRƯỚC khi instance có bất kỳ đường mạng nào.
+// Khóa "grants" luôn có mặt (thiếu khóa này Headscale coi là allow-all — PL-02, lint L1).
+{
+  "grants": [],
+  "ssh": []
+}

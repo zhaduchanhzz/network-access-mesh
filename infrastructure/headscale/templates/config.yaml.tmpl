@@ -1,0 +1,88 @@
+# Sinh bởi tools/render_instance.py từ infrastructure/headscale/templates (template_version ${template_version}).
+# KHÔNG sửa tay — render lại. Tenant: ${slug} (instance ${instance_id}). Headscale v0.29.7 (§14.5, §10.1).
+server_url: https://${slug}.${mesh_domain}
+listen_addr: 0.0.0.0:8080
+metrics_listen_addr: 0.0.0.0:9090
+grpc_listen_addr: 127.0.0.1:50443
+grpc_allow_insecure: false
+trusted_proxies:
+  - ${net_cidr}
+
+noise:
+  private_key_path: /var/lib/headscale/noise_private.key
+
+prefixes:
+  v4: 100.64.0.0/10
+  v6: fd7a:115c:a1e0::/48
+  allocation: sequential
+
+derp:
+  server:
+    enabled: true
+    region_id: ${derp_region_id}
+    region_code: "${derp_region_code}"
+    region_name: "${derp_region_name}"
+    verify_clients: true
+    stun_listen_addr: "0.0.0.0:3478"
+    private_key_path: /var/lib/headscale/derp_server_private.key
+    automatically_add_embedded_derp_region: true
+    ipv4: ${derp_ipv4}
+    ipv6: ""
+  urls: []
+  paths: []
+  auto_update_enabled: false
+  update_frequency: 3h
+
+disable_check_updates: true
+
+node:
+  expiry: ${node_expiry}
+  ephemeral:
+    inactivity_timeout: 30m
+  routes:
+    ha:
+      probe_interval: 10s
+      probe_timeout: 5s
+
+database:
+  type: sqlite
+  debug: false
+  sqlite:
+    path: /var/lib/headscale/db.sqlite
+    write_ahead_log: true
+    wal_autocheckpoint: 1000
+
+tls_cert_path: ""
+tls_key_path: ""
+tls_letsencrypt_hostname: ""
+
+log:
+  level: info
+  format: json
+
+policy:
+  mode: database
+  path: ""
+
+dns:
+  magic_dns: true
+  base_domain: ${slug}.${tailnet_suffix}
+  override_local_dns: true
+  nameservers:
+    global:
+${nameservers_yaml}
+    split: {}
+  search_domains: []
+  extra_records_path: /etc/headscale-records/extra-records.json
+
+unix_socket: /var/run/headscale/headscale.sock
+unix_socket_permission: "0770"
+
+logtail:
+  enabled: false
+
+taildrop:
+  enabled: true
+
+auto_update:
+  enabled: false

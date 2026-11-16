@@ -1,0 +1,63 @@
+# Sinh bởi tools/render_instance.py từ infrastructure/headscale/templates (template_version ${template_version}).
+# KHÔNG sửa tay — render lại. Tenant: ${slug} (instance ${instance_id}) — §14.5.
+# Network mg-t-${slug} do Agent tạo (--internal, --subnet ${net_cidr}); compose không tạo và không xóa network.
+# Không publish cổng nào; không khai báo biến môi trường TS_* nào (PL-15).
+name: mg-t-${slug}
+
+services:
+  hs-${slug}:
+    image: ${image}
+    container_name: mg-hs-${slug}
+    command: ["serve"]
+    user: "${run_uid}:${run_uid}"
+    read_only: true
+    tmpfs:
+      - /var/run/headscale:size=1m,mode=0700,uid=${run_uid},gid=${run_uid}
+    volumes:
+      - type: bind
+        source: /opt/meshguard/tenants/${instance_id}/config
+        target: /etc/headscale
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /opt/meshguard/tenants/${instance_id}/records
+        target: /etc/headscale-records
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /opt/meshguard/tenants/${instance_id}/data
+        target: /var/lib/headscale
+        bind:
+          create_host_path: false
+    networks:
+      mg-t-${slug}:
+        aliases: [hs-${slug}]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: ${pids_limit}
+    mem_limit: ${mem_limit}
+    cpus: ${cpus}
+    healthcheck:
+      test: ["CMD", "headscale", "health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+      start_interval: 2s
+    restart: unless-stopped
+    stop_grace_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    labels:
+      meshguard.tenant_id: "${tenant_id}"
+      meshguard.instance_id: "${instance_id}"
+      meshguard.role: tenant
+
+networks:
+  mg-t-${slug}:
+    external: true

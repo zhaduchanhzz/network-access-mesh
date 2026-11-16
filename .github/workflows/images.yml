@@ -67,7 +67,7 @@ jobs:
       - name: SBOM (syft)
         run: |
           "${RUNNER_TEMP}/syft" "${IMAGE}:${GITHUB_SHA}" -q -o spdx-json="${RUNNER_TEMP}/sbom-${{ matrix.image }}.spdx.json"
-          echo "packages in SBOM: $(grep -c '"SPDXID": "SPDXRef-Package' "${RUNNER_TEMP}/sbom-${{ matrix.image }}.spdx.json")"
+          echo "packages in SBOM: $(jq '.packages | length' "${RUNNER_TEMP}/sbom-${{ matrix.image }}.spdx.json")"
 
       - name: Quét lỗ hổng (grype) — chặn nếu có mức Critical
         run: '"${RUNNER_TEMP}/grype" "sbom:${RUNNER_TEMP}/sbom-${{ matrix.image }}.spdx.json" --fail-on critical'
