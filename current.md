@@ -137,3 +137,4 @@ Chỉ sửa `staging.env`, rồi thực hiện:
 | 2026-11-16 | **G1 đạt** (chủ dự án ký Go) — bắt đầu Phase 2 | [G1](docs/planning/evidence/G1.md) |
 | 2026-11-16 | R-01 (pháp lý) được chủ dự án xác nhận thông qua — điều kiện trước G2 đạt | [R-01](docs/planning/evidence/R-01.md) |
 | 2026-11-16 | P2-T02: hợp đồng OpenAPI v1 (28 operation) + spec-lint + sinh code Go/TS — chưa triển khai lên host | [P2-T02](docs/planning/evidence/P2-T02.md) |
+| 2026-11-16 | P2-T03: schema PostgreSQL (migration 0001–0006, RLS, role, partition audit) + `internal/store` — chưa triển khai lên host | [P2-T03](docs/planning/evidence/P2-T03.md) |

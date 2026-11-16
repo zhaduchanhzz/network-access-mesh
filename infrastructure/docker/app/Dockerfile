@@ -11,6 +11,8 @@ COPY go.mod go.sum ./
 RUN go mod download && go mod verify
 COPY apps ./apps
 COPY internal ./internal
+# migration SQL nhúng (database/embed.go) — internal/store import gói này (P2-T03)
+COPY database ./database
 ARG APP
 ARG VERSION=dev
 ARG COMMIT=unknown
