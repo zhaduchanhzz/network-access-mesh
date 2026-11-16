@@ -1,0 +1,34 @@
+# sqlc (P2-T03) — phiên bản pin trong versions.lock ([ci] sqlc) và .github/workflows/go.yml.
+# Sinh lại: make sqlc (go run github.com/sqlc-dev/sqlc/cmd/sqlc@<phiên bản> generate -f database/sqlc.yaml).
+# CI chạy `sqlc diff`: mã sinh phải khớp migrations/ + queries/.
+# Mã sinh nằm ở internal/store/sqlcdb; module nghiệp vụ chỉ nhận *sqlcdb.Queries qua store.WithTenantTx /
+# store.WithPlatformTx (§6.1) — không có pool hay transaction nào khác (test kiến trúc cấm import driver DB).
+version: "2"
+sql:
+  - engine: postgresql
+    schema: migrations
+    queries: queries
+    gen:
+      go:
+        package: sqlcdb
+        out: ../internal/store/sqlcdb
+        sql_package: pgx/v5
+        emit_pointers_for_null_types: true
+        emit_empty_slices: true
+        overrides:
+          - db_type: uuid
+            go_type: github.com/google/uuid.UUID
+          - db_type: uuid
+            nullable: true
+            go_type:
+              import: github.com/google/uuid
+              type: UUID
+              pointer: true
+          - db_type: timestamptz
+            go_type: time.Time
+          - db_type: timestamptz
+            nullable: true
+            go_type:
+              import: time
+              type: Time
+              pointer: true

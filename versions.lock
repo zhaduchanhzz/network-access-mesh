@@ -196,6 +196,7 @@ upload_artifact = "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646
 golangci_lint = "v2.15.0"   # 2026-10-16
 golangci_lint_linux_amd64_sha256 = "9b7fe6a6bf6334b98decf8d86b11415ea7889afdabdd1959fdce23af2a9ebcea"
 govulncheck = "golang.org/x/vuln/cmd/govulncheck@v1.9.0"   # 2026-10-11, kiểm qua checksum DB của Go
+sqlc = "github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1"   # 2026-04-22 (P2-T03), commit a95e91d; chạy bằng `go run` (CGO, pg_query_go v6), kiểm qua checksum DB của Go
 
 [ids]   # UID/GID số cố định (§14.2, P1-T03) — compose dùng `user:` và `group_add:` theo các số này
 edge_uid = 10001                  # image edge tự build chạy non-root với UID này (P1-T04)
@@ -219,6 +220,9 @@ mg-sec-ship = 20008
 module = "github.com/zhaduchanhzz/network-access-mesh"
 go = "1.27.4"
 "github.com/prometheus/client_golang" = "v1.25.0"
+"github.com/jackc/pgx/v5" = "v5.12.0"          # 2026-10-31 (P2-T03): pgxpool + stdlib; v5.13.0 (2026-11-11) chưa đủ 14 ngày
+"github.com/pressly/goose/v3" = "v3.29.0"      # 2026-10-11 (P2-T03): migration SQL nhúng; v3.30.x (2026-11-10/12) chưa đủ 14 ngày
+"github.com/google/uuid" = "v1.6.0"            # 2024-01-23 (P2-T03): kiểu UUID của mã sinh sqlc và store
 
 [toolchains]
 go = "1.27.4"

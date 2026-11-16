@@ -1,7 +1,9 @@
 # MeshGuard ZTNA — Makefile (khung P0-T04). Lệnh Go/TypeScript được thêm ở P2-T01 và P4-T01.
 PYTHON ?= python3
 
-.PHONY: help docs docs-check render-test lint secret-scan go-test go-lint go-build
+SQLC_VERSION ?= v1.31.1
+
+.PHONY: help docs docs-check render-test lint secret-scan go-test go-lint go-build sqlc sqlc-diff
 
 help: ## Liệt kê các target
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-12s %s\n", $$1, $$2}'
@@ -21,8 +23,14 @@ render-test: ## Test tham số môi trường (mgenv) + golden test của tool r
 
 lint: docs-check render-test secret-scan ## Mọi kiểm tra hiện có
 
-go-test: ## go vet + test có race detector (cần Go 1.27.4; CI chạy trong image golang pin theo digest)
+go-test: ## go vet + test có race detector; test PostgreSQL của internal/store cần MG_TEST_PG_ADMIN_URL (database/README.md)
 	go vet ./... && go test -race -count=1 ./...
+
+sqlc: ## Sinh lại internal/store/sqlcdb từ database/migrations + database/queries (sqlc pin trong versions.lock; cần CGO)
+	go run github.com/sqlc-dev/sqlc/cmd/sqlc@$(SQLC_VERSION) generate -f database/sqlc.yaml
+
+sqlc-diff: ## Kiểm mã sinh sqlc khớp schema + queries (như CI)
+	go run github.com/sqlc-dev/sqlc/cmd/sqlc@$(SQLC_VERSION) diff -f database/sqlc.yaml
 
 go-lint: ## golangci-lint (phiên bản pin trong versions.lock)
 	golangci-lint run ./...

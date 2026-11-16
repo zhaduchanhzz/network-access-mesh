@@ -1,14 +1,18 @@
 # CI cho mã Go (P2-T01): kiểm checksum module, gofmt, go vet, test có race detector (gồm test kiến trúc §13.6 và
 # test "canary secret"), golangci-lint, govulncheck. Chạy trong image golang pin theo digest; công cụ pin theo
 # SHA-256 / phiên bản module (kiểm qua checksum DB của Go). Repo public: không dùng secret nào.
+# P2-T03: thêm PostgreSQL (service container pin theo digest — versions.lock [images.postgres]) cho test tích hợp
+# của internal/store (IT-17, RLS, partition, migration trên DB có dữ liệu, truy vấn CI về quyền trên partition) và
+# bước `sqlc diff` (mã sinh khớp database/migrations + database/queries). Mật khẩu superuser của cụm thử chỉ dùng
+# một lần, ghép từ run id — cụm chỉ tồn tại trong mạng của job, không phải secret.
 name: go
 
 on:
   push:
     branches: [main]
-    paths: ["**/*.go", "go.mod", "go.sum", ".golangci.yml", ".github/workflows/go.yml"]
+    paths: ["**/*.go", "go.mod", "go.sum", ".golangci.yml", "database/**", ".github/workflows/go.yml"]
   pull_request:
-    paths: ["**/*.go", "go.mod", "go.sum", ".golangci.yml", ".github/workflows/go.yml"]
+    paths: ["**/*.go", "go.mod", "go.sum", ".golangci.yml", "database/**", ".github/workflows/go.yml"]
 
 permissions:
   contents: read
@@ -16,15 +20,28 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     container:
       image: docker.io/library/golang@sha256:f18c3d73a184fb0582828510722e723b63a93f7188d11dd223d9be6f6880e65d   # 1.27.4-trixie
+    services:
+      postgres:
+        image: docker.io/library/postgres@sha256:2ea8630df176ad090ec92136dee850397c5af8781e4bcf2e4162593691c61bbc   # 18.7-trixie
+        env:
+          POSTGRES_PASSWORD: ci-${{ github.run_id }}-${{ github.run_attempt }}
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
     env:
       GOTOOLCHAIN: local
       GOFLAGS: -mod=readonly
       GOLANGCI_VERSION: "2.15.0"
       GOLANGCI_SHA256: "9b7fe6a6bf6334b98decf8d86b11415ea7889afdabdd1959fdce23af2a9ebcea"
       GOVULNCHECK_VERSION: "v1.9.0"
+      SQLC_VERSION: "v1.31.1"
+      MG_TEST_PG_ADMIN_URL: postgres://postgres:ci-${{ github.run_id }}-${{ github.run_attempt }}@postgres:5432/postgres?sslmode=disable
+      MG_TEST_PG_REQUIRED: "1"   # thiếu PostgreSQL ⇒ test tích hợp FAIL, không được bỏ qua
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -37,7 +54,9 @@ jobs:
           if [ -n "$unformatted" ]; then echo "::error::cần gofmt: $unformatted"; exit 1; fi
       - name: go vet
         run: go vet ./...
-      - name: go test (race)
+      - name: sqlc diff (mã sinh khớp schema + queries)
+        run: go run "github.com/sqlc-dev/sqlc/cmd/sqlc@${SQLC_VERSION}" diff -f database/sqlc.yaml
+      - name: go test (race) — gồm test tích hợp PostgreSQL của internal/store
         run: go test -race -count=1 ./...
       - name: golangci-lint
         run: |
