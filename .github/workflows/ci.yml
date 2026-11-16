@@ -1,6 +1,7 @@
-# CI khung (P0-T04): docs-check (lint master, sinh lại docs/ và kiểm đã commit, ROADMAP, sơ đồ §21.2, link)
-# và quét secret toàn bộ lịch sử. Chạy trên runner của GitHub (repo public — D-12): PR từ fork chạy trong sandbox
-# của GitHub với token chỉ đọc, workflow này không dùng secret nào. Action pin theo commit SHA (§25.1 quy tắc 8).
+# CI khung (P0-T04): docs-check (lint master, sinh lại docs/ và kiểm đã commit, ROADMAP, sơ đồ §21.2, link; từ P2-T02
+# thêm spec-lint api/openapi.yaml), type TypeScript sinh từ spec khớp bản đã commit (P2-T02) và quét secret toàn bộ
+# lịch sử. Chạy trên runner của GitHub (repo public — D-12): PR từ fork chạy trong sandbox của GitHub với token chỉ
+# đọc, workflow này không dùng secret nào. Action pin theo commit SHA, image pin theo digest (§25.1 quy tắc 8).
 name: ci
 
 on:
@@ -28,6 +29,29 @@ jobs:
           python3 tools/test_mgenv.py
           python3 tools/test_render_instance.py
           python3 tools/test_render_edge.py
+      - name: Spec-lint api/openapi.yaml (x-permission, x-task, tenant chỉ từ path, action path, problem+json) + test
+        run: |
+          python3 tools/openapi_lint.py
+          python3 tools/test_openapi_lint.py
+
+  api-types:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      NODE_IMAGE: docker.io/library/node@sha256:e6bedef217677b276c591795e169840edd9096dbf13f29df8ef8d1856b8820bc   # 26.13.1-trixie-slim (versions.lock)
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Sinh lại type TypeScript (openapi-typescript pin trong apps/web/package-lock.json) và đọc spec bằng js-yaml
+        run: |
+          docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD:/src" -v "${RUNNER_TEMP}:/out" \
+            -w /src/apps/web "$NODE_IMAGE" \
+            sh -c 'npm ci --ignore-scripts --no-audit --no-fund && npm run --silent gen:api && npm run --silent spec:json > /out/spec.json'
+      - name: apps/web/src/api khớp api/openapi.yaml đã commit
+        run: git diff --exit-code -- apps/web/src/api/ || { echo "::error::type TypeScript lệch spec — chạy 'make api-gen' rồi commit"; exit 1; }
+      - name: Spec-lint đọc spec giống hệt js-yaml
+        run: python3 tools/openapi_lint.py --compare-json "${RUNNER_TEMP}/spec.json"
 
   secret-scan:
     runs-on: ubuntu-24.04

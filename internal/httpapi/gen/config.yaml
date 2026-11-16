@@ -1,0 +1,15 @@
+# oapi-codegen (phiên bản pin bằng chỉ thị `tool` trong go.mod; versions.lock [go]) — server interface strict trên
+# net/http ServeMux + model (§4.3, §13.1). Sinh lại: `go generate ./internal/httpapi/gen` (hoặc `make api-gen`);
+# CI sinh lại và fail khi api.gen.go lệch api/openapi.yaml (P2-T02).
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oapi-codegen/oapi-codegen/v2.8.2/configuration-schema.json
+package: gen
+output: api.gen.go
+generate:
+  std-http-server: true
+  strict-server: true
+  models: true
+compatibility:
+  # hằng enum luôn mang tên type (TenantStatusActive…) — thêm enum mới về sau không đổi tên hằng đã có
+  always-prefix-enum-values: true
+# chỉ đọc file cục bộ — spec không được tham chiếu tài liệu từ xa
+allow-remote-refs-from: []

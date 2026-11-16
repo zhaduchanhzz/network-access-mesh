@@ -17,3 +17,5 @@ go.mod          text eol=lf
 go.sum          text eol=lf
 Caddyfile text eol=lf
 *.local text eol=lf
+*.ts            text eol=lf
+*.mjs           text eol=lf
