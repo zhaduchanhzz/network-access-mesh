@@ -83,6 +83,28 @@ run_as = "run_uid của instance được backup (§17.1)"
 released = "2026-11-05"
 note = "Gói sqlite 3.53.4-r0 (≥ 3.51.3; Debian trixie chỉ có 3.46.1). Trước khi build image trợ giúp (P3-T11) kiểm lại các CVE được báo là sửa ở SQLite 3.54.0 — chưa xác minh"
 
+# ---------------------------------------------------------------- image tự build (P1-T04, workflow `images`)
+
+[images.mg-edge]
+image = "ghcr.io/zhaduchanhzz/network-access-mesh/edge"
+tag = "f02794ccecc28107eba1bb228d90bdd662bbf1df"
+index = "sha256:0a03d9dd8fbae6c42c6861d041ee785c37506aa5f30bd9ce9290c824cb960fdc"   # một manifest linux/amd64
+amd64 = "sha256:0a03d9dd8fbae6c42c6861d041ee785c37506aa5f30bd9ce9290c824cb960fdc"
+user = "10001:10001"
+run_as = "10001:10001 + nhóm mg-sec-edge (20005); cap_drop ALL, read-only"
+released = "2026-11-16"
+note = "Caddy 2.11.9 + caddy-dns/cloudflare v0.2.4 + caddy-crowdsec-bouncer v0.15.0 + caddy-ratelimit v0.1.0 trên distroless static-debian13. grype v0.121.1: 0 Critical, 1 High chưa có bản vá (GHSA-mgcc-cww5-fp2q, go-jose/v3 v3.0.5), 5 Medium"
+
+[images.mg-stund]
+image = "ghcr.io/zhaduchanhzz/network-access-mesh/stund"
+tag = "f02794ccecc28107eba1bb228d90bdd662bbf1df"
+index = "sha256:30a359fddac7027dc9abd794c0405ebfff72c2ce79043e331353c5060483fce0"   # một manifest linux/amd64
+amd64 = "sha256:30a359fddac7027dc9abd794c0405ebfff72c2ce79043e331353c5060483fce0"
+user = "65532:65532"
+run_as = "65532:65532, host network, UDP 3478; HTTP debug 127.0.0.1:3479"
+released = "2026-11-16"
+note = "tailscale.com/cmd/stund tại tag v1.104.7 (commit cbc74fe…), Go 1.27.4, distroless static-debian13. grype: 0 Critical (gate CI)"
+
 # ---------------------------------------------------------------- image chỉ dùng để build
 
 [images.caddy-builder]
@@ -201,4 +223,4 @@ docker_compose = "5.7.1"    # 2026-11-11
 [pending]
 keycloak = "Pin ở P2-T05 (D-3)"
 monitoring = "Prometheus, Alertmanager, Grafana, Loki, Alloy, exporters — pin ở P6-T01"
-own_images = "Digest của image tự build (edge, api, worker, agent, web, stund) — quy ước ở P0-T07 sau khi GHCR thử được"
+own_images = "edge và stund đã pin (P1-T04); api, worker, agent, web pin khi build ở Phase 2–4. Quy ước: tag = commit SHA, pin theo digest lấy từ GHCR sau khi workflow images xanh"
