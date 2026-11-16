@@ -1,0 +1,2201 @@
+# MeshGuard ZTNA — SaaS API v1, contract-first (§13 của docs/planning/implementation-master-plan.md).
+# Nguồn sự thật cho server Go (oapi-codegen strict server → internal/httpapi/gen) và type TypeScript
+# (openapi-typescript → apps/web/src/api/schema.d.ts). Sửa file này rồi chạy `make api-gen`; CI fail khi code sinh ra
+# lệch spec. `make api-lint` (tools/openapi_lint.py) kiểm mọi operation theo §13.1, §13.2, §8.5, §8.6 và §20.
+# Phạm vi hiện tại (P2-T02): các operation Phase 2 trong bảng truy vết của §13.2. Nhóm của phase sau được thêm vào
+# ở task xây nhóm đó — trong v1 chỉ thay đổi cộng thêm (§13.1).
+# Cú pháp: tập con YAML mà spec-lint đọc được (không anchor/alias/tag, không plain scalar nhiều dòng) — xem tool.
+openapi: 3.1.0
+info:
+  title: MeshGuard ZTNA API
+  version: 1.0.0-alpha.1
+  summary: API SaaS của Management Plane — không phải Headscale API
+  description: |-
+    API SaaS do MeshGuard thiết kế (§13 của master). Headscale API chỉ được gọi từ `internal/headscale` ở phía server;
+    trình duyệt không bao giờ gọi Headscale và không giữ Headscale API key.
+
+    **Quy ước chung (§13.1)**
+
+    - **Tenant**: luôn là path param `{tenantId}` (UUID) — không nhận tenant từ body, header hay query. Ngoại lệ duy nhất
+      là `GET /auth/login?tenant=<slug>`: slug chỉ dùng để định tuyến đăng nhập.
+    - **Xác thực**: cookie session `__Host-mg_session` (BFF, §8.3). Method không an toàn (`POST`, `PUT`, `PATCH`,
+      `DELETE`) cần thêm header `X-CSRF-Token` (lấy từ `GET /auth/session`) và `Origin`/`Sec-Fetch-Site` hợp lệ.
+    - **Lỗi**: RFC 9457 `application/problem+json` (schema `Problem`) với `code` ổn định; không có stack trace, không có
+      thông điệp thô chứa secret. ID thuộc tenant khác trả `404`.
+    - **Phân trang**: cursor — `?limit=50&cursor=<opaque>` (tối đa 200); response `{items, next_cursor}`
+      (`next_cursor = null` ở trang cuối); thứ tự ổn định.
+    - **Idempotency**: `Idempotency-Key` bắt buộc cho `POST` tạo tài nguyên/job. Lặp cùng key và cùng request ⇒ trả lại
+      kết quả đã lưu; cùng key khác request ⇒ `422 idempotency_key_reuse`; request trước chưa xong ⇒ `409` +
+      `Retry-After`.
+    - **Thao tác dài**: `202 Accepted` + `Location: /api/v1/tenants/{tenantId}/jobs/{jobId}` (người gọi phạm vi tenant)
+      hoặc `/api/v1/platform/jobs/{jobId}` (phạm vi platform); client poll job.
+    - **Đồng thời**: `ETag` + `If-Match` (§6.1) cho tài nguyên sửa được đồng thời.
+    - **Rate limit**: header `RateLimit-*` và `Retry-After`; vượt hạn mức ⇒ `429 rate_limited`.
+    - **Truy vết**: `X-Request-Id` (sinh nếu thiếu) có trong mọi response, trùng `Problem.request_id`.
+    - **Độ tươi**: dữ liệu lấy từ cache kèm `synced_at`.
+
+    **Extension của spec** (kiểm bằng `tools/openapi_lint.py`)
+
+    - `x-permission` — đúng một quyền của §8.5/§8.6, hoặc `public` / `authenticated` / `internal` (§13.1).
+    - `x-task` — ID task ở §20 xây operation, khớp bảng truy vết của §13.2.
+    - `x-audit-action` — giá trị `audit_events.action` của operation: sự kiện từ chối của mọi operation (§8.8), sự
+      kiện thành công của thao tác ghi; thao tác gọi Headscale hoặc chạy bằng job ghi cặp `<action>.requested` →
+      `<action>.succeeded` / `<action>.failed` (§6.1).
+    - `x-own-resource: true` — ô ○ của §8.6: role có scope `own` chỉ gọi được operation này, trên tài nguyên của chính mình.
+    - `x-dual-control: true` — ô 2P của §8.5/§8.6.
+    - `x-secret-once: true` — trường secret chỉ hiển thị một lần.
+servers:
+  - url: /api/v1
+    description: Cùng origin với Portal — `app.<domain>` (Tenant Portal) và `admin.<domain>` (Platform Console)
+security:
+  - sessionCookie: []
+tags:
+  - name: auth
+    description: Đăng nhập OIDC qua BFF, session, CSRF (§8.3) — P2-T06
+  - name: tenants
+    description: Tenant mà người gọi là thành viên (§13.2) — P2-T11
+  - name: dashboard
+    description: Tổng quan của tenant, số liệu thật kèm `synced_at` (§16.4) — P2-T13a
+  - name: devices
+    description: Sổ thiết bị, đổi tên, thu hồi hai pha, đồng bộ (§13.2, §13.5) — P2-T13
+  - name: users
+    description: Thành viên của tenant, chỉ đọc ở Phase 2 (§13.2) — P2-T11
+  - name: audit
+    description: Nhật ký hành động quản trị (§6.1, §16.5) — P2-T08
+  - name: jobs
+    description: Job của tenant, phép chiếu an toàn (§13.3, §13.5) — P2-T12
+  - name: platform
+    description: Platform Console, chỉ phục vụ trên origin `admin.<domain>` (§12.2, §13.2) — P2-T08, P2-T11, P2-T12, P2-T13a
+paths:
+  # ---------------------------------------------------------------- auth (P2-T06)
+  /auth/login:
+    get:
+      tags: [auth]
+      operationId: authLogin
+      summary: Bắt đầu đăng nhập OIDC — chuyển hướng tới IdP
+      description: |-
+        §8.3 bước 1–2. IdP được chọn từ DB theo tenant (`identity_providers` đang `active`) — **không** nhận từ client.
+        Backend ghi một hàng `auth_requests` (hash của `state`, `idp_id`, `nonce`, PKCE verifier đã mã hóa, origin, hạn
+        ≤ 10 phút), đặt cookie `__Host-mg_authreq` ràng buộc trình duyệt rồi chuyển hướng (Authorization Code + PKCE
+        S256). `scope=platform` chỉ được phục vụ trên origin quản trị.
+      security: []
+      x-permission: public
+      x-task: P2-T06
+      x-audit-action: auth.login_start
+      parameters:
+        - name: scope
+          in: query
+          required: true
+          description: Phạm vi đăng nhập — `tenant` trên `app.<domain>`, `platform` trên `admin.<domain>`
+          schema:
+            type: string
+            enum: [tenant, platform]
+        - name: tenant
+          in: query
+          required: false
+          description: >-
+            Slug của tenant, bắt buộc khi `scope=tenant`. Chỉ dùng để định tuyến đăng nhập (§13.1) — không phải ngữ
+            cảnh tenant của API.
+          schema:
+            $ref: '#/components/schemas/TenantSlug'
+        - name: return_to
+          in: query
+          required: false
+          description: Đường dẫn tương đối trong Portal để quay lại sau khi đăng nhập (chặn open redirect)
+          schema:
+            type: string
+            maxLength: 512
+            pattern: '^/([^/\\\s][^\s]*)?$'
+      responses:
+        '302':
+          description: Chuyển hướng tới authorization endpoint của IdP; đặt cookie `__Host-mg_authreq`
+          headers:
+            Location:
+              $ref: '#/components/headers/RedirectLocation'
+            Set-Cookie:
+              $ref: '#/components/headers/SetCookie'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /auth/callback/{idpId}:
+    get:
+      tags: [auth]
+      operationId: authCallback
+      summary: Callback OIDC của một IdP — tạo session
+      description: |-
+        §8.3 bước 3–4. Mỗi IdP có redirect URI riêng. **Trước khi** gọi token endpoint, callback từ chối khi
+        `auth_requests.idp_id` ≠ `{idpId}`, origin hoặc cookie ràng buộc không khớp, hàng đã dùng/hết hạn, hoặc tham số
+        `iss` khác issuer đã lưu (RFC 9207) — chặn IdP mix-up (T-20). Sau đó mới đổi code và kiểm chữ ký, `iss`, `aud`,
+        `nonce`, `exp`, `required_claims`, email đã xác minh, domain (§8.2); đạt hết mới upsert `identities (idp_id, sub)`.
+        Thành công: cookie `__Host-mg_session` (opaque 256-bit, server chỉ lưu hash) và chuyển hướng về `return_to`.
+      security: []
+      x-permission: public
+      x-task: P2-T06
+      x-audit-action: auth.login
+      parameters:
+        - $ref: '#/components/parameters/IdpId'
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+            maxLength: 512
+        - name: code
+          in: query
+          required: false
+          description: Authorization code — vắng khi IdP trả lỗi
+          schema:
+            type: string
+            maxLength: 4096
+        - name: iss
+          in: query
+          required: false
+          description: Issuer theo RFC 9207 — phải khớp khi IdP công bố `authorization_response_iss_parameter_supported`
+          schema:
+            type: string
+            maxLength: 1024
+        - name: error
+          in: query
+          required: false
+          description: Mã lỗi do IdP trả (người dùng hủy, từ chối…) — callback trả `401`
+          schema:
+            type: string
+            maxLength: 256
+        - name: error_description
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 1024
+        - name: __Host-mg_authreq
+          in: cookie
+          required: false
+          description: Cookie ràng buộc trình duyệt đặt ở `GET /auth/login` — thiếu hoặc không khớp ⇒ `401`
+          x-go-name: AuthRequestCookie
+          schema:
+            type: string
+            maxLength: 256
+      responses:
+        '302':
+          description: Đăng nhập thành công; đặt cookie `__Host-mg_session` và chuyển hướng về `return_to`
+          headers:
+            Location:
+              $ref: '#/components/headers/RedirectLocation'
+            Set-Cookie:
+              $ref: '#/components/headers/SetCookie'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /auth/logout:
+    post:
+      tags: [auth]
+      operationId: authLogout
+      summary: Đăng xuất — thu hồi session hiện tại
+      description: Thu hồi phía server có hiệu lực ngay (§8.3 bước 6) và xóa cookie `__Host-mg_session`.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: authenticated
+      x-task: P2-T06
+      x-audit-action: auth.logout
+      responses:
+        '204':
+          description: Đã thu hồi session
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SetCookie'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /auth/session:
+    get:
+      tags: [auth]
+      operationId: getAuthSession
+      summary: Principal, membership, grant đang hiệu lực và CSRF token của session hiện tại
+      description: |-
+        §8.3 bước 5 và 8. Session chỉ mang danh tính — membership, role và grant được nạp từ DB ở mỗi request.
+        `csrf_token` = HMAC-SHA256(key = session id, msg = "csrf-v1"), gửi lại trong header `X-CSRF-Token` cho method
+        không an toàn. Response có `Cache-Control: no-store`.
+      x-permission: authenticated
+      x-task: P2-T06
+      x-audit-action: auth.session.read
+      responses:
+        '200':
+          description: Session hiện tại
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /auth/sessions:
+    get:
+      tags: [auth]
+      operationId: listAuthSessions
+      summary: Các session đang hiệu lực của chính người gọi
+      x-permission: authenticated
+      x-task: P2-T06
+      x-audit-action: auth.session.list
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Một trang session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /auth/sessions/{sessionId}:
+    delete:
+      tags: [auth]
+      operationId: revokeAuthSession
+      summary: Thu hồi một session của chính mình
+      description: Session của identity khác trả `404` (§8.4 bất biến 6); thu hồi có hiệu lực ở request kế tiếp.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: authenticated
+      x-task: P2-T06
+      x-audit-action: auth.session.revoke
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '204':
+          description: Đã thu hồi
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  # ---------------------------------------------------------------- tenants (P2-T11)
+  /tenants:
+    get:
+      tags: [tenants]
+      operationId: listMyTenants
+      summary: Các tenant mà người gọi là thành viên
+      x-permission: authenticated
+      x-task: P2-T11
+      x-audit-action: tenant.list
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Một trang tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}:
+    get:
+      tags: [tenants]
+      operationId: getTenant
+      summary: Thông tin tenant của người gọi
+      x-permission: tenant.tenant:read
+      x-task: P2-T11
+      x-audit-action: tenant.read
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '200':
+          description: Tenant
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tenant'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  # ---------------------------------------------------------------- dashboard (P2-T13a)
+  /tenants/{tenantId}/dashboard:
+    get:
+      tags: [dashboard]
+      operationId: getTenantDashboard
+      summary: Tổng quan của tenant — số liệu từ cache và health của instance
+      description: >-
+        Mỗi số kèm `synced_at`/`checked_at`; không có số liệu giả (§12.3, §16.4). Policy, route, relay và security event
+        được bổ sung (cộng thêm) ở phase sau.
+      x-permission: tenant.dashboard:read
+      x-task: P2-T13a
+      x-audit-action: dashboard.read
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '200':
+          description: Số liệu tổng quan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantDashboard'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  # ---------------------------------------------------------------- devices (P2-T13)
+  /tenants/{tenantId}/devices:
+    get:
+      tags: [devices]
+      operationId: listDevices
+      summary: Danh sách thiết bị (từ sổ thiết bị, kèm `synced_at`)
+      description: |-
+        End User chỉ thấy thiết bị của chính mình — có `owner` là chính họ và không có tag (§8.4 bất biến 3b).
+        `fresh=true` (giới hạn tần suất) chạy một lần sync có giới hạn thời gian rồi trả **trang 1**; `fresh=true` kèm
+        `cursor` ⇒ `422`; instance không phản hồi ⇒ `503 instance_unavailable` (§13.1).
+      x-permission: tenant.device:read
+      x-own-resource: true
+      x-task: P2-T13
+      x-audit-action: device.list
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - name: online
+          in: query
+          required: false
+          schema:
+            type: boolean
+        - name: owner
+          in: query
+          required: false
+          description: Lọc theo membership sở hữu
+          schema:
+            type: string
+            format: uuid
+        - name: tag
+          in: query
+          required: false
+          schema:
+            type: string
+            pattern: '^tag:[a-z][a-z0-9-]{0,49}$'
+        - name: q
+          in: query
+          required: false
+          description: Tìm theo tên thiết bị
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 64
+        - name: fresh
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Một trang thiết bị
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/InstanceUnavailable'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/devices/sync:
+    post:
+      tags: [devices]
+      operationId: syncDevices
+      summary: Yêu cầu đồng bộ sổ thiết bị từ Headscale
+      description: >-
+        Enqueue job `inventory.sync` (§13.5) và trả `202` + `Location` của job; yêu cầu trùng khi job cùng
+        `dedupe_key` còn đang chờ/chạy trả lại job đó. Hạn mức rate limit riêng, chặt hơn (§13.1).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.device:sync
+      x-task: P2-T13
+      x-audit-action: device.sync
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '202':
+          description: Đã nhận; theo dõi tiến trình ở job
+          headers:
+            Location:
+              $ref: '#/components/headers/JobLocation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/devices/{deviceId}:
+    get:
+      tags: [devices]
+      operationId: getDevice
+      summary: Chi tiết một thiết bị
+      x-permission: tenant.device:read
+      x-own-resource: true
+      x-task: P2-T13
+      x-audit-action: device.read
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/DeviceId'
+      responses:
+        '200':
+          description: Thiết bị
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+    patch:
+      tags: [devices]
+      operationId: renameDevice
+      summary: Đổi tên thiết bị (`given_name`)
+      description: >-
+        Tên được kiểm cục bộ theo nhãn DNS trước khi gọi `RenameNode` (§13.4); audit `device.rename.requested` được
+        commit trước lời gọi Headscale, rồi `device.rename.succeeded`/`device.rename.failed` (§6.1).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.device:rename
+      x-own-resource: true
+      x-task: P2-T13
+      x-audit-action: device.rename
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/DeviceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceRename'
+      responses:
+        '200':
+          description: Thiết bị sau khi đổi tên (đọc lại từ Headscale)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '502':
+          $ref: '#/components/responses/UpstreamRejected'
+        '503':
+          $ref: '#/components/responses/InstanceUnavailable'
+        default:
+          $ref: '#/components/responses/Unexpected'
+    delete:
+      tags: [devices]
+      operationId: deleteDevice
+      summary: Xóa thiết bị khỏi tailnet (thu hồi hai pha)
+      description: |-
+        Đặt `revocation = {state: pending, kind: delete}` và enqueue job `device.revoke` (`DeleteNode` + đọc lại — §13.5).
+        Trả `202` + `Location` của job; thiết bị chỉ chuyển `applied` sau khi đọc lại xác nhận. Instance không phản hồi ⇒
+        giữ `pending` và retry có backoff, hết lượt ⇒ `failed` + cảnh báo.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.device:delete
+      x-own-resource: true
+      x-task: P2-T13
+      x-audit-action: device.delete
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/DeviceId'
+      responses:
+        '202':
+          description: Đã nhận; thiết bị kèm trạng thái thu hồi hiện tại
+          headers:
+            Location:
+              $ref: '#/components/headers/JobLocation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/devices/{deviceId}/expire:
+    post:
+      tags: [devices]
+      operationId: expireDevice
+      summary: Thu hồi (expire) thiết bị — hai pha
+      description: |-
+        Đặt `revocation = {state: pending, kind: expire}` và enqueue job `device.revoke` (`ExpireNode` với thời điểm
+        tường minh + đọc lại — §13.4, §13.5). Trả `202` + `Location` của job; UI chỉ hiện "đã áp dụng" khi `applied`
+        (T-17). Thiết bị đang thu hồi trả lại trạng thái hiện tại.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.device:expire
+      x-own-resource: true
+      x-task: P2-T13
+      x-audit-action: device.expire
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/DeviceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '202':
+          description: Đã nhận; thiết bị kèm trạng thái thu hồi hiện tại
+          headers:
+            Location:
+              $ref: '#/components/headers/JobLocation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  # ---------------------------------------------------------------- users (đọc — P2-T11)
+  /tenants/{tenantId}/users:
+    get:
+      tags: [users]
+      operationId: listTenantUsers
+      summary: Danh sách thành viên của tenant
+      x-permission: tenant.user:read
+      x-task: P2-T11
+      x-audit-action: user.list
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - name: role
+          in: query
+          required: false
+          description: Lọc theo khóa role
+          schema:
+            type: string
+            maxLength: 64
+        - name: status
+          in: query
+          required: false
+          description: Lọc theo trạng thái membership
+          schema:
+            type: string
+            maxLength: 32
+        - name: q
+          in: query
+          required: false
+          description: Tìm theo tên hiển thị hoặc email
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 64
+      responses:
+        '200':
+          description: Một trang thành viên
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MembershipList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/users/{membershipId}:
+    get:
+      tags: [users]
+      operationId: getTenantUser
+      summary: Chi tiết một thành viên
+      x-permission: tenant.user:read
+      x-task: P2-T11
+      x-audit-action: user.read
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/MembershipId'
+      responses:
+        '200':
+          description: Thành viên
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Membership'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  # ---------------------------------------------------------------- audit (P2-T08)
+  /tenants/{tenantId}/audit:
+    get:
+      tags: [audit]
+      operationId: listTenantAuditEvents
+      summary: Sự kiện audit của tenant (gồm hành động của support)
+      description: >-
+        Chỉ sự kiện của tenant này; từ chối chéo tenant được ghi dưới tenant của actor nên không xuất hiện ở đây (§6.1).
+        Mới nhất trước.
+      x-permission: tenant.audit:read
+      x-task: P2-T08
+      x-audit-action: audit.list
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/ActorFilter'
+        - $ref: '#/components/parameters/ActionFilter'
+        - $ref: '#/components/parameters/OutcomeFilter'
+        - $ref: '#/components/parameters/FromFilter'
+        - $ref: '#/components/parameters/ToFilter'
+      responses:
+        '200':
+          description: Một trang sự kiện
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditEventList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  # ---------------------------------------------------------------- jobs (P2-T12)
+  /tenants/{tenantId}/jobs:
+    get:
+      tags: [jobs]
+      operationId: listTenantJobs
+      summary: Job của tenant (phép chiếu an toàn)
+      x-permission: tenant.job:read
+      x-task: P2-T12
+      x-audit-action: job.list
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/JobStatusFilter'
+        - $ref: '#/components/parameters/JobKindFilter'
+      responses:
+        '200':
+          description: Một trang job
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/jobs/{jobId}:
+    get:
+      tags: [jobs]
+      operationId: getTenantJob
+      summary: Một job của tenant (phép chiếu an toàn)
+      description: >-
+        `steps[].message` chỉ sinh từ danh mục mẫu thông điệp theo mã; `error` chỉ gồm mã ổn định — không đường dẫn host,
+        tên container, địa chỉ nội bộ hay định danh của tenant khác (§13.3).
+      x-permission: tenant.job:read
+      x-task: P2-T12
+      x-audit-action: job.read
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: Job
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  # ---------------------------------------------------------------- platform (đọc — P2-T08, P2-T11, P2-T12, P2-T13a)
+  /platform/tenants:
+    get:
+      tags: [platform]
+      operationId: listPlatformTenants
+      summary: Tenant Registry — chỉ metadata registry
+      x-permission: platform.tenant:read
+      x-task: P2-T11
+      x-audit-action: platform.tenant.list
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/TenantStatus'
+        - name: q
+          in: query
+          required: false
+          description: Tìm theo slug hoặc tên
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 64
+      responses:
+        '200':
+          description: Một trang tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /platform/tenants/{tenantId}:
+    get:
+      tags: [platform]
+      operationId: getPlatformTenant
+      summary: Metadata registry của một tenant
+      description: Không gồm dữ liệu nội bộ của tenant — muốn vào tenant phải có Support Access Grant (§8.4 bất biến 2, §8.7).
+      x-permission: platform.tenant:read
+      x-task: P2-T11
+      x-audit-action: platform.tenant.read
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '200':
+          description: Tenant
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tenant'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /platform/instances:
+    get:
+      tags: [platform]
+      operationId: listPlatformInstances
+      summary: Headscale instance của mọi tenant
+      x-permission: platform.instance:read
+      x-task: P2-T11
+      x-audit-action: platform.instance.list
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/InstanceStatus'
+        - name: host
+          in: query
+          required: false
+          description: Lọc theo host
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Một trang instance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InstanceList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /platform/instances/{instanceId}:
+    get:
+      tags: [platform]
+      operationId: getPlatformInstance
+      summary: Một Headscale instance
+      x-permission: platform.instance:read
+      x-task: P2-T11
+      x-audit-action: platform.instance.read
+      parameters:
+        - $ref: '#/components/parameters/InstanceId'
+      responses:
+        '200':
+          description: Instance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Instance'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /platform/health:
+    get:
+      tags: [platform]
+      operationId: getPlatformHealth
+      summary: Health tổng hợp của nền tảng
+      description: Số liệu thật kèm `checked_at` (§12.2, §16.2); không có số liệu giả.
+      x-permission: platform.health:read
+      x-task: P2-T13a
+      x-audit-action: platform.health.read
+      responses:
+        '200':
+          description: Health của nền tảng
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformHealth'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /platform/audit:
+    get:
+      tags: [platform]
+      operationId: listPlatformAuditEvents
+      summary: Sự kiện audit phạm vi platform
+      x-permission: platform.audit:read
+      x-task: P2-T08
+      x-audit-action: platform.audit.list
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/ActorFilter'
+        - $ref: '#/components/parameters/ActionFilter'
+        - $ref: '#/components/parameters/OutcomeFilter'
+        - $ref: '#/components/parameters/FromFilter'
+        - $ref: '#/components/parameters/ToFilter'
+      responses:
+        '200':
+          description: Một trang sự kiện
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditEventList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /platform/jobs:
+    get:
+      tags: [platform]
+      operationId: listPlatformJobs
+      summary: Job của nền tảng và mọi tenant
+      description: Danh sách dùng cùng phép chiếu với phía tenant; chi tiết thô (`steps[].detail`, `error` gốc) chỉ có ở `GET /platform/jobs/{jobId}` (§13.3).
+      x-permission: platform.job:read
+      x-task: P2-T12
+      x-audit-action: platform.job.list
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/JobStatusFilter'
+        - $ref: '#/components/parameters/JobKindFilter'
+      responses:
+        '200':
+          description: Một trang job
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /platform/jobs/{jobId}:
+    get:
+      tags: [platform]
+      operationId: getPlatformJob
+      summary: Một job, kèm chi tiết thô của từng step
+      x-permission: platform.job:read
+      x-task: P2-T12
+      x-audit-action: platform.job.read
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: Job
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformJob'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: __Host-mg_session
+      description: Session phía server (BFF, §8.3) — opaque 256-bit, server chỉ lưu hash; trình duyệt không giữ token của IdP
+    csrfToken:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+      description: Bắt buộc cho method không an toàn (§8.3 bước 5); giá trị lấy từ `GET /auth/session`
+  parameters:
+    TenantId:
+      name: tenantId
+      in: path
+      required: true
+      description: ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1)
+      schema:
+        type: string
+        format: uuid
+    DeviceId:
+      name: deviceId
+      in: path
+      required: true
+      description: ID thiết bị của nền tảng (UUID), ánh xạ `(tenant, headscale_node_id)` — không nhận node id thô của Headscale
+      schema:
+        type: string
+        format: uuid
+    MembershipId:
+      name: membershipId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    JobId:
+      name: jobId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    InstanceId:
+      name: instanceId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    IdpId:
+      name: idpId
+      in: path
+      required: true
+      description: ID của IdP (`identity_providers.id`) — mỗi IdP một redirect URI (§8.3 bước 3)
+      schema:
+        type: string
+        format: uuid
+    SessionId:
+      name: sessionId
+      in: path
+      required: true
+      description: Giá trị `sessions.public_id` của một session thuộc chính người gọi
+      schema:
+        type: string
+        format: uuid
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Số phần tử tối đa của trang
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: Con trỏ mờ lấy từ `next_cursor` của trang trước
+      schema:
+        type: string
+        maxLength: 512
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 255
+        pattern: '^[\x21-\x7E]+$'
+    ActorFilter:
+      name: actor
+      in: query
+      required: false
+      description: Lọc theo identity của actor
+      schema:
+        type: string
+        format: uuid
+    ActionFilter:
+      name: action
+      in: query
+      required: false
+      description: Lọc theo `action` (khớp chính xác)
+      schema:
+        type: string
+        maxLength: 128
+        pattern: '^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$'
+    OutcomeFilter:
+      name: outcome
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/AuditOutcome'
+    FromFilter:
+      name: from
+      in: query
+      required: false
+      description: Từ thời điểm (bao gồm)
+      schema:
+        type: string
+        format: date-time
+    ToFilter:
+      name: to
+      in: query
+      required: false
+      description: Tới thời điểm (không bao gồm)
+      schema:
+        type: string
+        format: date-time
+    JobStatusFilter:
+      name: status
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/JobStatus'
+    JobKindFilter:
+      name: kind
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/JobKind'
+  headers:
+    JobLocation:
+      description: Job theo dõi thao tác — `/api/v1/tenants/{tenantId}/jobs/{jobId}` (phạm vi tenant) hoặc `/api/v1/platform/jobs/{jobId}` (phạm vi platform)
+      required: true
+      schema:
+        type: string
+        format: uri-reference
+    RedirectLocation:
+      description: URL chuyển hướng
+      required: true
+      schema:
+        type: string
+        format: uri-reference
+    SetCookie:
+      description: Cookie `__Host-` với `Secure; HttpOnly; SameSite=Lax; Path=/`
+      required: true
+      schema:
+        type: string
+    ETag:
+      description: Phiên bản hiện tại của tài nguyên (§6.1) — giá trị cho `If-Match`
+      required: true
+      schema:
+        type: string
+    RetryAfter:
+      description: Số giây nên chờ trước khi thử lại
+      schema:
+        type: integer
+        minimum: 0
+    RateLimitLimit:
+      description: Hạn mức của cửa sổ hiện tại
+      schema:
+        type: integer
+        minimum: 0
+    RateLimitRemaining:
+      description: Số request còn lại trong cửa sổ hiện tại
+      schema:
+        type: integer
+        minimum: 0
+    RateLimitReset:
+      description: Số giây tới khi hạn mức được nạp lại
+      schema:
+        type: integer
+        minimum: 0
+    RequestId:
+      description: ID của request (sinh nếu client không gửi) — trùng `Problem.request_id`
+      schema:
+        type: string
+  responses:
+    Unauthenticated:
+      description: Chưa xác thực — `unauthenticated` (thiếu, hết hạn hoặc đã thu hồi session) hoặc `reauth_required` (cần step-up, §8.3 bước 7)
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Forbidden:
+      description: Không đủ quyền — `forbidden` (gồm CSRF/origin không hợp lệ), `tenant_suspended` (tenant bị suspend chặn thao tác ghi) hoặc `quota_exceeded`
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    NotFound:
+      description: Không tìm thấy — `not_found`, kể cả ID thuộc tenant khác (§8.4 bất biến 6)
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Conflict:
+      description: Xung đột — `conflict`; request trước với cùng `Idempotency-Key` chưa xong thì kèm `Retry-After`
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    ValidationFailed:
+      description: Dữ liệu không hợp lệ — `validation_failed` (chi tiết ở `errors[]`) hoặc `idempotency_key_reuse` (cùng key, khác request)
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    RateLimited:
+      description: Vượt hạn mức — `rate_limited` (token bucket theo identity và theo IP, §13.1)
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+        RateLimit-Limit:
+          $ref: '#/components/headers/RateLimitLimit'
+        RateLimit-Remaining:
+          $ref: '#/components/headers/RateLimitRemaining'
+        RateLimit-Reset:
+          $ref: '#/components/headers/RateLimitReset'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    UpstreamRejected:
+      description: Headscale của tenant từ chối — `upstream_rejected` (lý do đã lọc; thông điệp gốc chỉ ghi vào log nội bộ, §13.4)
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    InstanceUnavailable:
+      description: Headscale của tenant không phản hồi — `instance_unavailable`
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Unexpected:
+      description: Lỗi khác — mã ổn định theo bảng `ProblemCode`, `internal_error` cho lỗi không lường trước
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+  schemas:
+    # ------------------------------------------------------------ lỗi (RFC 9457, §13.1, §13.3)
+    Problem:
+      type: object
+      description: RFC 9457 problem details (§13.1, §13.3)
+      required: [type, title, status, code, request_id]
+      properties:
+        type:
+          type: string
+          format: uri
+          description: Loại lỗi — `urn:meshguard:problem:<code>`
+          examples: ['urn:meshguard:problem:not_found']
+        title:
+          type: string
+          description: Tóm tắt ngắn, cố định theo `code`
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+        detail:
+          type: string
+          description: Giải thích cho người đọc — không bao giờ chứa secret, stack trace hay thông điệp thô của upstream
+        instance:
+          type: string
+          format: uri-reference
+          description: Path của request gây lỗi
+        code:
+          $ref: '#/components/schemas/ProblemCode'
+        request_id:
+          type: string
+          description: Giá trị `X-Request-Id` của request
+        errors:
+          type: array
+          description: Lỗi theo từng trường (với `validation_failed`)
+          items:
+            $ref: '#/components/schemas/FieldError'
+    ProblemCode:
+      type: string
+      description: |-
+        Mã lỗi ổn định (§13.1) — client dựa vào `code`, không dựa vào `title`/`detail`.
+        `unauthenticated`, `reauth_required` (401) · `forbidden`, `tenant_suspended`, `quota_exceeded` (403) ·
+        `not_found` (404, kể cả ID chéo tenant) · `conflict` (409) · `precondition_failed` (412) ·
+        `precondition_required` (428, thiếu `If-Match`) · `validation_failed`, `idempotency_key_reuse` (422) ·
+        `rate_limited` (429) · `upstream_rejected` (502) · `instance_unavailable` (503) · `internal_error` (500).
+      enum:
+        - unauthenticated
+        - reauth_required
+        - forbidden
+        - tenant_suspended
+        - quota_exceeded
+        - not_found
+        - conflict
+        - precondition_failed
+        - precondition_required
+        - validation_failed
+        - idempotency_key_reuse
+        - rate_limited
+        - upstream_rejected
+        - instance_unavailable
+        - internal_error
+    FieldError:
+      type: object
+      required: [field, code, message]
+      properties:
+        field:
+          type: string
+          description: Đường dẫn tới trường lỗi, ví dụ `given_name`
+        code:
+          type: string
+          description: Mã lỗi của trường, ví dụ `pattern`, `required`
+        message:
+          type: string
+    # ------------------------------------------------------------ chung
+    ResourceRef:
+      type: object
+      required: [type, id]
+      properties:
+        type:
+          type: string
+          examples: [device]
+        id:
+          type: string
+    HealthStatus:
+      type: string
+      description: Kết quả health check gần nhất; `unknown` khi chưa từng kiểm
+      enum: [healthy, unhealthy, unknown]
+    StatusCounts:
+      type: object
+      description: Số lượng theo trạng thái
+      additionalProperties:
+        type: integer
+        minimum: 0
+    # ------------------------------------------------------------ auth (§8.3)
+    SessionOrigin:
+      type: string
+      description: Origin nơi session được tạo — session của `app` bị từ chối trên `admin` và ngược lại (§8.3 bước 8)
+      enum: [app, admin]
+    Principal:
+      type: object
+      description: Danh tính đã đăng nhập (`identities`, §8.1)
+      required: [identity_id, scope, idp_id, display_name]
+      properties:
+        identity_id:
+          type: string
+          format: uuid
+        scope:
+          type: string
+          description: Danh tính của IdP platform hay của IdP một tenant (§8.4 bất biến 1)
+          enum: [platform, tenant]
+        idp_id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+        email:
+          type: string
+        platform_role:
+          type: string
+          description: Khóa role platform (ví dụ `super_admin`) — chỉ khi `scope` là `platform`
+    SessionMembership:
+      type: object
+      required: [membership_id, tenant_id, tenant_slug, tenant_name, role, status]
+      properties:
+        membership_id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        tenant_slug:
+          $ref: '#/components/schemas/TenantSlug'
+        tenant_name:
+          type: string
+        role:
+          type: string
+          description: Khóa role phạm vi tenant (`roles.key`, seed ở P2-T07)
+        status:
+          type: string
+          description: Trạng thái membership
+    SupportGrantSummary:
+      type: object
+      description: Support Access Grant đang hiệu lực của nhân sự nền tảng (§8.7) — có từ P4-T13, trước đó danh sách luôn rỗng
+      required: [id, tenant_id, effective_role, expires_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        effective_role:
+          type: string
+          enum: [support_operator, support_admin]
+        expires_at:
+          type: string
+          format: date-time
+    Session:
+      type: object
+      description: Session hiện tại (§8.3) — chỉ mang danh tính; membership, role và grant đọc từ DB ở mỗi request
+      required: [principal, origin, csrf_token, auth_time, idle_expires_at, absolute_expires_at, memberships, support_grants]
+      properties:
+        principal:
+          $ref: '#/components/schemas/Principal'
+        origin:
+          $ref: '#/components/schemas/SessionOrigin'
+        csrf_token:
+          type: string
+          description: Giá trị gửi trong header `X-CSRF-Token`; dẫn xuất từ session id, mất hiệu lực cùng session
+        auth_time:
+          type: string
+          format: date-time
+          description: Thời điểm xác thực tại IdP (claim `auth_time`) — cơ sở của step-up (≤ 15 phút)
+        idle_expires_at:
+          type: string
+          format: date-time
+        absolute_expires_at:
+          type: string
+          format: date-time
+        memberships:
+          type: array
+          description: Membership đang hoạt động (chỉ với danh tính phạm vi tenant)
+          items:
+            $ref: '#/components/schemas/SessionMembership'
+        support_grants:
+          type: array
+          items:
+            $ref: '#/components/schemas/SupportGrantSummary'
+    SessionSummary:
+      type: object
+      required: [id, origin, created_at, last_seen_at, auth_time, idle_expires_at, absolute_expires_at, current]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Giá trị `sessions.public_id` (không phải session id)
+        origin:
+          $ref: '#/components/schemas/SessionOrigin'
+        created_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: string
+          format: date-time
+        auth_time:
+          type: string
+          format: date-time
+        idle_expires_at:
+          type: string
+          format: date-time
+        absolute_expires_at:
+          type: string
+          format: date-time
+        ip:
+          type: string
+        user_agent:
+          type: string
+        current:
+          type: boolean
+          description: Là session của chính request này
+    SessionList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SessionSummary'
+        next_cursor:
+          type: [string, 'null']
+    # ------------------------------------------------------------ tenant (§13.3)
+    TenantSlug:
+      type: string
+      description: Slug của tenant — nhãn DNS, bất biến (§11.3 bước 1)
+      pattern: '^[a-z][a-z0-9-]{1,30}[a-z0-9]$'
+      examples: [tenant-a]
+    TenantStatus:
+      type: string
+      description: Trạng thái tenant (`tenants.status`, §6.3)
+      enum: [pending, provisioning, active, suspended, deprovisioning, deleted, failed]
+    PlanLimits:
+      type: object
+      description: Giới hạn hiệu lực của gói sau override (§13.3); thiếu khóa nghĩa là gói không đặt giới hạn đó
+      additionalProperties: false
+      properties:
+        max_devices:
+          type: integer
+          minimum: 0
+        max_users:
+          type: integer
+          minimum: 0
+        max_tagged_devices:
+          type: integer
+          minimum: 0
+        max_live_enrollment_credentials:
+          type: integer
+          minimum: 0
+        backup_interval_minutes:
+          type: integer
+          minimum: 1
+        instance:
+          $ref: '#/components/schemas/InstanceLimits'
+    InstanceLimits:
+      type: object
+      description: Giới hạn container của instance theo gói (§14.5)
+      additionalProperties: false
+      properties:
+        cpus:
+          type: number
+          minimum: 0
+        memory_mb:
+          type: integer
+          minimum: 0
+        pids:
+          type: integer
+          minimum: 0
+    Tenant:
+      type: object
+      description: Tenant (§13.3)
+      required: [id, slug, name, status, deployment_region, plan, limits, control_url, created_at, updated_at, version]
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          $ref: '#/components/schemas/TenantSlug'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+        status:
+          $ref: '#/components/schemas/TenantStatus'
+        deployment_region:
+          type: string
+        plan:
+          type: string
+          description: Khóa gói (`subscription_plans.key`)
+        limits:
+          $ref: '#/components/schemas/PlanLimits'
+        control_url:
+          type: string
+          format: uri
+          description: Login server của tailnet — `https://<slug>.mesh.<domain>`
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Bộ đếm khóa lạc quan — nguồn của `ETag`
+    TenantList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tenant'
+        next_cursor:
+          type: [string, 'null']
+    # ------------------------------------------------------------ dashboard (§16.4)
+    DeviceCounts:
+      type: object
+      required: [total, online, synced_at]
+      properties:
+        total:
+          type: integer
+          minimum: 0
+        online:
+          type: integer
+          minimum: 0
+          description: Theo góc nhìn của control plane tại lần sync gần nhất
+        synced_at:
+          type: [string, 'null']
+          format: date-time
+          description: Lần sync gần nhất; `null` khi chưa từng sync
+    TenantDashboard:
+      type: object
+      required: [devices, instance]
+      properties:
+        devices:
+          $ref: '#/components/schemas/DeviceCounts'
+        instance:
+          $ref: '#/components/schemas/InstanceHealth'
+    # ------------------------------------------------------------ devices (§13.3)
+    Device:
+      type: object
+      description: Thiết bị (node của Headscale) trong sổ thiết bị của nền tảng (§13.3); dữ liệu cache kèm `synced_at`
+      required: [id, name, given_name, ip_addresses, tags, register_method, online, last_seen, expiry, routes, tags_etag, revocation, synced_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: ID thiết bị của nền tảng — không phải node id của Headscale
+        name:
+          type: string
+          description: Hostname do client báo
+        given_name:
+          type: string
+          description: Tên trong tailnet (nhãn DNS), đổi bằng `PATCH`
+        ip_addresses:
+          type: array
+          description: Địa chỉ trong tailnet
+          items:
+            type: string
+        owner:
+          $ref: '#/components/schemas/DeviceOwner'
+        tags:
+          type: array
+          items:
+            type: string
+            pattern: '^tag:[a-z][a-z0-9-]{0,49}$'
+        register_method:
+          type: string
+          description: Cách node đăng ký theo Headscale (ví dụ `authkey`, `cli`, `oidc`)
+        online:
+          type: boolean
+          description: Góc nhìn của control plane tại lần sync gần nhất — không phải phép đo đường truyền
+        last_seen:
+          type: [string, 'null']
+          format: date-time
+        expiry:
+          type: [string, 'null']
+          format: date-time
+          description: Hạn của node; `null` là không hết hạn
+        routes:
+          $ref: '#/components/schemas/DeviceRoutes'
+        tags_etag:
+          type: string
+          description: Hash tập tag đọc trực tiếp từ Headscale — giá trị `If-Match` của `PUT …/tags` (Phase 4)
+        revocation:
+          $ref: '#/components/schemas/DeviceRevocation'
+        synced_at:
+          type: string
+          format: date-time
+          description: Thời điểm đồng bộ gần nhất từ Headscale
+    DeviceOwner:
+      type: object
+      description: Chủ thiết bị — vắng khi node thuộc tag
+      required: [membership_id, display_name]
+      properties:
+        membership_id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+    DeviceRoutes:
+      type: object
+      required: [advertised, approved, etag]
+      properties:
+        advertised:
+          type: array
+          description: Prefix do node quảng bá
+          items:
+            type: string
+        approved:
+          type: array
+          description: Prefix đã được duyệt
+          items:
+            type: string
+        etag:
+          type: string
+          description: Hash tập route đã duyệt — giá trị `If-Match` của `routes/approve` (Phase 4)
+    DeviceRevocation:
+      type: object
+      description: |-
+        Trạng thái thu hồi hai pha (§13.5 `device.revoke`, T-17): `pending` sau khi nhận yêu cầu; `applied` chỉ khi
+        đọc lại từ Headscale đã khớp; `failed` khi Headscale từ chối hoặc hết lượt retry.
+      required: [state]
+      properties:
+        state:
+          type: string
+          enum: [none, pending, applied, failed]
+        kind:
+          type: string
+          enum: [expire, delete]
+        requested_at:
+          type: string
+          format: date-time
+        verified_at:
+          type: string
+          format: date-time
+    DeviceRename:
+      type: object
+      additionalProperties: false
+      required: [given_name]
+      properties:
+        given_name:
+          type: string
+          description: Tên mới — nhãn DNS (chữ thường, số, dấu gạch ngang; tối đa 63 ký tự), kiểm cục bộ trước khi gọi Headscale
+          pattern: '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$'
+    DeviceList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Device'
+        next_cursor:
+          type: [string, 'null']
+    # ------------------------------------------------------------ users (§6.3 tenant_memberships)
+    Membership:
+      type: object
+      description: Thành viên của tenant (`tenant_memberships` + `identities`)
+      required: [id, identity_id, display_name, role, status, headscale_username, version]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: ID membership
+        identity_id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+          description: Khóa role phạm vi tenant (`roles.key`, seed ở P2-T07)
+        status:
+          type: string
+          description: Trạng thái membership (đang hoạt động, bị khóa, đã offboard)
+        headscale_username:
+          type: string
+          description: Headscale user tương ứng — `mg-<membership_uuid>`
+          pattern: '^mg-[0-9a-f-]{36}$'
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+    MembershipList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Membership'
+        next_cursor:
+          type: [string, 'null']
+    # ------------------------------------------------------------ audit (§13.3)
+    AuditOutcome:
+      type: string
+      enum: [success, denied, failure]
+    AuditActor:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [identity, system, support]
+        identity_id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+          description: Ảnh chụp tên hiển thị lúc ghi
+        support_grant_id:
+          type: string
+          format: uuid
+    AuditEvent:
+      type: object
+      description: Sự kiện audit (§13.3)
+      required: [id, occurred_at, actor, action, resource, outcome, request_id, details]
+      properties:
+        id:
+          type: string
+          format: uuid
+        occurred_at:
+          type: string
+          format: date-time
+        actor:
+          $ref: '#/components/schemas/AuditActor'
+        action:
+          type: string
+          description: Giá trị `x-audit-action` của operation, có thể kèm hậu tố `.requested`/`.succeeded`/`.failed`
+        resource:
+          $ref: '#/components/schemas/ResourceRef'
+        outcome:
+          $ref: '#/components/schemas/AuditOutcome'
+        request_id:
+          type: string
+        operation_id:
+          type: string
+          format: uuid
+          description: Nối cặp sự kiện `*.requested` → `*.succeeded`/`*.failed` (§6.1) — không phải `operationId` của spec
+        details:
+          type: object
+          additionalProperties: true
+    AuditEventList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditEvent'
+        next_cursor:
+          type: [string, 'null']
+    # ------------------------------------------------------------ jobs (§13.3, §13.5)
+    JobKind:
+      type: string
+      description: Job kind (§13.5), ví dụ `inventory.sync`, `device.revoke`, `tenant.provision`
+      pattern: '^[a-z][a-z_]*(\.[a-z][a-z_]*)+$'
+    JobStatus:
+      type: string
+      description: Trạng thái job (`provisioning_jobs.status`, §6.3)
+      enum: [queued, running, failed_resumable, compensating, rolled_back, succeeded, failed, cancelled]
+    JobStep:
+      type: object
+      required: [name, status, attempt, started_at, finished_at, message]
+      properties:
+        name:
+          type: string
+        status:
+          type: string
+          description: Trạng thái step (tập giá trị chốt ở P2-T12)
+        attempt:
+          type: integer
+          minimum: 0
+        started_at:
+          type: [string, 'null']
+          format: date-time
+        finished_at:
+          type: [string, 'null']
+          format: date-time
+        message:
+          type: [string, 'null']
+          description: Thông điệp đã lọc, sinh từ danh mục mẫu theo mã — không chép lỗi thô của orchestrator/Agent
+    JobError:
+      type: object
+      required: [code]
+      properties:
+        code:
+          type: string
+          description: Mã lỗi ổn định của job
+    Job:
+      type: object
+      description: Job — phép chiếu an toàn cho người gọi phạm vi tenant (§13.3)
+      required: [id, kind, status, current_step, steps, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          $ref: '#/components/schemas/JobKind'
+        tenant_id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/JobStatus'
+        current_step:
+          type: [string, 'null']
+        resource:
+          $ref: '#/components/schemas/ResourceRef'
+        steps:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobStep'
+        error:
+          $ref: '#/components/schemas/JobError'
+        created_at:
+          type: string
+          format: date-time
+    JobList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Job'
+        next_cursor:
+          type: [string, 'null']
+    PlatformJobStep:
+      description: Step kèm chi tiết thô (đã redaction) — chỉ ở `GET /platform/jobs/{jobId}`
+      allOf:
+        - $ref: '#/components/schemas/JobStep'
+        - type: object
+          properties:
+            detail:
+              type: object
+              additionalProperties: true
+    PlatformJobError:
+      description: Lỗi gốc của job (đã redaction) — chỉ ở `GET /platform/jobs/{jobId}`
+      allOf:
+        - $ref: '#/components/schemas/JobError'
+        - type: object
+          properties:
+            message:
+              type: string
+            detail:
+              type: object
+              additionalProperties: true
+    PlatformJob:
+      type: object
+      description: Job kèm chi tiết thô của từng step và lỗi gốc (§13.3)
+      required: [id, kind, status, current_step, steps, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          $ref: '#/components/schemas/JobKind'
+        tenant_id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/JobStatus'
+        current_step:
+          type: [string, 'null']
+        resource:
+          $ref: '#/components/schemas/ResourceRef'
+        steps:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlatformJobStep'
+        error:
+          $ref: '#/components/schemas/PlatformJobError'
+        created_at:
+          type: string
+          format: date-time
+    # ------------------------------------------------------------ platform (§6.3, §16.2)
+    InstanceStatus:
+      type: string
+      description: TenantInstanceStatus (§13.3)
+      enum: [allocated, starting, running, stopped, failed, removed, quarantined]
+    InstanceHealth:
+      type: object
+      required: [status, checked_at]
+      properties:
+        status:
+          $ref: '#/components/schemas/HealthStatus'
+        checked_at:
+          type: [string, 'null']
+          format: date-time
+    Instance:
+      type: object
+      description: Headscale instance của một tenant (`tenant_instances`, §6.3) — không chứa secret
+      required: [id, tenant_id, host_id, status, headscale_version, image_digest, control_hostname, server_url, run_uid, net_cidr, health, version]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        host_id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/InstanceStatus'
+        headscale_version:
+          type: string
+          examples: [v0.29.7]
+        image_digest:
+          type: string
+          pattern: '^sha256:[0-9a-f]{64}$'
+        control_hostname:
+          type: string
+        server_url:
+          type: string
+          format: uri
+        derp_region_id:
+          type: integer
+        run_uid:
+          type: integer
+          minimum: 0
+        net_cidr:
+          type: string
+        api_key_expires_at:
+          type: string
+          format: date-time
+          description: Hạn của API key hiện hành (cảnh báo khi còn dưới 14 ngày — §16.3)
+        noise_key_fingerprint:
+          type: string
+        health:
+          $ref: '#/components/schemas/InstanceHealth'
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+    InstanceList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Instance'
+        next_cursor:
+          type: [string, 'null']
+    ComponentHealth:
+      type: object
+      required: [name, status, checked_at]
+      properties:
+        name:
+          type: string
+          description: Thành phần, ví dụ `postgres`, `edge`, `agent`
+        status:
+          $ref: '#/components/schemas/HealthStatus'
+        checked_at:
+          type: [string, 'null']
+          format: date-time
+    TenantCounts:
+      type: object
+      required: [total, by_status]
+      properties:
+        total:
+          type: integer
+          minimum: 0
+        by_status:
+          $ref: '#/components/schemas/StatusCounts'
+    InstanceCounts:
+      type: object
+      required: [total, by_status, unhealthy]
+      properties:
+        total:
+          type: integer
+          minimum: 0
+        by_status:
+          $ref: '#/components/schemas/StatusCounts'
+        unhealthy:
+          type: integer
+          minimum: 0
+    PlatformHealth:
+      type: object
+      required: [checked_at, components, tenants, instances]
+      properties:
+        checked_at:
+          type: string
+          format: date-time
+        components:
+          type: array
+          items:
+            $ref: '#/components/schemas/ComponentHealth'
+        tenants:
+          $ref: '#/components/schemas/TenantCounts'
+        instances:
+          $ref: '#/components/schemas/InstanceCounts'

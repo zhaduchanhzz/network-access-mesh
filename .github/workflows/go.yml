@@ -1,14 +1,17 @@
-# CI cho mã Go (P2-T01): kiểm checksum module, gofmt, go vet, test có race detector (gồm test kiến trúc §13.6 và
-# test "canary secret"), golangci-lint, govulncheck. Chạy trong image golang pin theo digest; công cụ pin theo
-# SHA-256 / phiên bản module (kiểm qua checksum DB của Go). Repo public: không dùng secret nào.
+# CI cho mã Go (P2-T01): kiểm checksum module, gofmt, code sinh từ api/openapi.yaml khớp bản đã commit (P2-T02),
+# go vet, test có race detector (gồm test kiến trúc §13.6, test "canary secret" và test định tuyến của mọi operation),
+# golangci-lint, govulncheck. Chạy trong image golang pin theo digest; công cụ pin theo SHA-256 / phiên bản module
+# (kiểm qua checksum DB của Go; oapi-codegen là chỉ thị `tool` trong go.mod). Repo public: không dùng secret nào.
 name: go
 
 on:
   push:
     branches: [main]
-    paths: ["**/*.go", "go.mod", "go.sum", ".golangci.yml", ".github/workflows/go.yml"]
+    paths: ["**/*.go", "go.mod", "go.sum", ".golangci.yml", ".github/workflows/go.yml", "api/openapi.yaml",
+            "internal/httpapi/gen/config.yaml"]
   pull_request:
-    paths: ["**/*.go", "go.mod", "go.sum", ".golangci.yml", ".github/workflows/go.yml"]
+    paths: ["**/*.go", "go.mod", "go.sum", ".golangci.yml", ".github/workflows/go.yml", "api/openapi.yaml",
+            "internal/httpapi/gen/config.yaml"]
 
 permissions:
   contents: read
@@ -35,6 +38,11 @@ jobs:
         run: |
           unformatted=$(gofmt -l .)
           if [ -n "$unformatted" ]; then echo "::error::cần gofmt: $unformatted"; exit 1; fi
+      - name: Code sinh từ api/openapi.yaml khớp bản đã commit (oapi-codegen, P2-T02)
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          go generate ./internal/httpapi/gen
+          git diff --exit-code -- internal/httpapi/gen || { echo "::error::internal/httpapi/gen lệch spec — chạy 'make api-gen' rồi commit"; exit 1; }
       - name: go vet
         run: go vet ./...
       - name: go test (race)

@@ -219,6 +219,14 @@ mg-sec-ship = 20008
 module = "github.com/zhaduchanhzz/network-access-mesh"
 go = "1.27.4"
 "github.com/prometheus/client_golang" = "v1.25.0"
+"github.com/oapi-codegen/oapi-codegen/v2" = "v2.8.2"   # 2026-10-31; chỉ thị `tool` trong go.mod (go tool oapi-codegen) — sinh internal/httpapi/gen từ api/openapi.yaml (P2-T02); hỗ trợ OpenAPI 3.1. Phụ thuộc của tool nằm trong go.mod dạng indirect, không vào binary api/worker
+"github.com/oapi-codegen/runtime" = "v1.8.0"   # 2026-10-23; runtime của code sinh (bind tham số, kiểu UUID) — v1.9.0 mới 7 ngày tuổi lúc pin
+
+[npm]   # apps/web — package-lock.json (integrity sha512) là nguồn sự thật; ở P2-T02 chỉ dùng để sinh type TypeScript từ api/openapi.yaml
+"openapi-typescript" = "7.13.0"   # 2026-02-11
+typescript = "5.9.3"              # 2025-09-30 — peer ^5.x của openapi-typescript 7
+"js-yaml" = "4.3.2"               # 2026-08-26 — trùng bản @redocly/openapi-core dùng; CI so cách nó đọc spec với tools/openapi_lint.py
+overrides = "@redocly/openapi-core 1.34.23, brace-expansion 2.1.7, uri-js-replace 1.0.2 — giữ mọi gói ≥ 14 ngày tuổi (bản mới nhất lúc pin: 1.34.24, 2.1.8, 1.0.3; 2.1.7 đã gồm mọi bản vá GHSA của brace-expansion nhánh 2.x)"
 
 [toolchains]
 go = "1.27.4"

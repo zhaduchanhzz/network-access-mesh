@@ -46,7 +46,9 @@ func Main(service string) int {
 
 	servers := []*http.Server{httpx.NewServer(cfg.InternalAddr, httpx.InternalMux(probes, reg, log), log)}
 	if service == "api" {
-		// The public REST API (/api/v1, contract-first from api/openapi.yaml) is mounted here in P2-T02.
+		// The public REST API (/api/v1) is generated from api/openapi.yaml into internal/httpapi/gen (P2-T02) and is
+		// mounted here (gen.HandlerWithOptions with BaseURL "/api/v1") once the first handlers and the middleware chain
+		// exist (P2-T06, P2-T07, P2-T14); until then the listener answers 404.
 		servers = append(servers, httpx.NewServer(cfg.HTTPAddr, http.NotFoundHandler(), log))
 	}
 
