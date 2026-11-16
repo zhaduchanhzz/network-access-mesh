@@ -2,7 +2,7 @@
 
 > **File viết tay, cập nhật liên tục.** Ghi **những gì đang chạy**, **đã được dựng như thế nào** và **làm sao mở rộng hay luân chuyển** mà không phải đọc lại toàn bộ lịch sử. Mỗi lần thay đổi hạ tầng: sửa mục 2–5 nếu cần, thêm một dòng vào mục 8.
 > Nguồn sự thật về thiết kế vẫn là [bản master](docs/planning/implementation-master-plan.md); tiến độ ở [ROADMAP.md](ROADMAP.md); bằng chứng ở [docs/planning/evidence/](docs/planning/evidence/).
-> **Cập nhật:** 2026-11-16 (UTC) — cuối Phase 1, báo cáo [G1](docs/planning/evidence/G1.md) chờ ký.
+> **Cập nhật:** 2026-11-16 (UTC) — **G1 đạt** (chủ dự án ký Go); đang ở Phase 2.
 
 ## 1. Tham số môi trường — một file cho mỗi môi trường
 
@@ -116,7 +116,7 @@ Chỉ sửa `staging.env`, rồi thực hiện:
 
 ## 7. Việc tiếp theo
 
-1. Chủ dự án ký [G1](docs/planning/evidence/G1.md).
+1. ~~Ký G1~~ — **Go** 2026-11-16.
 2. Phase 2 (không đụng host, chạy song song): P2-T02 (OpenAPI v1), P2-T03 (migration + RLS), P2-T04 (SecretStore), …. Triển khai backend lên host sau G1 (P2-T16).
 3. Việc của chủ dự án:
    - Ý kiến pháp lý sơ bộ R-01, bắt buộc trước G2.
@@ -134,3 +134,4 @@ Chỉ sửa `staging.env`, rồi thực hiện:
 | 2026-11-16 | Điện thoại Android trên 4G vào tenant-c (relay qua VPS, trực tiếp IPv6) | [P1-T12e](docs/planning/evidence/P1-T12e.md) |
 | 2026-11-16 | Reboot host staging (có tunnel) và reboot VPS (kernel 6.8.0-149) | [G1](docs/planning/evidence/G1.md) |
 | 2026-11-16 | Gom tham số môi trường vào `staging.env` + `tools/mgenv.py`; output render trùng từng byte với cấu hình đang chạy | mục 1 |
+| 2026-11-16 | **G1 đạt** (chủ dự án ký Go) — bắt đầu Phase 2 | [G1](docs/planning/evidence/G1.md) |
