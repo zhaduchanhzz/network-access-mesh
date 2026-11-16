@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/netip"
 	"regexp"
 	"strconv"
 	"strings"
@@ -23,6 +24,10 @@ type Config struct {
 	InternalAddr string     // /healthz, /readyz, /metrics — never routed by the edge
 	LogLevel     slog.Level // MG_LOG_LEVEL
 	BaseDomain   string     // MG_BASE_DOMAIN (D-1); hostnames are derived from it
+	// TrustedProxies (MG_TRUSTED_PROXIES, comma-separated IPs or CIDRs): peers whose X-Forwarded-For the api believes —
+	// the edge's static address on mg-edge (§14.3). Required for api outside dev: behind the edge every request comes
+	// from the edge, so without it the per-IP rate limit (§13.1) would be one bucket shared by all clients.
+	TrustedProxies []netip.Prefix
 }
 
 var (
@@ -72,7 +77,41 @@ func Load(service string, getenv func(string) string, environ []string) (Config,
 	if err := cfg.LogLevel.UnmarshalText([]byte(lvl)); err != nil {
 		errs = append(errs, fmt.Errorf("MG_LOG_LEVEL: %w", err))
 	}
+	proxies, err := parsePrefixes(getenv("MG_TRUSTED_PROXIES"))
+	if err != nil {
+		errs = append(errs, fmt.Errorf("MG_TRUSTED_PROXIES: %w", err))
+	}
+	cfg.TrustedProxies = proxies
+	if service == "api" && len(proxies) == 0 && err == nil && cfg.Env != "dev" {
+		errs = append(errs, errors.New("MG_TRUSTED_PROXIES is required for api outside dev (the edge's address on mg-edge)"))
+	}
 	return cfg, errors.Join(errs...)
+}
+
+// parsePrefixes reads a comma-separated list of IP addresses (taken as single-address prefixes) and CIDRs.
+func parsePrefixes(s string) ([]netip.Prefix, error) {
+	var out []netip.Prefix
+	for _, item := range strings.Split(s, ",") {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		if strings.Contains(item, "/") {
+			p, err := netip.ParsePrefix(item)
+			if err != nil {
+				return nil, fmt.Errorf("%q is not a CIDR", item)
+			}
+			out = append(out, p.Masked())
+			continue
+		}
+		a, err := netip.ParseAddr(item)
+		if err != nil {
+			return nil, fmt.Errorf("%q is not an IP address", item)
+		}
+		a = a.Unmap().WithZone("")
+		out = append(out, netip.PrefixFrom(a, a.BitLen()))
+	}
+	return out, nil
 }
 
 func withDefault(v, def string) string {
