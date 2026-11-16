@@ -2,7 +2,7 @@
 # Áp firewall host (P1-T02) với lưới an toàn: tự hoàn tác sau 180 giây nếu không được xác nhận.
 #   Bước 1 (script này):  bash apply-firewall.sh < mg-staging-firewall.nft
 #   Bước 2 (phiên SSH MỚI vẫn vào được):  sudo systemctl stop mg-fw-rollback.timer && sudo systemctl enable --now mg-host-firewall.service
-# Hoàn tác tay: sudo systemctl disable --now mg-host-firewall.service   (ExecStop xóa bảng inet mg_host)
+# Hoàn tác tay: sudo systemctl disable --now mg-host-firewall.service   (ExecStop xóa bảng inet mg_host và bridge mg_bridge)
 set -euo pipefail
 RULES=/etc/meshguard/host-firewall.nft
 UNIT=/etc/systemd/system/mg-host-firewall.service
@@ -26,7 +26,7 @@ Before=network-pre.target docker.service
 Type=oneshot
 RemainAfterExit=yes
 ExecStart=/usr/sbin/nft -f /etc/meshguard/host-firewall.nft
-ExecStop=/usr/sbin/nft delete table inet mg_host
+ExecStop=/bin/sh -c '/usr/sbin/nft delete table inet mg_host; /usr/sbin/nft delete table bridge mg_bridge; true'
 
 [Install]
 WantedBy=multi-user.target
@@ -34,7 +34,9 @@ UNIT
 sudo systemctl daemon-reload
 
 sudo systemctl stop mg-fw-rollback.timer 2>/dev/null || true
-sudo systemd-run --quiet --unit=mg-fw-rollback --on-active=180 /usr/sbin/nft delete table inet mg_host
+sudo systemd-run --quiet --unit=mg-fw-rollback --on-active=180 /bin/sh -c \
+  '/usr/sbin/nft delete table inet mg_host; /usr/sbin/nft delete table bridge mg_bridge; true'
 sudo nft -f "$RULES"
 echo "firewall applied; automatic rollback in 180 s unless 'sudo systemctl stop mg-fw-rollback.timer' is run"
 sudo nft list table inet mg_host | grep -cE "accept|drop" | xargs echo "rules in inet mg_host:"
+sudo nft list table bridge mg_bridge 2>/dev/null | grep -cE "accept|drop" | xargs echo "rules in bridge mg_bridge:"

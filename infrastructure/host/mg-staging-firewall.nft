@@ -40,3 +40,18 @@ table inet mg_host {
         iifname "eth0" ct state new drop                                    # mọi container khác: không mở từ ngoài
     }
 }
+
+# IT-14 (P1-T12c): lọc ở tầng bridge — không cần br_netfilter (module này không được nạp trên host).
+# Khung IPv4 xuất phát từ pool tenant chỉ được tới địa chỉ trong pool tenant. Nếu không, container của một tenant có
+# NET_ADMIN (lỗi cấu hình capability) tự thêm route qua IP của edge trên network tenant và mở được kết nối tới các IP
+# khác của edge (10.249.0.2 site public, 10.249.2.2 admin, 10.249.3.2 metrics) — Linux nhận gói gửi tới mọi IP cục bộ
+# trên mọi interface (weak host model). Lưu lượng edge ↔ Headscale (cả hai đầu trong pool) không bị ảnh hưởng.
+table bridge mg_bridge
+delete table bridge mg_bridge
+
+table bridge mg_bridge {
+    chain forward {
+        type filter hook forward priority filter; policy accept;
+        ether type ip ip saddr 10.250.0.0/16 ip daddr != 10.250.0.0/16 counter drop
+    }
+}
