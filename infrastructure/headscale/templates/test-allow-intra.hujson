@@ -1,11 +1,13 @@
-// Fixture CHỈ dùng cho phép thử có client (§22.1, P1-T12a): cho phép mọi node trong cùng tenant nói chuyện với nhau,
-// để mỗi client thấy ≥ 1 peer cùng tenant. Trả về bootstrap-policy.hujson ngay trước P1-T14. Không dùng ở production.
+// Fixture CHỈ dùng cho phép thử có client (§22.1, P1-T12a): mọi node trong cùng tenant thấy nhau (mỗi client có
+// ≥ 1 peer cùng tenant), nhưng chỉ TCP 8000 và ICMP được phép — để P1-T12 kiểm được cả "cổng được phép thông" lẫn
+// "cổng khác bị chặn" bằng lưu lượng TCP thật (không dùng tailscale ping — HS-25, CL-09).
+// Trả về bootstrap-policy.hujson ngay trước P1-T14. Không dùng ở production.
 {
   "grants": [
     {
       "src": ["autogroup:member", "autogroup:tagged"],
       "dst": ["autogroup:member", "autogroup:tagged"],
-      "ip": ["*"]
+      "ip": ["tcp:8000", "icmp:*"]
     }
   ],
   "ssh": []
