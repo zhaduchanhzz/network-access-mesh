@@ -119,7 +119,7 @@ Chỉ sửa `staging.env`, rồi thực hiện:
 1. ~~Ký G1~~ — **Go** 2026-11-16.
 2. Phase 2 (không đụng host, chạy song song): P2-T02 (OpenAPI v1), P2-T03 (migration + RLS), P2-T04 (SecretStore), …. Triển khai backend lên host sau G1 (P2-T16).
 3. Việc của chủ dự án:
-   - Ý kiến pháp lý sơ bộ R-01, bắt buộc trước G2.
+   - ~~Ý kiến pháp lý sơ bộ R-01~~ — xong 2026-11-16 (thông qua).
    - Token Cloudflare hẹp.
    - Thử Windows/iOS khi tiện.
 4. Gỡ demo headscale-admin khi không cần: `infrastructure/demo/headscale-admin/down.sh`.
@@ -135,3 +135,4 @@ Chỉ sửa `staging.env`, rồi thực hiện:
 | 2026-11-16 | Reboot host staging (có tunnel) và reboot VPS (kernel 6.8.0-149) | [G1](docs/planning/evidence/G1.md) |
 | 2026-11-16 | Gom tham số môi trường vào `staging.env` + `tools/mgenv.py`; output render trùng từng byte với cấu hình đang chạy | mục 1 |
 | 2026-11-16 | **G1 đạt** (chủ dự án ký Go) — bắt đầu Phase 2 | [G1](docs/planning/evidence/G1.md) |
+| 2026-11-16 | R-01 (pháp lý) được chủ dự án xác nhận thông qua — điều kiện trước G2 đạt | [R-01](docs/planning/evidence/R-01.md) |
