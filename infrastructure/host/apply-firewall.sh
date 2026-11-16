@@ -1,6 +1,6 @@
 #!/bin/bash
 # Áp firewall host (P1-T02) với lưới an toàn: tự hoàn tác sau 180 giây nếu không được xác nhận.
-#   Bước 1 (script này):  bash apply-firewall.sh < mg-staging-firewall.nft
+#   Bước 1 (script này):  python3 tools/mgenv.py render infrastructure/host/mg-staging-firewall.nft <env file> | bash apply-firewall.sh
 #   Bước 2 (phiên SSH MỚI vẫn vào được):  sudo systemctl stop mg-fw-rollback.timer && sudo systemctl enable --now mg-host-firewall.service
 # Hoàn tác tay: sudo systemctl disable --now mg-host-firewall.service   (ExecStop xóa bảng inet mg_host và bridge mg_bridge)
 set -euo pipefail
@@ -9,6 +9,7 @@ UNIT=/etc/systemd/system/mg-host-firewall.service
 
 tmp=$(mktemp)
 cat > "$tmp"
+if grep -q '${MG_' "$tmp"; then echo "còn placeholder \${MG_*} chưa render — dùng tools/mgenv.py render"; rm -f "$tmp"; exit 1; fi
 sudo nft -c -f "$tmp"                                   # chỉ kiểm cú pháp, chưa áp
 sudo install -d -m 0755 /etc/meshguard
 sudo install -m 0644 "$tmp" "$RULES"

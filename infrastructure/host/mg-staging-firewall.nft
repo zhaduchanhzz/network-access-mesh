@@ -1,3 +1,5 @@
+# TEMPLATE — giá trị ${MG_*} lấy từ env file của môi trường (tools/mgenv.py). Áp:
+#   python3 tools/mgenv.py render infrastructure/host/mg-staging-firewall.nft infrastructure/environments/staging/staging.env | bash infrastructure/host/apply-firewall.sh
 #!/usr/sbin/nft -f
 # Firewall của host LAN staging (P1-T02, §14.1, V-35, AC-20).
 # - Bảng riêng `inet mg_host`, áp cho cả IPv4 và IPv6; không đụng bảng của Docker, không dùng `flush ruleset`.
@@ -12,7 +14,7 @@ table inet mg_host {
     set lan4 {
         type ipv4_addr
         flags interval
-        elements = { 192.168.1.0/24 }
+        elements = { ${MG_LAN_CIDR} }
     }
 
     chain input {
@@ -31,7 +33,7 @@ table inet mg_host {
 
         ip saddr @lan4 tcp dport 22 accept                                 # SSH chỉ từ LAN, chỉ IPv4
         ip saddr @lan4 udp dport 3478 accept                               # stund (Local Development, P1-T06)
-        ip saddr 10.248.0.1 icmp type echo-request accept                  # ping từ đầu VPS của tunnel (P1-T16)
+        ip saddr ${MG_TUNNEL_VPS_IPV4} icmp type echo-request accept                  # ping từ đầu VPS của tunnel (P1-T16)
     }
 
     chain forward {
@@ -39,7 +41,7 @@ table inet mg_host {
         # Cổng publish của edge (P1-T06): sau DNAT, đích là IP tĩnh của edge trên mg-edge; chỉ từ LAN, chỉ IPv4.
         iifname "eth0" ip saddr @lan4 ip daddr 10.249.0.2 tcp dport { 80, 443 } ct state new accept
         # Listener tunnel-facing của edge (P1-T16/T17): chỉ đầu VPS của tunnel, chỉ hai cổng; Caddy bắt buộc PROXY v2.
-        iifname "mg-wg0" ip saddr 10.248.0.1 ip daddr 10.249.0.2 tcp dport { 8080, 8443 } ct state new accept
+        iifname "mg-wg0" ip saddr ${MG_TUNNEL_VPS_IPV4} ip daddr 10.249.0.2 tcp dport { ${MG_TUNNEL_HTTP_PORT}, ${MG_TUNNEL_HTTPS_PORT} } ct state new accept
         iifname "mg-wg0" ct state new drop                                  # VPS không tới được gì khác
         iifname "eth0" ct state new drop                                    # mọi container khác: không mở từ ngoài
     }

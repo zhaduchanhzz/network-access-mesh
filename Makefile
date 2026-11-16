@@ -16,8 +16,8 @@ secret-scan: ## Quét secret trong repo (cần gitleaks; cấu hình .gitleaks.t
 	@command -v gitleaks >/dev/null || { echo "gitleaks chưa cài — xem README"; exit 1; }
 	gitleaks git --config .gitleaks.toml --redact --no-banner .
 
-render-test: ## Golden test của tool render (instance Headscale, edge)
-	$(PYTHON) tools/test_render_instance.py && $(PYTHON) tools/test_render_edge.py
+render-test: ## Test tham số môi trường (mgenv) + golden test của tool render (instance Headscale, edge)
+	$(PYTHON) tools/test_mgenv.py && $(PYTHON) tools/test_render_instance.py && $(PYTHON) tools/test_render_edge.py
 
 lint: docs-check render-test secret-scan ## Mọi kiểm tra hiện có
 

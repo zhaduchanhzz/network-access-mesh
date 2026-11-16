@@ -105,7 +105,7 @@ Mọi VM dùng cloud image Ubuntu 24.04 (noble): `SHA256SUMS` được kiểm ch
 | 10 | Ngoài dịch vụ hệ thống: Docker, postfix, dovecot, opendkim. Còn 2 cron và 1 timer của dự án cũ (`vnflashlearner-docker-cleanup`, `vnflashlearner-postgres-backup`, `vnflash-mail-certs.timer`): đã đọc mã, vô hại khi các dự án đã dừng (không khởi động lại container, không xóa volume hay bản dump) |
 | 12 | NTP đồng bộ; 367 gói chờ cập nhật; `unattended-upgrades` chạy |
 | — | User triển khai `mgdeploy` (SSH key của dự án, `sudo` NOPASSWD toàn quyền — thu hẹp ở P1-T15) |
-| Sau P1-T15…P1-T18 (2026-11-16) | SSH chỉ bằng khóa (`PasswordAuthentication no`, `PermitRootLogin prohibit-password`); firewall trên máy `inet mg_vps` (vào mặc định chặn; mở TCP 22, 80, 443, 25, 587, UDP 3478, 51820); 367 gói đã vá, **chờ reboot** (libc6, dbus, apparmor) và 9 gói kernel bị giữ lại; giữ Docker gói `docker.io` 29.1.3; `mg-gateway` (`l4proxy` + `stund`) và tunnel `mg-wg0` chạy; quét từ Internet chỉ thấy 22, 80, 443, 587 (`docs/planning/evidence/P1-T15.md`, `P1-T18.md`) |
+| Sau P1-T15…P1-T18 (2026-11-16) | SSH chỉ bằng khóa (`PasswordAuthentication no`, `PermitRootLogin prohibit-password`); firewall trên máy `inet mg_vps` (vào mặc định chặn; mở TCP 22, 80, 443, 25, 587, UDP 3478, 51820); 367 gói + 9 gói bị giữ lại đã vá, **đã reboot** (kernel 6.8.0-149); giữ Docker gói `docker.io` 29.1.3; `mg-gateway` (`l4proxy` + `stund`) và tunnel `mg-wg0` chạy; quét từ Internet chỉ thấy 22, 80, 443, 587 (`docs/planning/evidence/P1-T15.md`, `P1-T18.md`) |
 
 **Host staging — kết quả A.2 (VM 104)**
 

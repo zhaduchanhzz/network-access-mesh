@@ -29,6 +29,8 @@ import re
 import string
 import sys
 
+import mgenv  # noqa: E402 — tools/mgenv.py: env file of the environment (no secrets)
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 TEMPLATE_VERSION = "4"
 CADDYFILE_TMPL = ROOT / "infrastructure" / "caddy" / "Caddyfile.tmpl"
@@ -167,7 +169,7 @@ def main(argv: list[str]) -> int:
         print(__doc__)
         return 2
     try:
-        files = render(json.loads(pathlib.Path(argv[1]).read_text(encoding="utf-8")))
+        files = render(mgenv.load_params(argv[1]))   # ${MG_*} from the env file of the environment
     except (ParamError, ValueError, KeyError) as e:
         print(f"render failed: {e}", file=sys.stderr)
         return 1

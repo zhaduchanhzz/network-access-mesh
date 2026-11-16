@@ -2,11 +2,13 @@
 """Upsert (or delete) DNS records of the platform at Cloudflare (P1-T18, §15.4). Run on the host that holds the DNS
 token as a file secret — the token is read from the file and never printed.
 
-    sudo python3 cf_dns.py apply  <zone> <records.json> [--token-file F]
-    sudo python3 cf_dns.py delete <zone> <records.json> [--token-file F]     # undo: remove exactly these records
+    sudo python3 cf_dns.py apply  [<zone>] <records.json> [--token-file F]
+    sudo python3 cf_dns.py delete [<zone>] <records.json> [--token-file F]   # undo: remove exactly these records
 
-records.json: [{"type": "A", "name": "*.mesh.example.com", "content": "203.0.113.7", "ttl": 300},
-               {"type": "CAA", "name": "mesh.example.com", "data": {"flags": 0, "tag": "issue", "value": "..."}}]
+<zone> defaults to MG_DNS_ZONE of the environment's env file (tools/mgenv.py). records.json may use ${MG_*}
+placeholders — e.g. infrastructure/environments/staging/dns-public.json:
+  [{"type": "A", "name": "*.mesh.${MG_BASE_DOMAIN}", "content": "${MG_PUBLIC_IPV4}", "ttl": 300},
+   {"type": "CAA", "name": "mesh.${MG_BASE_DOMAIN}", "data": {"flags": 0, "tag": "issue", "value": "..."}}]
 A records are always created DNS-only (proxied=false): Cloudflare Proxy in front of the control plane is unsupported
 (HS-15). Records are matched by (type, name[, CAA tag]); prints one line per record with its action and record id.
 Standard library only.
@@ -14,10 +16,14 @@ Standard library only.
 from __future__ import annotations
 
 import json
+import pathlib
 import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "tools"))
+import mgenv  # noqa: E402
 
 API = "https://api.cloudflare.com/client/v4"
 COMMENT = "MeshGuard (managed by infrastructure/gateway/cf_dns.py)"
@@ -43,14 +49,22 @@ def errs(d: dict) -> str:
 
 
 def main() -> int:
-    if len(sys.argv) < 4 or sys.argv[1] not in ("apply", "delete"):
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    if "--token-file" in sys.argv:
+        args.remove(sys.argv[sys.argv.index("--token-file") + 1])
+    if len(args) not in (2, 3) or args[0] not in ("apply", "delete"):
         print(__doc__)
         return 2
-    mode, zone_name, rec_file = sys.argv[1:4]
+    mode, rec_file = args[0], args[-1]
+    # zone: explicit (old form "<mode> <zone> <records.json>") or MG_DNS_ZONE of the environment's env file
+    zone_name = args[1] if len(args) == 3 else mgenv.environment(mgenv.find_env_file(pathlib.Path(rec_file))).get("MG_DNS_ZONE", "")
+    if not zone_name:
+        print("zone unknown: pass it or set MG_DNS_ZONE in the env file")
+        return 2
     token_file = sys.argv[sys.argv.index("--token-file") + 1] if "--token-file" in sys.argv \
         else "/opt/meshguard/secrets/edge/cloudflare_dns_token"
     token = open(token_file, encoding="utf-8").read().strip()
-    wanted = json.load(open(rec_file, encoding="utf-8"))
+    wanted = mgenv.load_params(rec_file)   # ${MG_*} expanded (public IP, domain, ACME account)
     z = call(token, "GET", f"/zones?name={urllib.parse.quote(zone_name)}")
     if not z.get("success") or not z.get("result"):
         print(f"zone {zone_name}: not accessible — {errs(z)}")

@@ -6,6 +6,10 @@
 # Mỗi network giả: internal, subnet /29 tường minh trong 10.250.1.0–10.250.15.255 (không chồng A/B), một container
 # alpine (đã pin) đứng yên mang alias hs-fk-NNNN. In thời gian từng bước; không đụng dữ liệu của tenant thật.
 set -euo pipefail
+# Tham số môi trường (domain, IP LAN) từ env file — tools/mgenv.py; ghi đè bằng MG_ENV_FILE
+ENV_FILE=${MG_ENV_FILE:-$(dirname "$0")/../../infrastructure/environments/staging/staging.env}
+[ -f "$ENV_FILE" ] && { set -a; . "$ENV_FILE"; set +a; }
+: "${MG_BASE_DOMAIN:?}" "${MG_LAN_IPV4:?}"
 IMG=docker.io/library/alpine@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
 EDGE=mg-edge
 COMPOSE=/opt/meshguard/core/compose.edge.yaml
@@ -21,7 +25,7 @@ client_streams() { local p; p=$(docker inspect -f '{{.State.Pid}}' "$EDGE")
 wait_healthy() { local t0; t0=$(ms); for _ in $(seq 1 600); do
     [ "$(docker inspect -f '{{.State.Health.Status}}' "$EDGE" 2>/dev/null)" = healthy ] && { echo $(( $(ms) - t0 )); return; }; sleep 0.2; done; echo timeout; }
 wait_key200() { local t0; t0=$(ms); for _ in $(seq 1 600); do
-    [ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 --resolve "tenant-a.mesh.gta5web.online:443:192.168.1.8" 'https://tenant-a.mesh.gta5web.online/key?v=113')" = 200 ] && { echo $(( $(ms) - t0 )); return; }; sleep 0.2; done; echo timeout; }
+    [ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 --resolve "tenant-a.mesh.$MG_BASE_DOMAIN:443:$MG_LAN_IPV4" "https://tenant-a.mesh.$MG_BASE_DOMAIN/key?v=113")" = 200 ] && { echo $(( $(ms) - t0 )); return; }; sleep 0.2; done; echo timeout; }
 
 grow() {
   local n=$1 i created=0 t0 times=""

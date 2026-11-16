@@ -34,8 +34,10 @@ tcp "edge public" 10.249.0.2 443; tcp "edge public" 10.249.0.2 80
 tcp "edge tunnel-facing" 10.249.0.2 8443; tcp "edge tunnel-facing" 10.249.0.2 8080
 tcp "edge admin" 10.249.2.2 8081; tcp "edge metrics" 10.249.3.2 9091
 # WireGuard tunnel to the VPS (P1-T16): host end (where the tunnel-facing ports are published) and VPS end
-tcp "host tunnel IP" 10.248.0.2 8443; tcp "host tunnel IP" 10.248.0.2 8080; tcp "host tunnel IP" 10.248.0.2 22
-tcp "VPS via tunnel" 10.248.0.1 22; tcp "VPS via tunnel" 10.248.0.1 443
+# địa chỉ tunnel lấy từ env file (truyền vào container bằng -e MG_TUNNEL_HOST_IPV4 -e MG_TUNNEL_VPS_IPV4)
+TH=${MG_TUNNEL_HOST_IPV4:?}; TV=${MG_TUNNEL_VPS_IPV4:?}
+tcp "host tunnel IP" "$TH" 8443; tcp "host tunnel IP" "$TH" 8080; tcp "host tunnel IP" "$TH" 22
+tcp "VPS via tunnel" "$TV" 22; tcp "VPS via tunnel" "$TV" 443
 # other tenant, core services, host, LAN, Internet
 tcp "other tenant hs" "$OTHER" 8080; tcp "other tenant hs" "$OTHER" 9090
 tcp "postgres" "$PG" 5432; tcp "crowdsec lapi" "$CS" 8080; tcp "crowdsec metrics" "$CS" 6060

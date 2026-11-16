@@ -12,9 +12,10 @@
 
 ```bash
 # trên host staging (cần quyền root: nsenter, đọc file token)
-sudo bash tests/security/edge/run_staging.sh mesh.<domain> <public_entry_ipv4> tenant-a tenant-b
+eval "$(python3 tools/mgenv.py export infrastructure/environments/staging/staging.env)"   # domain, IP… từ env file
+sudo bash tests/security/edge/run_staging.sh "mesh.$MG_BASE_DOMAIN" "$MG_PUBLIC_IPV4" tenant-a tenant-b
 # từ một máy ngoài nền tảng (Internet)
-python3 -I tests/security/edge/external.py <public_entry_ipv4> mesh.<domain> tenant-a,tenant-b
+python3 -I tests/security/edge/external.py "$MG_PUBLIC_IPV4" "mesh.$MG_BASE_DOMAIN" tenant-a,tenant-b
 ```
 
 Không in giá trị secret nào: token admin/metrics được đọc từ file, API key thật nằm trong file tmpfs chỉ root đọc được trong lúc chạy; log của upstream giả bị xóa khi kết thúc (nếu edge lỡ không gỡ token, log đó chứa token).

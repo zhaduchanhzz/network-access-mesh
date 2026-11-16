@@ -1,16 +1,14 @@
 {
+  "base_domain": "${MG_BASE_DOMAIN}",
   "tenant_id": "d8908e2b-2018-4e5e-9f2c-3e29878bc7d1",
   "instance_id": "d70bbf7f-86d8-4ee7-8e5b-e3113056b524",
   "slug": "tenant-c",
   "net_cidr": "10.250.0.16/29",
   "run_uid": 30003,
   "derp_region_id": 901,
-  "derp_ipv4": "116.118.3.46",
+  "derp_ipv4": "${MG_PUBLIC_IPV4}",
   "node_expiry": "2160h",
-  "nameservers": [
-    "1.1.1.1",
-    "1.0.0.1"
-  ],
+  "nameservers": "${MG_TENANT_NAMESERVERS:list}",
   "image": "docker.io/headscale/headscale@sha256:11f81665e842809db9fe3006a38c56a66e968baa5abd4bac498e86445572b970",
   "mem_limit": "512m",
   "cpus": "1.0",

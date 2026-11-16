@@ -5,7 +5,8 @@
 ## Điều kiện
 
 - Host đã qua `layout.sh`, `networks.sh`, firewall (`apply-firewall.sh`), stack `mg-core` và `mg-edge` đang chạy, edge healthy.
-- Bản sao repo trên host (ví dụ `~/mg`) gồm `tools/`, `infrastructure/`; biến `MG_BASE_DOMAIN` = domain của D-1.
+- Bản sao repo trên host (ví dụ `~/mg`) gồm `tools/`, `infrastructure/`.
+- Tham số môi trường (domain, IP công khai, IP LAN, tunnel…) chỉ nằm trong `infrastructure/environments/staging/staging.env`; tool render tự đọc. Lệnh shell cần giá trị thì nạp trước: `eval "$(python3 tools/mgenv.py export infrastructure/environments/staging/staging.env)"`.
 - Tham số tenant (không bí mật) ở `infrastructure/environments/staging/tenants/<slug>.json`.
 
 ## Các bước (mỗi tenant)
@@ -14,7 +15,7 @@
 cd ~/mg
 S=tenant-a                                   # slug
 # 1. render (tất định — cùng tham số cho cùng file, cùng instance_id)
-MG_BASE_DOMAIN=<domain> python3 tools/render_instance.py infrastructure/environments/staging/tenants/$S.json /tmp/render/$S
+python3 tools/render_instance.py infrastructure/environments/staging/tenants/$S.json /tmp/render/$S
 # 2. gỡ bản cũ (XÓA dữ liệu và khóa của tenant — chỉ với tenant thử)
 sudo bash infrastructure/host/tenant-remove.sh $S --i-understand-this-deletes-data
 # 3. thư mục → network internal /29 → start → healthy → policy deny-all (đọc lại khớp) → dấu policy-bootstrap.ok
@@ -24,7 +25,7 @@ sudo bash infrastructure/host/reattach-edge.sh $S
 # 5. (lab) fixture cho phép thử có client — trả về baseline trước P1-T14
 sudo bash infrastructure/host/tenant-policy.sh $S infrastructure/headscale/templates/test-allow-intra.hujson
 # 6. kiểm
-python3 tools/health_probe.py <entry_ip> mesh.<domain> $S
+python3 tools/health_probe.py "$MG_PUBLIC_IPV4" "mesh.$MG_BASE_DOMAIN" $S     # qua VPS; "$MG_LAN_IPV4" để thử LAN-direct
 ```
 
 ## Đăng ký lại client (lab)
@@ -32,7 +33,7 @@ python3 tools/health_probe.py <entry_ip> mesh.<domain> $S
 Khóa Noise và DB mới ⇒ client cũ phải đăng ký lại. Mỗi client: `headscale users create lab-<x>` (một lần mỗi tenant), một pre-auth key **dùng một lần, hạn ngắn** (`headscale preauthkeys create --user <id> --expiration 1h -o json`), chuyển thẳng tới client qua pipe — không in, không lưu:
 
 ```bash
-tailscale up --login-server=https://<slug>.mesh.<domain> --auth-key=file:/dev/stdin --hostname=<tên> \
+tailscale up --login-server=https://<slug>.mesh.$MG_BASE_DOMAIN --auth-key=file:/dev/stdin --hostname=<tên> \
   --accept-dns=false --force-reauth
 ```
 
@@ -52,7 +53,7 @@ Ví dụ đổi `derp_ipv4` khi chuyển điểm vào ([P1-T18](../../docs/plann
 
 ## Đổi cấu hình edge (Caddyfile)
 
-1. Chạy `MG_BASE_DOMAIN=<domain> python3 tools/render_edge.py infrastructure/environments/staging/edge.json /tmp/edge`.
+1. Chạy `python3 tools/render_edge.py infrastructure/environments/staging/edge.json /tmp/edge` (tham số lấy từ `staging.env`).
 2. Nếu `compose.edge.yaml` chỉ khác ở dòng chú thích: **reload**. Sao lưu `/opt/meshguard/core/caddy/Caddyfile` ra ngoài thư mục mount, cài bản mới, rồi chạy `docker exec mg-edge caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile --address unix//run/caddy/admin.sock`.
 3. Nếu compose đổi thật (cổng publish): **recreate** rồi làm mục trên.
 4. Với `stream_close_delay 5m`, stream cũ đóng đồng loạt khoảng 5 phút sau reload; client tự nối lại.
@@ -74,7 +75,7 @@ python3 tools/render_gateway.py infrastructure/environments/staging/gateway.json
 cd /opt/meshguard/gateway && sudo docker compose -f compose.gateway.yaml down
 sudo install -m 0644 ~/gw/haproxy.cfg ~/gw/compose.gateway.yaml /opt/meshguard/gateway/
 cd /opt/meshguard/gateway && sudo docker compose -f compose.gateway.yaml up -d
-# kiểm: /key?v=113 qua DNS công khai = 200; tools/stun_probe.py <IP VPS>; client ép relay vẫn "via DERP(<region>)"
+# kiểm: /key?v=113 qua DNS công khai = 200; tools/stun_probe.py "$MG_PUBLIC_IPV4"; client ép relay vẫn "via DERP(<region>)"
 ```
 
 Tunnel `mg-wg0` (`infrastructure/gateway/wg-setup.sh`) và firewall VPS (`apply-vps-firewall.sh`) không bị ảnh hưởng. Khóa WireGuard được sinh tại từng máy. Nếu phải dựng lại tunnel thì chỉ trao đổi public key.
