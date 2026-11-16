@@ -1,0 +1,47 @@
+# CI khung (P0-T04): docs-check (lint master, sinh lại docs/ và kiểm đã commit, ROADMAP, sơ đồ §21.2, link)
+# và quét secret toàn bộ lịch sử. Chạy trên runner của GitHub (repo public — D-12): PR từ fork chạy trong sandbox
+# của GitHub với token chỉ đọc, workflow này không dùng secret nào. Action pin theo commit SHA (§25.1 quy tắc 8).
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  docs-check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - name: docs-check
+        run: python3 tools/docs_check.py
+      - name: docs/ khớp với master đã commit
+        run: git diff --exit-code -- docs/ || { echo "::error::docs/ lệch với master — chạy 'make docs' rồi commit"; exit 1; }
+
+  secret-scan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GITLEAKS_VERSION: "8.30.1"
+      GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Cài gitleaks (kiểm SHA-256)
+        run: |
+          curl -fsSL -o "${RUNNER_TEMP}/gitleaks.tgz" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  ${RUNNER_TEMP}/gitleaks.tgz" | sha256sum -c -
+          tar -xzf "${RUNNER_TEMP}/gitleaks.tgz" -C "${RUNNER_TEMP}" gitleaks
+      - name: Quét secret (lịch sử git và cây làm việc)
+        run: |
+          "${RUNNER_TEMP}/gitleaks" git --config .gitleaks.toml --redact --no-banner .
+          "${RUNNER_TEMP}/gitleaks" dir --config .gitleaks.toml --redact --no-banner .

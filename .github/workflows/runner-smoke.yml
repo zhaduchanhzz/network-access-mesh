@@ -1,6 +1,6 @@
-# Thử runner tự host + GHCR (P0-T07): build một image nhỏ, push lên GHCR bằng GITHUB_TOKEN, xóa bản cục bộ
-# rồi pull lại theo digest. Không dùng action bên thứ ba; image nền pin theo digest trong versions.lock.
-# Job xếp hàng chờ tới khi runner có nhãn `meshguard` online (tối đa 24 giờ).
+# Thử runner + GHCR (P0-T07): build một image nhỏ, push lên GHCR bằng GITHUB_TOKEN, xóa bản cục bộ rồi pull lại
+# theo digest. Không dùng action bên thứ ba; image nền pin theo digest trong versions.lock.
+# Repo public (D-12, quyết định 2026-11-16) ⇒ chạy trên runner do GitHub cung cấp, không dùng self-hosted runner.
 name: runner-smoke
 
 on:
@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   smoke:
-    runs-on: [self-hosted, linux, x64, meshguard]
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
       IMAGE: ghcr.io/${{ github.repository }}/runner-smoke

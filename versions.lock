@@ -145,6 +145,17 @@ sha256 = "baebf204307bac6193480852732f0aba2ae97b6c5597c244f4d5558390147c40"   # 
 date = "2026-10-26"
 note = "Cài trên VM mg-ci-runner. Runner tự cập nhật theo bản phát hành của GitHub (GitHub chỉ giao job cho runner còn trong khoảng phiên bản được hỗ trợ) — phiên bản ở đây là bản cài ban đầu"
 
+[sources.actions-checkout]
+repo = "github.com/actions/checkout"
+version = "v7.0.1"
+commit = "3d3c42e5aac5ba805825da76410c181273ba90b1"
+date = "2026-07-20"
+purpose = "CI (.github/workflows/ci.yml)"
+
+[ci]
+runner = "ubuntu-24.04 (runner của GitHub — repo public, D-12)"
+gitleaks_linux_x64_sha256 = "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"   # gitleaks_8.30.1_checksums.txt
+
 [toolchains]
 go = "1.27.4"
 node = "26.13.1"

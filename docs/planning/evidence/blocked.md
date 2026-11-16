@@ -4,8 +4,7 @@
 
 | Task / gate | Bị chặn bởi | Cần gì để gỡ | Từ ngày |
 |---|---|---|---|
-| P0-T07 | Chủ dự án | Chuyển repo GitHub sang private (đã quyết 2026-11-16); token đăng ký runner (hiệu lực 1 giờ) — dán vào chat hoặc tự chạy lệnh đăng ký. Đã xong: Docker + runner 2.338.2 trên VM 105, workflow `runner-smoke` | 2026-11-16 |
-| P0-T04 (phần CI) | P0-T07 | Nhãn runner và quy ước lấy digest cho image tự build. Phần không có CI (thư mục, Makefile, `.gitignore`, `.env.example`, cấu hình secret scan) không bị chặn | 2026-11-16 |
+| P0-T07 | — | Repo giữ public theo quyết định của chủ dự án ⇒ CI trên runner của GitHub. Chờ kết quả `runner-smoke` sau khi push | 2026-11-16 |
 | P0-T03 (phần image tự build) | P0-T07 | Registry đã thử được. Phần upstream đã xong 2026-11-16 (`versions.lock`) | 2026-11-16 |
 | P0-T02 (phần còn lại) | Chủ dự án | Tên người chịu trách nhiệm cho từng rủi ro ở §23.1 | 2026-11-16 |
 | G0 | G0(5) | P0-T07. Xem [G0.md](G0.md) | 2026-11-16 |

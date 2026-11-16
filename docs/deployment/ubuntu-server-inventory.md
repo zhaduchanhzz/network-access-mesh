@@ -83,7 +83,7 @@ Theo chỉ đạo của chủ dự án ("vào và kiểm tra"; "tự tạo các 
 |---|---|---|---|
 | Proxmox VE 9.2, node `hanh` (192.168.1.14) | Hypervisor của host staging, runner CI và client thử | 36 core, 125 GiB RAM; storage `nvme01` (LVM-thin trên NVMe 1,9 TB, đã dùng 1,69% sau khi tạo VM) và `local-lvm` (NVMe 512 GB) | VM/CT có sẵn (100 OPNsense, 101, 102, 103 `ubuntu-lab` = 192.168.1.18) không bị động tới. SSH root cho phép mật khẩu; mật khẩu root đã lộ trong hội thoại và chủ dự án quyết định không đổi (D-10). Firewall của Proxmox đang tắt. Proxmox có địa chỉ trong tailnet riêng của chủ dự án; không có IPv6 công khai |
 | VM 104 `mg-staging` (192.168.1.8, DHCP) | **Host LAN staging** của plan (thay máy 192.168.1.18 nêu trong đề bài; máy đó không được dùng) | 8 vCPU (Xeon E5-2696 v3), 24 GB RAM, không swap, đĩa 250 GB trên `nvme01`; Ubuntu 24.04.5 LTS, kernel 6.8.0-147, amd64 | Docker Engine 29.9.3 + Compose 5.7.1 (cài 2026-11-16 theo chỉ đạo của chủ dự án; `daemon.json` ở dòng `daemon.json` của §14.1); chưa bật firewall; SSH chỉ bằng key; NTP đồng bộ; `onboot=1`. **Có IPv6 công khai** qua SLAAC (V-35) |
-| VM 105 `mg-ci-runner` (192.168.1.19, DHCP) | Runner GitHub Actions tự host (D-12, A.1 #21) | 6 vCPU, 16 GB RAM, đĩa 150 GB; Ubuntu 24.04.5 LTS | Tách khỏi host staging (R-28); Docker 29.9.3 + Compose 5.7.1 đã cài (2026-11-16); chưa đăng ký runner (repo GitHub đang public — D-12); `onboot=1`; có IPv6 công khai |
+| VM 105 `mg-ci-runner` (192.168.1.19, DHCP) | Runner GitHub Actions tự host (D-12, A.1 #21) | 6 vCPU, 16 GB RAM, đĩa 150 GB; Ubuntu 24.04.5 LTS | Tách khỏi host staging (R-28); Docker 29.9.3 + Compose 5.7.1 và runner 2.338.2 đã cài (2026-11-16); **không** gắn vào GitHub vì repo public (D-12) — giữ làm máy build/thử cục bộ; `onboot=1`; có IPv6 công khai |
 | VM 106 `mg-client-a1` (192.168.1.21), VM 107 `mg-client-b1` (192.168.1.22) | Client Linux trong LAN (tenant A, tenant B) | 2 vCPU, 2 GB RAM, đĩa 20 GB; Ubuntu 24.04.5 LTS | `onboot=0`; có IPv6 công khai |
 | VM 108 `mg-client-a2` (192.168.10.11), VM 109 `mg-client-b2` (192.168.10.12) | Client Linux sau NAT của OPNsense (segment `lan10`, khác LAN chính) | 2 vCPU, 2 GB RAM, đĩa 20 GB; Ubuntu 24.04.5 LTS | `onboot=0`; không có IPv6 |
 | Máy Windows 11 của chủ dự án | Client hệ điều hành thứ hai (G0(4)), ở mạng ngoài LAN của Proxmox | Wi-Fi 192.168.4.0/22 | Chỉ tới được LAN của Proxmox qua tailnet riêng của chủ dự án. Client Tailscale chỉ chạy một profile một lúc (CL-01) ⇒ khi chuyển sang tenant MeshGuard sẽ mất đường tới Proxmox và các VM: chỉ thử trong cửa sổ có hẹn, chuyển lại profile cũ ngay sau đó |
@@ -142,10 +142,10 @@ Mọi VM dùng cloud image Ubuntu 24.04 (noble): `SHA256SUMS` được kiểm ch
 | 12 | 4 VM Linux + máy Windows 11 (G0(4)); thiết bị di động cho Phase 5: chưa biết — chủ dự án |
 | 13 | SSH key trên VPS (user `mgdeploy`) và Proxmox (root); chủ dự án quyết định không đổi mật khẩu root của VPS và Proxmox (D-10, chấp nhận rủi ro); bản sao trên máy vận hành đã xóa |
 | 14 | VPS không có IPv6; LAN có IPv6 công khai (V-35) |
-| 15 | GitHub + GitHub Actions trên runner tự host + GHCR (D-12) |
+| 15 | GitHub (repo public) + GitHub Actions trên runner của GitHub + GHCR (D-12, quyết định lại 2026-11-16) |
 | 16 | Quy mô kỳ vọng cho MVP và 12 tháng: chưa biết — chủ dự án; cần trước P6-T08 |
 | 17 | `sudo` NOPASSWD toàn quyền, tạm thời (D-13) |
 | 18 | Từ 2 người trở lên (D-11) |
 | 19 | Host staging 192.168.1.8/24, gateway 192.168.1.1; LAN 192.168.1.0/24; segment `lan10` 192.168.10.0/24 sau OPNsense; Proxmox và máy Windows thuộc tailnet riêng của chủ dự án (dải `100.64.0.0/10`, `fd7a:115c:a1e0::/48`), máy Windows tới LAN qua subnet route của tailnet đó. Pool Docker không được chồng các dải này (§14.1) |
 | 20 | Resolver của LAN không chặn tên công khai trỏ về IP private |
-| 21 | VM 105 `mg-ci-runner` |
+| 21 | VM 105 `mg-ci-runner` — không dùng làm runner của GitHub vì repo public (D-12); máy build/thử cục bộ |

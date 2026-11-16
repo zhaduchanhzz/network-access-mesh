@@ -1,0 +1,39 @@
+#!/usr/sbin/nft -f
+# Firewall của host LAN staging (P1-T02, §14.1, V-35, AC-20).
+# - Bảng riêng `inet mg_host`, áp cho cả IPv4 và IPv6; không đụng bảng của Docker, không dùng `flush ruleset`.
+# - Chiều vào mặc định chặn; chỉ mở SSH từ LAN (IPv4), DHCP và ICMP cần thiết. SSH qua IPv6 bị chặn (V-35).
+# - Không cho kết nối mới từ ngoài vào container qua eth0; cổng của edge được mở có chủ đích ở P1-T06/P1-T10
+#   bằng rule riêng, sau khi chủ dự án chấp thuận.
+# Áp dụng: sudo nft -f mg-staging-firewall.nft     Hoàn tác: sudo nft delete table inet mg_host
+table inet mg_host
+delete table inet mg_host
+
+table inet mg_host {
+    set lan4 {
+        type ipv4_addr
+        flags interval
+        elements = { 192.168.1.0/24 }
+    }
+
+    chain input {
+        type filter hook input priority filter; policy drop;
+        iif "lo" accept
+        ct state established,related accept
+        ct state invalid drop
+
+        udp sport 67 udp dport 68 accept                                   # DHCPv4 (gia hạn lease)
+        ip6 saddr fe80::/10 udp sport 547 udp dport 546 accept             # DHCPv6
+
+        ip protocol icmp icmp type { destination-unreachable, time-exceeded } accept
+        ip protocol icmp icmp type echo-request ip saddr @lan4 accept
+        ip6 nexthdr icmpv6 icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert, nd-router-advert,
+            destination-unreachable, packet-too-big, time-exceeded, parameter-problem } accept
+
+        ip saddr @lan4 tcp dport 22 accept                                 # SSH chỉ từ LAN, chỉ IPv4
+    }
+
+    chain forward {
+        type filter hook forward priority filter - 1; policy accept;
+        iifname "eth0" ct state new drop                                    # chưa có cổng container nào được mở
+    }
+}
