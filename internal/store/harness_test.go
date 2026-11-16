@@ -158,14 +158,32 @@ func randomHex(n int) string {
 	return hex.EncodeToString(b)
 }
 
+// ClusterSetupLockKey is the advisory lock (taken in the "postgres" database) that serialises cluster-wide test setup
+// — bootstrap, migrations creating roles, role passwords — across every test package sharing the PostgreSQL cluster
+// (internal/store, internal/identity): roles belong to the cluster, two packages run in parallel under go test, and
+// two concurrent ALTER ROLE of one role fail with "tuple concurrently updated".
+const ClusterSetupLockKey int64 = 0x6d67746573740001
+
+// clusterLock takes ClusterSetupLockKey on a dedicated superuser connection and returns its release. Lock order
+// inside this package: e.mu first, then the cluster lock.
+func (e *pgEnv) clusterLock(t *testing.T) func() {
+	t.Helper()
+	c := e.connectAdmin(t, "postgres")
+	if _, err := c.Exec(ctxT(t), "SELECT pg_advisory_lock($1)", ClusterSetupLockKey); err != nil {
+		t.Fatalf("cluster setup lock: %v", err)
+	}
+	return func() { _, _ = c.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", ClusterSetupLockKey) }
+}
+
 // newDatabase creates a bootstrapped database migrated to version (0 = latest, < 0 = bootstrap only) and returns
 // its name. Database creation is serialised: roles are cluster-wide, and two migrations creating the same role at
-// once would race.
+// once would race (within this package by e.mu, across packages by ClusterSetupLockKey).
 func (e *pgEnv) newDatabase(t *testing.T, version int64) string {
 	t.Helper()
 	ctx := ctxT(t)
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	defer e.clusterLock(t)()
 	name := "mgt_" + randomHex(6)
 	admin := e.connectAdmin(t, "postgres")
 	if _, err := admin.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{name}.Sanitize()); err != nil {

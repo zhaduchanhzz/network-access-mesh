@@ -236,6 +236,8 @@ go = "1.27.4"
 "github.com/jackc/pgx/v5" = "v5.12.0"          # 2026-10-31 (P2-T03): pgxpool + stdlib; v5.13.0 (2026-11-11) chưa đủ 14 ngày
 "github.com/pressly/goose/v3" = "v3.29.0"      # 2026-10-11 (P2-T03): migration SQL nhúng; v3.30.x (2026-11-10/12) chưa đủ 14 ngày
 "github.com/google/uuid" = "v1.6.0"            # 2024-01-23 (P2-T03): kiểu UUID của mã sinh sqlc và store
+"github.com/coreos/go-oidc/v3" = "v3.21.0"     # 2026-09-01 (P2-T06): OIDC RP — discovery, JWKS, xác minh ID token (internal/identity); kéo theo go-jose/v4 v4.1.4 (indirect, đã gồm bản vá GO-2026-4945)
+"golang.org/x/oauth2" = "v0.37.0"              # 2026-08-25 (P2-T06): Authorization Code + PKCE S256; v0.38.0 (2026-11-06) chưa đủ 14 ngày
 
 [npm]   # apps/web — package-lock.json (integrity sha512) là nguồn sự thật; ở P2-T02 chỉ dùng để sinh type TypeScript từ api/openapi.yaml
 "openapi-typescript" = "7.13.0"   # 2026-02-11

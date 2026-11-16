@@ -21,6 +21,12 @@ func TestMigrationsUpWithData(t *testing.T) {
 	defer func() { _ = mig.Close() }()
 
 	f := newFixture()
+	// The migrations create cluster-wide roles and the role passwords are set below: hold the same locks as
+	// newDatabase (e.mu, then the cluster lock) until the passwords are set; released by defer even on t.Fatal.
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	unlock := e.clusterLock(t)
+	defer unlock()
 	for v := int64(1); v <= 6; v++ {
 		if err := MigrateTo(ctx, mig, v); err != nil {
 			t.Fatalf("migration %04d on a database with data: %v", v, err)
@@ -57,9 +63,7 @@ func TestMigrationsUpWithData(t *testing.T) {
 		}
 	}
 
-	e.mu.Lock()
-	e.setAppPasswordsLocked(t, db)
-	e.mu.Unlock()
+	e.setAppPasswordsLocked(t, db) // e.mu and the cluster lock are held (above)
 	s := e.openStore(t, db, "mg_api_tenant", "mg_api_platform", 2)
 	if err := s.WithTenantTx(ctx, f.a.id, func(q *sqlcdb.Queries) error {
 		devs, err := q.ListLiveDevices(ctx, f.a.id)
