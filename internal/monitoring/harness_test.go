@@ -187,5 +187,3 @@ func node(id uint64, online bool) devicestest.Node {
 		IPs: []netip.Addr{netip.MustParseAddr(fmt.Sprintf("100.64.0.%d", id))}, Method: "cli", Online: online,
 		CreatedAt: now.Add(-time.Hour), Expiry: &exp}
 }
-
-func tp(t time.Time) *time.Time { return &t }
