@@ -425,6 +425,16 @@ type ComponentHealth struct {
 	// Name Thành phần, ví dụ `postgres`, `edge`, `agent`
 	Name string `json:"name"`
 
+	// Reason Lý do ổn định khi `status` khác `healthy` — không bao giờ là thông điệp thô của Headscale (§13.4 quy tắc 5).
+	// Kết quả probe: `instance_unavailable`, `circuit_open`, `database_unreachable`, `unsupported_version`,
+	// `api_key_rejected`, `edge_rejected`, `not_located`, `upstream_rejected`, `incomplete_probe`, `internal`. Không có
+	// kết luận: `no_instance`, `never_checked`, `stale`, `instance_not_running`, `invalid_record`. Thành phần nền
+	// tảng: `no_heartbeat`, `heartbeat_stale`, `heartbeat_failed`, `no_probe`, `not_deployed`. Tập giá trị chỉ được
+	// bổ sung (cộng thêm).
+	//
+	// Examples: instance_unavailable
+	Reason *HealthReason `json:"reason,omitempty"`
+
 	// Status Kết quả health check gần nhất; `unknown` khi chưa từng kiểm
 	Status HealthStatus `json:"status"`
 }
@@ -534,6 +544,16 @@ type FieldError struct {
 	Message string `json:"message"`
 }
 
+// HealthReason Lý do ổn định khi `status` khác `healthy` — không bao giờ là thông điệp thô của Headscale (§13.4 quy tắc 5).
+// Kết quả probe: `instance_unavailable`, `circuit_open`, `database_unreachable`, `unsupported_version`,
+// `api_key_rejected`, `edge_rejected`, `not_located`, `upstream_rejected`, `incomplete_probe`, `internal`. Không có
+// kết luận: `no_instance`, `never_checked`, `stale`, `instance_not_running`, `invalid_record`. Thành phần nền
+// tảng: `no_heartbeat`, `heartbeat_stale`, `heartbeat_failed`, `no_probe`, `not_deployed`. Tập giá trị chỉ được
+// bổ sung (cộng thêm).
+//
+// Examples: instance_unavailable
+type HealthReason = string
+
 // HealthStatus Kết quả health check gần nhất; `unknown` khi chưa từng kiểm
 type HealthStatus string
 
@@ -545,7 +565,9 @@ type Instance struct {
 	DerpRegionId    *int       `json:"derp_region_id,omitempty"`
 
 	// HeadscaleVersion Examples: v0.29.7
-	HeadscaleVersion    string             `json:"headscale_version"`
+	HeadscaleVersion string `json:"headscale_version"`
+
+	// Health Kết quả health probe gần nhất của instance qua adapter (`GET /version`, `GET /api/v1/health` — §16.2); `checked_at` là lúc probe bắt đầu, `null` khi chưa từng probe. Kết quả cũ hơn ngưỡng, hoặc instance không ở trạng thái `running`, cho `status = unknown` kèm `reason`
 	Health              InstanceHealth     `json:"health"`
 	HostId              openapi_types.UUID `json:"host_id"`
 	Id                  openapi_types.UUID `json:"id"`
@@ -561,17 +583,33 @@ type Instance struct {
 	Version  int64              `json:"version"`
 }
 
-// InstanceCounts defines model for InstanceCounts.
+// InstanceCounts Instance chưa `removed`: theo trạng thái, theo health (`healthy`/`unhealthy`/`unknown`, cùng quy tắc với `InstanceHealth`) và theo version Headscale báo ở lần probe gần nhất (`by_version` chỉ đếm instance đã báo version); `unhealthy` = `by_health.unhealthy`
 type InstanceCounts struct {
+	// ByHealth Số lượng theo trạng thái
+	ByHealth StatusCounts `json:"by_health"`
+
 	// ByStatus Số lượng theo trạng thái
-	ByStatus  StatusCounts `json:"by_status"`
+	ByStatus StatusCounts `json:"by_status"`
+
+	// ByVersion Số lượng theo trạng thái
+	ByVersion StatusCounts `json:"by_version"`
 	Total     int          `json:"total"`
 	Unhealthy int          `json:"unhealthy"`
 }
 
-// InstanceHealth defines model for InstanceHealth.
+// InstanceHealth Kết quả health probe gần nhất của instance qua adapter (`GET /version`, `GET /api/v1/health` — §16.2); `checked_at` là lúc probe bắt đầu, `null` khi chưa từng probe. Kết quả cũ hơn ngưỡng, hoặc instance không ở trạng thái `running`, cho `status = unknown` kèm `reason`
 type InstanceHealth struct {
 	CheckedAt *time.Time `json:"checked_at"`
+
+	// Reason Lý do ổn định khi `status` khác `healthy` — không bao giờ là thông điệp thô của Headscale (§13.4 quy tắc 5).
+	// Kết quả probe: `instance_unavailable`, `circuit_open`, `database_unreachable`, `unsupported_version`,
+	// `api_key_rejected`, `edge_rejected`, `not_located`, `upstream_rejected`, `incomplete_probe`, `internal`. Không có
+	// kết luận: `no_instance`, `never_checked`, `stale`, `instance_not_running`, `invalid_record`. Thành phần nền
+	// tảng: `no_heartbeat`, `heartbeat_stale`, `heartbeat_failed`, `no_probe`, `not_deployed`. Tập giá trị chỉ được
+	// bổ sung (cộng thêm).
+	//
+	// Examples: instance_unavailable
+	Reason *HealthReason `json:"reason,omitempty"`
 
 	// Status Kết quả health check gần nhất; `unknown` khi chưa từng kiểm
 	Status HealthStatus `json:"status"`
@@ -623,6 +661,15 @@ type JobKind = string
 type JobList struct {
 	Items      []Job   `json:"items"`
 	NextCursor *string `json:"next_cursor"`
+}
+
+// JobQueueHealth Hàng đợi job của nền tảng (`provisioning_jobs`, §13.5) tại `checked_at`: `unfinished` = job chưa kết thúc theo trạng thái (`queued`, `running`, `compensating`, `failed_resumable`); `failed_last_24h` = job kết thúc `failed` hoặc `rolled_back` trong 24 giờ trước `checked_at`
+type JobQueueHealth struct {
+	CheckedAt     time.Time `json:"checked_at"`
+	FailedLast24h int       `json:"failed_last_24h"`
+
+	// Unfinished Số lượng theo trạng thái
+	Unfinished StatusCounts `json:"unfinished"`
 }
 
 // JobStatus Trạng thái job (`provisioning_jobs.status`, §6.3)
@@ -687,8 +734,13 @@ type PlanLimits struct {
 type PlatformHealth struct {
 	CheckedAt  time.Time         `json:"checked_at"`
 	Components []ComponentHealth `json:"components"`
-	Instances  InstanceCounts    `json:"instances"`
-	Tenants    TenantCounts      `json:"tenants"`
+
+	// Instances Instance chưa `removed`: theo trạng thái, theo health (`healthy`/`unhealthy`/`unknown`, cùng quy tắc với `InstanceHealth`) và theo version Headscale báo ở lần probe gần nhất (`by_version` chỉ đếm instance đã báo version); `unhealthy` = `by_health.unhealthy`
+	Instances InstanceCounts `json:"instances"`
+
+	// Jobs Hàng đợi job của nền tảng (`provisioning_jobs`, §13.5) tại `checked_at`: `unfinished` = job chưa kết thúc theo trạng thái (`queued`, `running`, `compensating`, `failed_resumable`); `failed_last_24h` = job kết thúc `failed` hoặc `rolled_back` trong 24 giờ trước `checked_at`
+	Jobs    JobQueueHealth `json:"jobs"`
+	Tenants TenantCounts   `json:"tenants"`
 }
 
 // PlatformJob Job kèm chi tiết thô của từng step và lỗi gốc (§13.3)
@@ -918,10 +970,13 @@ type TenantCounts struct {
 	Total    int          `json:"total"`
 }
 
-// TenantDashboard defines model for TenantDashboard.
+// TenantDashboard Tổng quan của một tenant (§16.4): mọi số kèm thời điểm quan sát (`devices.synced_at`, `instance.checked_at`); mục chưa có nguồn thật nằm trong `unavailable` kèm lý do
 type TenantDashboard struct {
-	Devices  DeviceCounts   `json:"devices"`
-	Instance InstanceHealth `json:"instance"`
+	Devices DeviceCounts `json:"devices"`
+
+	// Instance Kết quả health probe gần nhất của instance qua adapter (`GET /version`, `GET /api/v1/health` — §16.2); `checked_at` là lúc probe bắt đầu, `null` khi chưa từng probe. Kết quả cũ hơn ngưỡng, hoặc instance không ở trạng thái `running`, cho `status = unknown` kèm `reason`
+	Instance    InstanceHealth       `json:"instance"`
+	Unavailable []UnavailableSection `json:"unavailable"`
 }
 
 // TenantList defines model for TenantList.
@@ -937,6 +992,18 @@ type TenantSlug = string
 
 // TenantStatus Trạng thái tenant (`tenants.status`, §6.3)
 type TenantStatus string
+
+// UnavailableSection Mục của dashboard chưa có số liệu thật — báo "không khả dụng" kèm lý do thay vì số giả (§12.3, §16.4)
+type UnavailableSection struct {
+	// Detail Câu giải thích ngắn (tiếng Anh) cho người đọc; phần ổn định là `reason`
+	Detail *string `json:"detail,omitempty"`
+
+	// Reason `never_synced` (sổ thiết bị chưa từng sync — các số đếm của `devices` không phải số liệu), `no_source` (nền tảng chưa có nguồn cho mục này), `not_served` (có nguồn nhưng dashboard chưa phục vụ số liệu này)
+	Reason string `json:"reason"`
+
+	// Section Mục của dashboard — `devices`, `policies`, `routes`, `relay`, `security_events` (chỉ bổ sung)
+	Section string `json:"section"`
+}
 
 // ActionFilter defines model for ActionFilter.
 type ActionFilter = string

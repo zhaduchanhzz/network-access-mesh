@@ -125,6 +125,16 @@ Module `internal/devices` (bằng chứng: [`P2-T13.md`](../docs/planning/eviden
   `synced_at`; là nguồn "lần sync gần nhất" của dashboard (P2-T13a) kể cả khi tailnet chưa có node nào. `instance_id`,
   `tenant_id` bất biến; role ứng dụng tenant `SELECT/INSERT` + `UPDATE (generation, synced_at, node_count)`.
 
+## Health của instance (P2-T13a)
+
+Module `internal/monitoring` (bằng chứng: [`P2-T13a.md`](../docs/planning/evidence/P2-T13a.md)); truy vấn ở
+`queries/monitoring.sql`. Không bảng mới: job `health.probe` (pool platform của worker — chỉ role platform có
+`UPDATE (last_health, last_health_at)`) ghi `tenant_instances.last_health` = tài liệu
+`{"schema":1,"status":"healthy|unhealthy","reason"?,"version"?,"database"?,"breaker"?,"duration_ms"}` (mã ổn định,
+không có thông điệp thô của Headscale) và `last_health_at` = đồng hồ DB lúc probe **bắt đầu**; kết quả của lần probe bắt
+đầu sớm hơn kết quả đã ghi bị bỏ qua. `version`/`updated_at` của instance (ETag) không đổi. Dashboard tenant đọc qua
+pool tenant (RLS), Platform Health qua pool platform; số thiết bị chỉ đến từ service của `devices`.
+
 ## Triển khai (P2-T16 nối vào job `migrate` của `mg-core`)
 
 1. Superuser: `psql -U postgres -d meshguard -v ON_ERROR_STOP=1 < database/bootstrap/superuser.sql` (hoặc `store.Bootstrap`).

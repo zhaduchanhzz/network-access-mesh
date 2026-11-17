@@ -7,7 +7,8 @@
 # trong container dùng-một-lần trên runner — workflow không dùng secret nào của repo (repo public, D-12). Kết quả quan
 # sát từng quirk (V-06, V-21, V-26, V-28) được lưu thành artifact. Pha 8–10 (P2-T13): sổ thiết bị internal/devices
 # trên bản vá, với PostgreSQL pin digest và job device.revoke chạy trong khung job thật; restore bản chụp SQLite để
-# thử quy tắc node id được cấp lại (§6.3).
+# thử quy tắc node id được cấp lại (§6.3). Pha 11 (P2-T13a): health probe của internal/monitoring (job health.probe,
+# dashboard) trên cùng sổ thiết bị.
 # Job thứ hai (P2-T15) chạy phần isolation suite cần Headscale thật: hai instance A, B sau cùng khối listener admin và
 # một PostgreSQL pin digest giữ registry thật (tenant_instances + SecretStore) cho Locator của P2-T11 — IT-06 (apply
 # policy cho A ⇒ sha256 GetPolicy của B không đổi), IT-10 (API key của A bị instance B trả 401), IT-20 (lỗi tiêm vào
@@ -24,7 +25,7 @@ on:
             ".github/workflows/headscale-contract.yml",
             "internal/devices/**", "internal/store/**", "internal/jobs/**", "internal/audit/**", "database/**",
             "tests/isolation/headscale/**", "internal/headscale/locator/**", "internal/tenants/**",
-            "internal/secrets/**"]
+            "internal/secrets/**", "internal/monitoring/**"]
   pull_request:
     paths: ["internal/headscale/**", "internal/kit/logx/**", "tests/integration/headscale/**",
             "infrastructure/caddy/Caddyfile.tmpl", "infrastructure/headscale/templates/**", "tools/render_instance.py",
@@ -32,7 +33,7 @@ on:
             ".github/workflows/headscale-contract.yml",
             "internal/devices/**", "internal/store/**", "internal/jobs/**", "internal/audit/**", "database/**",
             "tests/isolation/headscale/**", "internal/headscale/locator/**", "internal/tenants/**",
-            "internal/secrets/**"]
+            "internal/secrets/**", "internal/monitoring/**"]
 
 permissions:
   contents: read
@@ -45,7 +46,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - name: Contract test adapter ↔ Headscale v0.29.7 bản vá (10 pha, có restart / làm đầy đĩa / đổi image / đối chứng crash / restore SQLite)
+      - name: Contract test adapter ↔ Headscale v0.29.7 bản vá (11 pha, có restart / làm đầy đĩa / đổi image / đối chứng crash / restore SQLite)
         # run.sh dùng [images.mg-headscale] khi đã pin VÀ đúng bộ bản vá của cây (label patched-commit = ARG của
         # Dockerfile); ngược lại build image từ cây của commit này.
         run: HSCT_OUT="${RUNNER_TEMP}/hsct" HSCT_KEEP_CACHE=0 bash tests/integration/headscale/run.sh

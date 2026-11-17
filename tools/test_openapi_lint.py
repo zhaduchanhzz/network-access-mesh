@@ -392,7 +392,7 @@ check([a for _, _, a, _ in master.roles] == ["SA", "PO", "PS", "PV", "TO", "TA",
       str(master.roles))
 check(master.columns == {"platform": ["SA", "PO", "PS", "PV"], "tenant": ["TO", "TA", "TP", "TV", "EU", "Staff"]},
       "§8.5/§8.6: role columns", str(master.columns))
-check({"P2-T01", "P2-T02", "P2-T03", "P2-T07", "P2-T08", "P2-T13", "P2-T15", "P1-T21"} <= master.done
+check({"P2-T01", "P2-T02", "P2-T03", "P2-T07", "P2-T08", "P2-T13", "P2-T13a", "P2-T15", "P1-T21"} <= master.done
       and not {"P1-T02", "P1-T12e", "P2-T16", "P4-T09"} & master.done,
       "§20: done tasks (full marker only; 'phần 1 …' / 'một phần' are not done)", str(sorted(master.done)))
 check(master.row_tasks(P["platform.tenant:suspend"]) == {"P3-T05", "P3-T08", "P3-T09"}

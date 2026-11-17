@@ -14,9 +14,10 @@
 // can send what the official client never sends (RegisterRequest.Expiry); one registration uses the official client
 // container (versions.lock [images.tailscale]).
 //
-// The tests are grouped in phases (TestP1_… to TestP10_…) because some quirks need the runner to act between them:
+// The tests are grouped in phases (TestP1_… to TestP11_…) because some quirks need the runner to act between them:
 // restart Headscale, fill or free its data volume, start the official client, swap the image on the same data volume
 // (patched → official → patched), snapshot and restore its database. Phases 8–10 run the device inventory of P2-T13
-// (internal/devices) on the patched build, with its register in a PostgreSQL of the run (devices_test.go). Run
-// everything with run.sh; without its environment every test is skipped.
+// (internal/devices) on the patched build, with its register in a PostgreSQL of the run (devices_test.go); phase 11
+// runs the health probe of P2-T13a (internal/monitoring, health_test.go) on that register. Run everything with run.sh;
+// without its environment every test is skipped.
 package contract

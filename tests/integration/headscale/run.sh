@@ -16,10 +16,11 @@
 #     container "giữ volume" để dữ liệu sống qua các lần restart và đổi image;
 #   - edge: Caddy [images.caddy] chạy ĐÚNG khối listener admin trích từ infrastructure/caddy/Caddyfile.tmpl;
 #   - client chính thức [images.tailscale] (pha 2); binary test build trong [images.golang];
-#   - PostgreSQL [images.postgres] cho sổ thiết bị của pha 8–10 (P2-T13, internal/devices) — chỉ trên mạng admin thử.
+#   - PostgreSQL [images.postgres] cho sổ thiết bị của pha 8–10 (P2-T13, internal/devices) và health probe của pha 11
+#     (P2-T13a, internal/monitoring) — chỉ trên mạng admin thử.
 # API key của instance, token của listener admin và mật khẩu superuser PostgreSQL sinh mới mỗi lần chạy, nằm trong thư
 # mục tạm 0700, không in ra.
-# Các pha (TestP1_ … TestP10_) và việc runner làm giữa các pha: xem doc.go. Kết quả: $HSCT_OUT/observations.jsonl,
+# Các pha (TestP1_ … TestP11_) và việc runner làm giữa các pha: xem doc.go. Kết quả: $HSCT_OUT/observations.jsonl,
 # phase-<n>.log, headscale-crash.log. Mọi container/network/volume/image mang tiền tố $HSCT_PREFIX và bị xóa khi thoát
 # (giữ lại hai volume cache Go <prefix>-gomod, <prefix>-gocache; HSCT_KEEP_CACHE=0 để xóa).
 set -euo pipefail
@@ -209,7 +210,7 @@ sleep 2
 
 obs "env" "môi trường" "headscale được thử=$HS_IMAGE ($V_PATCHED); chính thức (tạo DB, pha 6)=$HS_OFFICIAL ($V_OFFICIAL); config_sha256=$CONFIG_SHA node.expiry=$NODE_EXPIRY; edge=$CADDY_IMAGE (khối admin của Caddyfile.tmpl); client=$TS_IMAGE; test build=$GO_IMAGE"
 
-# PostgreSQL của sổ thiết bị (pha 8–10): mật khẩu superuser một lần, chỉ trong hai env-file 0600 (server, test).
+# PostgreSQL của sổ thiết bị (pha 8–11): mật khẩu superuser một lần, chỉ trong hai env-file 0600 (server, test).
 log "PostgreSQL $PG_IMAGE (sổ thiết bị P2-T13)"
 ( umask 077
   PGPW=$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')
@@ -343,6 +344,10 @@ run_phase 9 || { finish; exit 1; }
 log "khôi phục bản chụp database của Headscale"; hs_db restore
 obs "§6.3" "khôi phục SQLite cũ hơn" "Headscale (bản vá) dừng, db.sqlite thay bằng bản chụp sau pha 8, khởi động lại"
 run_phase 10 || { finish; exit 1; }
+
+# Pha 11: health probe của internal/monitoring (P2-T13a) trên bản vá, với sổ thiết bị của pha 8–10 — job health.probe
+# trong khung job thật, các chế độ lỗi tạo qua target (runner không làm gì giữa 10 và 11).
+run_phase 11 || { finish; exit 1; }
 
 finish
 python3 - "$OUT/observations.jsonl" <<'PY'

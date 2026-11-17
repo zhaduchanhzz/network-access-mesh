@@ -378,8 +378,9 @@ paths:
       operationId: getTenantDashboard
       summary: Tổng quan của tenant — số liệu từ cache và health của instance
       description: >-
-        Mỗi số kèm `synced_at`/`checked_at`; không có số liệu giả (§12.3, §16.4). Policy, route, relay và security event
-        được bổ sung (cộng thêm) ở phase sau.
+        Mỗi số kèm `synced_at`/`checked_at`; không có số liệu giả (§12.3, §16.4). Tenant chỉ lấy từ path; không nhận
+        tham số truy vấn nào. Mục chưa có nguồn thật (policy, route, relay, security event; sổ thiết bị chưa từng sync)
+        nằm trong `unavailable` kèm lý do — được bổ sung thành số liệu (cộng thêm) ở task xây nguồn của mục đó.
       x-permission: tenant.dashboard:read
       x-task: P2-T13a
       x-audit-action: dashboard.read
@@ -1008,7 +1009,9 @@ paths:
       tags: [platform]
       operationId: getPlatformHealth
       summary: Health tổng hợp của nền tảng
-      description: Số liệu thật kèm `checked_at` (§12.2, §16.2); không có số liệu giả.
+      description: >-
+        Số liệu thật kèm `checked_at` (§12.2, §16.2); không có số liệu giả: thành phần chưa có probe được báo `unknown`
+        kèm `reason`. Không chứa dữ liệu nội bộ của tenant (không có số thiết bị).
       x-permission: platform.health:read
       x-task: P2-T13a
       x-audit-action: platform.health.read
@@ -1538,6 +1541,17 @@ components:
       type: string
       description: Kết quả health check gần nhất; `unknown` khi chưa từng kiểm
       enum: [healthy, unhealthy, unknown]
+    HealthReason:
+      type: string
+      description: |-
+        Lý do ổn định khi `status` khác `healthy` — không bao giờ là thông điệp thô của Headscale (§13.4 quy tắc 5).
+        Kết quả probe: `instance_unavailable`, `circuit_open`, `database_unreachable`, `unsupported_version`,
+        `api_key_rejected`, `edge_rejected`, `not_located`, `upstream_rejected`, `incomplete_probe`, `internal`. Không có
+        kết luận: `no_instance`, `never_checked`, `stale`, `instance_not_running`, `invalid_record`. Thành phần nền
+        tảng: `no_heartbeat`, `heartbeat_stale`, `heartbeat_failed`, `no_probe`, `not_deployed`. Tập giá trị chỉ được
+        bổ sung (cộng thêm).
+      pattern: '^[a-z][a-z0-9_]{0,63}$'
+      examples: [instance_unavailable]
     StatusCounts:
       type: object
       description: Số lượng theo trạng thái
@@ -1791,14 +1805,39 @@ components:
           type: [string, 'null']
           format: date-time
           description: Lần sync gần nhất; `null` khi chưa từng sync
+    UnavailableSection:
+      type: object
+      description: Mục của dashboard chưa có số liệu thật — báo "không khả dụng" kèm lý do thay vì số giả (§12.3, §16.4)
+      required: [section, reason]
+      properties:
+        section:
+          type: string
+          description: Mục của dashboard — `devices`, `policies`, `routes`, `relay`, `security_events` (chỉ bổ sung)
+          pattern: '^[a-z][a-z0-9_]{0,63}$'
+        reason:
+          type: string
+          description: >-
+            `never_synced` (sổ thiết bị chưa từng sync — các số đếm của `devices` không phải số liệu), `no_source` (nền
+            tảng chưa có nguồn cho mục này), `not_served` (có nguồn nhưng dashboard chưa phục vụ số liệu này)
+          pattern: '^[a-z][a-z0-9_]{0,63}$'
+        detail:
+          type: string
+          description: Câu giải thích ngắn (tiếng Anh) cho người đọc; phần ổn định là `reason`
     TenantDashboard:
       type: object
-      required: [devices, instance]
+      description: >-
+        Tổng quan của một tenant (§16.4): mọi số kèm thời điểm quan sát (`devices.synced_at`, `instance.checked_at`);
+        mục chưa có nguồn thật nằm trong `unavailable` kèm lý do
+      required: [devices, instance, unavailable]
       properties:
         devices:
           $ref: '#/components/schemas/DeviceCounts'
         instance:
           $ref: '#/components/schemas/InstanceHealth'
+        unavailable:
+          type: array
+          items:
+            $ref: '#/components/schemas/UnavailableSection'
     # ------------------------------------------------------------ devices (§13.3)
     Device:
       type: object
@@ -2149,6 +2188,10 @@ components:
       enum: [allocated, starting, running, stopped, failed, removed, quarantined]
     InstanceHealth:
       type: object
+      description: >-
+        Kết quả health probe gần nhất của instance qua adapter (`GET /version`, `GET /api/v1/health` — §16.2);
+        `checked_at` là lúc probe bắt đầu, `null` khi chưa từng probe. Kết quả cũ hơn ngưỡng, hoặc instance không ở
+        trạng thái `running`, cho `status = unknown` kèm `reason`
       required: [status, checked_at]
       properties:
         status:
@@ -2156,6 +2199,8 @@ components:
         checked_at:
           type: [string, 'null']
           format: date-time
+        reason:
+          $ref: '#/components/schemas/HealthReason'
     Instance:
       type: object
       description: Headscale instance của một tenant (`tenant_instances`, §6.3) — không chứa secret
@@ -2224,6 +2269,8 @@ components:
         checked_at:
           type: [string, 'null']
           format: date-time
+        reason:
+          $ref: '#/components/schemas/HealthReason'
     TenantCounts:
       type: object
       required: [total, by_status]
@@ -2235,7 +2282,11 @@ components:
           $ref: '#/components/schemas/StatusCounts'
     InstanceCounts:
       type: object
-      required: [total, by_status, unhealthy]
+      description: >-
+        Instance chưa `removed`: theo trạng thái, theo health (`healthy`/`unhealthy`/`unknown`, cùng quy tắc với
+        `InstanceHealth`) và theo version Headscale báo ở lần probe gần nhất (`by_version` chỉ đếm instance đã báo
+        version); `unhealthy` = `by_health.unhealthy`
+      required: [total, by_status, unhealthy, by_health, by_version]
       properties:
         total:
           type: integer
@@ -2245,9 +2296,29 @@ components:
         unhealthy:
           type: integer
           minimum: 0
+        by_health:
+          $ref: '#/components/schemas/StatusCounts'
+        by_version:
+          $ref: '#/components/schemas/StatusCounts'
+    JobQueueHealth:
+      type: object
+      description: >-
+        Hàng đợi job của nền tảng (`provisioning_jobs`, §13.5) tại `checked_at`: `unfinished` = job chưa kết thúc theo
+        trạng thái (`queued`, `running`, `compensating`, `failed_resumable`); `failed_last_24h` = job kết thúc `failed`
+        hoặc `rolled_back` trong 24 giờ trước `checked_at`
+      required: [checked_at, unfinished, failed_last_24h]
+      properties:
+        checked_at:
+          type: string
+          format: date-time
+        unfinished:
+          $ref: '#/components/schemas/StatusCounts'
+        failed_last_24h:
+          type: integer
+          minimum: 0
     PlatformHealth:
       type: object
-      required: [checked_at, components, tenants, instances]
+      required: [checked_at, components, tenants, instances, jobs]
       properties:
         checked_at:
           type: string
@@ -2260,3 +2331,5 @@ components:
           $ref: '#/components/schemas/TenantCounts'
         instances:
           $ref: '#/components/schemas/InstanceCounts'
+        jobs:
+          $ref: '#/components/schemas/JobQueueHealth'
