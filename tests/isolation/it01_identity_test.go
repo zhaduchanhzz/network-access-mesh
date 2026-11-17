@@ -160,8 +160,11 @@ func TestIT01IdentityIsolation(t *testing.T) {
 			continue
 		}
 		path := strings.ReplaceAll(op.Path, "{tenantId}", w.B.ID.String())
-		for _, p := range []string{"{deviceId}", "{membershipId}", "{jobId}"} {
+		for _, p := range []string{"{deviceId}", "{membershipId}", "{jobId}", "{approvalId}", "{invitationId}"} {
 			path = strings.ReplaceAll(path, p, uuid.NewString())
+		}
+		if strings.Contains(path, "{") {
+			t.Fatalf("IT-01: %s: path parameter left in %s — add it to the list above", op.ID, path)
 		}
 		probed++
 		rec := b.get("https://" + w.AppHost + "/api/v1" + path)
