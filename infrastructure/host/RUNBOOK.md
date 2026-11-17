@@ -372,6 +372,35 @@ sudo bash infrastructure/host/migrate.sh                          # mỗi lần 
 $APP up -d --wait api worker                                      # /readyz: postgres, secretstore, edge_admin
 ```
 
+## Điểm vào công khai, capacity, trạng thái của host — `meshguard admin host-set` (P3-T04)
+
+Placement (bước 3 của provisioning) chỉ chọn host `active`, có `public_entry.ipv4` và còn chỗ theo `capacity.max_instances`. Host `mg-staging` do `adopt-instance` đăng ký có `public_entry = {}` ⇒ **trước lần cấp phát đầu** phải khai báo điểm vào công khai (IP của VPS gateway — `MG_PUBLIC_IPV4` của `staging.env`, chế độ `vps_gateway`). Lệnh là cùng thay đổi với `PATCH /api/v1/platform/hosts/{hostId}` (cùng service): kiểm đúng các CHECK của migration 0014, khóa hàng host như placement, đọc `ETag` trước (có thay đổi song song ⇒ lệnh thất bại, không ghi đè), ghi audit `platform.host.update` (giá trị trước/sau, `actor_type=system`, `actor_display = meshguard admin host-set`, request id `admin-<uuid>`). **IP không bao giờ là tham số:** `--public-ipv4-env` nhận **tên** biến môi trường chứa IP (lệnh từ chối một địa chỉ ở vị trí đó); lệnh không in IP. Thiết kế và phép thử: [P3-T04](../../docs/planning/evidence/P3-T04.md) mục 7.
+
+Điều kiện: image `api` đã có lệnh (`meshguard admin` liệt kê `host-set`), migration 0014 đã chạy.
+
+```bash
+cd ~/mg && eval "$(python3 tools/mgenv.py export infrastructure/environments/staging/staging.env)" && sudo -v
+APP="sudo docker compose -p mg-app -f /opt/meshguard/core/compose.app.yaml"
+$APP run --rm --no-deps -T -e "MG_PUBLIC_IPV4=$MG_PUBLIC_IPV4" api admin host-set --name mg-staging \
+  --public-ipv4-env MG_PUBLIC_IPV4 --mode vps_gateway
+```
+
+Kết quả mong đợi (không có IP):
+
+```text
+host-set: host mg-staging (<host id>), region lab
+  status: active (unchanged)
+  capacity.max_instances: 100 (unchanged)
+  public_entry.ipv4: value of $MG_PUBLIC_IPV4 (changed; the address is not printed)
+  public_entry.mode: vps_gateway (changed)
+  instances not removed: <n> of 100; run UIDs never used: <…>; free /29: <…>
+  placement: can choose this host
+  audit: platform.host.update (actor_type system, request admin-<uuid>); ETag "<…>"
+OK
+```
+
+Tùy chọn khác (kết hợp được): `--max-instances <n>` (trần instance chưa `removed`; thấp hơn số instance đang có ⇒ từ chối), `--status draining|disabled|active` (`draining`/`disabled`: placement bỏ qua host, instance đang chạy không bị đụng tới). Chạy lại vô hại (`unchanged`). Mã thoát: `0` xong; `1` bị từ chối hoặc lỗi — thông báo nêu trường và luật, **không ghi gì**; `2` sai cú pháp. Kiểm: `GET /api/v1/platform/hosts?region=lab` (Platform Console, quyền `platform.host:read`) hoặc psql như mục "Kiểm" của adopt với `SELECT name, status, capacity, public_entry ? 'ipv4' AS has_ipv4, public_entry->>'mode' AS mode FROM hosts` (không in IP). Hoàn tác: chạy lại với giá trị cũ (audit giữ giá trị trước của mọi lần đổi), hoặc `--status draining` để placement thôi chọn host.
+
 ## Một người rời đi, bị lộ tài khoản hoặc mất thiết bị TOTP — `revoke-sessions` (G2 vòng 2, A-2/A-7)
 
 Khóa user ở Keycloak (`enabled=false`, đăng xuất mọi phiên SSO) **không** chạm phiên BFF của người đó: phiên BFF sống tới hết hạn tuyệt đối (12 h tenant / 8 h nhân sự nền tảng) nếu vẫn có request trong khoảng idle. Đồng bộ tự động sự kiện của IdP (back-channel logout / `idp.audit_sync`) là Phase 6 (§8.2) — tới lúc đó dùng lệnh host-only dưới đây. Lệnh chỉ nhận định danh (id của IdP trong file môi trường, `sub` của user ở IdP — không bao giờ email), ghi **cặp audit** `identity.sessions.revoke.requested` → `.succeeded` (`actor_type=system`, thuộc tenant của người đó hoặc nền tảng) và in số phiên bị thu hồi. Thiết kế và phép thử: [bằng chứng G2](../../docs/planning/evidence/G2-security-review.md), mục "Sửa sau vòng 2".

@@ -462,6 +462,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/platform/hosts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Host chạy instance — cấu hình placement và mức dùng
+         * @description Thứ tự ổn định `(created_at, id)`. Mỗi host kèm mức dùng đọc cùng lúc (`usage`) và `etag` — giá trị `If-Match` của `PATCH`.
+         */
+        get: operations["listPlatformHosts"];
+        put?: never;
+        /**
+         * Đăng ký một host
+         * @description Kiểm tra trùng với CHECK của `hosts` (migration 0014) và thêm các luật của code: tên là nhãn DNS, dải UID không
+         *     chứa UID/GID của service core (`versions.lock [ids]`). Dữ liệu sai ⇒ `422 validation_failed` kèm `errors[]`
+         *     theo trường; tên đã có ⇒ `409 conflict`. Ghi audit `platform.host.create` trong cùng transaction.
+         */
+        post: operations["createPlatformHost"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/hosts/{hostId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Một host */
+        get: operations["getPlatformHost"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Sửa trạng thái, capacity, điểm vào công khai hoặc dải cấp phát của host
+         * @description Cần `If-Match` = `ETag` đọc được (thiếu ⇒ `428`, lệch ⇒ `412`). Hàng host bị khóa (`FOR UPDATE`) — cùng khóa
+         *     placement lấy trước khi cấp phát — rồi mới kiểm: giá trị sau khi sửa phải qua đúng các CHECK của 0014 (`422`);
+         *     `capacity.max_instances` thấp hơn số instance chưa `removed` ⇒ `409`; đổi `region` hoặc một dải cấp phát
+         *     (`run_uid_range`, `tenant_net_pool`, `stun_port_range`) khi host còn instance chưa `removed` ⇒ `409`. `draining`
+         *     và `disabled` làm placement bỏ qua host (instance đang chạy không bị đụng tới). Đổi `public_entry` không đổi
+         *     cấu hình của instance đang chạy — chúng nhận điểm vào mới khi được render lại. Audit `platform.host.update`
+         *     với giá trị trước/sau.
+         */
+        patch: operations["updatePlatformHost"];
+        trace?: never;
+    };
     "/platform/health": {
         parameters: {
             query?: never;
@@ -1275,6 +1328,100 @@ export interface components {
             items: components["schemas"]["Instance"][];
             next_cursor: string | null;
         };
+        /**
+         * @description Trạng thái host (`hosts.status`, 0014): `active` nhận instance mới; `draining` giữ instance đang có, không nhận mới; `disabled` ngừng hẳn — placement chỉ chọn host `active`
+         * @enum {string}
+         */
+        HostStatus: "active" | "draining" | "disabled";
+        /**
+         * @description Đường vào công khai của host (§15.3) — `direct` (IP của chính host) hoặc `vps_gateway` (qua VPS gateway)
+         * @enum {string}
+         */
+        HostEntryMode: "direct" | "vps_gateway";
+        HostCapacity: {
+            /**
+             * Format: int64
+             * @description Trần số instance chưa `removed` trên host; `0` = không nhận instance mới
+             */
+            max_instances: number;
+        };
+        /** @description Điểm vào công khai (`hosts.public_entry`, §10.1): `ipv4` là `derp.server.ipv4` của mọi instance trên host — IPv4 thập phân chuẩn (không số 0 đứng đầu), unicast dùng được (ngoài 0/8, 127/8, 169.254/16, 224/3), nằm ngoài `tenant_net_pool`; host chưa có `ipv4` không được placement chọn. Khóa `ipv6` chưa nhận ở MVP */
+        HostPublicEntry: {
+            /** Format: ipv4 */
+            ipv4?: string;
+            mode?: components["schemas"]["HostEntryMode"];
+        };
+        /** @description Dải số nguyên, gồm cả hai đầu (`first` ≤ `last`) */
+        HostRange: {
+            /** Format: int64 */
+            first: number;
+            /** Format: int64 */
+            last: number;
+        };
+        /** @description Mức dùng của host lúc đọc: `live_instances` = instance chưa `removed` (so với `capacity.max_instances`), `by_status` = số instance chưa `removed` theo trạng thái, `run_uids_free` = UID của `run_uid_range` chưa từng được cấp (UID không tái sử dụng, kể cả sau `removed`; không tính UID/GID của service core), `net_slots_free` = số /29 của `tenant_net_pool` chưa thuộc instance chưa `removed` */
+        HostUsage: {
+            live_instances: number;
+            by_status: components["schemas"]["StatusCounts"];
+            /** Format: int64 */
+            run_uids_free: number;
+            /** Format: int64 */
+            net_slots_free: number;
+        };
+        /** @description Host chạy instance (`hosts`, §6.3) — không chứa secret */
+        Host: {
+            /** Format: uuid */
+            id: string;
+            /** @description Tên host — nhãn DNS, bất biến */
+            name: string;
+            region: string;
+            status: components["schemas"]["HostStatus"];
+            capacity: components["schemas"]["HostCapacity"];
+            public_entry: components["schemas"]["HostPublicEntry"];
+            run_uid_range: components["schemas"]["HostRange"];
+            stun_port_range?: components["schemas"]["HostRange"];
+            /**
+             * @description Dải cấp subnet /29 cho network của tenant (IPv4 CIDR)
+             * @example 10.250.0.0/16
+             */
+            tenant_net_pool: string;
+            usage: components["schemas"]["HostUsage"];
+            /** Format: date-time */
+            last_heartbeat_at: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** @description Hash cấu hình của host (`region`, `status`, `capacity`, `public_entry`, các dải) — giá trị `If-Match` của `PATCH` và của header `ETag`; heartbeat không làm nó đổi (bảng `hosts` không có cột `version`) */
+            etag: string;
+        };
+        HostList: {
+            items: components["schemas"]["Host"][];
+            next_cursor: string | null;
+        };
+        /** @description Host mới. Mặc định: `status` = `active`, `capacity` = `{"max_instances": 100}`, `public_entry` = `{}`, không có `stun_port_range` (STUN chung — MVP). `run_uid_range` trong 1000…2147483646 và không chứa UID/GID của service core; `tenant_net_pool` IPv4 /8…/29 ngoài 100.64.0.0/10; `stun_port_range` trong 1024…65535. `capacity` và `public_entry` được đọc đúng như CHECK của 0014 đọc cột jsonb: khóa lạ (ví dụ `ipv6`), thiếu `max_instances`, giá trị không phải số nguyên (`10.0`) ⇒ `422` theo trường */
+        HostCreate: {
+            /** @description Nhãn DNS (chữ thường, số, dấu gạch ngang; tối đa 63 ký tự) */
+            name: string;
+            /** @description 1–64 ký tự, không có khoảng trắng */
+            region: string;
+            status?: components["schemas"]["HostStatus"];
+            capacity?: components["schemas"]["HostCapacity"];
+            public_entry?: components["schemas"]["HostPublicEntry"];
+            run_uid_range: components["schemas"]["HostRange"];
+            stun_port_range?: components["schemas"]["HostRange"];
+            /** @description IPv4 CIDR dạng chuẩn `a.b.c.d/n` */
+            tenant_net_pool: string;
+        };
+        /** @description Các trường muốn đổi (ít nhất một); `capacity` và `public_entry` thay cả object (`{}` xóa điểm vào công khai). `region` và các dải cấp phát chỉ đổi được khi host không còn instance chưa `removed` */
+        HostUpdate: {
+            region?: string;
+            status?: components["schemas"]["HostStatus"];
+            capacity?: components["schemas"]["HostCapacity"];
+            public_entry?: components["schemas"]["HostPublicEntry"];
+            run_uid_range?: components["schemas"]["HostRange"];
+            stun_port_range?: components["schemas"]["HostRange"];
+            tenant_net_pool?: string;
+        };
         ComponentHealth: {
             /** @description Thành phần, ví dụ `postgres`, `edge`, `agent` */
             name: string;
@@ -1456,6 +1603,16 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
+        /** @description Thiếu điều kiện trước — `precondition_required` (thao tác sửa cần `If-Match` mang `ETag` hiện tại) */
+        PreconditionRequired: {
+            headers: {
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
         /** @description Dữ liệu không hợp lệ — `validation_failed` (chi tiết ở `errors[]`) hoặc `idempotency_key_reuse` (cùng key, khác request) */
         ValidationFailed: {
             headers: {
@@ -1563,6 +1720,12 @@ export interface components {
         MembershipId: string;
         JobId: string;
         InstanceId: string;
+        HostId: string;
+        HostStatusFilter: components["schemas"]["HostStatus"];
+        /** @description Lọc theo vùng (khớp chính xác) */
+        HostRegionFilter: string;
+        /** @description `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428` */
+        IfMatch: string;
         /** @description ID của IdP (`identity_providers.id`) — mỗi IdP một redirect URI (§8.3 bước 3) */
         IdpId: string;
         /** @description Giá trị `sessions.public_id` của một session thuộc chính người gọi */
@@ -2428,6 +2591,140 @@ export interface operations {
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    listPlatformHosts: {
+        parameters: {
+            query?: {
+                /** @description Số phần tử tối đa của trang */
+                limit?: components["parameters"]["Limit"];
+                /** @description Con trỏ mờ lấy từ `next_cursor` của trang trước */
+                cursor?: components["parameters"]["Cursor"];
+                status?: components["parameters"]["HostStatusFilter"];
+                /** @description Lọc theo vùng (khớp chính xác) */
+                region?: components["parameters"]["HostRegionFilter"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Một trang host */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HostList"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    createPlatformHost: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HostCreate"];
+            };
+        };
+        responses: {
+            /** @description Host vừa đăng ký (lặp lại cùng `Idempotency-Key` và cùng request ⇒ kết quả đã lưu) */
+            201: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Host"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    getPlatformHost: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                hostId: components["parameters"]["HostId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Host */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Host"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    updatePlatformHost: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428` */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                hostId: components["parameters"]["HostId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HostUpdate"];
+            };
+        };
+        responses: {
+            /** @description Host sau khi sửa */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Host"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["ValidationFailed"];
+            428: components["responses"]["PreconditionRequired"];
             429: components["responses"]["RateLimited"];
             default: components["responses"]["Unexpected"];
         };

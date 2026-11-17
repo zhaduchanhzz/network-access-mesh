@@ -15,6 +15,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/auditapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/authzhook"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/devicesapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/hostsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/identityapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/invitationsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/jobsapi"
@@ -44,10 +45,10 @@ import (
 //	hooks            Session = identity middleware, Authz = authz.New(store) (P2-T07), Audit = auditapi.Middleware
 //	handlers         Auth (identityapi), Tenants (tenantsapi over tenants + platform), Devices (devicesapi over devices
 //	                 + the Headscale registry), Audit (auditapi over audit.Reader), Jobs (jobsapi over jobs.Service),
-//	                 Monitoring (monitoringapi over monitoring, reads only — the worker probes), Notifications
-//	                 (notificationsapi over notifications.Reader — the caller's own Portal notifications, P3-T05b),
-//	                 Approvals (approvalsapi over approvals), Invitations (invitationsapi over tenants +
-//	                 authz.GuardInvitationRole)
+//	                 Monitoring (monitoringapi over monitoring, reads only — the worker probes), Hosts (hostsapi over
+//	                 platform — P3-T04), Notifications (notificationsapi over notifications.Reader — the caller's
+//	                 own Portal notifications, P3-T05b), Approvals (approvalsapi over approvals), Invitations
+//	                 (invitationsapi over tenants + authz.GuardInvitationRole)
 //	readiness        postgres, secretstore, edge_admin (§16.2)
 func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prometheus.Registerer) (_ *component, err error) {
 	d, err := openDeps(ctx, cfg, log, idp.PlatformOIDCPaths)
@@ -117,6 +118,7 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 			Notifications: notificationsapi.New(notifications.NewReader(d.st)),
 			Approvals:     approvalsapi.New(appr),
 			Invitations:   invitationsapi.New(d.tenants, authz.GuardInvitationRole),
+			Hosts:         hostsapi.New(platform.New(d.st)),
 		},
 	})
 	if err != nil {

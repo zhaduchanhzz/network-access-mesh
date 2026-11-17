@@ -29,6 +29,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/auditapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/authzhook"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/devicesapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/hostsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/invitationsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/jobsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/monitoringapi"
@@ -68,7 +69,8 @@ const unreachableEdge = "http://127.0.0.1:1"
 // switches the expectations of the mounted operations from 501 to real answers (own object accepted; another member's
 // object under an own-only grant, another tenant's object and a missing one ⇒ 404). Jobs (P2-T16, jobsapi over
 // jobs.Service on the api's store — the HTTP handlers deferred by P2-T12) is mounted like every other set: no
-// operation of the spec answers 501 any more.
+// operation of the spec answers 501 any more. Hosts (P3-T04, hostsapi over platform.Service) too: PS/PV and every
+// tenant role are refused the writes before the handler.
 func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi.Handlers {
 	t.Helper()
 	log := logx.New(m.svcLog, slog.LevelDebug, "matrix")
@@ -125,6 +127,7 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 
 		// Notifications (P3-T05b, notificationsapi over notifications.Reader — reads the caller's own rows only).
 		Notifications: notificationsapi.New(notifications.NewReader(w.Store)),
+		Hosts:         hostsapi.New(platform.New(w.Store)),
 	}
 }
 
@@ -210,6 +213,7 @@ type objects struct {
 	platformJob                  uuid.UUID            // a job of scope platform
 	approval, invitation         map[string]uuid.UUID // a pending approval request and invitation of the tenant
 	platformApproval             uuid.UUID            // a pending approval request of scope platform
+	host                         uuid.UUID            // the host of the instances (P3-T04: /platform/hosts/{hostId})
 	canaries                     []string             // secret values planted in the SecretStore (never in a response)
 }
 
@@ -307,6 +311,7 @@ func (m *matrixWorld) createObjects(t *testing.T) objects {
 	}
 	sec := m.sec
 	host := uuid.Must(uuid.NewV7())
+	o.host = host
 	m.Exec(t, `INSERT INTO hosts (id, name, region, run_uid_range, tenant_net_pool)
 		VALUES ($1, 'host-matrix', 'lab', int4range(30000, 40000), '10.250.0.0/16')`, host)
 	for i, ten := range []*sessionfixture.Tenant{m.A, m.B} {

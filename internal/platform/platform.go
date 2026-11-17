@@ -1,6 +1,7 @@
 // Package platform holds the platform-side registry of the Management Plane (§4.2): hosts and the instances of every
-// tenant as platform staff see them (GET /platform/instances[/{id}], P2-T11), and the placement of new instances on
-// hosts (Placer — step 3 of §11.3, P3-T04, placement.go). Relay regions and system settings join in Phase 3. Every
+// tenant as platform staff see them (GET /platform/instances[/{id}], P2-T11), the management of hosts (GET/POST/PATCH
+// /platform/hosts and `meshguard admin host-set` — P3-T04, hosts.go) and the placement of new instances on hosts (Placer
+// — step 3 of §11.3, P3-T04, placement.go). Relay regions and system settings join in Phase 3. Every
 // query runs in store.WithPlatformTx on the platform pool (hosts is a platform-only table; the
 // platform branch of tenant_instances' RLS shows every tenant's row) and returns registry metadata only — never the
 // API key reference of an instance (§8.4 invariant 2: staff see no tenant-internal data here).
@@ -258,8 +259,8 @@ func (s *Service) CheckHost(ctx context.Context, spec HostSpec) (Host, bool, err
 	return h, true, nil
 }
 
-// EnsureHost registers a host idempotently (Phase 2: `meshguard admin adopt-instance` — hosts get their own API with
-// the Agent in P3-T04): an existing host must match the specification, a missing one is inserted.
+// EnsureHost registers a host idempotently (Phase 2: `meshguard admin adopt-instance`; the API of hosts is CreateHost /
+// UpdateHost — hosts.go): an existing host must match the specification, a missing one is inserted.
 func (s *Service) EnsureHost(ctx context.Context, spec HostSpec) (Host, bool, error) {
 	h, exists, err := s.CheckHost(ctx, spec)
 	if err != nil || exists {

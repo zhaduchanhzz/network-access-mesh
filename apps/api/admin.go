@@ -10,6 +10,8 @@ package main
 //	seed-membership        P2-T11a: make (the tenant's IdP, sub) Tenant Owner or Tenant Admin of a tenant
 //	revoke-sessions        G2 round 2 (A-2): revoke every session of (IdP, sub) and disable the identity (offboarding)
 //	enable-identity        G2 round 2 (A-2): undo of revoke-sessions
+//	host-set               P3-T04: public entry (IPv4 from an environment variable), capacity or status of a registered
+//	                       host — the change of PATCH /api/v1/platform/hosts/{hostId}, audited as actor_type system
 //
 // They run on the host beside the api service (`docker compose -p mg-app run --rm --no-deps -T api admin …` — compose
 // project mg-app, P2-T16), with the api's configuration (database roles mg_api_*, kek-app keyring, edge admin
@@ -19,7 +21,8 @@ package main
 // (disk), never an argument or an environment variable. Nothing prints or logs a credential; the output names
 // references (mgsec://…) and public key prefixes. bootstrap-super-admin and seed-membership take no credential: their
 // inputs are identifiers (the `sub` of an IdP user, a tenant slug, a role key); so do revoke-sessions and
-// enable-identity (an IdP id and a `sub`).
+// enable-identity (an IdP id and a `sub`), and host-set (a host name; the public IPv4 comes from an environment variable
+// named by --public-ipv4-env and is never printed).
 
 import (
 	"context"
@@ -99,6 +102,9 @@ func init() {
 			"      revoke every session of that identity and disable it (offboarding); --keep-enabled: sessions only"},
 		"enable-identity": {run: runEnableIdentity, usage: "enable-identity --idp <idp id> --subject <sub>\n" +
 			"      undo of revoke-sessions: the identity may sign in again"},
+		"host-set": {run: runHostSet, usage: "host-set --name <host> [--public-ipv4-env <NAME>] [--mode direct|vps_gateway] " +
+			"[--max-instances <n>] [--status active|draining|disabled]\n" +
+			"      <NAME> = environment variable holding public_entry.ipv4 (MG_PUBLIC_IPV4) — the address is never an argument"},
 	}
 }
 

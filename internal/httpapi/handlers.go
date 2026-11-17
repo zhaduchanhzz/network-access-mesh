@@ -90,6 +90,14 @@ type InvitationHandlers interface {
 	ResendTenantInvitation(ctx context.Context, request gen.ResendTenantInvitationRequestObject) (gen.ResendTenantInvitationResponseObject, error)
 }
 
+// HostHandlers — P3-T04 (`platform` placement): hosts, their capacity, public entry and allocation ranges.
+type HostHandlers interface {
+	ListPlatformHosts(ctx context.Context, request gen.ListPlatformHostsRequestObject) (gen.ListPlatformHostsResponseObject, error)
+	GetPlatformHost(ctx context.Context, request gen.GetPlatformHostRequestObject) (gen.GetPlatformHostResponseObject, error)
+	CreatePlatformHost(ctx context.Context, request gen.CreatePlatformHostRequestObject) (gen.CreatePlatformHostResponseObject, error)
+	UpdatePlatformHost(ctx context.Context, request gen.UpdatePlatformHostRequestObject) (gen.UpdatePlatformHostResponseObject, error)
+}
+
 // Handlers is the extension point of the API: one handler set per building task. A nil set answers every operation
 // of its interface with 501 not_implemented. A set may also implement only part of its interface by embedding
 // NotImplemented. Handlers return a *problem.Error for an expected failure (not_found, conflict…); any other error
@@ -101,6 +109,7 @@ type Handlers struct {
 	Audit         AuditHandlers        // P2-T08
 	Jobs          JobHandlers          // P2-T12
 	Monitoring    MonitoringHandlers   // P2-T13a
+	Hosts         HostHandlers         // P3-T04
 	Approvals     ApprovalHandlers     // P3-T04a
 	Invitations   InvitationHandlers   // P3-T05a
 	Notifications NotificationHandlers // P3-T05b
@@ -108,7 +117,7 @@ type Handlers struct {
 
 func (h Handlers) mounted() bool {
 	return h.Auth != nil || h.Tenants != nil || h.Devices != nil || h.Audit != nil || h.Jobs != nil || h.Monitoring != nil ||
-		h.Notifications != nil || h.Approvals != nil || h.Invitations != nil
+		h.Notifications != nil || h.Approvals != nil || h.Invitations != nil || h.Hosts != nil
 }
 
 // dispatcher implements gen.StrictServerInterface by promotion from the disjoint interfaces.
@@ -122,12 +131,13 @@ type dispatcher struct {
 	NotificationHandlers
 	ApprovalHandlers
 	InvitationHandlers
+	HostHandlers
 }
 
 var _ gen.StrictServerInterface = dispatcher{}
 
 func newDispatcher(h Handlers) dispatcher {
-	d := dispatcher{h.Auth, h.Tenants, h.Devices, h.Audit, h.Jobs, h.Monitoring, h.Notifications, h.Approvals, h.Invitations}
+	d := dispatcher{h.Auth, h.Tenants, h.Devices, h.Audit, h.Jobs, h.Monitoring, h.Notifications, h.Approvals, h.Invitations, h.Hosts}
 	if d.ApprovalHandlers == nil {
 		d.ApprovalHandlers = NotImplemented{}
 	}
@@ -154,6 +164,9 @@ func newDispatcher(h Handlers) dispatcher {
 	}
 	if d.NotificationHandlers == nil {
 		d.NotificationHandlers = NotImplemented{}
+	}
+	if d.HostHandlers == nil {
+		d.HostHandlers = NotImplemented{}
 	}
 	return d
 }
@@ -326,4 +339,20 @@ func (NotImplemented) RevokeTenantInvitation(context.Context, gen.RevokeTenantIn
 
 func (NotImplemented) ResendTenantInvitation(context.Context, gen.ResendTenantInvitationRequestObject) (gen.ResendTenantInvitationResponseObject, error) {
 	return nil, problem.NotImplemented("ResendTenantInvitation")
+}
+
+func (NotImplemented) ListPlatformHosts(context.Context, gen.ListPlatformHostsRequestObject) (gen.ListPlatformHostsResponseObject, error) {
+	return nil, problem.NotImplemented("ListPlatformHosts")
+}
+
+func (NotImplemented) GetPlatformHost(context.Context, gen.GetPlatformHostRequestObject) (gen.GetPlatformHostResponseObject, error) {
+	return nil, problem.NotImplemented("GetPlatformHost")
+}
+
+func (NotImplemented) CreatePlatformHost(context.Context, gen.CreatePlatformHostRequestObject) (gen.CreatePlatformHostResponseObject, error) {
+	return nil, problem.NotImplemented("CreatePlatformHost")
+}
+
+func (NotImplemented) UpdatePlatformHost(context.Context, gen.UpdatePlatformHostRequestObject) (gen.UpdatePlatformHostResponseObject, error) {
+	return nil, problem.NotImplemented("UpdatePlatformHost")
 }

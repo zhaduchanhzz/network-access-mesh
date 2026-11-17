@@ -8,7 +8,7 @@ PostgreSQL của Management Plane (§6 của [bản master](../docs/planning/imp
 |---|---|
 | `bootstrap/superuser.sql` | Chạy **một lần** bằng superuser của cụm, trong database `meshguard`, trước migration đầu tiên (chạy lại được): tạo `mg_migrator` (CREATEROLE, owner database) và `mg_backup` (BYPASSRLS + `pg_read_all_data`) — hai role chỉ superuser tạo được |
 | `migrations/0001…0014_*.sql` | Migration goose, forward-only (không có phần Down), nhúng vào binary qua `embed.go`; bản đồ bảng ở §6.3. `0007` (G2 vòng 1, F3) chỉ thêm CHECK: owner segment của `identity_providers.client_secret_ref` = `tenant_id` (hoặc `platform`); `0008` (G2 vòng 2, A-1) chỉ thêm cột `sessions.id_token_hint_enc`; `0009`–`0013` (P3-T06) và `0014` (P3-T04, chỉ CHECK/DEFAULT cho placement) — xem mục "Bảng của Phase 3" |
-| `queries/*.sql` + `sqlc.yaml` | Truy vấn sqlc → mã sinh ở `internal/store/sqlcdb` (không sửa tay); `jobs.sql` = khung job + idempotency (P2-T12); `devices.sql` = sổ thiết bị + trạng thái sync + thu hồi hai pha (P2-T13); `placement.sql` = khóa host + trạng thái cấp phát (P3-T04); `usage.sql` = QuotaChecker (P3-T06a) |
+| `queries/*.sql` + `sqlc.yaml` | Truy vấn sqlc → mã sinh ở `internal/store/sqlcdb` (không sửa tay); `jobs.sql` = khung job + idempotency (P2-T12); `devices.sql` = sổ thiết bị + trạng thái sync + thu hồi hai pha (P2-T13); `placement.sql` = khóa host + trạng thái cấp phát (P3-T04); `hosts.sql` = API `/platform/hosts` và lệnh `host-set` (P3-T04); `usage.sql` = QuotaChecker (P3-T06a) |
 | `river/grants.sql` | Quyền trên schema `river` của job queue (P2-T12), chạy lại sau mỗi lần migrate River — xem mục "Job queue (River)" |
 | `checks/partition_grants.sql` | Truy vấn CI: mỗi hàng là một vi phạm (quyền trên partition, partition chưa bật RLS, default privileges) |
 | `embed.go` | Package Go `database`: `Migrations`, `Seeds`, `Bootstrap`, `Checks`, `River` (embed.FS) |
@@ -167,7 +167,10 @@ P1-T20; `UPDATE` tạm `NO FORCE` như 0012); `public_entry` ⊆ {`ipv4` thập 
 unique theo host ⇒ không chồng nhau), `run_uid` trong 1000…2³¹−2. DB có hàng vi phạm (instance không phải /29, `capacity`
 có khóa lạ) không migrate được cho tới khi sửa hàng đó. Trước khi placement chọn được host staging: đặt
 `hosts.public_entry` = `{"ipv4": <MG_PUBLIC_IPV4>, "mode": "vps_gateway"}` (giá trị theo `<env>.env`, không nằm trong
-migration) — bằng chứng [`P3-T04.md`](../docs/planning/evidence/P3-T04.md).
+migration) bằng `meshguard admin host-set --name mg-staging --public-ipv4-env MG_PUBLIC_IPV4 --mode vps_gateway`
+([RUNBOOK](../infrastructure/host/RUNBOOK.md)) hoặc `PATCH /api/v1/platform/hosts/{hostId}` — không sửa bằng SQL: hai
+đường đó kiểm đúng các CHECK trên, khóa hàng host như placement và ghi audit `platform.host.update` — bằng chứng
+[`P3-T04.md`](../docs/planning/evidence/P3-T04.md).
 
 Gói tối thiểu (`seeds/plans.sql`): `standard` = `max_devices` 100, `max_users` 100, `max_tagged_devices` 25,
 `max_live_enrollment_credentials` 25, `backup_interval_minutes` 60, `instance` {cpus 1, memory_mb 512, pids 256} — giá trị
