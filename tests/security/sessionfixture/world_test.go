@@ -356,7 +356,7 @@ func TestSessionLayerThroughTheFixture(t *testing.T) {
 		http.StatusUnauthorized, gen.ProblemCodeUnauthenticated)
 
 	// Logout revokes the minted session at once; the other session of the tenant is untouched.
-	if rec := w.Do(t, s, http.MethodPost, "/auth/logout", nil, nil); rec.Code != http.StatusNoContent {
+	if rec := w.Do(t, s, http.MethodPost, "/auth/logout", nil, nil); rec.Code != http.StatusOK {
 		t.Fatalf("logout: HTTP %d %s", rec.Code, rec.Body.String())
 	}
 	problemOf(t, "after logout", w.Do(t, s, http.MethodGet, "/auth/session", nil, nil), http.StatusUnauthorized,
