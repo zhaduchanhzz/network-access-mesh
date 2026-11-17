@@ -69,6 +69,7 @@ func (h *Handlers) AuthLogin(ctx context.Context, req gen.AuthLoginRequestObject
 	if req.Params.ReturnTo != nil {
 		in.ReturnTo = *req.Params.ReturnTo
 	}
+	in.Reauth = req.Params.Reauth != nil && *req.Params.Reauth
 	in.Current, _ = identity.SessionFromContext(ctx)
 	out, err := h.svc.BeginLogin(ctx, in)
 	if err != nil {

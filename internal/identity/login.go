@@ -24,7 +24,9 @@ type LoginRequest struct {
 	Origin     Origin // origin of the request (from the middleware)
 	// Current is the valid session already attached to the request on this origin, if any: logging in again is a
 	// re-authentication (step-up, §8.3 step 7) and asks the IdP for prompt=login and max_age=0.
-	Current   *Session
+	Current *Session
+	// Reauth asks for that re-authentication explicitly (reauth=true of GET /auth/login), with or without a session.
+	Reauth    bool
 	ClientIP  string
 	RequestID string
 }
@@ -120,7 +122,7 @@ func (s *Service) beginLogin(ctx context.Context, in LoginRequest, ev *AuditEven
 		return nil, newErr(KindInternal, "auth_request_insert_failed", err)
 	}
 
-	stepUp := in.Current != nil && in.Current.Origin == in.Origin
+	stepUp := in.Reauth || (in.Current != nil && in.Current.Origin == in.Origin)
 	maxAge := int(s.maxAge(p.Scope).Seconds())
 	opts := []oauth2.AuthCodeOption{oauth2.S256ChallengeOption(verifier), oidc.Nonce(encodeSecret(nonce))}
 	if stepUp {

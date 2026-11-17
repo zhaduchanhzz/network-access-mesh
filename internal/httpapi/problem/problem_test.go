@@ -77,8 +77,8 @@ scan:
 	return enum, status
 }
 
-// TestCatalogFollowsSpec: every code of the spec has the status §13.1 gives it; the catalog adds only
-// CodeNotImplemented, which is pending in the spec.
+// TestCatalogFollowsSpec: every code of the spec has the status §13.1 gives it (not_implemented: 501, added to the
+// enum at the Phase 2 integration), and the catalog has no code outside the enum.
 func TestCatalogFollowsSpec(t *testing.T) {
 	enum, status := specCodes(t)
 	if len(enum) < 15 || len(status) != len(enum) {
@@ -95,7 +95,7 @@ func TestCatalogFollowsSpec(t *testing.T) {
 		}
 	}
 	for code := range catalog {
-		if !slices.Contains(enum, string(code)) && code != CodeNotImplemented {
+		if !slices.Contains(enum, string(code)) {
 			t.Errorf("catalog code %s is not in the spec enum", code)
 		}
 	}

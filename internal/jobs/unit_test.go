@@ -255,6 +255,11 @@ func TestProjectionContract(t *testing.T) {
 		g.Error.Code != "worker_lost" || g.Resource == nil || g.Resource.Id != rid {
 		t.Errorf("decoded gen.Job = %+v", g)
 	}
+	for _, st := range g.Steps {
+		if !st.Status.Valid() {
+			t.Errorf("step %s: status %q is not a JobStepStatus of the API", st.Name, st.Status)
+		}
+	}
 	list, _ := json.Marshal(JobList{Items: []Job{project(row, steps)}})
 	strict(list, &gen.JobList{})
 	plat, _ := json.Marshal(projectPlatform(row, steps))
@@ -270,6 +275,16 @@ func TestProjectionContract(t *testing.T) {
 	}
 	if !bytes.Contains(spec, []byte("enum: [queued, running, failed_resumable, compensating, rolled_back, succeeded, failed, cancelled]")) {
 		t.Error("JobStatus enum of api/openapi.yaml differs from the statuses of provisioning_jobs")
+	}
+	// and the statuses of provisioning_job_steps (DB CHECK) are exactly the JobStepStatus enum
+	stepStatuses := []string{StepRunning, StepSucceeded, StepFailed, StepSkipped}
+	if !bytes.Contains(spec, []byte("enum: ["+strings.Join(stepStatuses, ", ")+"]")) {
+		t.Error("JobStepStatus enum of api/openapi.yaml differs from the statuses of provisioning_job_steps")
+	}
+	for _, st := range stepStatuses {
+		if !gen.JobStepStatus(st).Valid() {
+			t.Errorf("step status %q is not a generated JobStepStatus value", st)
+		}
 	}
 }
 

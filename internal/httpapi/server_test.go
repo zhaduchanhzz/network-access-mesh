@@ -69,14 +69,14 @@ func TestEveryOperationAnswers501(t *testing.T) {
 		}
 		p := problemOf(t, w)
 		path, _, _ := strings.Cut(op.target, "?")
-		if p.Code != problem.CodeNotImplemented || p.Detail == nil || !strings.Contains(*p.Detail, op.operation) ||
+		if p.Code != gen.ProblemCodeNotImplemented || p.Detail == nil || !strings.Contains(*p.Detail, op.operation) ||
 			p.Instance == nil || *p.Instance != path {
 			t.Errorf("%s %s: problem %+v", op.method, op.target, p)
 		}
 		line := e.accessLine(p.RequestId)
 		route, _ := line["route"].(string)
 		if line["operation"] != op.operation || !strings.HasPrefix(route, op.method+" /api/v1/") ||
-			line["problem"] != string(problem.CodeNotImplemented) || line["status"] != float64(501) || line["level"] != "INFO" {
+			line["problem"] != string(gen.ProblemCodeNotImplemented) || line["status"] != float64(501) || line["level"] != "INFO" {
 			t.Errorf("%s %s: access log %v", op.method, op.target, line)
 		}
 	}
@@ -387,7 +387,7 @@ func TestProblemsEndToEnd(t *testing.T) {
 		gen.ProblemCodeQuotaExceeded, gen.ProblemCodeNotFound, gen.ProblemCodeConflict, gen.ProblemCodePreconditionFailed,
 		gen.ProblemCodePreconditionRequired, gen.ProblemCodeValidationFailed, gen.ProblemCodeIdempotencyKeyReuse,
 		gen.ProblemCodeRateLimited, gen.ProblemCodeUpstreamRejected, gen.ProblemCodeInstanceUnavailable,
-		gen.ProblemCodeInternalError, problem.CodeNotImplemented,
+		gen.ProblemCodeInternalError, gen.ProblemCodeNotImplemented,
 	}
 	statuses := map[int]bool{}
 	levels := map[gen.ProblemCode]string{ // access log level: only an internal error is an incident

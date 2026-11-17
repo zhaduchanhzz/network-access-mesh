@@ -88,7 +88,7 @@ func TestNotImplementedAnswersEveryOperation(t *testing.T) {
 		})
 		var p *problem.Error
 		err, _ := res[1].Interface().(error)
-		if !res[0].IsNil() || !errors.As(err, &p) || p.Code != problem.CodeNotImplemented || !strings.Contains(p.Detail, m.Name) {
+		if !res[0].IsNil() || !errors.As(err, &p) || p.Code != gen.ProblemCodeNotImplemented || !strings.Contains(p.Detail, m.Name) {
 			t.Errorf("%s: got (%v, %v)", m.Name, res[0], err)
 		}
 	}

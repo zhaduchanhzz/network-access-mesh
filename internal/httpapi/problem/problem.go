@@ -27,11 +27,6 @@ const ContentType = "application/problem+json"
 // TypePrefix + code is the problem type URI (Problem.type in api/openapi.yaml).
 const TypePrefix = "urn:meshguard:problem:"
 
-// CodeNotImplemented answers an operation whose handler is not mounted yet (internal/httpapi). §13.1 has no code for
-// this case and the ProblemCode enum of api/openapi.yaml does not list it yet: the enum must gain it (additive change)
-// or every operation must be implemented before the API is exposed (P2-T16).
-const CodeNotImplemented gen.ProblemCode = "not_implemented"
-
 type entry struct {
 	status int
 	title  string
@@ -52,8 +47,8 @@ var catalog = map[gen.ProblemCode]entry{
 	gen.ProblemCodeIdempotencyKeyReuse:  {http.StatusUnprocessableEntity, "Idempotency key reused"},
 	gen.ProblemCodeRateLimited:          {http.StatusTooManyRequests, "Too many requests"},
 	gen.ProblemCodeInternalError:        {http.StatusInternalServerError, "Internal error"},
-	CodeNotImplemented:                  {http.StatusNotImplemented, "Not implemented"},
-	gen.ProblemCodeUpstreamRejected:     {http.StatusBadGateway, "Rejected by the tenant instance"},
+	gen.ProblemCodeNotImplemented:       {http.StatusNotImplemented, "Not implemented"},
+	gen.ProblemCodeUpstreamRejected:     {http.StatusBadGateway, "Upstream service error"},
 	gen.ProblemCodeInstanceUnavailable:  {http.StatusServiceUnavailable, "Tenant instance unavailable"},
 }
 
@@ -110,9 +105,10 @@ func Internal(cause error) *Error {
 	return &Error{Code: gen.ProblemCodeInternalError, Detail: "An unexpected error occurred; quote the request_id when reporting it.", Cause: cause}
 }
 
-// NotImplemented answers an operation whose handler is not mounted yet (operation is the Go operation name).
+// NotImplemented answers an operation whose handler is not mounted yet (operation is the Go operation name):
+// 501 not_implemented (ProblemCode of api/openapi.yaml since the Phase 2 integration).
 func NotImplemented(operation string) *Error {
-	return New(CodeNotImplemented, "Operation "+operation+" is not implemented yet.")
+	return New(gen.ProblemCodeNotImplemented, "Operation "+operation+" is not implemented yet.")
 }
 
 // BodyTooLarge answers a request body above the limit of the chain (422 validation_failed, field `body`).

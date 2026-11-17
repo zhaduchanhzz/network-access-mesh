@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/gen"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/problem"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/identity"
 )
 
@@ -119,5 +120,28 @@ func TestToSession(t *testing.T) {
 		len(s.Memberships) != 1 || s.Memberships[0].TenantSlug != "tenant-a" || s.SupportGrants == nil || s.CsrfToken == "" ||
 		s.AuthTime.Location() != time.UTC {
 		t.Fatalf("%+v", s)
+	}
+}
+
+// TestProblemsMatchTheAPICatalog — the identity module writes its problems itself (it may not import internal/httpapi),
+// yet a code has one status, one title and one type everywhere (api/openapi.yaml, §13.1): every kind must render
+// exactly like internal/httpapi/problem renders the same code.
+func TestProblemsMatchTheAPICatalog(t *testing.T) {
+	kinds := []identity.Kind{identity.KindUnauthenticated, identity.KindReauthRequired, identity.KindForbidden,
+		identity.KindNotFound, identity.KindInvalid, identity.KindUpstream, identity.KindInternal}
+	for _, k := range kinds {
+		got := identity.NewProblem(&identity.Error{Kind: k, Reason: "test"}, "r-1", "/api/v1/auth/session")
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/auth/session", nil)
+		problem.Write(rec, req, problem.New(gen.ProblemCode(k.Code()), "x"))
+		var want gen.Problem
+		if err := json.Unmarshal(rec.Body.Bytes(), &want); err != nil {
+			t.Fatal(err)
+		}
+		if !gen.ProblemCode(got.Code).Valid() || got.Status != want.Status || got.Status != k.Status() ||
+			got.Title != want.Title || got.Type != want.Type {
+			t.Errorf("kind %s: identity renders %d %q %q, the API catalog %d %q %q", k.Code(), got.Status, got.Title,
+				got.Type, want.Status, want.Title, want.Type)
+		}
 	}
 }

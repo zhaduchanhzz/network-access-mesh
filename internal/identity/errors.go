@@ -57,11 +57,12 @@ func (k Kind) Code() string {
 	}
 }
 
-// title is the fixed Problem.title of each kind.
+// title is the fixed Problem.title of each kind — the title internal/httpapi/problem gives the same code (one title per
+// code, api/openapi.yaml; identityapi's tests compare the two).
 func (k Kind) title() string {
 	switch k {
 	case KindUnauthenticated:
-		return "Authentication required"
+		return "Unauthenticated"
 	case KindReauthRequired:
 		return "Re-authentication required"
 	case KindForbidden:
@@ -71,7 +72,7 @@ func (k Kind) title() string {
 	case KindInvalid:
 		return "Validation failed"
 	case KindUpstream:
-		return "Identity provider error"
+		return "Upstream service error"
 	default:
 		return "Internal error"
 	}
