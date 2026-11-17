@@ -103,7 +103,7 @@ Test: `TestLifecycleChangeSeenWithinTTL` (unit với fake locator và DB thật 
 
 | Mục | Giá trị |
 |---|---|
-| Ngày | 2026-11-17; chạy thử 10:10–10:50 UTC |
+| Ngày | 2026-11-17; chạy thử 10:10–11:26 UTC (gồm dọn dẹp; mọi tài nguyên `asvs*` trên VM đã gỡ — kiểm lại: 0 container, 0 network, 0 volume, 0 image, 0 thư mục) |
 | Người rà soát | Agent rà soát độc lập (Claude Opus 5.5), giao bởi người điều phối theo lựa chọn của chủ dự án; không là tác giả của phần code nào được rà |
 | Đối tượng | `main` @ `03509d3` (code cuối Phase 2), worktree chỉ đọc, nhánh `g2-asvs`. Cây chạy thử = `git archive` của đúng commit này |
 | Chuẩn | OWASP ASVS **5.0.0**, **Level 2**: mọi yêu cầu L1 + L2 của V6 (35), V7 (18), V8 (7), V9 (7), V10 (29) — **96 yêu cầu**. V9/V10 áp cho BFF ở vai trò relying party tiêu thụ ID token (BFF không cấp token nào cho trình duyệt); các yêu cầu của authorization server / OpenID Provider thuộc Keycloak (Delegated) |
