@@ -6,6 +6,7 @@ package authz
 import (
 	"context"
 	"errors"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -13,6 +14,9 @@ import (
 
 	"github.com/google/uuid"
 )
+
+// auditAction is the format of x-audit-action (tools/openapi_lint.py AUDIT_ACTION).
+var auditAction = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$`)
 
 // fakeLoader returns fixed rows and records the calls it got.
 type fakeLoader struct {
@@ -351,6 +355,8 @@ func TestOperationTable(t *testing.T) {
 			t.Errorf("%s: duplicate operationId", o.ID)
 		case o.Method != strings.ToUpper(o.Method) || o.Path == "" || o.Path[0] != '/':
 			t.Errorf("%s: method %q path %q", o.ID, o.Method, o.Path)
+		case !auditAction.MatchString(o.AuditAction):
+			t.Errorf("%s: x-audit-action %q (§13.1, P2-T08)", o.ID, o.AuditAction)
 		}
 		seen[o.ID] = true
 		switch o.Permission.Scope() {

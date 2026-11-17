@@ -221,6 +221,17 @@ func (e *Env) OpenStore(t testing.TB, db, tenantRole, platformRole string, maxCo
 	return s
 }
 
+// OpenAuditWriter opens the detached audit pool (mg_audit_writer, §6.1) on db, closed when the test ends.
+func (e *Env) OpenAuditWriter(t testing.TB, db string) *store.AuditWriter {
+	t.Helper()
+	w, err := store.OpenAuditWriter(t.Context(), e.URL(db), e.Creds(t, store.AuditWriterRole))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(w.Close)
+	return w
+}
+
 // OpenPartitionMaintainer opens the partition.maintain pool (mg_partition_maint) on db, closed when the test ends.
 func (e *Env) OpenPartitionMaintainer(t testing.TB, db string) *store.PartitionMaintainer {
 	t.Helper()

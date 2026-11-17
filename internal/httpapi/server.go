@@ -12,7 +12,8 @@
 //	Hooks.CSRF         slot of P2-T06: X-CSRF-Token + Origin/Sec-Fetch-Site on unsafe methods (no-op until filled)
 //	router             ServeMux: the generated routes + a catch-all answering 404 not_found (unknown path or method)
 //	  binding          generated parameter binding ⇒ 422 validation_failed naming the parameter
-//	  strict           body decoding ⇒ 422; strict middleware: operation recorder, Hooks.Authz (slot of P2-T07)
+//	  strict           body decoding ⇒ 422; strict middleware: operation recorder, Hooks.Audit (slot of P2-T08),
+//	                   Hooks.Authz (slot of P2-T07)
 //	  handler          Handlers (per-domain sets; 501 not_implemented until mounted) ⇒ errors rendered as problems
 //
 // Every error leaves as RFC 9457 problem+json (internal/httpapi/problem).
@@ -47,6 +48,10 @@ type Hooks struct {
 	// the principal and the tenant of the path (§8.8 layer 1); it denies by returning a *problem.Error. Runs after
 	// parameter binding, before the handler.
 	Authz gen.StrictMiddlewareFunc
+	// Audit (P2-T08, internal/httpapi/auditapi) wraps Authz and the handler: it sets the audit scope of the request and,
+	// once they returned, writes the denied/failure event on the detached path and closes the request's paired events
+	// (§6.1, §8.8). It sees errors only — a handler reports a failure by returning it.
+	Audit gen.StrictMiddlewareFunc
 }
 
 // Options configure New.
@@ -92,9 +97,11 @@ func New(opts Options) (http.Handler, error) {
 		s.now = time.Now
 	}
 
-	middlewares := []gen.StrictMiddlewareFunc{recordOperation} // the last one runs first
-	if opts.Hooks.Authz != nil {
-		middlewares = []gen.StrictMiddlewareFunc{opts.Hooks.Authz, recordOperation}
+	var middlewares []gen.StrictMiddlewareFunc // the last one runs first: recordOperation → Audit → Authz → handler
+	for _, mw := range []gen.StrictMiddlewareFunc{opts.Hooks.Authz, opts.Hooks.Audit, recordOperation} {
+		if mw != nil {
+			middlewares = append(middlewares, mw)
+		}
 	}
 	strict := gen.NewStrictHandlerWithOptions(newDispatcher(opts.Handlers), middlewares, gen.StrictHTTPServerOptions{
 		RequestErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
