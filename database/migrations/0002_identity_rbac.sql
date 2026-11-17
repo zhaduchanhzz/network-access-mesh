@@ -236,3 +236,8 @@ GRANT UPDATE (role_id, status, headscale_user_id, updated_at, version) ON tenant
 -- worker (session.gc) chỉ đọc và xóa.
 GRANT SELECT, INSERT, UPDATE ON sessions, auth_requests TO mg_api_platform;
 GRANT SELECT, DELETE ON sessions, auth_requests TO mg_worker_platform;
+
+-- ---------------------------------------------------------------- P2-T06 (module identity)
+-- identities.status — tập giá trị chốt ở P2-T06: 'active' | 'disabled'. Identity 'disabled' không đăng nhập được
+-- (callback từ chối, không cập nhật hồ sơ) và mọi session của nó bị từ chối ở middleware.
+ALTER TABLE identities ADD CONSTRAINT identities_status_check CHECK (status IN ('active', 'disabled'));

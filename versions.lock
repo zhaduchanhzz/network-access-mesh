@@ -239,6 +239,8 @@ go = "1.27.4"
 "github.com/riverqueue/river" = "v0.51.0"      # 2026-11-01 (P2-T12, ADR-21, MPL-2.0, pre-1.0): job queue. Bản mới nhất đã ≥ 14 ngày tuổi; v0.51.1 (11-05) và v0.51.2 (11-09) chỉ sửa lỗi (notifier, CLI SQLite, JobListParams), không phải bản vá bảo mật nên không chọn. Cùng phiên bản cho riverdriver, riverdriver/riverpgxv5, rivershared, rivertype. Không dùng riverdatabasesql (kéo theo lib/pq). Periodic job bản OSS không bền ⇒ RunOnStart (R-14)
 "github.com/tidwall/gjson" = "v1.20.0"         # 2026-10-05 — gián tiếp qua River; cùng tidwall/match v1.2.0 (2025-09-05), pretty v1.2.1 (2022-10-01), sjson v1.2.5 (2022-08-05)
 "golang.org/x/mod" = "v0.42.0"                 # 2026-10-09 — gián tiếp; rivershared v0.51.0 yêu cầu ≥ v0.42.0 (trước là v0.41.0 qua oapi-codegen)
+"github.com/coreos/go-oidc/v3" = "v3.21.0"     # 2026-09-01 (P2-T06): OIDC RP — discovery, JWKS, xác minh ID token (internal/identity); kéo theo go-jose/v4 v4.1.4 (indirect, đã gồm bản vá GO-2026-4945)
+"golang.org/x/oauth2" = "v0.37.0"              # 2026-08-25 (P2-T06): Authorization Code + PKCE S256; v0.38.0 (2026-11-06) chưa đủ 14 ngày
 
 [npm]   # apps/web — package-lock.json (integrity sha512) là nguồn sự thật; ở P2-T02 chỉ dùng để sinh type TypeScript từ api/openapi.yaml
 "openapi-typescript" = "7.13.0"   # 2026-02-11
