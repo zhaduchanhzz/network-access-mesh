@@ -15,6 +15,8 @@ COPY internal ./internal
 COPY api/agent ./api/agent
 # migration SQL nhúng (database/embed.go) — internal/store import gói này (P2-T03)
 COPY database ./database
+# policy deny-all mà Agent đặt ở bước 12 — worker so sha256 ở bước 15 và ghi policy_versions v1 (P3-T05)
+COPY infrastructure/headscale/templates ./infrastructure/headscale/templates
 ARG APP
 ARG VERSION=dev
 ARG COMMIT=unknown
