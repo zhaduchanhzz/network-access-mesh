@@ -27,12 +27,13 @@ const (
 )
 
 // testOnly are the packages a production binary must never contain: the fixture and the harnesses that only test
-// code imports (PostgreSQL harness and cluster rules, fake OpenID Provider).
+// code imports (PostgreSQL harness and cluster rules, fake OpenID Provider, fake Headscale of the devices tests).
 var testOnly = []string{
 	fixturePkg,
 	modulePath + "/internal/store/storetest",
 	modulePath + "/internal/store/storetest/pgcluster",
 	modulePath + "/internal/identity/identitytest",
+	modulePath + "/internal/devices/devicestest",
 }
 
 // goFile is one Go file of the repository with its build constraint (nil when none) and imports.

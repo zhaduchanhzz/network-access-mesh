@@ -5,7 +5,9 @@
 # pin thì run.sh build từ infrastructure/docker/headscale của chính commit; image chính thức [images.headscale] tạo DB
 # và chạy pha đối chứng âm/rollback. API key của instance và token của listener admin sinh mới trong mỗi lần chạy,
 # trong container dùng-một-lần trên runner — workflow không dùng secret nào của repo (repo public, D-12). Kết quả quan
-# sát từng quirk (V-06, V-21, V-26, V-28) được lưu thành artifact.
+# sát từng quirk (V-06, V-21, V-26, V-28) được lưu thành artifact. Pha 8–10 (P2-T13): sổ thiết bị internal/devices
+# trên bản vá, với PostgreSQL pin digest và job device.revoke chạy trong khung job thật; restore bản chụp SQLite để
+# thử quy tắc node id được cấp lại (§6.3).
 name: headscale-contract
 
 on:
@@ -14,12 +16,14 @@ on:
     paths: ["internal/headscale/**", "internal/kit/logx/**", "tests/integration/headscale/**",
             "infrastructure/caddy/Caddyfile.tmpl", "infrastructure/headscale/templates/**", "tools/render_instance.py",
             "tools/mgenv.py", "versions.lock", "infrastructure/docker/headscale/**",
-            ".github/workflows/headscale-contract.yml"]
+            ".github/workflows/headscale-contract.yml",
+            "internal/devices/**", "internal/store/**", "internal/jobs/**", "internal/audit/**", "database/**"]
   pull_request:
     paths: ["internal/headscale/**", "internal/kit/logx/**", "tests/integration/headscale/**",
             "infrastructure/caddy/Caddyfile.tmpl", "infrastructure/headscale/templates/**", "tools/render_instance.py",
             "tools/mgenv.py", "versions.lock", "infrastructure/docker/headscale/**",
-            ".github/workflows/headscale-contract.yml"]
+            ".github/workflows/headscale-contract.yml",
+            "internal/devices/**", "internal/store/**", "internal/jobs/**", "internal/audit/**", "database/**"]
 
 permissions:
   contents: read
@@ -32,7 +36,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - name: Contract test adapter ↔ Headscale v0.29.7 bản vá (7 pha, có restart / làm đầy đĩa / đổi image / đối chứng crash)
+      - name: Contract test adapter ↔ Headscale v0.29.7 bản vá (10 pha, có restart / làm đầy đĩa / đổi image / đối chứng crash / restore SQLite)
         # run.sh dùng [images.mg-headscale] khi đã pin VÀ đúng bộ bản vá của cây (label patched-commit = ARG của
         # Dockerfile); ngược lại build image từ cây của commit này.
         run: HSCT_OUT="${RUNNER_TEMP}/hsct" HSCT_KEEP_CACHE=0 bash tests/integration/headscale/run.sh

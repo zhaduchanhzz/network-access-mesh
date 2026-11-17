@@ -91,7 +91,7 @@ func loadEnv() (*env, error) {
 	if e.expectCommit == e.officialCommit {
 		return nil, fmt.Errorf("the image under test reports the official commit: the suite expects the patched build (P2-T10a)")
 	}
-	// Adapter logs go through logx at debug level into the state directory; TestP6_AdapterLogsHaveNoCredentials
+	// Adapter logs go through logx at debug level into the state directory; TestP7_AdapterLogsHaveNoCredentials
 	// checks the file (the canary test of §25.1 rule 9, on a real run).
 	lf, err := os.OpenFile(filepath.Join(e.stateDir, "adapter.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600) //nolint:gosec // G703: directory set by run.sh
 	if err != nil {
