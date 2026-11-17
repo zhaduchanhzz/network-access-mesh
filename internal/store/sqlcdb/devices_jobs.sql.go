@@ -7,7 +7,6 @@ package sqlcdb
 
 import (
 	"context"
-	"time"
 
 	"github.com/google/uuid"
 )
@@ -74,97 +73,6 @@ func (q *Queries) CreateDevice(ctx context.Context, arg CreateDeviceParams) (Dev
 		&i.RevocationRequestedAt,
 		&i.RevocationVerifiedAt,
 		&i.RevocationJobID,
-	)
-	return i, err
-}
-
-const createJob = `-- name: CreateJob :one
-INSERT INTO provisioning_jobs (tenant_id, instance_id, kind, request_key, dedupe_key, lock_key, max_attempts, input,
-                               requested_by, timeout_at)
-VALUES ($1, $2, $3, $4, $5,
-        $6, $7, $8, $9, $10)
-RETURNING id, tenant_id, instance_id, kind, request_key, dedupe_key, lock_key, status, current_step, attempt, max_attempts, input, output, error, requested_by, created_at, timeout_at, started_at, finished_at
-`
-
-type CreateJobParams struct {
-	TenantID    *uuid.UUID
-	InstanceID  *uuid.UUID
-	Kind        string
-	RequestKey  *string
-	DedupeKey   *string
-	LockKey     *string
-	MaxAttempts int32
-	Input       []byte
-	RequestedBy *uuid.UUID
-	TimeoutAt   *time.Time
-}
-
-func (q *Queries) CreateJob(ctx context.Context, arg CreateJobParams) (ProvisioningJob, error) {
-	row := q.db.QueryRow(ctx, createJob,
-		arg.TenantID,
-		arg.InstanceID,
-		arg.Kind,
-		arg.RequestKey,
-		arg.DedupeKey,
-		arg.LockKey,
-		arg.MaxAttempts,
-		arg.Input,
-		arg.RequestedBy,
-		arg.TimeoutAt,
-	)
-	var i ProvisioningJob
-	err := row.Scan(
-		&i.ID,
-		&i.TenantID,
-		&i.InstanceID,
-		&i.Kind,
-		&i.RequestKey,
-		&i.DedupeKey,
-		&i.LockKey,
-		&i.Status,
-		&i.CurrentStep,
-		&i.Attempt,
-		&i.MaxAttempts,
-		&i.Input,
-		&i.Output,
-		&i.Error,
-		&i.RequestedBy,
-		&i.CreatedAt,
-		&i.TimeoutAt,
-		&i.StartedAt,
-		&i.FinishedAt,
-	)
-	return i, err
-}
-
-const getJob = `-- name: GetJob :one
-SELECT id, tenant_id, instance_id, kind, request_key, dedupe_key, lock_key, status, current_step, attempt, max_attempts, input, output, error, requested_by, created_at, timeout_at, started_at, finished_at FROM provisioning_jobs
-WHERE id = $1
-`
-
-func (q *Queries) GetJob(ctx context.Context, id uuid.UUID) (ProvisioningJob, error) {
-	row := q.db.QueryRow(ctx, getJob, id)
-	var i ProvisioningJob
-	err := row.Scan(
-		&i.ID,
-		&i.TenantID,
-		&i.InstanceID,
-		&i.Kind,
-		&i.RequestKey,
-		&i.DedupeKey,
-		&i.LockKey,
-		&i.Status,
-		&i.CurrentStep,
-		&i.Attempt,
-		&i.MaxAttempts,
-		&i.Input,
-		&i.Output,
-		&i.Error,
-		&i.RequestedBy,
-		&i.CreatedAt,
-		&i.TimeoutAt,
-		&i.StartedAt,
-		&i.FinishedAt,
 	)
 	return i, err
 }

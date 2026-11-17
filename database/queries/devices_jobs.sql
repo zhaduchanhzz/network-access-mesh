@@ -11,14 +11,3 @@ RETURNING *;
 SELECT * FROM device_inventory_cache
 WHERE tenant_id = sqlc.arg(tenant_id) AND removed_at IS NULL
 ORDER BY first_seen_at, id;
-
--- name: CreateJob :one
-INSERT INTO provisioning_jobs (tenant_id, instance_id, kind, request_key, dedupe_key, lock_key, max_attempts, input,
-                               requested_by, timeout_at)
-VALUES (sqlc.narg(tenant_id), sqlc.narg(instance_id), sqlc.arg(kind), sqlc.narg(request_key), sqlc.narg(dedupe_key),
-        sqlc.narg(lock_key), sqlc.arg(max_attempts), sqlc.arg(input), sqlc.narg(requested_by), sqlc.narg(timeout_at))
-RETURNING *;
-
--- name: GetJob :one
-SELECT * FROM provisioning_jobs
-WHERE id = sqlc.arg(id);

@@ -161,10 +161,11 @@ func randomHex(n int) string {
 // clusterLockKey is the advisory lock (taken in database postgres) that every test package migrating databases in
 // the shared cluster holds while it bootstraps, migrates and sets role passwords: `go test ./...` runs packages in
 // parallel, and concurrent CREATE ROLE / ALTER ROLE on the same cluster-wide role fail (duplicate key, "tuple
-// concurrently updated"). Same key in internal/secrets and internal/authz — keep them equal.
+// concurrently updated"). Same key in internal/secrets, internal/authz and internal/store/storetest
+// (storetest.ClusterLock; not imported here: import cycle) — keep them equal.
 const clusterLockKey int64 = 0x6d675f74657374 // "mg_test"
 
-// lockCluster takes the cluster lock; the returned function releases it.
+// lockCluster takes the cluster lock; the returned function releases it. Lock order: e.mu first, then this lock.
 func (e *pgEnv) lockCluster(t *testing.T) (unlock func()) {
 	t.Helper()
 	c := e.connectAdmin(t, "postgres")
@@ -174,9 +175,9 @@ func (e *pgEnv) lockCluster(t *testing.T) (unlock func()) {
 	return func() { _, _ = c.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", clusterLockKey) }
 }
 
-// newDatabase creates a bootstrapped database migrated to version (0 = latest, < 0 = bootstrap only) and returns
-// its name. Database creation is serialised — within the package by e.mu, across test packages by the cluster lock:
-// roles are cluster-wide, and two migrations creating the same role at once would race.
+// newDatabase creates a bootstrapped database migrated to version (0 = latest including River's schema, < 0 =
+// bootstrap only) and returns its name. Database creation is serialised — within the package by e.mu, across test
+// packages by the cluster lock: roles are cluster-wide, and two migrations creating the same role at once would race.
 func (e *pgEnv) newDatabase(t *testing.T, version int64) string {
 	t.Helper()
 	ctx := ctxT(t)
@@ -212,6 +213,9 @@ func (e *pgEnv) newDatabase(t *testing.T, version int64) string {
 	defer func() { _ = db.Close() }()
 	if version == 0 {
 		err = Migrate(ctx, db)
+		if err == nil {
+			_, err = MigrateQueue(ctx, e.storeURL(name), e.creds(t, "mg_migrator"))
+		}
 	} else {
 		err = MigrateTo(ctx, db, version)
 	}

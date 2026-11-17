@@ -236,6 +236,9 @@ go = "1.27.4"
 "github.com/jackc/pgx/v5" = "v5.12.0"          # 2026-10-31 (P2-T03): pgxpool + stdlib; v5.13.0 (2026-11-11) chưa đủ 14 ngày
 "github.com/pressly/goose/v3" = "v3.29.0"      # 2026-10-11 (P2-T03): migration SQL nhúng; v3.30.x (2026-11-10/12) chưa đủ 14 ngày
 "github.com/google/uuid" = "v1.6.0"            # 2024-01-23 (P2-T03): kiểu UUID của mã sinh sqlc và store
+"github.com/riverqueue/river" = "v0.51.0"      # 2026-11-01 (P2-T12, ADR-21, MPL-2.0, pre-1.0): job queue. Bản mới nhất đã ≥ 14 ngày tuổi; v0.51.1 (11-05) và v0.51.2 (11-09) chỉ sửa lỗi (notifier, CLI SQLite, JobListParams), không phải bản vá bảo mật nên không chọn. Cùng phiên bản cho riverdriver, riverdriver/riverpgxv5, rivershared, rivertype. Không dùng riverdatabasesql (kéo theo lib/pq). Periodic job bản OSS không bền ⇒ RunOnStart (R-14)
+"github.com/tidwall/gjson" = "v1.20.0"         # 2026-10-05 — gián tiếp qua River; cùng tidwall/match v1.2.0 (2025-09-05), pretty v1.2.1 (2022-10-01), sjson v1.2.5 (2022-08-05)
+"golang.org/x/mod" = "v0.42.0"                 # 2026-10-09 — gián tiếp; rivershared v0.51.0 yêu cầu ≥ v0.42.0 (trước là v0.41.0 qua oapi-codegen)
 
 [npm]   # apps/web — package-lock.json (integrity sha512) là nguồn sự thật; ở P2-T02 chỉ dùng để sinh type TypeScript từ api/openapi.yaml
 "openapi-typescript" = "7.13.0"   # 2026-02-11
