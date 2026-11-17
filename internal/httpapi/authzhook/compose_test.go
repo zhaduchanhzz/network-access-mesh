@@ -179,9 +179,10 @@ func TestComposedAPI(t *testing.T) {
 			}
 			return secret, nil
 		}),
-		Logger:    slog.New(slog.DiscardHandler),
-		RequestID: authzhook.RequestID,
-		ClientIP:  authzhook.ClientIP,
+		Logger:        slog.New(slog.DiscardHandler),
+		RequestID:     authzhook.RequestID,
+		ClientIP:      authzhook.ClientIP,
+		ProblemWriter: authzhook.WriteProblem,
 	})
 	if err != nil {
 		t.Fatal(err)

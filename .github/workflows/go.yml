@@ -1,11 +1,12 @@
 # CI cho mã Go (P2-T01): kiểm checksum module, gofmt, code sinh từ api/openapi.yaml khớp bản đã commit (P2-T02),
 # `sqlc diff` (mã sinh khớp database/migrations + database/queries — P2-T03), go vet, test có race detector (gồm
 # test kiến trúc §13.6, test "canary secret", test định tuyến của mọi operation và test tích hợp internal/store trên
-# PostgreSQL thật: IT-17, RLS, partition, migration trên DB có dữ liệu, truy vấn CI về quyền trên partition),
-# golangci-lint, govulncheck. Chạy trong image golang pin theo digest; PostgreSQL là service container pin theo
-# digest (versions.lock [images.postgres]); công cụ pin theo SHA-256 / phiên bản module (oapi-codegen là chỉ thị
-# `tool` trong go.mod). Mật khẩu superuser của cụm thử chỉ dùng một lần, ghép từ run id — cụm chỉ tồn tại trong
-# mạng của job, không phải secret. Repo public: không dùng secret nào.
+# PostgreSQL thật: IT-17, RLS, partition, migration trên DB có dữ liệu, truy vấn CI về quyền trên partition), test
+# có build tag `mgtestfixture` (fixture phiên kiểm thử P2-T15a — chỉ build với tag này, tests/...), golangci-lint
+# (lint cả code có tag — .golangci.yml), govulncheck. Chạy trong image golang pin theo digest; PostgreSQL là service
+# container pin theo digest (versions.lock [images.postgres]); công cụ pin theo SHA-256 / phiên bản module
+# (oapi-codegen là chỉ thị `tool` trong go.mod). Mật khẩu superuser của cụm thử chỉ dùng một lần, ghép từ run id —
+# cụm chỉ tồn tại trong mạng của job, không phải secret. Repo public: không dùng secret nào.
 name: go
 
 on:
@@ -68,6 +69,10 @@ jobs:
         run: go run "github.com/sqlc-dev/sqlc/cmd/sqlc@${SQLC_VERSION}" diff -f database/sqlc.yaml
       - name: go test (race) — gồm test tích hợp PostgreSQL của internal/store
         run: go test -race -count=1 ./...
+      - name: go vet + go test (race) với build tag mgtestfixture — fixture phiên P2-T15a và các test dùng nó (tests/...)
+        run: |
+          go vet -tags mgtestfixture ./tests/...
+          go test -race -count=1 -tags mgtestfixture ./tests/...
       - name: golangci-lint
         run: |
           curl -fsSLo /tmp/golangci.tgz "https://github.com/golangci/golangci-lint/releases/download/v${GOLANGCI_VERSION}/golangci-lint-${GOLANGCI_VERSION}-linux-amd64.tar.gz"

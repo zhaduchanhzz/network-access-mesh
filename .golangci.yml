@@ -2,6 +2,8 @@
 version: "2"
 run:
   timeout: 5m
+  # Fixture phiên kiểm thử (P2-T15a, tests/security) chỉ build với tag này — lint cả nó.
+  build-tags: [mgtestfixture]
 linters:
   default: standard
   enable:

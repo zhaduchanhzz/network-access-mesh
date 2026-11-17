@@ -10,20 +10,27 @@
 # ba network thử dùng cùng subnet với mg-edge / mg-egress / mg-idp-data (infrastructure/host/networks.sh).
 # Biến: PREFIX (mặc định mgidptest), PORT (18443), DOMAIN (<PREFIX>.test), WORK (/tmp/<PREFIX>-idp). Cần sudo (docker,
 # file secret thuộc root). Secret sinh mới mỗi lượt bằng infrastructure/idp/secrets.sh, không in ra, xóa khi down.
+# NET_BASE (mặc định 10.249 = dải thật): hai /16 khác nhau cho hai stack thử chạy CÙNG LÚC trên một máy (Docker từ chối
+# subnet chồng nhau). Khác mặc định thì proxy thử không còn là IP edge mà KC_PROXY_TRUSTED_ADDRESSES tin ⇒ Keycloak bỏ
+# qua X-Forwarded-* (issuer vẫn đúng vì hostname cố định — F3 của P2-T05) và hai kiểm tra "proxy tin cậy" của `test`
+# không áp dụng; dùng cho test Go (IdP driver P2-T05a), không cho login_test.py. Proxy mang alias auth.<DOMAIN> trên
+# network edge, như alias của edge trên mg-edge (§14.3): container Go gắn vào network đó phân giải tên qua DNS của Docker.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 PREFIX=${PREFIX:-mgidptest}
 PORT=${PORT:-18443}
 DOMAIN=${DOMAIN:-$PREFIX.test}
 WORK=${WORK:-/tmp/$PREFIX-idp}
+NET_BASE=${NET_BASE:-10.249}
+[[ $NET_BASE =~ ^10\.(2[0-5][0-9]|1[0-9][0-9]|[1-9]?[0-9])$ ]] || { echo "NET_BASE phải có dạng 10.<0-255>"; exit 2; }
 CADDY=docker.io/library/caddy@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0   # 2.11.9-alpine (versions.lock)
 IMAGE=$PREFIX-idp:test
 PROJECT=$PREFIX-idp
-PROXY_IP=10.249.0.2        # = IP tĩnh của edge (tools/render_edge.py EDGE_IPS) = KC_PROXY_TRUSTED_ADDRESSES
-UNTRUSTED_IP=10.249.0.200  # container thử KHÔNG phải proxy
-NETS="$PREFIX-edge 10.249.0.0/24 no 10.249.0.128/25
-$PREFIX-egress 10.249.5.0/24 no -
-$PREFIX-idp-data 10.249.6.0/24 yes -"
+PROXY_IP=$NET_BASE.0.2        # mặc định = IP tĩnh của edge (tools/render_edge.py EDGE_IPS) = KC_PROXY_TRUSTED_ADDRESSES
+UNTRUSTED_IP=$NET_BASE.0.200  # container thử KHÔNG phải proxy
+NETS="$PREFIX-edge $NET_BASE.0.0/24 no $NET_BASE.0.128/25
+$PREFIX-egress $NET_BASE.5.0/24 no -
+$PREFIX-idp-data $NET_BASE.6.0/24 yes -"
 D="sudo docker"
 compose() {
   sudo env MGT_WORK="$WORK" MGT_PREFIX="$PREFIX" docker compose -p "$PROJECT" \
@@ -63,7 +70,8 @@ auth.$DOMAIN:443 {
 	reverse_proxy idp:8080
 }
 EOF
-  $D run -d --name "$PREFIX-proxy" --network "$PREFIX-edge" --ip "$PROXY_IP" -p "127.0.0.1:$PORT:443" \
+  $D run -d --name "$PREFIX-proxy" --network "$PREFIX-edge" --ip "$PROXY_IP" --network-alias "auth.$DOMAIN" \
+    -p "127.0.0.1:$PORT:443" \
     --read-only --tmpfs /data --tmpfs /config --cap-drop ALL --security-opt no-new-privileges \
     -v "$WORK/proxy/Caddyfile:/etc/caddy/Caddyfile:ro" "$CADDY" >/dev/null
   say "docker compose up (idp-db, idp) — chờ healthy"
