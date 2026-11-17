@@ -124,9 +124,9 @@ Chỉ sửa `staging.env`, rồi thực hiện:
      | Đợt | Task | Xong dự kiến (giờ VN) |
      |---|---|---|
      | 1 (**xong**) | P3-T01 Agent, P3-T06 migration 0009–0013, P3-T03a Prober + P3-T14a helper enrollment | đã gộp vào `main` |
-     | 2 (đang chạy) | P3-T02 compose driver (**xong**, gộp `dbd9c4a`); P3-T04 placement + P3-T06a quota + migration 0014 (**xong**, gộp `176994d`; API `/platform/hosts` chuyển sang đợt 3); P3-T04a dual control + P3-T05a lời mời; P3-T08a lõi policy + P3-T05b thông báo (**xong**, gộp `c2fe4bf`; relay SMTP thật chờ chủ dự án chọn — P3-T05b.md mục 4) | 18/11 ~03:00 |
-     | 3 (đang chạy từ 18/11 01:10) | P3-T03 thao tác Agent + edge supervisor; P3-T12 reconcile chỉ báo cáo; P3-T04 phần còn lại (API `/platform/hosts` + lệnh `admin host-set` để khai báo `public_entry` của host staging); sau đó P3-T10 xoay API key (sau T03), P3-T15 kiểm soát quản trị IdP (sau T04a, T05b) | 18/11 ~05:30 |
-     | 4 | P3-T05 máy trạng thái provisioning 19 bước (lớn nhất) | 18/11 ~09:00 |
+     | 2 (**xong** 18/11 ~02:30) | P3-T02 compose driver (gộp `dbd9c4a`); P3-T04 placement + P3-T06a quota + migration 0014 (gộp `176994d`; API `/platform/hosts` chuyển sang đợt 3); P3-T04a dual control + P3-T05a lời mời (gộp `afb0564`; **đăng nhập đầu của user tenant không có membership/lời mời ⇒ 403**); P3-T08a lõi policy + P3-T05b thông báo (gộp `c2fe4bf`; relay SMTP thật chờ chủ dự án chọn — P3-T05b.md mục 4) | 18/11 ~03:00 |
+     | 3 (đang chạy từ 18/11 01:10) | P3-T03 thao tác Agent + edge supervisor + start guard (**xong**, gộp `bc0ea84`); P3-T12 reconcile chỉ báo cáo (**xong**, gộp `9a2e35f`; chạy được khi worker được nối socket agent — P3-T05); P3-T04 phần còn lại (API `/platform/hosts` + lệnh `admin host-set` để khai báo `public_entry` của host staging — **xong**, gộp `a57d303`); P3-T15 kiểm soát quản trị IdP (chạy từ 02:40); P3-T10 xoay API key (chạy từ 03:00) | 18/11 ~05:30 |
+     | 4 (**bắt đầu sớm** 18/11 03:00) | P3-T05 máy trạng thái provisioning 19 bước (lớn nhất; đủ phụ thuộc khi P3-T03 gộp) | 18/11 ~05:30–06:00 |
      | 5 | P3-T07 tiêm lỗi; P3-T08 suspend/resume; P3-T05c relay; P3-T13 reconfigure; P3-T11 backup/restore v1 | 18/11 ~12:30 |
      | 6 | P3-T09 deprovision; P3-T18 quarantine; P3-T13a restart/upgrade; P3-T16 cảnh báo; P3-T17 đối soát sau restore | 18/11 ~16:00 |
      | 7 | Triển khai Agent + orchestrator lên staging; P3-T14b tạo lại A/B qua orchestrator (báo trước vì thiết bị phải enroll lại); P3-T14 G3 (20 lần provision, tenant C với client thật, diễn tập edge) → báo cáo G3 | 18/11 tối – 19/11 |
