@@ -134,3 +134,46 @@ func TestInvalidValues(t *testing.T) {
 		}
 	}
 }
+
+// TestIdPEgress: the deny list of the hardened IdP client and the dial address of the platform IdP come from the
+// environment of the deployment (P2-T05a, T-21); the platform IdP host is derived from MG_BASE_DOMAIN.
+func TestIdPEgress(t *testing.T) {
+	get, list := env(map[string]string{
+		"MG_EGRESS_DENY_CIDRS": " 10.249.0.0/16,10.250.0.0/16 , 172.24.0.0/13,192.0.2.8,::ffff:198.51.100.7",
+		"MG_IDP_PLATFORM_ADDR": "10.249.0.2:443", "MG_BASE_DOMAIN": "example.com",
+	})
+	cfg, err := Load("worker", get, list)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	want := []string{"10.249.0.0/16", "10.250.0.0/16", "172.24.0.0/13", "192.0.2.8/32", "198.51.100.7/32"}
+	if len(cfg.EgressDeny) != len(want) {
+		t.Fatalf("EgressDeny = %v, want %v", cfg.EgressDeny, want)
+	}
+	for i, p := range cfg.EgressDeny {
+		if p.String() != want[i] {
+			t.Errorf("EgressDeny[%d] = %s, want %s", i, p, want[i])
+		}
+	}
+	if cfg.IdPPlatformAddr != "10.249.0.2:443" || cfg.IdPPlatformHost() != "auth.example.com" {
+		t.Errorf("platform IdP: addr %q host %q", cfg.IdPPlatformAddr, cfg.IdPPlatformHost())
+	}
+	// both optional: empty deny list (the built-in ranges still apply), dial the host name itself
+	get, list = env(map[string]string{})
+	if cfg, err := Load("api", get, list); err != nil || len(cfg.EgressDeny) != 0 || cfg.IdPPlatformAddr != "" ||
+		cfg.IdPPlatformHost() != "" {
+		t.Errorf("defaults: %+v, %v", cfg, err)
+	}
+	for name, m := range map[string]map[string]string{
+		"deny not a CIDR":   {"MG_EGRESS_DENY_CIDRS": "docker-pool"},
+		"deny bad prefix":   {"MG_EGRESS_DENY_CIDRS": "10.0.0.0/33"},
+		"addr without port": {"MG_IDP_PLATFORM_ADDR": "10.249.0.2"},
+		"addr without host": {"MG_IDP_PLATFORM_ADDR": ":443"},
+		"addr bad port":     {"MG_IDP_PLATFORM_ADDR": "edge:0"},
+	} {
+		get, list := env(m)
+		if _, err := Load("worker", get, list); err == nil {
+			t.Errorf("%s: expected an error", name)
+		}
+	}
+}
