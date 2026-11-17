@@ -110,6 +110,34 @@ services:
     volumes:
       - {<<: *hs-bind, source: "${MGE_WORK}/render/idp/idp/realms", target: /opt/keycloak/data/import}
 
+  # Backend (P2-T16 — <work>/render/app/compose.app.yaml của tools/render_app.py, image build từ cây bằng
+  # infrastructure/docker/app/Dockerfile): chỉ đổi nguồn của keyring/thư mục secret (<work>/secrets, cùng nhóm GID cố
+  # định như host) và — CHỈ ở stack này — cho api/worker tin CA dùng-một-lần của lượt chạy (SSL_CERT_FILE) để đường hẹp
+  # tới auth.<domain> qua edge kiểm được TLS; trên host là chứng chỉ ACME công khai.
+  api:
+    container_name: ${MGE_PREFIX}-api
+    environment:
+      SSL_CERT_FILE: /etc/mg-ci-ca/ca.crt
+      SSL_CERT_DIR: /etc/mg-ci-ca
+    volumes:
+      - {<<: *hs-bind, source: "${MGE_WORK}/secrets/kek-app", target: /run/secrets/kek-app}
+      - {<<: *hs-bind, source: "${MGE_WORK}/ca", target: /etc/mg-ci-ca}
+  worker:
+    container_name: ${MGE_PREFIX}-worker
+    environment:
+      SSL_CERT_FILE: /etc/mg-ci-ca/ca.crt
+      SSL_CERT_DIR: /etc/mg-ci-ca
+    volumes:
+      - {<<: *hs-bind, source: "${MGE_WORK}/secrets/kek-app", target: /run/secrets/kek-app}
+      - {<<: *hs-bind, source: "${MGE_WORK}/secrets/kek-ops", target: /run/secrets/kek-ops}
+      - {<<: *hs-bind, source: "${MGE_WORK}/ca", target: /etc/mg-ci-ca}
+  migrate:
+    volumes:
+      - {<<: *hs-bind, source: "${MGE_WORK}/secrets/migrate", target: /run/mg-migrate}
+  db-bootstrap:
+    volumes:
+      - {<<: *hs-bind, source: "${MGE_WORK}/secrets/migrate", target: /run/mg-migrate}
+
   # ------------------------------------------------------------ service riêng của stack thử
   # PostgreSQL của Management Plane (thiết lập như compose.core.yaml), dữ liệu trên tmpfs (chỉ sống trong lượt chạy).
   postgres:
@@ -225,6 +253,15 @@ secrets:
   cloudflare_dns_token: {file: "${MGE_WORK}/secrets/edge/cloudflare_dns_token"}   # giá trị ngẫu nhiên, không dùng (không ACME)
   edge_tls_cert: {file: "${MGE_WORK}/secrets/edge/tls_cert"}
   edge_tls_key: {file: "${MGE_WORK}/secrets/edge/tls_key"}
+  app_db_api_tenant_password: {file: "${MGE_WORK}/secrets/api/db_api_tenant_password"}             # backend (P2-T16)
+  app_db_api_platform_password: {file: "${MGE_WORK}/secrets/api/db_api_platform_password"}
+  app_db_audit_writer_password: {file: "${MGE_WORK}/secrets/app/db_audit_writer_password"}
+  app_edge_admin_token: {file: "${MGE_WORK}/secrets/app/edge_admin_token"}
+  app_db_worker_tenant_password: {file: "${MGE_WORK}/secrets/worker/db_worker_tenant_password"}
+  app_db_worker_platform_password: {file: "${MGE_WORK}/secrets/worker/db_worker_platform_password"}
+  app_db_partition_password: {file: "${MGE_WORK}/secrets/worker/db_partition_password"}
+  app_pg_superuser_password: {file: "${MGE_WORK}/secrets/appboot/pg_superuser_password"}
+  app_pg_backup_password: {file: "${MGE_WORK}/secrets/appboot/pg_backup_password"}
   authkey_a1: {file: "${MGE_WORK}/secrets/clients/a1.authkey"}
   authkey_a2: {file: "${MGE_WORK}/secrets/clients/a2.authkey"}
   authkey_b1: {file: "${MGE_WORK}/secrets/clients/b1.authkey"}

@@ -1,0 +1,221 @@
+# Sinh bởi tools/render_app.py từ infrastructure/compose/compose.app.yaml.tmpl (template_version ${template_version}).
+# KHÔNG sửa tay — render lại. Project mg-app (P2-T16, §4.2, §14.4): backend của Management Plane — api, worker và hai
+# job một lần của database (migrate, db-bootstrap). Tách khỏi mg-core (postgres, crowdsec) như mg-edge/mg-idp/mg-backup:
+# deploy backend thường xuyên không bao giờ recreate PostgreSQL, và file này cần giá trị của môi trường (domain, dải bị
+# chặn của HTTP client IdP…) còn compose.core.yaml thì không. Đặt tại /opt/meshguard/core/compose.app.yaml. Network
+# do infrastructure/host/networks.sh tạo trước (external); PostgreSQL là service `postgres` của mg-core trên mg-data.
+#
+# Bất biến (tools/test_render_app.py kiểm): image pin digest; non-root 65532 + nhóm secret cố định (§14.2:
+# mg-sec-app 20001, mg-sec-api 20002, mg-sec-worker 20003, mg-sec-migrate 20004); rootfs chỉ-đọc, cap_drop ALL,
+# no-new-privileges, giới hạn CPU/RAM/PID; không publish cổng; không Docker socket; không secret trong biến môi trường
+# (chỉ *_FILE/*_DIR trỏ vào file/thư mục secret mount chỉ-đọc); keyring kek-ops CHỈ ở worker; mỗi service chỉ khai báo
+# secret nó dùng; api chỉ tin X-Forwarded-For từ đúng IP của edge (${edge_ip}).
+#
+# Thứ tự (infrastructure/host/RUNBOOK.md, mục P2-T16):
+#   một lần:  docker compose -p mg-app -f compose.app.yaml --profile bootstrap run --rm -T db-bootstrap
+#   mỗi lần nâng cấp: sudo bash infrastructure/host/migrate.sh  (backup pre-migration của mg-backup, dừng nếu lỗi,
+#             rồi `--profile migrate run --rm -T migrate`)
+#   rồi:      docker compose -p mg-app -f compose.app.yaml up -d api worker
+name: mg-app
+
+x-hardening: &hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  tmpfs:
+    - /tmp:size=16m,mode=1777
+  logging:
+    driver: json-file
+    options: {max-size: "10m", max-file: "5"}
+  labels:
+    meshguard.role: app
+
+x-db: &db
+  MG_ENV: ${env}
+  MG_LOG_LEVEL: info
+  MG_DB_URL: postgres://postgres:5432/meshguard?sslmode=disable   # không user/mật khẩu — role + file riêng từng pool
+
+x-process: &process
+  <<: *db
+  MG_BASE_DOMAIN: ${base_domain}                  # app./admin./auth.${base_domain}
+  MG_HTTP_ADDR: ":8080"
+  MG_INTERNAL_ADDR: ":9090"                       # /healthz, /readyz, /metrics — edge không bao giờ định tuyến tới
+  MG_KEK_APP_DIR: /run/secrets/kek-app            # keyring kek-app (nghi thức P2-T04a)
+  MG_EDGE_ADMIN_URL: ${edge_admin_url}            # listener admin của edge trên mg-admin (§14.6)
+  MG_EDGE_ADMIN_TOKEN_FILE: /run/secrets/edge_admin_token
+  MG_EGRESS_DENY_CIDRS: ${egress_deny}
+  MG_IDP_PLATFORM_ADDR: ${idp_platform_addr}      # đường hẹp tới auth.${base_domain}: dial IP của edge (P2-T05a)
+
+x-keyring-app: &keyring-app
+  type: bind
+  source: /opt/meshguard/secrets/kek-app          # root:mg-sec-app 0750, file 0440
+  target: /run/secrets/kek-app
+  read_only: true
+  bind:
+    create_host_path: false
+
+x-migrate-dir: &migrate-dir
+  type: bind
+  source: /opt/meshguard/secrets/migrate          # root:mg-sec-migrate 0750, file 0440: mg_migrator + bản của job migrate
+  target: /run/mg-migrate                         #   cho mật khẩu từng role đăng nhập (§14.2 "mỗi consumer một bản")
+  read_only: true
+  bind:
+    create_host_path: false
+
+services:
+  api:
+    <<: *hardening
+    image: ${api_image}
+    user: "65532:65532"
+    group_add: ["20001", "20002"]                 # mg-sec-app (kek-app, audit writer, token edge), mg-sec-api (role api)
+    environment:
+      <<: *process
+      MG_TRUSTED_PROXIES: ${edge_ip}              # ĐÚNG IP của edge — không bao giờ cả dải mg-edge (G2)
+      MG_DB_TENANT_USER: mg_api_tenant
+      MG_DB_TENANT_PASSWORD_FILE: /run/secrets/db_api_tenant_password
+      MG_DB_PLATFORM_USER: mg_api_platform
+      MG_DB_PLATFORM_PASSWORD_FILE: /run/secrets/db_api_platform_password
+      MG_DB_AUDIT_WRITER_PASSWORD_FILE: /run/secrets/db_audit_writer_password
+    secrets:
+      - {source: app_db_api_tenant_password, target: db_api_tenant_password}
+      - {source: app_db_api_platform_password, target: db_api_platform_password}
+      - {source: app_db_audit_writer_password, target: db_audit_writer_password}
+      - {source: app_edge_admin_token, target: edge_admin_token}
+    volumes:
+      - *keyring-app
+    networks:
+      mg-edge: {}                                 # edge → api:8080 (alias = tên service); chỉ IP của edge được phục vụ
+      mg-data: {}
+      mg-admin: {}
+      mg-obs: {}
+      mg-egress:
+        gw_priority: 1                            # đường ra (issuer OIDC của tenant) qua mg-egress (§14.3)
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 256
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/meshguard", "healthcheck"]   # GET /readyz của chính tiến trình (postgres, secretstore, edge_admin)
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+      start_interval: 2s
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+  worker:
+    <<: *hardening
+    image: ${worker_image}
+    user: "65532:65532"
+    group_add: ["20001", "20003"]                 # mg-sec-app (kek-app, token edge), mg-sec-worker (role worker, kek-ops)
+    environment:
+      <<: *process
+      MG_KEK_OPS_DIR: /run/secrets/kek-ops        # CHỈ worker (§7.6)
+      MG_DB_TENANT_USER: mg_worker_tenant
+      MG_DB_TENANT_PASSWORD_FILE: /run/secrets/db_worker_tenant_password
+      MG_DB_PLATFORM_USER: mg_worker_platform
+      MG_DB_PLATFORM_PASSWORD_FILE: /run/secrets/db_worker_platform_password
+      MG_DB_PARTITION_PASSWORD_FILE: /run/secrets/db_partition_password
+    secrets:
+      - {source: app_db_worker_tenant_password, target: db_worker_tenant_password}
+      - {source: app_db_worker_platform_password, target: db_worker_platform_password}
+      - {source: app_db_partition_password, target: db_partition_password}
+      - {source: app_edge_admin_token, target: edge_admin_token}
+    volumes:
+      - *keyring-app
+      - type: bind
+        source: /opt/meshguard/secrets/kek-ops    # root:mg-sec-worker 0750, file 0440
+        target: /run/secrets/kek-ops
+        read_only: true
+        bind:
+          create_host_path: false
+    networks:
+      mg-edge:
+        ipv4_address: ${worker_edge_ip}           # nguồn DUY NHẤT edge cho tới Admin API/realm master của auth. (P2-T05a)
+      mg-data: {}
+      mg-admin: {}
+      mg-obs: {}
+      mg-egress:
+        gw_priority: 1
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 256
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/meshguard", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+      start_interval: 2s
+    restart: unless-stopped
+    stop_grace_period: 45s                        # job đang chạy có SoftStopTimeout 30 s (§11.3)
+
+  # Job migrate (§6.1): goose + seed + River bằng mg_migrator, rồi mật khẩu các role đăng nhập từ bản của job này,
+  # rồi kiểm (schema mới nhất, River, seed RBAC, không quyền trên partition). Không bao giờ chạy bằng `up`.
+  migrate:
+    <<: *hardening
+    profiles: [migrate]
+    image: ${api_image}
+    command: ["migrate", "up"]
+    user: "65532:65532"
+    group_add: ["20004"]                          # mg-sec-migrate
+    environment:
+      <<: *db
+      MG_DB_MIGRATOR_PASSWORD_FILE: /run/mg-migrate/mg_migrator
+      MG_DB_ROLE_PASSWORD_DIR: /run/mg-migrate
+    volumes:
+      - *migrate-dir
+    networks: [mg-data]
+    mem_limit: 256m
+    cpus: 1.0
+    pids_limit: 64
+    restart: "no"
+
+  # MỘT lần, bằng superuser của cụm (database/bootstrap/superuser.sql + mật khẩu mg_migrator, mg_backup). Chạy lại vô
+  # hại (xoay mật khẩu hai role đó). Nhóm 999 = nhóm của file superuser_password (image postgres — §14.2).
+  db-bootstrap:
+    <<: *hardening
+    profiles: [bootstrap]
+    image: ${api_image}
+    command: ["migrate", "bootstrap"]
+    user: "65532:65532"
+    group_add: ["999", "20004", "20007"]          # superuser (postgres), mg-sec-migrate, mg-sec-backup
+    environment:
+      <<: *db
+      MG_DB_SUPERUSER_PASSWORD_FILE: /run/secrets/pg_superuser_password
+      MG_DB_MIGRATOR_PASSWORD_FILE: /run/mg-migrate/mg_migrator
+      MG_DB_BACKUP_PASSWORD_FILE: /run/secrets/pg_backup_password
+    secrets:
+      - {source: app_pg_superuser_password, target: pg_superuser_password}
+      - {source: app_pg_backup_password, target: pg_backup_password}
+    volumes:
+      - *migrate-dir
+    networks: [mg-data]
+    mem_limit: 256m
+    cpus: 1.0
+    pids_limit: 64
+    restart: "no"
+
+# Secret dạng file trên host (root:<nhóm> 0440 — infrastructure/host/app-secrets.sh); Compose bỏ qua uid/gid/mode (ST-05).
+secrets:
+  app_db_api_tenant_password: {file: /opt/meshguard/secrets/api/db_api_tenant_password}
+  app_db_api_platform_password: {file: /opt/meshguard/secrets/api/db_api_platform_password}
+  app_db_audit_writer_password: {file: /opt/meshguard/secrets/app/db_audit_writer_password}
+  app_edge_admin_token: {file: /opt/meshguard/secrets/app/edge_admin_token}
+  app_db_worker_tenant_password: {file: /opt/meshguard/secrets/worker/db_worker_tenant_password}
+  app_db_worker_platform_password: {file: /opt/meshguard/secrets/worker/db_worker_platform_password}
+  app_db_partition_password: {file: /opt/meshguard/secrets/worker/db_partition_password}
+  app_pg_superuser_password: {file: /opt/meshguard/secrets/postgres/superuser_password}
+  app_pg_backup_password: {file: /opt/meshguard/secrets/backup/pg_backup_password}
+
+networks:
+  mg-edge:
+    external: true
+  mg-data:
+    external: true
+  mg-admin:
+    external: true
+  mg-obs:
+    external: true
+  mg-egress:
+    external: true

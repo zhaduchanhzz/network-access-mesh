@@ -358,3 +358,16 @@ cd /opt/meshguard/gateway && sudo docker compose -f compose.gateway.yaml up -d
 ```
 
 Tunnel `mg-wg0` (`infrastructure/gateway/wg-setup.sh`) và firewall VPS (`apply-vps-firewall.sh`) không bị ảnh hưởng. Khóa WireGuard được sinh tại từng máy. Nếu phải dựng lại tunnel thì chỉ trao đổi public key.
+
+## Backend `mg-app` (api, worker, migrate) — P2-T16
+
+Triển khai backend lên host (project compose `mg-app` render bằng `tools/render_app.py`, secret bằng `app-secrets.sh`, bootstrap DB một lần, bước migrate luôn qua `migrate.sh` — backup pre-migration của `mg-backup` trước, dừng nếu lỗi —, `api`/`worker` lên, adopt/IdP/SA, edge template v5 với site `app.`/`admin.`/`auth.`, DNS công khai): **[docs/operations/deploy-backend.md](../../docs/operations/deploy-backend.md)** — các bước theo thứ tự, lệnh kiểm, hoàn tác và nhãn duyệt của chủ dự án. Hai mục adopt và Super Admin/TO/TA ở trên dùng nguyên văn với `CORE="sudo docker compose -p mg-app -f /opt/meshguard/core/compose.app.yaml"` (service `api` của project `mg-app`; sự kiện audit của các lệnh admin nay vào `audit_events`).
+
+```bash
+sudo bash infrastructure/host/app-secrets.sh && sudo bash infrastructure/host/check-secrets.sh   # secret file (không in)
+python3 tools/render_app.py infrastructure/environments/staging/staging.env /tmp/mg-app          # → /opt/meshguard/core/
+APP="sudo docker compose -p mg-app -f /opt/meshguard/core/compose.app.yaml"
+$APP --profile bootstrap run --rm -T db-bootstrap                 # MỘT lần (superuser): mg_migrator, mg_backup
+sudo bash infrastructure/host/migrate.sh                          # mỗi lần nâng cấp: backup pre-migration → migrate
+$APP up -d --wait api worker                                      # /readyz: postgres, secretstore, edge_admin
+```

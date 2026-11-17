@@ -44,6 +44,40 @@ type Config struct {
 	// dials for the platform-hosted IdP auth.<MG_BASE_DOMAIN> — e.g. the edge's static address on mg-edge. Empty: the
 	// host name itself through the container's resolver (the edge alias auth.<domain> on mg-edge, §14.3).
 	IdPPlatformAddr string
+
+	// Wired: the process runs with its dependencies — PostgreSQL, SecretStore, edge admin listener, audit — and every
+	// variable below is required (P2-T16). Always outside dev; in dev only when MG_DB_URL is set: without it a dev
+	// process serves the internal endpoints and a public API that answers 501 (smoke test of the `images` workflow).
+	Wired bool
+	// DB: the two pools of the process (MG_DB_URL, MG_DB_{TENANT,PLATFORM}_USER, MG_DB_*_PASSWORD_FILE): the roles of
+	// the service itself — mg_api_* for api, mg_worker_* for worker (§6.1).
+	DB Database
+	// AuditWriterPasswordFile (MG_DB_AUDIT_WRITER_PASSWORD_FILE, api): the password of mg_audit_writer, the detached
+	// audit path (P2-T08; root:mg-sec-app 0440 on the host — §14.2).
+	AuditWriterPasswordFile string
+	// PartitionPasswordFile (MG_DB_PARTITION_PASSWORD_FILE, worker): the password of mg_partition_maint for the daily
+	// partition.maintain job (§6.1; root:mg-sec-worker 0440).
+	PartitionPasswordFile string
+	// Edge: the edge admin listener through which every Headscale call goes (MG_EDGE_ADMIN_URL,
+	// MG_EDGE_ADMIN_TOKEN_FILE — §14.6).
+	Edge EdgeAdmin
+	// IdPProvisionerClientID (MG_IDP_PROVISIONER_CLIENT_ID, worker, optional): the master-realm client of the keycloak
+	// driver's provisioning identity; empty = the driver's default (mg-provisioner). Its secret is found in the
+	// SecretStore (platform_ops), never configured.
+	IdPProvisionerClientID string
+}
+
+// AppHost is the Tenant Portal origin app.<MG_BASE_DOMAIN> (§8.3, §15.4); "" without a domain.
+func (c Config) AppHost() string { return prefixed("app.", c.BaseDomain) }
+
+// AdminHost is the Platform Console origin admin.<MG_BASE_DOMAIN>; "" without a domain.
+func (c Config) AdminHost() string { return prefixed("admin.", c.BaseDomain) }
+
+func prefixed(p, domain string) string {
+	if domain == "" {
+		return ""
+	}
+	return p + domain
 }
 
 // IdPPlatformHost is the host name of the platform-hosted IdP (§15.4): auth.<MG_BASE_DOMAIN>; "" without a domain.
@@ -57,7 +91,9 @@ func (c Config) IdPPlatformHost() string {
 var (
 	secretName = regexp.MustCompile(`(?i)(PASSWORD|PASSWD|TOKEN|SECRET|_KEY$|_KEY_|APIKEY|CREDENTIAL|KEK)`)
 	domainRE   = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`)
-	envs       = map[string]bool{"dev": true, "staging": true, "production": true}
+	// ci: the dev/CI stack (compose.yaml, tests/e2e) — strict like staging: it runs the deployment configuration.
+	envs       = map[string]bool{"dev": true, "ci": true, "staging": true, "production": true}
+	clientIDRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
 	services   = map[string]bool{"api": true, "worker": true}
 )
 
@@ -92,7 +128,7 @@ func Load(service string, getenv func(string) string, environ []string) (Config,
 		errs = append(errs, errors.New("MG_KEK_OPS_DIR: the kek-ops keyring is mounted into the worker only (§7.6)"))
 	}
 	if !envs[cfg.Env] {
-		errs = append(errs, fmt.Errorf("MG_ENV must be dev, staging or production, got %q", cfg.Env))
+		errs = append(errs, fmt.Errorf("MG_ENV must be dev, ci, staging or production, got %q", cfg.Env))
 	}
 	for name, addr := range map[string]string{"MG_HTTP_ADDR": cfg.HTTPAddr, "MG_INTERNAL_ADDR": cfg.InternalAddr} {
 		if err := checkAddr(addr); err != nil {
@@ -120,6 +156,13 @@ func Load(service string, getenv func(string) string, environ []string) (Config,
 	if service == "api" && len(proxies) == 0 && err == nil && cfg.Env != "dev" {
 		errs = append(errs, errors.New("MG_TRUSTED_PROXIES is required for api outside dev (the edge's address on mg-edge)"))
 	}
+	for _, p := range proxies {
+		// G2 wiring review: the edge's own address, never a range — with mg-edge's /24, idp and every other member
+		// of the network could forge X-Forwarded-For (and, with the edge-only listener, reach the api directly).
+		if cfg.Env != "dev" && p.Bits() != p.Addr().BitLen() {
+			errs = append(errs, fmt.Errorf("MG_TRUSTED_PROXIES must list single addresses outside dev (the edge's), not %s", p))
+		}
+	}
 	deny, err := parsePrefixes(getenv("MG_EGRESS_DENY_CIDRS"))
 	if err != nil {
 		errs = append(errs, fmt.Errorf("MG_EGRESS_DENY_CIDRS: %w", err))
@@ -133,7 +176,66 @@ func Load(service string, getenv func(string) string, environ []string) (Config,
 			errs = append(errs, errors.New("MG_IDP_PLATFORM_ADDR: a host is required"))
 		}
 	}
+	if cfg.Env != "dev" && len(deny) == 0 && err == nil {
+		errs = append(errs, errors.New("MG_EGRESS_DENY_CIDRS is required outside dev (platform address pools, LAN, "+
+			"tunnel, public entry — T-21)"))
+	}
+	cfg.IdPProvisionerClientID = strings.TrimSpace(getenv("MG_IDP_PROVISIONER_CLIENT_ID"))
+	if cfg.IdPProvisionerClientID != "" && (service != "worker" || !clientIDRE.MatchString(cfg.IdPProvisionerClientID)) {
+		errs = append(errs, errors.New("MG_IDP_PROVISIONER_CLIENT_ID: a client id ([a-z0-9-], at most 64) of the worker's IdP driver"))
+	}
+	cfg.Wired = cfg.Env != "dev" || strings.TrimSpace(getenv("MG_DB_URL")) != ""
+	if cfg.Wired && services[service] {
+		errs = append(errs, cfg.loadDependencies(getenv)...)
+	}
 	return cfg, errors.Join(errs...)
+}
+
+// loadDependencies reads and checks what a wired process needs (Config.Wired): the database roles of the service, the
+// keyrings, the edge admin listener, the domain and the per-service secret files. Errors name variables, never values.
+func (c *Config) loadDependencies(getenv func(string) string) []error {
+	var errs, e []error
+	c.DB, e = LoadDatabase(getenv)
+	errs = append(errs, e...)
+	if want := "mg_" + c.Service + "_tenant"; c.DB.TenantUser != "" && c.DB.TenantUser != want {
+		errs = append(errs, fmt.Errorf("MG_DB_TENANT_USER must be %s for the %s process (§6.1)", want, c.Service))
+	}
+	if want := "mg_" + c.Service + "_platform"; c.DB.PlatformUser != "" && c.DB.PlatformUser != want {
+		errs = append(errs, fmt.Errorf("MG_DB_PLATFORM_USER must be %s for the %s process (§6.1)", want, c.Service))
+	}
+	c.Edge, e = LoadEdgeAdmin(getenv)
+	errs = append(errs, e...)
+	if c.BaseDomain == "" {
+		errs = append(errs, errors.New("MG_BASE_DOMAIN is required (app., admin. and auth. host names)"))
+	}
+	if c.KEKAppDir == "" {
+		errs = append(errs, errors.New("MG_KEK_APP_DIR is required (keyring kek-app — §7.6)"))
+	}
+	c.AuditWriterPasswordFile = strings.TrimSpace(getenv("MG_DB_AUDIT_WRITER_PASSWORD_FILE"))
+	c.PartitionPasswordFile = strings.TrimSpace(getenv("MG_DB_PARTITION_PASSWORD_FILE"))
+	switch c.Service {
+	case "api":
+		if !filepath.IsAbs(c.AuditWriterPasswordFile) {
+			errs = append(errs, errors.New("MG_DB_AUDIT_WRITER_PASSWORD_FILE must be the absolute path of the "+
+				"mg_audit_writer password (api — P2-T08)"))
+		}
+		if c.PartitionPasswordFile != "" {
+			errs = append(errs, errors.New("MG_DB_PARTITION_PASSWORD_FILE: partition.maintain runs in the worker only"))
+		}
+	case "worker":
+		if c.KEKOpsDir == "" {
+			errs = append(errs, errors.New("MG_KEK_OPS_DIR is required for the worker (keyring kek-ops — §7.6)"))
+		}
+		if !filepath.IsAbs(c.PartitionPasswordFile) {
+			errs = append(errs, errors.New("MG_DB_PARTITION_PASSWORD_FILE must be the absolute path of the "+
+				"mg_partition_maint password (worker — §6.1)"))
+		}
+		if c.AuditWriterPasswordFile != "" {
+			errs = append(errs, errors.New("MG_DB_AUDIT_WRITER_PASSWORD_FILE: the worker has no detached audit path "+
+				"yet — a service declares only the secrets it uses (§14.2)"))
+		}
+	}
+	return errs
 }
 
 // parsePrefixes reads a comma-separated list of IP addresses (taken as single-address prefixes) and CIDRs.

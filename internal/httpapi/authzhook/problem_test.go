@@ -73,7 +73,7 @@ func TestIdentityProblemsThroughTheChain(t *testing.T) {
 		h, err := httpapi.New(httpapi.Options{
 			Logger:   logx.New(logs, slog.LevelInfo, "api"),
 			Handlers: httpapi.Handlers{Auth: identityapi.New(svc)},
-			Hooks:    authzhook.Hooks(svc, authz.New(s)),
+			Hooks:    unaudited(authzhook.Hooks(svc, authz.New(s))),
 		})
 		if err != nil {
 			t.Fatal(err)

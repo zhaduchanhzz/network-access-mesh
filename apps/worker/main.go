@@ -1,13 +1,17 @@
 // Command meshguard-worker runs background jobs: orchestrator, inventory sync, key rotation, backups (§4.2, §13.5).
 //
-// Without arguments it runs the worker. The only subcommand is kek-drill, the key ceremony drill (P2-T04a): it runs
-// once and exits, and starts no listener.
+// Without arguments it runs the worker. Subcommands run once and exit, and start no listener: kek-drill, the key
+// ceremony drill (P2-T04a); admin idp-bootstrap, the bootstrap of the keycloak IdP driver (P2-T05a/P2-T16 — admin.go);
+// healthcheck, the container healthcheck.
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/zhaduchanhzz/network-access-mesh/apps/internal/runner"
 )
@@ -23,10 +27,21 @@ func dispatch(args []string, stdout, stderr io.Writer, run func() int) int {
 	if len(args) == 0 {
 		return run()
 	}
-	if args[0] == "kek-drill" {
+	switch args[0] {
+	case "kek-drill":
 		return kekDrill(args[1:], stdout, stderr)
+	case "admin":
+		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		defer stop()
+		return admin(ctx, args[1:], os.Stdin, stdout, stderr, os.Getenv, os.Environ())
+	case "healthcheck":
+		if len(args) == 1 {
+			return runner.Healthcheck(os.Getenv, stdout)
+		}
 	}
 	_, _ = fmt.Fprint(stderr, "meshguard-worker: unknown subcommand\nusage: meshguard-worker            (run the worker)\n"+
-		"       meshguard-worker kek-drill --live <dir> --recovered <dir> [--keyring kek-app,kek-ops]\n")
+		"       meshguard-worker kek-drill --live <dir> --recovered <dir> [--keyring kek-app,kek-ops]\n"+
+		"       meshguard-worker admin idp-bootstrap --admin-username <name> [--adopt-realm <realm>]...\n"+
+		"       meshguard-worker healthcheck   (container healthcheck: /readyz of this process)\n")
 	return 2
 }

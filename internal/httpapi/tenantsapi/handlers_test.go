@@ -183,7 +183,7 @@ func TestRegistryReadsThroughTheChain(t *testing.T) {
 		Logger: logx.New(&strings.Builder{}, slog.LevelInfo, "api"),
 		Handlers: httpapi.Handlers{Auth: identityapi.New(svc),
 			Tenants: tenantsapi.New(tenants.New(st, tenants.Options{BaseDomain: "mg.test"}), platform.New(st))},
-		Hooks: authzhook.Hooks(svc, authz.New(st)),
+		Hooks: unaudited(authzhook.Hooks(svc, authz.New(st))),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -327,4 +327,11 @@ func TestRegistryReadsThroughTheChain(t *testing.T) {
 	anon := &browser{t: t, h: h, jar: map[string]map[string]string{}}
 	problemOf(t, "anonymous", anon.get(app+"/tenants"), 401, gen.ProblemCodeUnauthenticated)
 	problemOf(t, "anonymous platform", anon.get(admin+"/platform/tenants"), 401, gen.ProblemCodeUnauthenticated)
+}
+
+// unaudited completes the hooks of this test with an explicit pass-through Audit hook: httpapi.New requires one once
+// handlers are mounted (P2-T16); the audit of the composed API is tested by auditapi and the isolation suite.
+func unaudited(h httpapi.Hooks) httpapi.Hooks {
+	h.Audit = func(f gen.StrictHandlerFunc, _ string) gen.StrictHandlerFunc { return f }
+	return h
 }

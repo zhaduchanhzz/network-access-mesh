@@ -11,7 +11,8 @@ func adminEnv() map[string]string {
 		"MG_DB_URL": "postgres://postgres:5432/meshguard?sslmode=disable", "MG_DB_TENANT_USER": "mg_api_tenant",
 		"MG_DB_TENANT_PASSWORD_FILE": "/run/secrets/db_tenant", "MG_DB_PLATFORM_USER": "mg_api_platform",
 		"MG_DB_PLATFORM_PASSWORD_FILE": "/run/secrets/db_platform", "MG_EDGE_ADMIN_URL": "http://10.0.0.2:8081",
-		"MG_EDGE_ADMIN_TOKEN_FILE": "/run/secrets/edge_admin_token",
+		"MG_EDGE_ADMIN_TOKEN_FILE":         "/run/secrets/edge_admin_token",
+		"MG_DB_AUDIT_WRITER_PASSWORD_FILE": "/run/secrets/db_audit_writer_password",
 	}
 }
 
@@ -29,7 +30,8 @@ func TestLoadAdmin(t *testing.T) {
 		t.Fatal(err)
 	}
 	if a.BaseDomain != "example.test" || a.DB.TenantUser != "mg_api_tenant" || a.Edge.URL != "http://10.0.0.2:8081" ||
-		a.Edge.TokenFile != "/run/secrets/edge_admin_token" || a.Env != "staging" {
+		a.Edge.TokenFile != "/run/secrets/edge_admin_token" || a.Env != "staging" ||
+		a.AuditWriterPasswordFile != "/run/secrets/db_audit_writer_password" {
 		t.Fatalf("LoadAdmin = %+v", a)
 	}
 	// without the edge (register-platform-idp, set-idp-client-secret)
@@ -59,6 +61,8 @@ func TestLoadAdmin(t *testing.T) {
 		"edge URL with user":    func(e map[string]string) { e["MG_EDGE_ADMIN_URL"] = "http://u:p@10.0.0.2:8081" },
 		"relative token file":   func(e map[string]string) { e["MG_EDGE_ADMIN_TOKEN_FILE"] = "token" },
 		"bad env":               func(e map[string]string) { e["MG_ENV"] = "prod" },
+		"no audit writer":       func(e map[string]string) { delete(e, "MG_DB_AUDIT_WRITER_PASSWORD_FILE") },
+		"relative audit writer": func(e map[string]string) { e["MG_DB_AUDIT_WRITER_PASSWORD_FILE"] = "w" },
 	} {
 		env := adminEnv()
 		mod(env)

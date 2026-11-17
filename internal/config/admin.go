@@ -37,6 +37,10 @@ type Admin struct {
 	KEKAppDir  string     // MG_KEK_APP_DIR (required: the SecretStore of the api — kek-app)
 	DB         Database
 	Edge       EdgeAdmin // required when LoadAdmin is asked for it
+	// AuditWriterPasswordFile (MG_DB_AUDIT_WRITER_PASSWORD_FILE): the detached audit path of the api (P2-T08), through
+	// which the commands write their audit events to audit_events (P2-T16). Required outside dev; in dev without it
+	// the events go to the process log (provisioning.LogAuditor).
+	AuditWriterPasswordFile string
 }
 
 var loginRoleRE = regexp.MustCompile(`^mg_[a-z][a-z_]{0,39}$`)
@@ -105,7 +109,7 @@ func LoadAdmin(getenv func(string) string, environ []string, needEdge bool) (Adm
 		KEKAppDir:  strings.TrimSpace(getenv("MG_KEK_APP_DIR")),
 	}
 	if !envs[a.Env] {
-		errs = append(errs, fmt.Errorf("MG_ENV must be dev, staging or production, got %q", a.Env))
+		errs = append(errs, fmt.Errorf("MG_ENV must be dev, ci, staging or production, got %q", a.Env))
 	}
 	if err := a.LogLevel.UnmarshalText([]byte(withDefault(getenv("MG_LOG_LEVEL"), "info"))); err != nil {
 		errs = append(errs, fmt.Errorf("MG_LOG_LEVEL: %w", err))
@@ -122,6 +126,14 @@ func LoadAdmin(getenv func(string) string, environ []string, needEdge bool) (Adm
 	var e []error
 	a.DB, e = LoadDatabase(getenv)
 	errs = append(errs, e...)
+	a.AuditWriterPasswordFile = strings.TrimSpace(getenv("MG_DB_AUDIT_WRITER_PASSWORD_FILE"))
+	switch {
+	case a.AuditWriterPasswordFile != "" && !filepath.IsAbs(a.AuditWriterPasswordFile):
+		errs = append(errs, errors.New("MG_DB_AUDIT_WRITER_PASSWORD_FILE must be an absolute path"))
+	case a.AuditWriterPasswordFile == "" && a.Env != "dev":
+		errs = append(errs, errors.New("MG_DB_AUDIT_WRITER_PASSWORD_FILE is required outside dev: the admin commands "+
+			"write their audit events to audit_events (P2-T16)"))
+	}
 	if needEdge {
 		a.Edge, e = LoadEdgeAdmin(getenv)
 		errs = append(errs, e...)

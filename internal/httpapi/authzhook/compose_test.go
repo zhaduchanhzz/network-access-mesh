@@ -191,7 +191,7 @@ func TestComposedAPI(t *testing.T) {
 	h, err := httpapi.New(httpapi.Options{
 		Logger:   logx.New(logs, slog.LevelInfo, "api"),
 		Handlers: httpapi.Handlers{Auth: identityapi.New(svc)},
-		Hooks:    authzhook.Hooks(svc, authz.New(st)),
+		Hooks:    unaudited(authzhook.Hooks(svc, authz.New(st))),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -317,4 +317,11 @@ func TestComposedAPI(t *testing.T) {
 	if n != 0 {
 		t.Errorf("%d live sessions after logout", n)
 	}
+}
+
+// unaudited completes the hooks of this test with an explicit pass-through Audit hook: httpapi.New requires one once
+// handlers are mounted (P2-T16); the audit of the composed API is tested by auditapi and the isolation suite.
+func unaudited(h httpapi.Hooks) httpapi.Hooks {
+	h.Audit = func(f gen.StrictHandlerFunc, _ string) gen.StrictHandlerFunc { return f }
+	return h
 }

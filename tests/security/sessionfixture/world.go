@@ -80,7 +80,7 @@ type Options struct {
 type Mount struct {
 	// Handlers are the handler sets; a nil Auth set gets identityapi. Unmounted sets answer 501.
 	Handlers httpapi.Handlers
-	// Audit fills httpapi.Hooks.Audit (auditapi.Middleware); nil ⇒ no audit hook.
+	// Audit fills httpapi.Hooks.Audit (auditapi.Middleware); nil ⇒ a pass-through hook that records nothing.
 	Audit gen.StrictMiddlewareFunc
 	// Authorizer wraps the authorizer of the authz hook (a recorder of decisions); nil ⇒ authz.New(store) as is.
 	Authorizer func(authzhook.Authorizer) authzhook.Authorizer
@@ -298,6 +298,9 @@ func (w *World) compose(t testing.TB, opts Options) {
 	}
 	hooks := authzhook.Hooks(svc, authorizer)
 	hooks.Audit = m.Audit
+	if hooks.Audit == nil { // httpapi.New requires one (P2-T16): nil Mount.Audit keeps the fixture's API unaudited
+		hooks.Audit = func(f gen.StrictHandlerFunc, _ string) gen.StrictHandlerFunc { return f }
+	}
 	api, err := httpapi.New(httpapi.Options{Logger: log, Handlers: handlers, Hooks: hooks, RateLimits: limits})
 	if err != nil {
 		t.Fatal(err)

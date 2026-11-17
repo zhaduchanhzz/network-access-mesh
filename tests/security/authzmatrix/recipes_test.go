@@ -70,11 +70,11 @@ var recipes = map[string]recipe{
 	// audit (P2-T08, auditapi — mounted)
 	"listTenantAuditEvents":   {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
 	"listPlatformAuditEvents": {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
-	// jobs (P2-T12 backend; the HTTP handler set is deferred to P2-T16 — not mounted)
-	"listTenantJobs":   {},
-	"getTenantJob":     {},
-	"listPlatformJobs": {},
-	"getPlatformJob":   {},
+	// jobs (P2-T12 backend, jobsapi — mounted at P2-T16)
+	"listTenantJobs":   {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
+	"getTenantJob":     {ok: answer{status: http.StatusOK}},
+	"listPlatformJobs": {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
+	"getPlatformJob":   {ok: answer{status: http.StatusOK}},
 	// monitoring (P2-T13a, monitoringapi — mounted; reads only the database)
 	"getTenantDashboard": {ok: answer{status: http.StatusOK}},
 	"getPlatformHealth":  {ok: answer{status: http.StatusOK}},

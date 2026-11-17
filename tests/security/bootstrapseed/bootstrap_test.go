@@ -173,7 +173,7 @@ func TestSeededIdentitiesThroughTheComposedAPI(t *testing.T) {
 		Handlers: httpapi.Handlers{Auth: identityapi.New(w.Identity),
 			Tenants: tenantsapi.New(tenants.New(w.Store, tenants.Options{BaseDomain: "mg.test"}), platform.New(w.Store)),
 			Audit:   auditapi.New(audit.NewReader(w.Store))},
-		Hooks: authzhook.Hooks(w.Identity, authz.New(w.Store)), RateLimits: unlimited(),
+		Hooks: unaudited(authzhook.Hooks(w.Identity, authz.New(w.Store))), RateLimits: unlimited(),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -349,4 +349,11 @@ func do(h http.Handler, s *sessionfixture.Session, path string) *httptest.Respon
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, s.Request(context.Background(), http.MethodGet, path, nil))
 	return rec
+}
+
+// unaudited completes the hooks of this test with an explicit pass-through Audit hook: httpapi.New requires one once
+// handlers are mounted (P2-T16); the audit of the composed API is tested by auditapi and the isolation suite.
+func unaudited(h httpapi.Hooks) httpapi.Hooks {
+	h.Audit = func(f gen.StrictHandlerFunc, _ string) gen.StrictHandlerFunc { return f }
+	return h
 }

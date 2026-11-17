@@ -30,7 +30,9 @@ func TestStagingRequiresDomain(t *testing.T) {
 	if _, err := Load("worker", get, list); err == nil || !strings.Contains(err.Error(), "MG_BASE_DOMAIN") {
 		t.Fatalf("expected MG_BASE_DOMAIN error, got %v", err)
 	}
-	get, list = env(map[string]string{"MG_ENV": "staging", "MG_BASE_DOMAIN": "Example.COM"})
+	m := wiredEnv("worker")
+	m["MG_BASE_DOMAIN"] = "Example.COM"
+	get, list = env(m)
 	cfg, err := Load("worker", get, list)
 	if err != nil || cfg.BaseDomain != "example.com" {
 		t.Fatalf("Load = %+v, %v", cfg, err)
@@ -73,10 +75,13 @@ func TestTrustedProxies(t *testing.T) {
 		}
 	}
 	// Required for api outside dev; the worker has no public listener.
-	get, list = env(map[string]string{"MG_ENV": "staging", "MG_BASE_DOMAIN": "example.com"})
+	m := wiredEnv("api")
+	delete(m, "MG_TRUSTED_PROXIES")
+	get, list = env(m)
 	if _, err := Load("api", get, list); err == nil || !strings.Contains(err.Error(), "MG_TRUSTED_PROXIES is required") {
 		t.Errorf("api in staging without MG_TRUSTED_PROXIES: got %v", err)
 	}
+	get, list = env(wiredEnv("worker"))
 	if _, err := Load("worker", get, list); err != nil {
 		t.Errorf("worker in staging: %v", err)
 	}
@@ -175,5 +180,122 @@ func TestIdPEgress(t *testing.T) {
 		if _, err := Load("worker", get, list); err == nil {
 			t.Errorf("%s: expected an error", name)
 		}
+	}
+}
+
+// wiredEnv is a complete staging configuration of api or worker as the compose project mg-app renders it (P2-T16).
+func wiredEnv(service string) map[string]string {
+	m := map[string]string{
+		"MG_ENV": "staging", "MG_BASE_DOMAIN": "example.com", "MG_KEK_APP_DIR": "/run/secrets/kek-app",
+		"MG_DB_URL":         "postgres://postgres:5432/meshguard?sslmode=disable",
+		"MG_DB_TENANT_USER": "mg_" + service + "_tenant", "MG_DB_TENANT_PASSWORD_FILE": "/run/secrets/db_tenant_password",
+		"MG_DB_PLATFORM_USER": "mg_" + service + "_platform", "MG_DB_PLATFORM_PASSWORD_FILE": "/run/secrets/db_platform_password",
+		"MG_EDGE_ADMIN_URL": "http://10.249.2.2:8081", "MG_EDGE_ADMIN_TOKEN_FILE": "/run/secrets/edge_admin_token",
+		"MG_EGRESS_DENY_CIDRS": "10.249.0.0/16,10.250.0.0/16,172.24.0.0/13,192.0.2.0/24,198.51.100.7",
+		"MG_IDP_PLATFORM_ADDR": "10.249.0.2:443",
+	}
+	if service == "api" {
+		m["MG_TRUSTED_PROXIES"] = "10.249.0.2"
+		m["MG_DB_AUDIT_WRITER_PASSWORD_FILE"] = "/run/secrets/db_audit_writer_password"
+	} else {
+		m["MG_KEK_OPS_DIR"] = "/run/secrets/kek-ops"
+		m["MG_DB_PARTITION_PASSWORD_FILE"] = "/run/secrets/db_partition_password"
+	}
+	return m
+}
+
+// TestWiredDependencies: outside dev (and in dev once MG_DB_URL is set) a process is wired and every dependency is
+// required — the roles of its own service, both keyrings for the worker, the edge admin listener, the per-service
+// secret files, the egress deny list; a dev process without MG_DB_URL stays bare (P2-T16).
+func TestWiredDependencies(t *testing.T) {
+	for _, service := range []string{"api", "worker"} {
+		for _, e := range []string{"staging", "ci", "production"} {
+			m := wiredEnv(service)
+			m["MG_ENV"] = e
+			get, list := env(m)
+			cfg, err := Load(service, get, list)
+			if err != nil || !cfg.Wired || cfg.DB.TenantUser != "mg_"+service+"_tenant" || cfg.Edge.URL == "" {
+				t.Fatalf("%s/%s: %+v, %v", service, e, cfg, err)
+			}
+			if cfg.AppHost() != "app.example.com" || cfg.AdminHost() != "admin.example.com" ||
+				cfg.IdPPlatformHost() != "auth.example.com" {
+				t.Errorf("%s: hosts %q %q %q", service, cfg.AppHost(), cfg.AdminHost(), cfg.IdPPlatformHost())
+			}
+		}
+		for _, name := range []string{"MG_DB_URL", "MG_DB_TENANT_USER", "MG_DB_TENANT_PASSWORD_FILE", "MG_DB_PLATFORM_USER",
+			"MG_DB_PLATFORM_PASSWORD_FILE", "MG_EDGE_ADMIN_URL", "MG_EDGE_ADMIN_TOKEN_FILE", "MG_KEK_APP_DIR",
+			"MG_BASE_DOMAIN", "MG_EGRESS_DENY_CIDRS"} {
+			m := wiredEnv(service)
+			delete(m, name)
+			get, list := env(m)
+			if _, err := Load(service, get, list); err == nil || !strings.Contains(err.Error(), name) {
+				t.Errorf("%s without %s: %v", service, name, err)
+			}
+		}
+	}
+	for service, name := range map[string]string{"api": "MG_DB_AUDIT_WRITER_PASSWORD_FILE", "worker": "MG_DB_PARTITION_PASSWORD_FILE"} {
+		m := wiredEnv(service)
+		delete(m, name)
+		get, list := env(m)
+		if _, err := Load(service, get, list); err == nil || !strings.Contains(err.Error(), name) {
+			t.Errorf("%s without %s: %v", service, name, err)
+		}
+	}
+	m := wiredEnv("worker")
+	delete(m, "MG_KEK_OPS_DIR")
+	get, list := env(m)
+	if _, err := Load("worker", get, list); err == nil || !strings.Contains(err.Error(), "MG_KEK_OPS_DIR is required") {
+		t.Errorf("worker without kek-ops: %v", err)
+	}
+	for name, c := range map[string]struct {
+		service string
+		set     map[string]string
+		want    string
+	}{
+		"api with worker roles":      {"api", map[string]string{"MG_DB_TENANT_USER": "mg_worker_tenant"}, "MG_DB_TENANT_USER must be mg_api_tenant"},
+		"worker with api roles":      {"worker", map[string]string{"MG_DB_PLATFORM_USER": "mg_api_platform"}, "MG_DB_PLATFORM_USER must be mg_worker_platform"},
+		"api with partition role":    {"api", map[string]string{"MG_DB_PARTITION_PASSWORD_FILE": "/run/secrets/p"}, "worker only"},
+		"worker with audit writer":   {"worker", map[string]string{"MG_DB_AUDIT_WRITER_PASSWORD_FILE": "/run/secrets/a"}, "only the secrets it uses"},
+		"relative audit writer":      {"api", map[string]string{"MG_DB_AUDIT_WRITER_PASSWORD_FILE": "a"}, "MG_DB_AUDIT_WRITER_PASSWORD_FILE"},
+		"api with kek-ops":           {"api", map[string]string{"MG_KEK_OPS_DIR": "/run/secrets/kek-ops"}, "MG_KEK_OPS_DIR"},
+		"provisioner client for api": {"api", map[string]string{"MG_IDP_PROVISIONER_CLIENT_ID": "mg-provisioner"}, "MG_IDP_PROVISIONER_CLIENT_ID"},
+		"bad provisioner client":     {"worker", map[string]string{"MG_IDP_PROVISIONER_CLIENT_ID": "Bad Client"}, "MG_IDP_PROVISIONER_CLIENT_ID"},
+		"credentials in the DB URL":  {"api", map[string]string{"MG_DB_URL": "postgres://u:hunter2CANARY@db:5432/x"}, "MG_DB_URL"},
+		"trusted proxy range":        {"api", map[string]string{"MG_TRUSTED_PROXIES": "10.249.0.0/24"}, "single addresses"},
+		"edge plus a range":          {"api", map[string]string{"MG_TRUSTED_PROXIES": "10.249.0.2,10.249.0.0/24"}, "single addresses"},
+	} {
+		m := wiredEnv(c.service)
+		for k, v := range c.set {
+			m[k] = v
+		}
+		get, list := env(m)
+		_, err := Load(c.service, get, list)
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: %v (want %q)", name, err, c.want)
+		} else if strings.Contains(err.Error(), "hunter2CANARY") {
+			t.Errorf("%s: the error repeats the value: %v", name, err)
+		}
+	}
+	m = wiredEnv("worker")
+	m["MG_IDP_PROVISIONER_CLIENT_ID"] = "mg-provisioner-2"
+	get, list = env(m)
+	if cfg, err := Load("worker", get, list); err != nil || cfg.IdPProvisionerClientID != "mg-provisioner-2" {
+		t.Errorf("provisioner client id: %+v, %v", cfg, err)
+	}
+	// dev: bare without MG_DB_URL, wired (everything required) with it
+	get, list = env(map[string]string{})
+	if cfg, err := Load("worker", get, list); err != nil || cfg.Wired {
+		t.Errorf("dev without MG_DB_URL: wired %v, %v", cfg.Wired, err)
+	}
+	get, list = env(map[string]string{"MG_DB_URL": "postgres://postgres:5432/meshguard"})
+	if _, err := Load("api", get, list); err == nil || !strings.Contains(err.Error(), "MG_KEK_APP_DIR is required") {
+		t.Errorf("dev with MG_DB_URL only: %v", err)
+	}
+	m = wiredEnv("api")
+	m["MG_ENV"] = "dev"
+	delete(m, "MG_EGRESS_DENY_CIDRS")
+	get, list = env(m)
+	if cfg, err := Load("api", get, list); err != nil || !cfg.Wired {
+		t.Errorf("dev wired without deny list: wired %v, %v", cfg.Wired, err)
 	}
 }

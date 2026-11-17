@@ -92,6 +92,8 @@ jobs:
               curl -fsS http://127.0.0.1:19090/healthz
               curl -fsS http://127.0.0.1:19090/readyz
               curl -fsS http://127.0.0.1:19090/metrics | grep -q '^meshguard_build_info{'
+              # P2-T16: healthcheck của compose mg-app (distroless — không shell/curl) = /readyz của chính tiến trình
+              docker exec smoke /usr/local/bin/meshguard healthcheck
               docker logs smoke 2>&1 | tail -3
               docker rm -f smoke >/dev/null
               if [ "${{ matrix.image }}" = worker ]; then

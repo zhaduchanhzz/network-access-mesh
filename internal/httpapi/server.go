@@ -76,14 +76,25 @@ type server struct {
 	limiters map[Class]classLimiters
 }
 
-// New returns the handler of the public listener. Mounting a handler set without an Authz hook is refused: an
-// operation would otherwise be reachable without any permission check (deny by default, §8.4 invariant 4).
+// New returns the handler of the public listener. Mounting a handler set without the Authz, Session and Audit hooks is
+// refused (G2 wiring review, P2-T16): without Authz an operation would be reachable without any permission check (deny
+// by default, §8.4 invariant 4); without Session no principal is ever resolved (every authenticated operation would
+// rest on Authz alone, and the per-identity limit and access log lose the identity); without Audit the denials and
+// failures of layers 1–2 never reach audit_events (§8.8). A test that exercises handlers alone passes explicit
+// pass-through hooks — the omission is never silent.
 func New(opts Options) (http.Handler, error) {
 	if opts.Logger == nil {
 		return nil, errors.New("httpapi: Logger is required")
 	}
-	if opts.Handlers.mounted() && opts.Hooks.Authz == nil {
-		return nil, errors.New("httpapi: handlers are mounted but Hooks.Authz is nil — every operation would skip authorization")
+	if opts.Handlers.mounted() {
+		switch {
+		case opts.Hooks.Authz == nil:
+			return nil, errors.New("httpapi: handlers are mounted but Hooks.Authz is nil — every operation would skip authorization")
+		case opts.Hooks.Session == nil:
+			return nil, errors.New("httpapi: handlers are mounted but Hooks.Session is nil — no session would ever be resolved")
+		case opts.Hooks.Audit == nil:
+			return nil, errors.New("httpapi: handlers are mounted but Hooks.Audit is nil — denials and failures would never reach audit_events (§8.8)")
+		}
 	}
 	limiters, err := newLimiters(opts.RateLimits, opts.RateLimitKeys)
 	if err != nil {

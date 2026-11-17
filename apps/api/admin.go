@@ -9,8 +9,10 @@ package main
 //	bootstrap-super-admin  P2-T11a: make (platform IdP, sub) a Super Admin while fewer than 2 active Super Admins exist
 //	seed-membership        P2-T11a: make (the tenant's IdP, sub) Tenant Owner or Tenant Admin of a tenant
 //
-// They run on the host beside the api service (`docker compose -p mg-core run --rm -T api admin …`), with the api's
-// configuration (database roles mg_api_*, kek-app keyring, edge admin listener): see infrastructure/host/RUNBOOK.md.
+// They run on the host beside the api service (`docker compose -p mg-app run --rm --no-deps -T api admin …` — compose
+// project mg-app, P2-T16), with the api's configuration (database roles mg_api_*, kek-app keyring, edge admin
+// listener, the detached audit writer: their audit events go to audit_events — admin_audit.go): see
+// infrastructure/host/RUNBOOK.md.
 // A credential is read from stdin only, and stdin must be a pipe — never a terminal (echo, history), never a file
 // (disk), never an argument or an environment variable. Nothing prints or logs a credential; the output names
 // references (mgsec://…) and public key prefixes. bootstrap-super-admin and seed-membership take no credential: their
@@ -35,6 +37,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/zhaduchanhzz/network-access-mesh/internal/audit"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/config"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/headscale"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/headscale/locator"
@@ -207,6 +210,8 @@ type adminDeps struct {
 	st      *store.Store
 	secrets *secrets.Store
 	tenants *tenants.Service
+	writer  *store.AuditWriter // nil in dev without MG_DB_AUDIT_WRITER_PASSWORD_FILE
+	audit   *audit.Logger
 }
 
 func openDeps(ctx context.Context, aio adminIO, needEdge bool) (*adminDeps, error) {
@@ -234,13 +239,40 @@ func openDeps(ctx context.Context, aio adminIO, needEdge bool) (*adminDeps, erro
 		st.Close()
 		return nil, err
 	}
-	return &adminDeps{cfg: cfg, log: log, st: st, secrets: ss,
-		tenants: tenants.New(st, tenants.Options{BaseDomain: cfg.BaseDomain})}, nil
+	d := &adminDeps{cfg: cfg, log: log, st: st, secrets: ss,
+		tenants: tenants.New(st, tenants.Options{BaseDomain: cfg.BaseDomain})}
+	if cfg.AuditWriterPasswordFile != "" { // P2-T16: the events go to audit_events (required outside dev)
+		w, err := store.OpenAuditWriter(ctx, cfg.DB.URL, store.Credentials{User: store.AuditWriterRole,
+			PasswordFile: cfg.AuditWriterPasswordFile})
+		if err != nil {
+			st.Close()
+			return nil, err
+		}
+		d.writer = w
+		if d.audit, err = audit.New(st, w, audit.Config{Log: log}); err != nil {
+			d.close()
+			return nil, err
+		}
+	}
+	return d, nil
 }
 
+// close releases the pools of the command.
+func (d *adminDeps) close() {
+	if d.writer != nil {
+		d.writer.Close()
+	}
+	d.st.Close()
+}
+
+// auditor is where the command records its audit events: audit_events through internal/audit when the detached
+// writer is configured (always outside dev — P2-T16), the process log otherwise (dev).
 func (d *adminDeps) auditor(aio adminIO) provisioning.Auditor {
-	if aio.audit != nil {
+	switch {
+	case aio.audit != nil:
 		return aio.audit
+	case d.audit != nil:
+		return newDBAuditor(d.audit)
 	}
 	return provisioning.LogAuditor{Logger: d.log}
 }
@@ -314,7 +346,7 @@ func runAdoptInstance(ctx context.Context, args []string, aio adminIO) int {
 	if err != nil {
 		return fail(aio, cmd, err)
 	}
-	defer d.st.Close()
+	defer d.close()
 	tenantID := meta.TenantID
 	loc, err := locator.New(d.tenants, d.secrets, locator.Options{AdminURL: d.cfg.Edge.URL,
 		EdgeTokenFile: d.cfg.Edge.TokenFile, Logger: d.log})
@@ -432,7 +464,7 @@ func runRegisterPlatformIdP(ctx context.Context, args []string, aio adminIO) int
 	if err != nil {
 		return fail(aio, cmd, err)
 	}
-	defer d.st.Close()
+	defer d.close()
 	id, err := idpID(aio, "MG_IDP_ID_PLATFORM")
 	if err != nil {
 		return fail(aio, cmd, err)
@@ -485,7 +517,7 @@ func runSetIdPClientSecret(ctx context.Context, args []string, aio adminIO) int 
 	if err != nil {
 		return fail(aio, cmd, err)
 	}
-	defer d.st.Close()
+	defer d.close()
 	ia := &provisioning.IdPAdmin{Tenants: d.tenants, Secrets: d.secrets, Audit: d.auditor(aio), Log: d.log}
 	res, err := ia.SetClientSecret(ctx, id, secret)
 	if err != nil {

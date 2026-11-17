@@ -2,7 +2,8 @@
 """Stack dev/CI của P2-T01a + kiểm thử functional (`make e2e-functional` = `all`).
 
   python3 tests/e2e/harness/e2e.py all      up → test → down (down chạy cả khi lỗi); exit 0 ⇔ mọi ca PASS
-  python3 tests/e2e/harness/e2e.py up       render, secret, CA, network, khởi động stack, enroll 4 client
+  python3 tests/e2e/harness/e2e.py up       build api/worker từ cây, render, secret, CA, network, khởi động stack (gồm
+                                            backend mg-app: db-bootstrap, migrate, api, worker), enroll 4 client
   python3 tests/e2e/harness/e2e.py test     chạy các ca trên stack đang chạy (chạy lại được)
   python3 tests/e2e/harness/e2e.py down     lưu log (đã che secret) rồi gỡ mọi đối tượng mang tiền tố
   python3 tests/e2e/harness/e2e.py render   chỉ render (không cần Docker) vào <work>/render để xem
@@ -24,6 +25,7 @@ except ImportError:            # Windows: only `render` is useful there
     fcntl = None
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import backend  # noqa: E402 — E2E-17 … E2E-25 (P2-T16)
 import checks  # noqa: E402
 from stack import CLIENTS, SECRET_RE, TENANTS, Stack, StackError, log  # noqa: E402
 
@@ -59,8 +61,10 @@ def ensure_users(st: Stack) -> None:
 
 
 def up(st: Stack) -> None:
-    with timed("chuẩn bị (render, secret, CA nội bộ, network)"):
+    with timed("build image api/worker từ cây (infrastructure/docker/app/Dockerfile)"):
         st.teardown(quiet=True)
+        st.build_app_images()
+    with timed("chuẩn bị (render, secret, CA nội bộ, network)"):
         shutil.rmtree(st.out, ignore_errors=True)       # kết quả của lượt trước
         st.work.mkdir(parents=True, exist_ok=True)
         (st.work / "state").mkdir(exist_ok=True)
@@ -94,6 +98,18 @@ def up(st: Stack) -> None:
         for slug in TENANTS:
             st.docker("network", "connect", st.name(f"t-{slug}"), st.name("edge"))
         log("edge gắn vào " + ", ".join(st.name(f"t-{s}") for s in TENANTS) + " (không reload Caddy)")
+    with timed("backend mg-app: db-bootstrap, migrate (job một lần), api + worker"):
+        state = {}
+        for job, profile in (("db-bootstrap", "bootstrap"), ("migrate", "migrate")):
+            p = st.compose("--profile", profile, "run", "--rm", "--no-TTY", job, check=False, timeout=600)
+            if p.returncode != 0:
+                raise StackError(f"{job} thất bại:\n" + st.redact(p.stderr + p.stdout)[-2000:])
+            line = next(ln for ln in reversed(p.stdout.strip().splitlines()) if ln.startswith("{"))
+            state[profile] = json.loads(line)
+            log(f"{job}: {line[:300]}")
+        (st.work / "state" / "backend.json").write_text(json.dumps(state), encoding="utf-8")
+        st.compose("up", "-d", "--wait", "--wait-timeout", "240", "api", "worker", timeout=300)
+        log("api, worker healthy (/readyz: postgres, secretstore, edge_admin)")
     with timed("chờ IdP healthy"):
         st.compose("up", "-d", "--wait", "--wait-timeout", "420", "idp-db", "idp", timeout=480)
     with timed("enroll 4 client (pre-auth key một lần)"):
@@ -113,9 +129,9 @@ def guarded(r: checks.Results, tid: str, fn, *args):
     """Run one check; an error inside it is that check's FAIL, the next checks still run."""
     try:
         return fn(r, *args)
-    except (StackError, OSError, ValueError, KeyError, StopIteration) as e:
+    except (StackError, OSError, ValueError, KeyError, StopIteration, IndexError, TypeError, AttributeError) as e:
         r.add(tid, f"{fn.__name__}: lỗi khi chạy ca", False, f"{type(e).__name__}: {e}")
-        return None
+        return False
 
 
 def test(st: Stack, r: checks.Results) -> None:
@@ -155,6 +171,8 @@ def test(st: Stack, r: checks.Results) -> None:
         guarded(r, "E2E-14", checks.check_cross_tenant_key, st)
     with timed("ca E2E-15 (policy deny)"):
         guarded(r, "E2E-15", checks.check_deny, st, ips)
+    with timed("ca E2E-17 … E2E-25 (backend P2-T16: api/worker, edge app./admin./auth., OIDC + TOTP, adopt, thiết bị, audit)"):
+        backend.run_all(r, st, guarded)
 
 
 def versions(st: Stack) -> dict[str, str]:
@@ -164,6 +182,7 @@ def versions(st: Stack) -> dict[str, str]:
     return {"headscale": first("exec", st.name("hs-tenant-a"), "headscale", "version"),
             "tailscale": first("exec", st.name("ts-b1"), "tailscale", "version"),
             "caddy (edge)": first("exec", st.name("edge"), "caddy", "version"),
+            "api": st.app_images[0][:19], "worker": st.app_images[1][:19],
             "postgres": first("exec", st.name("postgres"), "postgres", "--version"),
             "docker": first("version", "--format", "{{.Server.Version}}"),
             "compose": first("compose", "version", "--short")}

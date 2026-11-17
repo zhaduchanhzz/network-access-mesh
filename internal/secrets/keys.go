@@ -269,7 +269,7 @@ func (s *Store) DestroyExpired(ctx context.Context) (int64, error) {
 // when a keyring lacks a KEK the database needs or holds a different key under the same kek_id. It is the
 // "SecretStore (giải mã thử)" readiness check of §16.2 and the reload drill of P2-T04a.
 func (s *Store) Probe(ctx context.Context) error {
-	return s.db.WithPlatformTx(ctx, func(q *sqlcdb.Queries) error {
+	err := s.db.WithPlatformTx(ctx, func(q *sqlcdb.Queries) error {
 		rows, err := q.ListDEKProbes(ctx)
 		if err != nil {
 			return fmt.Errorf("secrets: probe: %w", err)
@@ -288,6 +288,8 @@ func (s *Store) Probe(ctx context.Context) error {
 		}
 		return nil
 	})
+	s.reportIntegrity(ctx, "probe", Ref{}, err)
+	return err
 }
 
 // KEKUse is the number of live DEKs of one scope wrapped by one KEK.

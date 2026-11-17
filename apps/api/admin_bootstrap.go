@@ -38,7 +38,7 @@ func runBootstrapSuperAdmin(ctx context.Context, args []string, aio adminIO) int
 	if err != nil {
 		return fail(aio, cmd, err)
 	}
-	defer d.st.Close()
+	defer d.close()
 	b := &provisioning.Bootstrapper{Store: d.st, Log: d.log}
 	res, err := b.BootstrapSuperAdmin(ctx, provisioning.SuperAdminRequest{PlatformIdP: idp, Subject: *subject,
 		DisplayName: *name})
@@ -92,7 +92,7 @@ func runSeedMembership(ctx context.Context, args []string, aio adminIO) int {
 	if err != nil {
 		return fail(aio, cmd, err)
 	}
-	defer d.st.Close()
+	defer d.close()
 	b := &provisioning.Bootstrapper{Store: d.st, Log: d.log}
 	res, err := b.SeedMembership(ctx, provisioning.MembershipRequest{Tenant: *tenant, Role: *role, Subject: *subject,
 		DisplayName: *name})

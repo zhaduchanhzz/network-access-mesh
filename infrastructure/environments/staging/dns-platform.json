@@ -1,0 +1,44 @@
+[
+  {
+    "type": "A",
+    "name": "app.${MG_BASE_DOMAIN}",
+    "content": "${MG_PUBLIC_IPV4}",
+    "ttl": 300
+  },
+  {
+    "type": "A",
+    "name": "auth.${MG_BASE_DOMAIN}",
+    "content": "${MG_PUBLIC_IPV4}",
+    "ttl": 300
+  },
+  {
+    "type": "CAA",
+    "name": "app.${MG_BASE_DOMAIN}",
+    "ttl": 3600,
+    "data": {
+      "flags": 0,
+      "tag": "issue",
+      "value": "letsencrypt.org; validationmethods=dns-01; accounturi=${MG_ACME_ACCOUNT_URI}"
+    }
+  },
+  {
+    "type": "CAA",
+    "name": "auth.${MG_BASE_DOMAIN}",
+    "ttl": 3600,
+    "data": {
+      "flags": 0,
+      "tag": "issue",
+      "value": "letsencrypt.org; validationmethods=dns-01; accounturi=${MG_ACME_ACCOUNT_URI}"
+    }
+  },
+  {
+    "type": "CAA",
+    "name": "admin.${MG_BASE_DOMAIN}",
+    "ttl": 3600,
+    "data": {
+      "flags": 0,
+      "tag": "issue",
+      "value": "letsencrypt.org; validationmethods=dns-01; accounturi=${MG_ACME_ACCOUNT_URI}"
+    }
+  }
+]

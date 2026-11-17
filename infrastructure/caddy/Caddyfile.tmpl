@@ -3,9 +3,14 @@
 # - Site public chỉ bind IP tĩnh của edge trên mg-edge (${edge_ip}); cổng publish của host DNAT tới IP này (V-30).
 # - Listener nội bộ: admin trên mg-admin (${edge_admin_ip}:${admin_port}), metrics trên mg-obs (${edge_obs_ip}:${metrics_port}).
 # - Listener tunnel-facing (VPS gateway — §14.6, GW-02): ${tunnel_summary}
+# - Site của nền tảng (P2-T16, §8.3, §15.4): app.${base_domain} (LAN-direct + tunnel-facing) → api, auth.${base_domain}
+#   (LAN-direct + tunnel-facing) → idp, admin.${base_domain} CHỈ LAN-direct (không bao giờ trên listener tunnel-facing)
+#   và chỉ từ ${admin_allow}. Admin REST API và realm master của Keycloak chỉ từ worker (${worker_edge_ip}) trên
+#   listener LAN-direct.
 # - Không có giá trị secret nào trong file: token DNS, khóa bouncer, token admin/metrics chỉ được tham chiếu bằng
 #   placeholder {file.*}, Caddy đọc file lúc provision hoặc lúc so khớp (secret dạng file — §14.2).
-# - CrowdSec ở chế độ chỉ-quan-sát tới G1 (app crowdsec kết nối LAPI nhưng chưa route nào dùng handler crowdsec).
+# - CrowdSec ở chế độ chỉ-quan-sát (app crowdsec kết nối LAPI, chưa route nào dùng handler crowdsec; mọi site public
+#   ghi cùng access log mà CrowdSec đọc) — bật chặn là quyết định riêng (P6-T07b).
 {
 	admin unix//run/caddy/admin.sock
 	persist_config off
@@ -56,13 +61,53 @@ ${tunnel_servers}	servers {
 	}
 }
 
-# Control plane + DERP của mọi tenant: <slug>.${mesh_domain} → hs-<slug>:8080 trên network riêng của tenant.
-*.${mesh_domain}${tunnel_tls_site} {
-	import access_log
-${tunnel_guard}	tls {
+# Chứng chỉ công khai qua ACME DNS-01 (không cần inbound — §15.4): wildcard *.${mesh_domain} và app./admin./auth.
+(tls_acme) {
+	tls {
 		dns cloudflare {file./run/secrets/cloudflare_dns_token}
 		resolvers ${dns_resolvers}
 	}
+}
+
+# Site của nền tảng (app., admin., auth. — P2-T16): nguồn thuộc pool tenant (container Headscale không bao giờ gọi
+# edge — §14.3 kiểm soát (3)) và path có "\" bị chặn trước mọi route; HSTS, nosniff; không lộ header Server.
+(platform_site) {
+	@from_tenant_pool remote_ip ${tenant_pool}
+	@unsafe_path path_regexp unsafe \x5c
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		-Server
+		defer
+	}
+}
+
+# Portal/Console (app., admin.): trang và API cùng origin, không nhúng frame, không referrer.
+(portal_headers) {
+	header {
+		Content-Security-Policy "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'"
+		X-Frame-Options DENY
+		Referrer-Policy no-referrer
+		defer
+	}
+}
+
+# Header gửi lên upstream của nền tảng: Host giữ nguyên (api chọn origin theo Host; Keycloak theo X-Forwarded-Host),
+# X-Forwarded-For/-Proto/-Host do edge đặt (client không phải trusted proxy ⇒ Caddy ghi đè), header nội bộ X-MG-* và
+# header IP do client tự gửi không bao giờ đi tiếp.
+(upstream_headers) {
+	header_up -X-MG-Token
+	header_up -X-MG-Instance
+	header_up -X-Mg-*
+	header_up -X-Real-IP
+	header_up -True-Client-IP
+	header_up -Forwarded
+}
+
+# Control plane + DERP của mọi tenant: <slug>.${mesh_domain} → hs-<slug>:8080 trên network riêng của tenant.
+*.${mesh_domain}${tunnel_tls_site} {
+	import access_log
+${tunnel_guard}	import tls_acme
 
 	# Nhãn tenant = capture group của regex slug neo vào hậu tố .${mesh_domain} (không dùng {labels.N} — EG-03).
 	# Allow-list path (§14.6); mọi path khác — gồm /api/*, /swagger*, /verify, /version, /health, /metrics — là 404.
@@ -108,6 +153,73 @@ Disallow: /
 	}
 }
 
+# Tenant Portal + SaaS API (§8.3, §15.1): app.${base_domain} — LAN-direct và tunnel-facing (public qua VPS). /api/* →
+# api:8080 trên mg-edge (api chỉ nhận request từ IP của edge — MG_TRUSTED_PROXIES); path khác ⇒ 404 tới khi có web UI
+# (Phase 4). Thứ tự xử lý tường minh trong `route` (không phụ thuộc cách Caddy sắp các `handle`).
+app.${base_domain}${tunnel_app_site} {
+	import access_log
+	import tls_acme
+	import platform_site
+	import portal_headers
+${tunnel_guard_matcher}	route {
+${tunnel_guard_abort}		abort @from_tenant_pool
+		respond @unsafe_path 404
+		reverse_proxy /api/* api.:8080 {
+			import upstream_headers
+		}
+		respond 404
+	}
+}
+
+# Platform Console (§8.3, §15.1): admin.${base_domain} — CHỈ listener LAN-direct (site này không có địa chỉ
+# tunnel-facing nên không tồn tại trên server của listener đó) và chỉ từ ${admin_allow}; nguồn khác ⇒ đóng kết nối.
+# DNS công khai không có bản ghi admin (§15.4).
+admin.${base_domain} {
+	import access_log
+	import tls_acme
+	import platform_site
+	import portal_headers
+	@outside_admin not remote_ip ${admin_allow}
+	route {
+		abort @from_tenant_pool
+		abort @outside_admin
+		respond @unsafe_path 404
+		reverse_proxy /api/* api.:8080 {
+			import upstream_headers
+		}
+		respond 404
+	}
+}
+
+# IdP của nền tảng (§8.2): auth.${base_domain} → idp:8080 (Keycloak; cổng quản trị 9000 không bao giờ được định tuyến).
+# Công khai chỉ endpoint OIDC + trang đăng nhập của các realm (/realms/*, /resources/*), TRỪ realm master. Admin REST
+# API (/admin/realms/*) và realm master (token của danh tính provisioning, break-glass) CHỈ từ worker
+# (${worker_edge_ip} — IdP driver, P2-T05a) và chỉ trên listener LAN-direct này; console /admin/ không bao giờ.
+auth.${base_domain} {
+	import access_log
+	import tls_acme
+	import platform_site
+	@idp_worker {
+		remote_ip ${worker_edge_ip}
+		path /admin/realms /admin/realms/* /realms/master /realms/master/*
+	}
+	@idp_public {
+		path /realms/* /resources/*
+		not path /realms/master /realms/master/*
+	}
+	route {
+		abort @from_tenant_pool
+		respond @unsafe_path 404
+		reverse_proxy @idp_worker idp.:8080 {
+			import upstream_headers
+		}
+		reverse_proxy @idp_public idp.:8080 {
+			import upstream_headers
+		}
+		respond 404
+	}
+}
+${tunnel_auth_site}
 # :80 — /generate_204 trả 204 (kiểm captive portal của client; vang lại challenge như derper), còn lại chuyển
 # HTTPS bằng phản hồi nhanh khác 101 (EG-07).
 http://${tunnel_http_site} {

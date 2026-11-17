@@ -1,4 +1,6 @@
 # Stack dev/CI P2-T01a (compose.yaml ở gốc repo, tests/e2e/harness): PostgreSQL (migration bằng store.MigrateAll),
+# backend P2-T16 (image api/worker build từ cây, project mg-app render bằng tools/render_app.py: db-bootstrap, migrate,
+# api, worker — E2E-17…E2E-25: edge app./admin./auth., đăng nhập OIDC có TOTP, adopt, đồng bộ thiết bị, audit),
 # Keycloak với 3 realm, edge render từ Caddyfile thật (TLS từ CA nội bộ sinh mới mỗi lượt — CHỈ cho CI), 2 Headscale
 # (render bằng tools/render_instance.py), stund, 4 client Tailscale chính thức pin digest; chạy E2E-01…E2E-16. Mọi kết
 # quả chỉ là "functional" (client và Headscale cùng một host — HS-24, §22.1), không bao giờ "network E2E verified".
@@ -15,13 +17,17 @@ on:
             "infrastructure/caddy/**", "infrastructure/headscale/templates/**", "infrastructure/idp/**",
             "infrastructure/compose/compose.edge.yaml.tmpl", "infrastructure/compose/compose.idp.yaml.tmpl",
             "tools/mgenv.py", "tools/render_instance.py", "tools/render_edge.py", "tools/render_idp.py", "database/**",
-            "internal/store/**", "versions.lock", "Makefile", ".github/workflows/e2e-functional.yml"]
+            "internal/store/**", "versions.lock", "Makefile", ".github/workflows/e2e-functional.yml",
+            "apps/**", "internal/**", "go.mod", "go.sum", "infrastructure/docker/app/**",
+            "infrastructure/compose/compose.app.yaml.tmpl", "tools/render_app.py"]
   pull_request:
     paths: ["compose.yaml", "tests/e2e/**", "tests/security/edge/conformance.py", "infrastructure/environments/ci/**",
             "infrastructure/caddy/**", "infrastructure/headscale/templates/**", "infrastructure/idp/**",
             "infrastructure/compose/compose.edge.yaml.tmpl", "infrastructure/compose/compose.idp.yaml.tmpl",
             "tools/mgenv.py", "tools/render_instance.py", "tools/render_edge.py", "tools/render_idp.py", "database/**",
-            "internal/store/**", "versions.lock", "Makefile", ".github/workflows/e2e-functional.yml"]
+            "internal/store/**", "versions.lock", "Makefile", ".github/workflows/e2e-functional.yml",
+            "apps/**", "internal/**", "go.mod", "go.sum", "infrastructure/docker/app/**",
+            "infrastructure/compose/compose.app.yaml.tmpl", "tools/render_app.py"]
   workflow_dispatch:
 
 permissions:
@@ -30,7 +36,7 @@ permissions:
 jobs:
   e2e-functional:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 50   # + build image api/worker từ cây (P2-T16)
     env:
       E2E_PREFIX: mge2e
       E2E_KEEP_CACHE: "0"
@@ -44,7 +50,7 @@ jobs:
           docker compose version
           openssl version
           python3 --version
-      - name: make e2e-functional (dựng → E2E-01…E2E-16 → gỡ; kết quả chỉ "functional")
+      - name: make e2e-functional (dựng → E2E-01…E2E-25 → gỡ; kết quả chỉ "functional")
         # context `runner` chỉ dùng được ở cấp step — đặt ở `env` của job làm GitHub từ chối cả file workflow
         env:
           E2E_WORK: ${{ runner.temp }}/e2e-work

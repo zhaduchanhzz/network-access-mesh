@@ -450,6 +450,24 @@ func TestHooks(t *testing.T) {
 	if _, err := New(Options{Logger: discardLogger(), Handlers: Handlers{Tenants: &probe{}}}); err == nil {
 		t.Fatal("New accepted mounted handlers without Hooks.Authz")
 	}
+	// P2-T16 (G2 wiring review): Session and Audit are required as well once handlers are mounted.
+	for name, h := range map[string]Hooks{
+		"Hooks.Session": {Authz: passAuthz, Audit: passAuthz},
+		"Hooks.Audit":   {Authz: passAuthz, Session: passSession},
+		"Hooks.Authz":   {Session: passSession, Audit: passAuthz},
+	} {
+		_, err := New(Options{Logger: discardLogger(), Handlers: Handlers{Tenants: &probe{}}, Hooks: h})
+		if err == nil || !strings.Contains(err.Error(), name+" is nil") {
+			t.Errorf("without %s: %v", name, err)
+		}
+	}
+	if _, err := New(Options{Logger: discardLogger(), Handlers: Handlers{Tenants: &probe{}},
+		Hooks: Hooks{Authz: passAuthz, Session: passSession, Audit: passAuthz}}); err != nil {
+		t.Errorf("all three hooks: %v", err)
+	}
+	if _, err := New(Options{Logger: discardLogger()}); err != nil {
+		t.Errorf("no handler mounted (bare process): %v", err)
+	}
 
 	var (
 		mu    sync.Mutex

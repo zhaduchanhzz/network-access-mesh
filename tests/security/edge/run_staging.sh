@@ -69,6 +69,18 @@ else
   echo "== no tunnel-facing listener published (template_version < 3 or Local Development only)"
 fi
 
+# Sites of the platform (P2-T16 — template_version ≥ 5): from a container on mg-edge (not the worker: Admin API of the
+# IdP refused; source outside MG_LAN_CIDR: admin. aborted) and, when published, through the tunnel-facing listener
+# only as tunnel-reject above. Skipped while the api/idp are not deployed (mg-app, mg-idp).
+BASE=${DOMAIN#mesh.}
+if docker ps --format '{{.Names}}' | grep -q '^mg-app-api-1$' && docker ps --format '{{.Names}}' | grep -q '^mg-idp-idp-1$'; then
+  echo "== platform sites app./admin./auth.$BASE from a container on mg-edge"
+  run "$PP" platform --edge 10.249.0.2 --domain "$BASE" --admin refused
+  [ -n "$TUN" ] && run "$PP" tunnel-reject --targets 10.249.0.2:8443 --sni "admin.$BASE"
+else
+  echo "== platform sites skipped (mg-app api or mg-idp idp not running)"
+fi
+
 if [ -n "$TENANTS" ]; then
   T=${TENANTS%%,*}
   echo "== real API key of $T (1 h, expired right after)"
