@@ -326,16 +326,24 @@ def check_edge_api(r, st: Stack) -> None:
     rid_ok = s.header("X-Request-Id") not in ("", "bad id") and p.get("request_id") == s.header("X-Request-Id")
     root = b.get(f"https://app.{st.domain}/")
     adm = b.get(f"https://admin.{st.domain}/api/v1/auth/session")
-    # another member of mg-edge calling the api directly (not through the edge) ⇒ 403 from the api itself
-    direct = st.docker("run", "--rm", "--name", st.name("direct"), "--network", st.name("edge"), "--read-only",
-                       "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true", st.images["alpine"], "sh", "-c",
+    # another member of mg-edge calling the api directly (not through the edge) ⇒ 403 from the api itself; the same
+    # container asking for admin. with the real SNI (its address is outside admin_allow) ⇒ the edge closes the
+    # connection: wget fails and no HTTP status line comes back. Decided on the exit code and the absence of a status
+    # line — never on a substring of the error text (OpenSSL prefixes its errors with a random hex thread id).
+    admin_host = "admin." + st.domain
+    direct = st.docker("run", "--rm", "--name", st.name("direct"), "--network", st.name("edge"), "--add-host",
+                       f"{admin_host}:{st.edge_ip}", "--read-only", "--cap-drop", "ALL", "--security-opt",
+                       "no-new-privileges:true", st.images["alpine"], "sh", "-c",
                        "wget -q -S -O /dev/null http://api:8080/api/v1/auth/session 2>&1 | head -1; "
-                       "wget -q -S -O /dev/null --header 'Host: admin." + st.domain + "' https://"
-                       + st.edge_ip + "/ --no-check-certificate 2>&1 | head -1 || true", check=False, timeout=60)
+                       f"o=$(wget -q -S -O /dev/null --no-check-certificate https://{admin_host}/api/v1/auth/session 2>&1); "
+                       'echo "admin rc=$? $(printf %s "$o" | grep -m1 "HTTP/" || printf %s "$o" | head -1)"',
+                       check=False, timeout=60)
     lines = direct.stdout.strip().splitlines()
+    admin_refused = (len(lines) == 2 and lines[1].startswith("admin rc=") and not lines[1].startswith("admin rc=0 ")
+                     and "HTTP/" not in lines[1])
     ok = (s.status == 401 and p.get("code") == "unauthenticated" and s.header("Content-Type").startswith("application/problem+json")
           and hdr_ok and rid_ok and root.status == 404 and adm.status == 401 and lines and "403" in lines[0]
-          and (len(lines) < 2 or "200" not in lines[1]))
+          and admin_refused)
     r.add("E2E-18", "Edge → api: GET https://app./api/v1/auth/session không session ⇒ 401 problem+json (HSTS, nosniff, "
           "CSP, không Server, X-Request-Id sinh mới — không lặp giá trị client); admin. từ nguồn được phép ⇒ 401; "
           "container khác trên mg-edge gọi thẳng api:8080 ⇒ 403 (chỉ edge); admin. từ nguồn khác ⇒ đóng kết nối", ok,
