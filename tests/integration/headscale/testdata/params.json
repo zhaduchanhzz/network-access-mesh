@@ -1,0 +1,16 @@
+{
+  "tenant_id": "11111111-1111-4111-8111-111111111111",
+  "instance_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+  "slug": "hsct",
+  "base_domain": "contract.test",
+  "net_cidr": "10.250.254.248/29",
+  "run_uid": 30001,
+  "derp_region_id": 901,
+  "derp_ipv4": "192.0.2.10",
+  "node_expiry": "720h",
+  "nameservers": ["192.0.2.53"],
+  "image": "docker.io/headscale/headscale@sha256:11f81665e842809db9fe3006a38c56a66e968baa5abd4bac498e86445572b970",
+  "mem_limit": "512m",
+  "cpus": "1.0",
+  "pids_limit": 256
+}

@@ -114,6 +114,18 @@ func TestRequestIDFromContext(t *testing.T) {
 	}
 }
 
+func TestRedactString(t *testing.T) {
+	const canary = "CANARY-7f3a9c1e"
+	in := "expire hskey-api-prefix1-" + canary + " and hskey-authreq-" + canary + " but keep this"
+	out := RedactString(in)
+	if strings.Contains(out, canary) || !strings.HasSuffix(out, "but keep this") || strings.Count(out, Redacted) != 2 {
+		t.Fatalf("RedactString = %q", out)
+	}
+	if got := RedactString("no credential here"); got != "no credential here" {
+		t.Fatalf("RedactString changed a clean string: %q", got)
+	}
+}
+
 func TestParseLevel(t *testing.T) {
 	for in, want := range map[string]slog.Level{"debug": slog.LevelDebug, "info": slog.LevelInfo, "warn": slog.LevelWarn, "error": slog.LevelError} {
 		got, err := ParseLevel(in)

@@ -1,0 +1,21 @@
+panic: RegistrationData can only be used in registration requests
+
+goroutine 299 [running]:
+github.com/juanfont/headscale/hscontrol/types.(*AuthRequest).RegistrationData(0x2c00bf966480?)
+	/home/runner/work/headscale/headscale/hscontrol/types/common.go:364 +0xf9
+github.com/juanfont/headscale/hscontrol/state.(*State).HandleNodeFromAuthPath(0x2c00bf632f00, {0x2c00bf9a02d0, 0x26}, 0x1, 0x0?, {0x1a5c624, 0x3})
+	/home/runner/work/headscale/headscale/hscontrol/state/state.go:2406 +0x1b2
+github.com/juanfont/headscale/hscontrol.headscaleV1APIServer.RegisterNode({{}, 0x0?}, {0x0?, 0x0?}, 0x2c00bfe0f848)
+	/home/runner/work/headscale/headscale/hscontrol/grpcv1.go:261 +0x2fe
+github.com/juanfont/headscale/hscontrol.headscaleV1APIServer.AuthRegister({{}, 0x35dcb90?}, {0x34229c0?, 0x2c00bf813440?}, 0x334fcd8?)
+	/home/runner/work/headscale/headscale/hscontrol/grpcv1.go:914 +0x85
+github.com/juanfont/headscale/gen/go/headscale/v1._HeadscaleService_AuthRegister_Handler({0x33ea220, 0x2c00bf611980}, {0x34229c0, 0x2c00bf813440}, 0x2c00bfe89180, 0x0)
+	/home/runner/work/headscale/headscale/gen/go/headscale/v1/headscale_grpc.pb.go:881 +0x1c6
+google.golang.org/grpc.(*Server).processUnaryRPC(0x2c00bf8e9688, {0x34229c0, 0x2c00bf813290}, 0x2c00bf972000, 0x2c00bf8ec720, 0x3603e58, 0x0)
+	/home/runner/go/pkg/mod/google.golang.org/grpc@v1.83.2/server.go:1443 +0x1207
+google.golang.org/grpc.(*Server).handleStream(0x2c00bf8e9688, {0x3423360, 0x2c00bfa58000}, 0x2c00bf972000)
+	/home/runner/go/pkg/mod/google.golang.org/grpc@v1.83.2/server.go:1858 +0xb07
+google.golang.org/grpc.(*Server).serveStreams.func2.1()
+	/home/runner/go/pkg/mod/google.golang.org/grpc@v1.83.2/server.go:1078 +0x7f
+created by google.golang.org/grpc.(*Server).serveStreams.func2 in goroutine 42
+	/home/runner/go/pkg/mod/google.golang.org/grpc@v1.83.2/server.go:1089 +0x127
