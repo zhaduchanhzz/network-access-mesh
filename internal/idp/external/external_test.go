@@ -209,6 +209,102 @@ func TestEnsureClient(t *testing.T) {
 
 func withClient(r idp.Registration, id string) idp.Registration { r.ClientID = id; return r }
 
+// codeNotOwned is idp.CodeSecretRefNotOwned (G2 F3), spelled out so the test also pins the stable code.
+const codeNotOwned = idp.Code("secret_ref_not_owned")
+
+// TestClientSecretRefMustBeTheIdPsOwn — G2 F3: the stored client_secret_ref is only used when it names the IdP's own
+// client secret (owner = the IdP's tenant, or platform for the platform IdP; name idp.<id>.client or
+// idp-client-secret.<id>). Any other reference — another tenant's Headscale API key, a platform secret on a tenant
+// IdP, the tenant's own Headscale key, another IdP's client secret, a tenant secret on the platform IdP — is refused
+// with secret_ref_not_owned before the SecretStore is touched: EnsureClient reads nothing and writes nothing,
+// RemoveIssuer purge destroys nothing. Disabling (no secret involved) still works; the IdP's own references work.
+func TestClientSecretRefMustBeTheIdPsOwn(t *testing.T) {
+	st, rec := idptest.NewSecrets(), &idptest.Security{}
+	h, err := idp.NewHardened(idp.HardenedConfig{}) // nothing below reaches the network
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := external.New(external.Config{Client: h, Secrets: st, Security: rec})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := t.Context()
+	r := withClient(reg(), "tenant-portal")
+	other := uuid.New()
+	platform := withClient(idp.Registration{IdPID: uuid.New(), Scope: idp.ScopePlatform, Driver: idp.DriverExternal}, "console")
+	cases := map[string]struct {
+		reg idp.Registration
+		ref secrets.Ref
+	}{
+		"another tenant's Headscale API key":  {r, secrets.TenantRef(other, "headscale-api-key", 1)},
+		"a platform secret on a tenant IdP":   {r, secrets.PlatformRef("idp."+r.IdPID.String()+".client", 1)},
+		"the tenant's own Headscale API key":  {r, secrets.TenantRef(r.TenantID, "headscale-api-key", 1)},
+		"another IdP's client secret":         {r, secrets.TenantRef(r.TenantID, "idp."+uuid.NewString()+".client", 1)},
+		"a tenant secret on the platform IdP": {platform, secrets.TenantRef(other, "idp."+platform.IdPID.String()+".client", 1)},
+	}
+	for name, c := range cases {
+		if err := st.Put(ctx, c.ref, []byte("foreign:"+name)); err != nil {
+			t.Fatal(err)
+		}
+		rg := c.reg
+		rg.ClientSecretRef = c.ref.String()
+		reads := len(st.Reads)
+		if _, err := d.EnsureClient(ctx, idp.ClientSpec{Registration: rg, ClientSecret: secrets.Plaintext("new-secret")}); idp.CodeOf(err) != codeNotOwned {
+			t.Errorf("%s: EnsureClient = %v, want %s", name, err, codeNotOwned)
+		}
+		if len(st.Reads) != reads {
+			t.Errorf("%s: EnsureClient read %v", name, st.Reads[reads:])
+		}
+		if st.Latest(rg.ClientSecretOwner(1)) != 0 {
+			t.Errorf("%s: EnsureClient stored a client secret despite the refusal", name)
+		}
+		if _, err := d.RemoveIssuer(ctx, rg, idp.RemovePurge); idp.CodeOf(err) != codeNotOwned {
+			t.Errorf("%s: RemoveIssuer purge = %v, want %s", name, err, codeNotOwned)
+		}
+		if st.Destroyed(c.ref) || st.Value(c.ref) != "foreign:"+name {
+			t.Errorf("%s: RemoveIssuer purge destroyed a secret the IdP does not own", name)
+		}
+		if _, err := d.RemoveIssuer(ctx, rg, idp.RemoveDisable); err != nil {
+			t.Errorf("%s: RemoveIssuer disable (no secret involved) = %v", name, err)
+		}
+		// one security event per refusal (the audit.Logger deduplicates them per IdP and hour)
+		evs := rec.Events()
+		if len(evs) < 2 {
+			t.Fatalf("%s: %d security events", name, len(evs))
+		}
+		for _, ev := range evs[len(evs)-2:] {
+			if ev.Kind != idp.KindClientSecretRefNotOwned || ev.Severity != "high" || ev.Source != "idp" || ev.TenantID != nil ||
+				ev.Details["idp_id"] != rg.IdPID || ev.DedupeKey != idp.KindClientSecretRefNotOwned+":"+rg.IdPID.String() {
+				t.Errorf("%s: security event %+v", name, ev)
+			}
+		}
+	}
+	if n := len(rec.Events()); n != 2*len(cases) {
+		t.Errorf("%d security events for %d refusals", n, 2*len(cases))
+	}
+	// The IdP's own references, under both names in use (drivers: idp.<id>.client; `meshguard admin
+	// set-idp-client-secret`: idp-client-secret.<id>), are read and destroyed as before.
+	for _, rg := range []idp.Registration{r, platform} {
+		for _, own := range []secrets.Ref{rg.ClientSecretOwner(1), {Tenant: rg.TenantID, Name: "idp-client-secret." + rg.IdPID.String(), Version: 1}} {
+			if err := st.Put(ctx, own, []byte("same")); err != nil {
+				t.Fatal(err)
+			}
+			x := rg
+			x.ClientSecretRef = own.String()
+			res, err := d.EnsureClient(ctx, idp.ClientSpec{Registration: x, ClientSecret: secrets.Plaintext("same")})
+			if err != nil || res.SecretRotated || res.ClientSecretRef != own.String() {
+				t.Errorf("own reference %s: EnsureClient = %+v, %v", own, res, err)
+			}
+			if _, err := d.RemoveIssuer(ctx, x, idp.RemovePurge); err != nil || !st.Destroyed(own) {
+				t.Errorf("own reference %s: RemoveIssuer purge = %v (destroyed %v)", own, err, st.Destroyed(own))
+			}
+		}
+	}
+	if n := len(rec.Events()); n != 2*len(cases) {
+		t.Errorf("own references raised %d security events", n-2*len(cases))
+	}
+}
+
 func TestUnsupported(t *testing.T) {
 	d, _, _, calls := setup(t, goodDoc)
 	if _, err := d.InviteUser(t.Context(), reg(), idp.Invite{Email: "a@example.com"}); idp.CodeOf(err) != idp.CodeUnsupported {

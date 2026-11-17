@@ -151,7 +151,7 @@ func TestKeycloakLoginThroughTheAPI(t *testing.T) {
 	// Our API on a fresh database; the tenant's IdP row is the realm, with the id its redirect URI was rendered with.
 	tenantID := uuid.Must(uuid.NewV7())
 	slug := "kc-" + randomHex(4)
-	ref := "mgsec://" + tenantID.String() + "/idp-client#1"
+	ref := "mgsec://" + tenantID.String() + "/idp." + idpID.String() + ".client#1" // the IdP's own secret (G2 F3)
 	w := sessionfixture.New(t, sessionfixture.Options{
 		AppHost: appHost, AdminHost: adminHost,
 		HTTPClient: &http.Client{Transport: kc.client.Transport, Timeout: 15 * time.Second},

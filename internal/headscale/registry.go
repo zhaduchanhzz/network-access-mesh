@@ -38,6 +38,22 @@ type Locator interface {
 // ErrNoInstance is returned (wrapped) by a Locator when the tenant has no instance that can be called.
 var ErrNoInstance = errors.New("headscale: tenant has no running instance")
 
+// StatusChecker is implemented by a Locator that can tell, cheaply — no secret read, one registry read —, whether a
+// target it located earlier may still be called. CachingRegistry calls it on every ForTenant served from its cache
+// (G2 L1): a tenant suspended or an instance quarantined is then refused at the next call instead of up to CacheTTL
+// later, whichever process or tool changed the status and without lifecycle code having to call Invalidate in every
+// api and worker process. CheckTarget returns nil when the target may be called, an error wrapping ErrNoInstance when
+// the tenant has no callable instance any more, an error wrapping ErrTargetStale when its instance was replaced (the
+// registry then locates again), and any other error when the check could not be made (the call is refused: fail
+// closed). The production locator (internal/headscale/locator) implements it.
+type StatusChecker interface {
+	CheckTarget(ctx context.Context, tenantID uuid.UUID, t Target) error
+}
+
+// ErrTargetStale is returned (wrapped) by StatusChecker.CheckTarget when the tenant's live instance is no longer the
+// one of the cached target.
+var ErrTargetStale = errors.New("headscale: the cached target is not the tenant's live instance")
+
 // StaticLocator is a fixed tenant → target table, for tests and local development.
 type StaticLocator map[uuid.UUID]Target
 
@@ -62,9 +78,11 @@ type Options struct {
 }
 
 // CachingRegistry implements Registry over a Locator with a short-lived cache, a circuit breaker per instance and a
-// version check before an implementation is chosen.
+// version check before an implementation is chosen. When the Locator is a StatusChecker, a cached target is re-checked
+// on every ForTenant (the cache then saves the secret read, the token file and the version probe, not the status).
 type CachingRegistry struct {
 	loc     Locator
+	check   StatusChecker // nil: the Locator cannot re-check; a cached target is trusted for CacheTTL
 	timeout time.Duration
 	ttl     time.Duration
 	brCfg   BreakerConfig
@@ -95,6 +113,7 @@ func NewRegistry(loc Locator, o Options) *CachingRegistry {
 		client: o.HTTPClient, log: o.Logger, now: o.Now, sleep: sleepCtx, jitter: defaultJitter,
 		entries: map[uuid.UUID]*entry{}, breakers: map[uuid.UUID]*Breaker{},
 	}
+	r.check, _ = loc.(StatusChecker)
 	if r.timeout <= 0 {
 		r.timeout = 10 * time.Second
 	}
@@ -143,7 +162,13 @@ func (r *CachingRegistry) ForTenant(ctx context.Context, tenantID uuid.UUID) (In
 	}
 	r.mu.Unlock()
 	if e != nil {
-		return e.impl.construct(r.newConn(tenantID, e.target, e.base)), nil
+		err := r.recheck(ctx, tenantID, e)
+		switch {
+		case err == nil:
+			return e.impl.construct(r.newConn(tenantID, e.target, e.base)), nil
+		case !errors.Is(err, ErrTargetStale):
+			return nil, err
+		}
 	}
 
 	target, base, err := r.locate(ctx, tenantID)
@@ -168,6 +193,30 @@ func (r *CachingRegistry) ForTenant(ctx context.Context, tenantID uuid.UUID) (In
 	r.entries[tenantID] = &entry{target: target, base: base, impl: impl, version: v, at: r.now()}
 	r.mu.Unlock()
 	return impl.construct(c), nil
+}
+
+// recheck asks the Locator (StatusChecker) whether a cached target may still be called; on any refusal the entry is
+// dropped. The error is ErrTargetStale (locate again), instance_unavailable wrapping ErrNoInstance, or internal.
+func (r *CachingRegistry) recheck(ctx context.Context, tenantID uuid.UUID, e *entry) error {
+	if r.check == nil {
+		return nil
+	}
+	err := r.check.CheckTarget(ctx, tenantID, e.target)
+	if err == nil {
+		return nil
+	}
+	r.mu.Lock()
+	if r.entries[tenantID] == e {
+		delete(r.entries, tenantID)
+	}
+	r.mu.Unlock()
+	switch {
+	case errors.Is(err, ErrTargetStale):
+		return err
+	case errors.Is(err, ErrNoInstance):
+		return &Error{Op: OpForTenant, Kind: KindUnavailable, Code: -1, Err: err}
+	}
+	return &Error{Op: OpForTenant, Kind: KindInternal, Code: -1, Err: err}
 }
 
 // Invalidate drops the cached target of a tenant (after an upgrade, a restore or a key rotation).

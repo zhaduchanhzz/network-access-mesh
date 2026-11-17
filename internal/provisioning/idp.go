@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/zhaduchanhzz/network-access-mesh/internal/idp"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/secrets"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/tenants"
 )
@@ -83,8 +84,9 @@ type ClientSecretResult struct {
 }
 
 // ClientSecretName is the SecretStore name of an IdP client secret: idp-client-secret.<idp id>, owned by the tenant of
-// the IdP (tenant DEK) or by the platform (DEK platform — the api reads it at the token endpoint, P2-T06).
-func ClientSecretName(idpID uuid.UUID) string { return "idp-client-secret." + idpID.String() }
+// the IdP (tenant DEK) or by the platform (DEK platform — the api reads it at the token endpoint, P2-T06). It is one of
+// the two names the callback and the drivers accept as the IdP's own client secret (idp.AdminClientSecretName — G2 F3).
+func ClientSecretName(idpID uuid.UUID) string { return idp.AdminClientSecretName(idpID) }
 
 // SetClientSecret stores the client secret of an IdP (read from stdin by the command — P2-T05: Keycloak generates it
 // at realm import) and records its reference in identity_providers.client_secret_ref; older versions are erased.

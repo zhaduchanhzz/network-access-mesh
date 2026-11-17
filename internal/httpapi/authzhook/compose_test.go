@@ -164,7 +164,7 @@ func TestComposedAPI(t *testing.T) {
 	a, b := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	exec(`INSERT INTO tenants (id, slug, name, status) VALUES ($1, 'tenant-a', 'Tenant A', 'active'), ($2, 'tenant-b', 'Tenant B', 'active')`, a, b)
 	idp := uuid.Must(uuid.NewV7())
-	ref := "mgsec://" + a.String() + "/idp-client#1"
+	ref := "mgsec://" + a.String() + "/idp." + idp.String() + ".client#1" // the IdP's own secret (G2 F3)
 	exec(`INSERT INTO identity_providers (id, scope, tenant_id, issuer, client_id, client_secret_ref, driver, status)
 		VALUES ($1, 'tenant', $2, $3, 'portal-a', $4, 'external', 'active')`, idp, a, fake.Issuer, ref)
 	secret := "secret-" + uuid.NewString()

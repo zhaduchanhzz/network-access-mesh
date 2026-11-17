@@ -40,6 +40,10 @@ const (
 	CodeIssuerMismatch Code = "issuer_mismatch"
 	// CodeCredentials: the SecretStore could not provide a credential the driver needs.
 	CodeCredentials Code = "credentials_unavailable"
+	// CodeSecretRefNotOwned: the client_secret_ref of a registration does not name the IdP's own client secret (another
+	// owner, another secret of the owner, or not a reference at all — Registration.OwnClientSecretRef, G2 F3). Nothing
+	// was read from or destroyed in the SecretStore.
+	CodeSecretRefNotOwned Code = "secret_ref_not_owned" //nolint:gosec // G101: an error code, not a credential
 	// CodeUnauthenticated: the IdP refused the driver's credentials (HTTP 401, invalid_client).
 	CodeUnauthenticated Code = "idp_unauthenticated"
 	// CodeForbidden: the IdP refused the operation (HTTP 403), e.g. a realm the provisioning identity does not manage.

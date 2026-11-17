@@ -284,7 +284,8 @@ func TestResourceOfPath(t *testing.T) {
 
 // fakeRecorder records the identity adapter's writes.
 type fakeRecorder struct {
-	detached, committed []audit.Event
+	detached, committed, anonymous []audit.Event
+	security                       []audit.SecurityEvent
 }
 
 func (f *fakeRecorder) RecordDetached(_ context.Context, ev audit.Event) error {
@@ -295,6 +296,16 @@ func (f *fakeRecorder) RecordDetached(_ context.Context, ev audit.Event) error {
 func (f *fakeRecorder) RecordCommitted(_ context.Context, ev audit.Event) error {
 	f.committed = append(f.committed, ev)
 	return nil
+}
+
+func (f *fakeRecorder) RecordAnonymousDenial(_ context.Context, ev audit.Event) error {
+	f.anonymous = append(f.anonymous, ev)
+	return nil
+}
+
+func (f *fakeRecorder) RecordSecurityEvent(_ context.Context, ev audit.SecurityEvent) (bool, error) {
+	f.security = append(f.security, ev)
+	return true, nil
 }
 
 func TestIdentityAuditor(t *testing.T) {
@@ -309,8 +320,21 @@ func TestIdentityAuditor(t *testing.T) {
 	a.Record(t.Context(), identity.AuditEvent{Action: identity.ActionLogout, Outcome: identity.OutcomeFailure,
 		Reason: "revoke_failed", IdentityID: ident})
 	a.Record(t.Context(), identity.AuditEvent{Action: identity.ActionSessionCheck, Outcome: "weird"})
-	if len(rec.committed) != 1 || len(rec.detached) != 3 {
-		t.Fatalf("committed %d, detached %d: want success committed, the others detached", len(rec.committed), len(rec.detached))
+	a.Record(t.Context(), identity.AuditEvent{Action: identity.ActionLogin, Outcome: identity.OutcomeFailure,
+		Reason: "client_secret_ref_not_owned", IdPID: idp, TenantID: &tenant, Origin: identity.OriginApp, RequestID: "req-ref",
+		Security: "idp.client_secret_ref_not_owned"})
+	// G2 F2: a refusal without identity is an anonymous denial (aggregated by the Logger); with an identity, one row.
+	if len(rec.committed) != 1 || len(rec.detached) != 1 || len(rec.anonymous) != 3 {
+		t.Fatalf("committed %d, detached %d, anonymous %d: want success committed, the refusal of an identity detached, "+
+			"the three refusals without identity anonymous", len(rec.committed), len(rec.detached), len(rec.anonymous))
+	}
+	if len(rec.security) != 1 {
+		t.Fatalf("security events %d, want 1 (only the event that asks for one)", len(rec.security))
+	}
+	if s := rec.security[0]; s.Kind != "idp.client_secret_ref_not_owned" || s.Severity != audit.SeverityHigh || s.TenantID != nil ||
+		s.Source != "identity" || s.Details["idp_id"] != idp || s.Details["idp_tenant_id"] != tenant ||
+		s.DedupeKey != "idp.client_secret_ref_not_owned:"+idp.String() || s.DedupeWindow != time.Hour {
+		t.Errorf("security event %+v", s)
 	}
 	ok := rec.committed[0]
 	if ok.TenantID == nil || ok.ActorIdentityID == nil {
@@ -321,12 +345,13 @@ func TestIdentityAuditor(t *testing.T) {
 		ok.RequestID != "req-login" || ok.Details["idp_id"] != idp || ok.Details["origin"] != "app" || ok.ActorType != audit.ActorIdentity {
 		t.Errorf("login success: %+v", ok)
 	}
-	d := rec.detached[0]
+	d := rec.anonymous[0]
 	if d.Outcome != audit.OutcomeDenied || d.TenantID != nil || d.ActorIdentityID != nil || d.ActorIP.IsValid() ||
 		d.Details["reason"] != "idp_mismatch" || d.ResourceID != "" {
 		t.Errorf("login denied: %+v", d)
 	}
-	if rec.detached[1].Outcome != audit.OutcomeFailure || rec.detached[2].Outcome != audit.OutcomeFailure {
-		t.Errorf("failure and unknown outcome: %+v", rec.detached[1:])
+	if rec.detached[0].Outcome != audit.OutcomeFailure || rec.detached[0].ActorIdentityID == nil ||
+		rec.anonymous[1].Outcome != audit.OutcomeFailure {
+		t.Errorf("failure and unknown outcome: %+v %+v", rec.detached[0], rec.anonymous[1])
 	}
 }

@@ -37,17 +37,24 @@ type Config struct {
 	// event per window. 0 = DefaultCrossTenantThreshold / DefaultCrossTenantWindow.
 	CrossTenantThreshold int
 	CrossTenantWindow    time.Duration
+	// AnonymousWindow and AnonymousKeys bound the rows of anonymous denials (RecordAnonymousDenial, G2 F2): the window
+	// of one aggregation key and the number of keys tracked at once. 0 = DefaultAnonymousWindow / DefaultAnonymousKeys.
+	AnonymousWindow time.Duration
+	AnonymousKeys   int
+	// Now is the clock of the aggregation windows; nil = time.Now.
+	Now func() time.Time
 }
 
 // Logger is the AuditLogger of §4.2: it owns the detached path (store.AuditWriter, mg_audit_writer) and uses the
 // application pools of the process for events reported after their commit, security events and the checks of Finish.
 // Record and Requested (package functions) need no Logger: they write in the caller's business transaction.
 type Logger struct {
-	st  *store.Store
-	w   *store.AuditWriter
-	cfg Config
-	log *slog.Logger
-	m   *metrics
+	st   *store.Store
+	w    *store.AuditWriter
+	cfg  Config
+	log  *slog.Logger
+	m    *metrics
+	anon *anonymous
 }
 
 // New returns a Logger writing denied and failure events through w and everything else through st.
@@ -64,7 +71,17 @@ func New(st *store.Store, w *store.AuditWriter, cfg Config) (*Logger, error) {
 	if cfg.CrossTenantWindow <= 0 {
 		cfg.CrossTenantWindow = DefaultCrossTenantWindow
 	}
-	l := &Logger{st: st, w: w, cfg: cfg, log: cfg.Log, m: newMetrics(cfg.Registerer)}
+	if cfg.AnonymousWindow <= 0 {
+		cfg.AnonymousWindow = DefaultAnonymousWindow
+	}
+	if cfg.AnonymousKeys <= 0 {
+		cfg.AnonymousKeys = DefaultAnonymousKeys
+	}
+	if cfg.Now == nil {
+		cfg.Now = time.Now
+	}
+	l := &Logger{st: st, w: w, cfg: cfg, log: cfg.Log, m: newMetrics(cfg.Registerer),
+		anon: &anonymous{entries: map[anonKey]*anonEntry{}, window: cfg.AnonymousWindow, limit: cfg.AnonymousKeys, now: cfg.Now}}
 	if l.log == nil {
 		l.log = slog.New(slog.DiscardHandler)
 	}
@@ -335,9 +352,10 @@ func deref(s *string) string {
 
 // metrics of the audit trail (§16.3 "ghi audit thất bại").
 type metrics struct {
-	failures *prometheus.CounterVec // path
-	security *prometheus.CounterVec // kind, severity
-	gaps     *prometheus.CounterVec // reason
+	failures  *prometheus.CounterVec // path
+	security  *prometheus.CounterVec // kind, severity
+	gaps      *prometheus.CounterVec // reason
+	anonymous *prometheus.CounterVec // action, reason
 }
 
 func newMetrics(reg prometheus.Registerer) *metrics {
@@ -353,9 +371,13 @@ func newMetrics(reg prometheus.Registerer) *metrics {
 			Name: "meshguard_audit_gaps_total",
 			Help: "Requests that left the audit trail incomplete (no_event: a write without event; left_open: an operation without outcome).",
 		}, []string{"reason"}),
+		anonymous: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "meshguard_audit_anonymous_denials_total",
+			Help: "Requests refused before any identity existed, by action and reason (each one, including those aggregated out of audit_events).",
+		}, []string{"action", "reason"}),
 	}
 	if reg != nil {
-		reg.MustRegister(m.failures, m.security, m.gaps)
+		reg.MustRegister(m.failures, m.security, m.gaps, m.anonymous)
 	}
 	return m
 }

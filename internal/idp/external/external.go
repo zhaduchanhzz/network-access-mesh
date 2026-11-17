@@ -23,12 +23,16 @@ type Config struct {
 	Client *idp.Hardened
 	// Secrets stores the tenant-supplied client secret (required for confidential clients).
 	Secrets secrets.SecretStore
+	// Security receives the security event of a registration whose client_secret_ref is not the IdP's own (G2 F3,
+	// idp.KindClientSecretRefNotOwned); production: the audit.Logger of the process. nil: the refusal stands, no event.
+	Security idp.SecurityRecorder
 }
 
 // Driver is the external IdP driver.
 type Driver struct {
-	h       *idp.Hardened
-	secrets secrets.SecretStore
+	h        *idp.Hardened
+	secrets  secrets.SecretStore
+	security idp.SecurityRecorder
 }
 
 var _ idp.IdPDriver = (*Driver)(nil)
@@ -38,7 +42,7 @@ func New(cfg Config) (*Driver, error) {
 	if cfg.Client == nil {
 		return nil, errors.New("external: a hardened client is required")
 	}
-	return &Driver{h: cfg.Client, secrets: cfg.Secrets}, nil
+	return &Driver{h: cfg.Client, secrets: cfg.Secrets, security: cfg.Security}, nil
 }
 
 // Name implements idp.IdPDriver.
@@ -108,7 +112,8 @@ func validClientID(s string) bool {
 
 // EnsureClient records the tenant-supplied client: the client id is returned for the row; the client secret (if
 // any) is stored as a new version of idp.<idpId>.client in the tenant's SecretStore unless the stored version already
-// holds the same value.
+// holds the same value. A stored reference that is not the IdP's own client secret is refused before anything is read
+// (CodeSecretRefNotOwned, G2 F3).
 func (d *Driver) EnsureClient(ctx context.Context, spec idp.ClientSpec) (idp.ClientResult, error) {
 	const op = "external.EnsureClient"
 	if err := spec.Validate(op); err != nil {
@@ -116,6 +121,13 @@ func (d *Driver) EnsureClient(ctx context.Context, spec idp.ClientSpec) (idp.Cli
 	}
 	if !validClientID(spec.ClientID) {
 		return idp.ClientResult{}, idp.NewError(idp.CodeInvalidArgument, op, "client_id_invalid", nil)
+	}
+	var ref secrets.Ref
+	if spec.ClientSecretRef != "" {
+		var err error
+		if ref, err = idp.DriverClientSecretRef(ctx, d.security, spec.Registration, op); err != nil {
+			return idp.ClientResult{}, err
+		}
 	}
 	res := idp.ClientResult{ClientID: spec.ClientID, ClientSecretRef: spec.ClientSecretRef}
 	if len(spec.ClientSecret) == 0 {
@@ -128,10 +140,6 @@ func (d *Driver) EnsureClient(ctx context.Context, spec idp.ClientSpec) (idp.Cli
 		return idp.ClientResult{}, idp.NewError(idp.CodeCredentials, op, "no_secret_store", nil)
 	}
 	if spec.ClientSecretRef != "" {
-		ref, err := secrets.ParseRef(spec.ClientSecretRef)
-		if err != nil {
-			return idp.ClientResult{}, idp.NewError(idp.CodeInvalidArgument, op, "client_secret_ref_invalid", nil)
-		}
 		if cur, err := d.secrets.Get(ctx, ref); err == nil {
 			same := subtle.ConstantTimeCompare(cur.Bytes(), spec.ClientSecret.Bytes()) == 1
 			cur.Wipe()
@@ -158,7 +166,8 @@ func (d *Driver) DisableUser(context.Context, idp.Registration, string) (idp.Dis
 	return idp.DisableResult{}, idp.NewError(idp.CodeUnsupported, "external.DisableUser", "tenant_managed_idp", nil)
 }
 
-// RemoveIssuer touches nothing at the tenant's IdP. Purge destroys the stored client secret (idempotent).
+// RemoveIssuer touches nothing at the tenant's IdP. Purge destroys the stored client secret (idempotent) — only when
+// the reference names the IdP's own client secret (CodeSecretRefNotOwned otherwise, nothing destroyed — G2 F3).
 func (d *Driver) RemoveIssuer(ctx context.Context, reg idp.Registration, mode idp.RemoveMode) (idp.RemoveResult, error) {
 	const op = "external.RemoveIssuer"
 	if mode != idp.RemoveDisable && mode != idp.RemovePurge {
@@ -166,9 +175,9 @@ func (d *Driver) RemoveIssuer(ctx context.Context, reg idp.Registration, mode id
 	}
 	res := idp.RemoveResult{Mode: mode}
 	if mode == idp.RemovePurge && reg.ClientSecretRef != "" && d.secrets != nil {
-		ref, err := secrets.ParseRef(reg.ClientSecretRef)
+		ref, err := idp.DriverClientSecretRef(ctx, d.security, reg, op)
 		if err != nil {
-			return res, idp.NewError(idp.CodeInvalidArgument, op, "client_secret_ref_invalid", nil)
+			return res, err
 		}
 		for v := int32(1); v <= ref.Version; v++ {
 			r := ref

@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/oauth2"
 
+	idpkg "github.com/zhaduchanhzz/network-access-mesh/internal/idp"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store/sqlcdb"
 )
 
@@ -48,6 +49,17 @@ type idp struct {
 	AllowedEmailDomains  []string
 	ClaimMapping         map[string]string
 	Status               string
+}
+
+// checkClientSecretRef checks that the stored client_secret_ref names this IdP's own client secret — owner = the IdP's
+// tenant (platform for the platform IdP), name = its client secret (idp.Registration.OwnClientSecretRef, G2 F3).
+func (p *idp) checkClientSecretRef() error {
+	reg := idpkg.Registration{IdPID: p.ID, Scope: idpkg.Scope(p.Scope), ClientSecretRef: *p.ClientSecretRef}
+	if p.TenantID != nil {
+		reg.TenantID = *p.TenantID
+	}
+	_, err := reg.OwnClientSecretRef("identity.callback")
+	return err
 }
 
 func idpFromRow(r sqlcdb.IdentityProvider) (*idp, error) {

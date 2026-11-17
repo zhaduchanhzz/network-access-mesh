@@ -150,16 +150,17 @@ func TestRegistryReadsThroughTheChain(t *testing.T) {
 	now := time.Now
 	fakeA, fakeP := identitytest.NewFakeIdP(t, now), identitytest.NewFakeIdP(t, now)
 	idpA, idpP, idpB := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	refs := map[string]string{"mgsec://" + a.String() + "/idp-a#1": "secret-a-" + uuid.NewString(),
-		"mgsec://platform/idp-p#1": "secret-p-" + uuid.NewString()}
+	// the IdPs' own client secrets (G2 F3: owner = the IdP's tenant or platform, name idp.<idp id>.client)
+	refA, refP := "mgsec://"+a.String()+"/idp."+idpA.String()+".client#1", "mgsec://platform/idp."+idpP.String()+".client#1"
+	refs := map[string]string{refA: "secret-a-" + uuid.NewString(), refP: "secret-p-" + uuid.NewString()}
 	exec(`INSERT INTO identity_providers (id, scope, tenant_id, issuer, client_id, client_secret_ref, driver, status)
-		VALUES ($1, 'tenant', $2, $3, 'portal-a', $4, 'external', 'active')`, idpA, a, fakeA.Issuer, "mgsec://"+a.String()+"/idp-a#1")
+		VALUES ($1, 'tenant', $2, $3, 'portal-a', $4, 'external', 'active')`, idpA, a, fakeA.Issuer, refA)
 	exec(`INSERT INTO identity_providers (id, scope, issuer, client_id, client_secret_ref, driver, status)
-		VALUES ($1, 'platform', $2, 'portal-p', 'mgsec://platform/idp-p#1', 'external', 'active')`, idpP, fakeP.Issuer)
+		VALUES ($1, 'platform', $2, 'portal-p', $3, 'external', 'active')`, idpP, fakeP.Issuer, refP)
 	exec(`INSERT INTO identity_providers (id, scope, tenant_id, issuer, client_id, driver, status)
 		VALUES ($1, 'tenant', $2, 'https://idp-b.test', 'portal-b', 'external', 'active')`, idpB, b)
-	fakeA.AddClient("portal-a", refs["mgsec://"+a.String()+"/idp-a#1"], "https://"+appHost+"/api/v1/auth/callback/"+idpA.String())
-	fakeP.AddClient("portal-p", refs["mgsec://platform/idp-p#1"], "https://"+adminHost+"/api/v1/auth/callback/"+idpP.String())
+	fakeA.AddClient("portal-a", refs[refA], "https://"+appHost+"/api/v1/auth/callback/"+idpA.String())
+	fakeP.AddClient("portal-p", refs[refP], "https://"+adminHost+"/api/v1/auth/callback/"+idpP.String())
 	identB, memberB := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	exec(`INSERT INTO identities (id, idp_id, tenant_id, scope, subject, email, display_name)
 		VALUES ($1, $2, $3, 'tenant', 'sub-b', 'bert@b.test', 'Bert')`, identB, idpB, b)

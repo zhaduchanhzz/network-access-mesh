@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/oauth2"
 
+	idpkg "github.com/zhaduchanhzz/network-access-mesh/internal/idp"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store/sqlcdb"
 )
@@ -25,8 +26,9 @@ type CallbackRequest struct {
 	IdPError      string // error parameter of an error response; "" on success
 	BindingCookie string // value of __Host-mg_authreq; "" when absent
 	Origin        Origin
-	// Current is the valid session already attached on this origin; it is revoked when the new one is created
-	// (session id rotation at login, §8.3 step 6).
+	// Current is the valid session already attached on this origin. A login of the same identity revokes it when the
+	// new session is created (session id rotation at login, §8.3 step 6); a login of ANOTHER identity is refused and
+	// Current is kept — logging out first is the explicit step to switch identity (login CSRF, G2 F1).
 	Current   *Session
 	ClientIP  string
 	UserAgent string
@@ -43,6 +45,12 @@ type LoginResult struct {
 const maxUserAgent = 512
 
 var oauthErrorRE = regexp.MustCompile(`^[a-z_]{1,64}$`)
+
+// Reasons of the callback refusals added after the G2 review (round 1).
+const (
+	reasonSessionIdentityMismatch = "session_identity_mismatch"   // F1: login of another identity over an open session
+	reasonClientSecretRefNotOwned = "client_secret_ref_not_owned" // F3: the IdP's client_secret_ref is not its own
+)
 
 // CompleteLogin finishes a login. Every check that binds the response to this browser and this IdP runs BEFORE the
 // token endpoint is called (IdP mix-up, T-20); the ID token and the IdP's claim policy are checked before the
@@ -149,9 +157,16 @@ func (s *Service) completeLogin(ctx context.Context, in CallbackRequest, ev *Aud
 		return nil, newErr(KindUnauthenticated, "pkce_verifier_unavailable", err)
 	}
 
-	// 3. Token endpoint of the stored issuer (the only place the code is sent), PKCE verifier.
+	// 3. Token endpoint of the stored issuer (the only place the code is sent), PKCE verifier. The client secret is only
+	// read through a reference that names this IdP's own client secret (G2 F3): any other reference — another tenant's
+	// Headscale API key, a platform credential — fails closed here, before the SecretStore is read and before the
+	// token request, and raises a security event.
 	secret := ""
 	if p.ClientSecretRef != nil && *p.ClientSecretRef != "" {
+		if err := p.checkClientSecretRef(); err != nil {
+			ev.Security = idpkg.KindClientSecretRefNotOwned
+			return nil, newErr(KindInternal, reasonClientSecretRefNotOwned, err)
+		}
 		if s.cfg.ClientSecrets == nil {
 			return nil, newErr(KindInternal, "client_secret_source_missing", nil)
 		}
@@ -215,7 +230,10 @@ func (s *Service) completeLogin(ctx context.Context, in CallbackRequest, ev *Aud
 		return nil, perr
 	}
 
-	// 5. Identity (idp_id, sub) and session, in one transaction; the session presented on this origin is revoked.
+	// 5. Identity (idp_id, sub) and session, in one transaction. The session presented on this origin is revoked when it
+	// is the same identity's (rotation); a session of another identity is kept and the login refused (G2 F1): a login
+	// CSRF — a page walking the victim's browser through a login at an IdP of the attacker's — must not silently swap
+	// the victim's session for one of the attacker's identity. The rollback also drops a newly created identity.
 	raw := newSecret()
 	t := s.timeouts(p.Scope)
 	absolute := now.Add(t.Absolute)
@@ -242,6 +260,9 @@ func (s *Service) completeLogin(ctx context.Context, in CallbackRequest, ev *Aud
 			return err
 		}
 		if in.Current != nil && in.Current.Origin == in.Origin {
+			if in.Current.IdentityID != ident.ID {
+				return forbidden(reasonSessionIdentityMismatch)
+			}
 			if _, err := q.RevokeSessionByHash(ctx, sqlcdb.RevokeSessionByHashParams{Now: now, IDHash: in.Current.idHash}); err != nil {
 				return err
 			}
@@ -257,6 +278,11 @@ func (s *Service) completeLogin(ctx context.Context, in CallbackRequest, ev *Aud
 		var ie *Error
 		if errors.As(err, &ie) {
 			ev.IdentityID = ident.ID
+			if ie.Reason == reasonSessionIdentityMismatch {
+				// audited under the kept session — its identity and tenant — never under the other identity, which was
+				// not created, nor in the other IdP's tenant (that tenant must not learn who was walked through its IdP)
+				ev.IdentityID, ev.TenantID, ev.SessionID = in.Current.IdentityID, in.Current.TenantID, in.Current.PublicID
+			}
 			return nil, ie
 		}
 		return nil, newErr(KindInternal, "session_create_failed", err)

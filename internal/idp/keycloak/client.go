@@ -314,11 +314,20 @@ func (a *admin) putClient(ctx context.Context, op string, ts tokenSource, realm,
 // S256, Authorization Code only, no refresh token) and its secret equal to the SecretStore version the registration
 // names. A missing, unreadable or different secret is replaced: a new version is stored first, then set at Keycloak
 // (SecretRotated: the caller must write ClientSecretRef into the row). Older versions are kept for the api until the
-// row is updated.
+// row is updated. A stored reference that is not the IdP's own client secret is refused before any call
+// (CodeSecretRefNotOwned, G2 F3).
 func (d *Driver) EnsureClient(ctx context.Context, spec idp.ClientSpec) (idp.ClientResult, error) {
 	const op = "keycloak.EnsureClient"
 	if err := spec.Validate(op); err != nil {
 		return idp.ClientResult{}, err
+	}
+	var stored *secrets.Ref
+	if spec.ClientSecretRef != "" {
+		sr, err := idp.DriverClientSecretRef(ctx, d.security, spec.Registration, op)
+		if err != nil {
+			return idp.ClientResult{}, err
+		}
+		stored = &sr
 	}
 	ref, _, err := ParseDriverRef(spec.DriverRef)
 	if err != nil {
@@ -365,19 +374,17 @@ func (d *Driver) EnsureClient(ctx context.Context, spec idp.ClientSpec) (idp.Cli
 		return res, err
 	}
 	// secret: keep it when Keycloak holds exactly the stored version
-	if spec.ClientSecretRef != "" {
-		if sr, perr := secrets.ParseRef(spec.ClientSecretRef); perr == nil {
-			if stored, gerr := d.secrets.Get(ctx, sr); gerr == nil {
-				cur, cerr := d.clientSecret(ctx, op, ts, ref.Realm, str(live["id"]))
-				same := cerr == nil && subtle.ConstantTimeCompare(stored.Bytes(), cur.Bytes()) == 1
-				stored.Wipe()
-				cur.Wipe()
-				if cerr != nil {
-					return res, cerr
-				}
-				if same {
-					return res, nil
-				}
+	if stored != nil {
+		if val, gerr := d.secrets.Get(ctx, *stored); gerr == nil {
+			cur, cerr := d.clientSecret(ctx, op, ts, ref.Realm, str(live["id"]))
+			same := cerr == nil && subtle.ConstantTimeCompare(val.Bytes(), cur.Bytes()) == 1
+			val.Wipe()
+			cur.Wipe()
+			if cerr != nil {
+				return res, cerr
+			}
+			if same {
+				return res, nil
 			}
 		}
 	}

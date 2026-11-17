@@ -176,7 +176,7 @@ func (e *env) newTenant(fake *identity.FakeIdP, opts ...idpOpt) *tenantFix {
 		Fake: fake, ClientID: o.clientID, Role: uuid.Must(uuid.NewV7()), RoleKey: "tenant_admin_" + identity.RandomHex(3)}
 	e.exec(`INSERT INTO tenants (id, slug, name, status) VALUES ($1, $2, $3, 'active')`, f.ID, f.Slug, "Tenant "+f.Slug)
 	e.exec(`INSERT INTO roles (id, scope, key, name) VALUES ($1, 'tenant', $2, 'Tenant Admin')`, f.Role, f.RoleKey)
-	ref := "mgsec://" + f.ID.String() + "/idp-client#1"
+	ref := "mgsec://" + f.ID.String() + "/idp." + f.IdP.String() + ".client#1" // the IdP's own secret (G2 F3)
 	secret := "secret-" + identity.RandomHex(8)
 	f.Secret = secret
 	e.exec(`INSERT INTO identity_providers (id, scope, tenant_id, issuer, client_id, client_secret_ref, required_claims,
@@ -214,7 +214,7 @@ func (e *env) newPlatform(fake *identity.FakeIdP) *platformFix {
 	})
 	e.exec(`UPDATE identity_providers SET status = 'disabled' WHERE scope = 'platform' AND status = 'active'`)
 	e.exec(`INSERT INTO roles (id, scope, key, name) VALUES ($1, 'platform', $2, 'Super Admin')`, f.Role, f.RoleKey)
-	ref := "mgsec://platform/idp-client-" + identity.RandomHex(3) + "#1"
+	ref := "mgsec://platform/idp." + f.IdP.String() + ".client#1" // the IdP's own secret (G2 F3)
 	secret := "secret-" + identity.RandomHex(8)
 	e.exec(`INSERT INTO identity_providers (id, scope, issuer, client_id, client_secret_ref, driver, status)
 		VALUES ($1, 'platform', $2, $3, $4, 'keycloak', 'active')`, f.IdP, fake.Issuer, f.ClientID, ref)
