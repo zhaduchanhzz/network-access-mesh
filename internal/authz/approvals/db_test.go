@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -93,6 +94,7 @@ const (
 	actRestore  = "platform.test_restore"
 	actDelete   = "platform.test_delete"
 	actFourEyes = "tenant.test_four_eyes_off"
+	actList     = "platform.test_list" // only the requests of testListPages (the database is shared by the subtests)
 )
 
 func registry(t *testing.T, log *execLog) *approvals.Registry {
@@ -111,6 +113,11 @@ func registry(t *testing.T, log *execLog) *approvals.Registry {
 	r, err := approvals.NewRegistry(
 		approvals.Typed(approvals.Spec{Name: actRestore, Scope: authz.ScopePlatform, ResourceType: "instance",
 			Permission: "platform.instance:restore", DecideConditions: []string{authz.CondRestoreOnly}},
+			func(ctx context.Context, tx *store.Tx, e approvals.Execution, _ restorePayload) (*uuid.UUID, error) {
+				return platformJob(ctx, tx, e)
+			}),
+		approvals.Typed(approvals.Spec{Name: actList, Scope: authz.ScopePlatform, ResourceType: "instance",
+			Permission: "platform.instance:restore"},
 			func(ctx context.Context, tx *store.Tx, e approvals.Execution, _ restorePayload) (*uuid.UUID, error) {
 				return platformJob(ctx, tx, e)
 			}),
@@ -138,37 +145,72 @@ func registry(t *testing.T, log *execLog) *approvals.Registry {
 	return r
 }
 
-// world is a migrated database with a platform IdP, platform users and tenants.
+// world is a migrated database with a platform IdP, shared by the subtests of TestApprovals (one database: creating
+// and migrating one per test serializes on the cluster lock of storetest and slows every package — P3-T04a), plus the
+// service, clock and action log of one subtest (sub).
 type world struct {
 	t     *testing.T
 	pg    *storetest.Env
 	db    string
 	su    *pgx.Conn
 	st    *store.Store
+	sec   *audit.Logger
 	clock *clock
 	log   *execLog
 	svc   *approvals.Service
 	pidp  uuid.UUID
 }
 
-func newWorld(t *testing.T) *world {
+func newBase(t *testing.T) *world {
 	t.Helper()
 	pg := storetest.Require(t)
 	db := pg.NewDatabase(t)
 	w := &world{t: t, pg: pg, db: db, su: pg.Admin(t, db), st: pg.OpenStore(t, db, "mg_api_tenant", "mg_api_platform", 8),
-		clock: &clock{t: time.Now().UTC().Truncate(time.Second)}, log: &execLog{}, pidp: uuid.Must(uuid.NewV7())}
+		pidp: uuid.Must(uuid.NewV7())}
 	w.exec(`INSERT INTO identity_providers (id, scope, issuer, client_id, driver, status)
 		VALUES ($1, 'platform', 'https://idp.invalid/realms/platform', 'mg-portal', 'keycloak', 'active')`, w.pidp)
-	logger, err := audit.New(w.st, pg.OpenAuditWriter(t, db), audit.Config{Registerer: prometheus.NewRegistry()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	w.svc, err = approvals.New(w.st, approvals.Config{Approvers: authz.New(w.st), Registry: registry(t, w.log),
-		Security: logger, Now: w.clock.Now})
-	if err != nil {
+	var err error
+	if w.sec, err = audit.New(w.st, pg.OpenAuditWriter(t, db), audit.Config{Registerer: prometheus.NewRegistry()}); err != nil {
 		t.Fatal(err)
 	}
 	return w
+}
+
+// sub is the world of one subtest: the shared database, its own clock, action log and service.
+func (b *world) sub(t *testing.T) *world {
+	t.Helper()
+	w := *b
+	w.t, w.clock, w.log = t, &clock{t: time.Now().UTC().Truncate(time.Second)}, &execLog{}
+	var err error
+	if w.svc, err = approvals.New(w.st, approvals.Config{Approvers: authz.New(w.st), Registry: registry(t, w.log),
+		Security: w.sec, Now: w.clock.Now}); err != nil {
+		t.Fatal(err)
+	}
+	return &w
+}
+
+// jobsOf counts the jobs an execution of the platform request id enqueued (dedupe key of partition.maintain).
+func (w *world) jobsOf(id uuid.UUID) int {
+	w.t.Helper()
+	return w.count(`SELECT count(*) FROM provisioning_jobs WHERE dedupe_key = 'partition.maintain:' || $1::text`, id.String())
+}
+
+// TestApprovals runs the PostgreSQL tests of dual control on one database.
+func TestApprovals(t *testing.T) {
+	base := newBase(t)
+	for _, tc := range []struct {
+		name string
+		fn   func(*testing.T, *world)
+	}{
+		{"PlatformApprovalLifecycle", testPlatformApprovalLifecycle},
+		{"DeciderRules", testDeciderRules},
+		{"Expiry", testExpiry},
+		{"PayloadBinding", testPayloadBinding},
+		{"Scopes", testScopes},
+		{"ListPages", testListPages},
+	} {
+		t.Run(tc.name, func(t *testing.T) { tc.fn(t, base.sub(t)) })
+	}
 }
 
 func (w *world) exec(sql string, args ...any) {
@@ -264,11 +306,10 @@ func (w *world) restoreRequest(by approvals.Actor) approvals.Request {
 	return r
 }
 
-// TestPlatformApprovalLifecycle — request (step-up), review (exact payload + hash), self-approval refused, stale
+// testPlatformApprovalLifecycle — request (step-up), review (exact payload + hash), self-approval refused, stale
 // step-up and a stale reviewed hash refused, approval by a second Super Admin executes once (job in the same
 // transaction), the executed request cannot be used again, the audit names both persons.
-func TestPlatformApprovalLifecycle(t *testing.T) {
-	w := newWorld(t)
+func testPlatformApprovalLifecycle(t *testing.T, w *world) {
 	ctx := context.Background()
 	sa1, sa2 := w.staff(authz.RoleSuperAdmin), w.staff(authz.RoleSuperAdmin)
 
@@ -346,7 +387,7 @@ func TestPlatformApprovalLifecycle(t *testing.T) {
 	wantErr(t, "execute again", err, approvals.ErrConflict, approvals.ReasonExecuted)
 	_, err = w.svc.Reject(ctx, w.staff(authz.RoleSuperAdmin), platformRef(req.ID))
 	wantErr(t, "reject executed", err, approvals.ErrConflict, approvals.ReasonExecuted)
-	if w.log.count() != 1 || w.count(`SELECT count(*) FROM provisioning_jobs WHERE kind = 'partition.maintain'`) != 1 {
+	if w.log.count() != 1 || w.jobsOf(req.ID) != 1 {
 		t.Fatal("an executed request ran again")
 	}
 
@@ -367,11 +408,10 @@ func TestPlatformApprovalLifecycle(t *testing.T) {
 	}
 }
 
-// TestDeciderRules — the :decide condition of a Platform Operator ("chỉ cho restore"), the permission of the action
+// testDeciderRules — the :decide condition of a Platform Operator ("chỉ cho restore"), the permission of the action
 // itself, an action this process cannot execute, and the tenant rule (an Owner, not an Admin, approves an action
 // that needs tenant.settings:update_security).
-func TestDeciderRules(t *testing.T) {
-	w := newWorld(t)
+func testDeciderRules(t *testing.T, w *world) {
 	ctx := context.Background()
 	sa1, sa2, po := w.staff(authz.RoleSuperAdmin), w.staff(authz.RoleSuperAdmin), w.staff(authz.RolePlatformOperator)
 
@@ -440,10 +480,9 @@ func TestDeciderRules(t *testing.T) {
 	}
 }
 
-// TestExpiry — an expired request is never executed: neither a pending one nor an approved one whose execution
+// testExpiry — an expired request is never executed: neither a pending one nor an approved one whose execution
 // failed and is retried after the expiry. The default lifetime comes from system_settings when set.
-func TestExpiry(t *testing.T) {
-	w := newWorld(t)
+func testExpiry(t *testing.T, w *world) {
 	ctx := context.Background()
 	sa1, sa2 := w.staff(authz.RoleSuperAdmin), w.staff(authz.RoleSuperAdmin)
 
@@ -464,17 +503,18 @@ func TestExpiry(t *testing.T) {
 	if _, err := w.svc.Approve(ctx, sa2, platformRef(req.ID), req.PayloadSHA256); err == nil {
 		t.Fatal("the failing action succeeded")
 	}
-	if w.status(req.ID) != approvals.StatusApproved || w.count(`SELECT count(*) FROM provisioning_jobs`) != 0 {
+	if w.status(req.ID) != approvals.StatusApproved || w.jobsOf(req.ID) != 0 {
 		t.Fatal("a failed execution must leave the request approved and no job")
 	}
 	w.clock.Advance(25 * time.Hour)
 	_, err = w.svc.Approve(ctx, fresh(sa2, w.clock.Now()), platformRef(req.ID), req.PayloadSHA256)
 	wantErr(t, "retry after the expiry", err, approvals.ErrConflict, approvals.ReasonExpired)
-	if w.status(req.ID) != approvals.StatusExpired || w.count(`SELECT count(*) FROM provisioning_jobs`) != 0 {
+	if w.status(req.ID) != approvals.StatusExpired || w.jobsOf(req.ID) != 0 {
 		t.Fatal("an approved request past its expiry ran")
 	}
 
 	w.exec(`INSERT INTO system_settings (key, value) VALUES ($1, '2')`, approvals.TTLSetting)
+	t.Cleanup(func() { w.exec(`DELETE FROM system_settings WHERE key = $1`, approvals.TTLSetting) })
 	sa1 = fresh(sa1, w.clock.Now())
 	req = w.restoreRequest(sa1)
 	if !req.ExpiresAt.Equal(w.clock.Now().Add(2 * time.Hour)) {
@@ -482,11 +522,10 @@ func TestExpiry(t *testing.T) {
 	}
 }
 
-// TestPayloadBinding — the request runs only with the payload that was approved: a payload changed in the database
+// testPayloadBinding — the request runs only with the payload that was approved: a payload changed in the database
 // before the decision or after the approval (the columns are immutable for the application; only a privileged writer
 // could do it) is refused with a security event and never runs; a changed hash makes the reviewed hash stale.
-func TestPayloadBinding(t *testing.T) {
-	w := newWorld(t)
+func testPayloadBinding(t *testing.T, w *world) {
 	ctx := context.Background()
 	sa1, sa2 := w.staff(authz.RoleSuperAdmin), w.staff(authz.RoleSuperAdmin)
 	tamper := func(id uuid.UUID) {
@@ -512,7 +551,7 @@ func TestPayloadBinding(t *testing.T) {
 	wantErr(t, "changed after the approval", err, approvals.ErrConflict, approvals.ReasonPayloadIntegrity)
 	_, err = w.svc.Execute(ctx, sa2, platformRef(after.ID), after.PayloadSHA256)
 	wantErr(t, "execute a tampered request", err, approvals.ErrConflict, approvals.ReasonPayloadIntegrity)
-	if w.status(after.ID) != approvals.StatusApproved || w.log.count() != 1 || w.count(`SELECT count(*) FROM provisioning_jobs`) != 0 {
+	if w.status(after.ID) != approvals.StatusApproved || w.log.count() != 1 || w.jobsOf(after.ID) != 0 {
 		t.Fatalf("tampered request: status %s, %d executions", w.status(after.ID), w.log.count())
 	}
 	if n := w.count(`SELECT count(*) FROM security_events WHERE kind = $1 AND tenant_id IS NULL`,
@@ -536,10 +575,9 @@ func TestPayloadBinding(t *testing.T) {
 	}
 }
 
-// TestScopes — a tenant request lives in its tenant only: another tenant's scope and the platform scope read it as
+// testScopes — a tenant request lives in its tenant only: another tenant's scope and the platform scope read it as
 // missing (RLS + scope filter), lists are per scope; the platform list never shows tenant requests.
-func TestScopes(t *testing.T) {
-	w := newWorld(t)
+func testScopes(t *testing.T, w *world) {
 	ctx := context.Background()
 	a, b := w.tenant(), w.tenant()
 	toA1, toA2, toB := w.member(a, authz.RoleTenantOwner), w.member(a, authz.RoleTenantOwner), w.member(b, authz.RoleTenantOwner)
@@ -570,10 +608,11 @@ func TestScopes(t *testing.T) {
 
 	pa, err := w.svc.List(ctx, approvals.Ref{Scope: authz.ScopeTenant, TenantID: a.id}, approvals.Filter{})
 	pb, err2 := w.svc.List(ctx, approvals.Ref{Scope: authz.ScopeTenant, TenantID: b.id}, approvals.Filter{})
-	pp, err3 := w.svc.List(ctx, approvals.Ref{Scope: authz.ScopePlatform}, approvals.Filter{})
+	pp, err3 := w.svc.List(ctx, approvals.Ref{Scope: authz.ScopePlatform}, approvals.Filter{Limit: approvals.MaxLimit})
+	inPlatform := slices.ContainsFunc(pp.Items, func(r approvals.Request) bool { return r.ID == req.ID })
 	if err != nil || err2 != nil || err3 != nil || len(pa.Items) != 1 || pa.Items[0].ID != req.ID || len(pb.Items) != 0 ||
-		len(pp.Items) != 0 {
-		t.Fatalf("lists A %d B %d platform %d (%v %v %v)", len(pa.Items), len(pb.Items), len(pp.Items), err, err2, err3)
+		inPlatform {
+		t.Fatalf("lists A %d B %d, in the platform list %v (%v %v %v)", len(pa.Items), len(pb.Items), inPlatform, err, err2, err3)
 	}
 
 	// the second Owner of A rejects; the decision is final and audited with both persons
@@ -593,21 +632,25 @@ func TestScopes(t *testing.T) {
 	}
 }
 
-// TestListPages — pagination (newest first, stable cursor), status (effective) and action filters, invalid input.
-func TestListPages(t *testing.T) {
-	w := newWorld(t)
+// testListPages — pagination (newest first, stable cursor), status (effective) and action filters, invalid input.
+func testListPages(t *testing.T, w *world) {
 	ctx := context.Background()
 	sa1, sa2 := w.staff(authz.RoleSuperAdmin), w.staff(authz.RoleSuperAdmin)
 	var ids []uuid.UUID
 	for range 5 {
-		ids = append(ids, w.restoreRequest(sa1).ID)
+		r, err := w.svc.Request(ctx, fresh(sa1, w.clock.Now()), approvals.NewRequest{Action: actList, ResourceID: uuid.NewString(),
+			Payload: restorePayload{BackupID: uuid.NewString(), InstanceID: uuid.NewString()}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, r.ID)
 		w.clock.Advance(time.Second)
 	}
 	if _, err := w.svc.Reject(ctx, fresh(sa2, w.clock.Now()), platformRef(ids[0])); err != nil {
 		t.Fatal(err)
 	}
 	var got []uuid.UUID
-	f := approvals.Filter{Limit: 2}
+	f := approvals.Filter{Limit: 2, Action: actList}
 	for page := 0; page < 5; page++ {
 		p, err := w.svc.List(ctx, approvals.Ref{Scope: authz.ScopePlatform}, f)
 		if err != nil {
@@ -624,12 +667,12 @@ func TestListPages(t *testing.T) {
 	if len(got) != 5 || got[0] != ids[4] || got[4] != ids[0] {
 		t.Fatalf("pages %v, want newest first %v", got, ids)
 	}
-	p, err := w.svc.List(ctx, approvals.Ref{Scope: authz.ScopePlatform}, approvals.Filter{Status: approvals.StatusRejected})
+	p, err := w.svc.List(ctx, approvals.Ref{Scope: authz.ScopePlatform}, approvals.Filter{Status: approvals.StatusRejected, Action: actList})
 	if err != nil || len(p.Items) != 1 || p.Items[0].ID != ids[0] {
 		t.Fatalf("rejected filter %v %v", p.Items, err)
 	}
 	w.clock.Advance(25 * time.Hour)
-	p, err = w.svc.List(ctx, approvals.Ref{Scope: authz.ScopePlatform}, approvals.Filter{Status: approvals.StatusExpired, Action: actRestore})
+	p, err = w.svc.List(ctx, approvals.Ref{Scope: authz.ScopePlatform}, approvals.Filter{Status: approvals.StatusExpired, Action: actList})
 	if err != nil || len(p.Items) != 4 {
 		t.Fatalf("expired (effective) %d %v", len(p.Items), err)
 	}

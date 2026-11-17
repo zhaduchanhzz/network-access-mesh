@@ -170,9 +170,24 @@ func actorOf(a *sessionfixture.Actor) approvals.Actor {
 
 func decision(hash string) string { return `{"payload_sha256":"` + hash + `"}` }
 
-// TestPlatformApprovalsThroughTheAPI — /platform/approvals with the roles of §8.5.
-func TestPlatformApprovalsThroughTheAPI(t *testing.T) {
+// TestApprovalsAndInvitations runs the API tests on one composed API and database (one migration instead of three);
+// the order matters only for the actions run so far (platform first).
+func TestApprovalsAndInvitations(t *testing.T) {
 	e := newEnv(t)
+	for _, tc := range []struct {
+		name string
+		fn   func(*testing.T, *env)
+	}{
+		{"PlatformApprovals", testPlatformApprovalsThroughTheAPI},
+		{"TenantApprovals", testTenantApprovalsThroughTheAPI},
+		{"Invitations", testInvitationsThroughTheAPI},
+	} {
+		t.Run(tc.name, func(t *testing.T) { tc.fn(t, e) })
+	}
+}
+
+// testPlatformApprovalsThroughTheAPI — /platform/approvals with the roles of §8.5.
+func testPlatformApprovalsThroughTheAPI(t *testing.T, e *env) {
 	w := e.w
 	ctx := context.Background()
 	sa1 := w.Actor(t, authz.RoleSuperAdmin, nil)
@@ -254,9 +269,8 @@ func TestPlatformApprovalsThroughTheAPI(t *testing.T) {
 	}
 }
 
-// TestTenantApprovalsThroughTheAPI — /tenants/{t}/approvals with the roles of §8.6; another tenant reads 404.
-func TestTenantApprovalsThroughTheAPI(t *testing.T) {
-	e := newEnv(t)
+// testTenantApprovalsThroughTheAPI — /tenants/{t}/approvals with the roles of §8.6; another tenant reads 404.
+func testTenantApprovalsThroughTheAPI(t *testing.T, e *env) {
 	w := e.w
 	to1 := w.Actor(t, authz.RoleTenantOwner, w.A)
 	to2 := w.NewActor(t, authz.RoleTenantOwner, w.A)
@@ -306,10 +320,9 @@ func TestTenantApprovalsThroughTheAPI(t *testing.T) {
 	}
 }
 
-// TestInvitationsThroughTheAPI — /tenants/{t}/invitations: §8.6 (TO, TA), rule 3a, Idempotency-Key, duplicates,
+// testInvitationsThroughTheAPI — /tenants/{t}/invitations: §8.6 (TO, TA), rule 3a, Idempotency-Key, duplicates,
 // revoke/resend, another tenant 404.
-func TestInvitationsThroughTheAPI(t *testing.T) {
-	e := newEnv(t)
+func testInvitationsThroughTheAPI(t *testing.T, e *env) {
 	w := e.w
 	base := "/tenants/" + w.A.ID.String() + "/invitations"
 	to, ta := w.Login(t, w.Actor(t, authz.RoleTenantOwner, w.A)), w.Login(t, w.Actor(t, authz.RoleTenantAdmin, w.A))

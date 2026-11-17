@@ -45,9 +45,28 @@ func actorOf(identityID, membershipID uuid.UUID) tenants.InvitationActor {
 	return tenants.InvitationActor{IdentityID: identityID, MembershipID: membershipID, Display: "Owner"}
 }
 
-// TestInvitationLifecycle — create, list, revoke, resend through the service as the API calls it.
-func TestInvitationLifecycle(t *testing.T) {
-	f := newFixture(t)
+// TestInvitations runs the invitation tests on one database (one creation + migration instead of three — they
+// serialize on the cluster lock of storetest); each subtest uses tenants of its own.
+func TestInvitations(t *testing.T) {
+	base := newFixture(t)
+	for _, tc := range []struct {
+		name string
+		fn   func(*testing.T, *fixture)
+	}{
+		{"Lifecycle", testInvitationLifecycle},
+		{"Idempotency", testInvitationIdempotency},
+		{"BindFirstLoginRefusals", testBindFirstLoginRefusals},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := *base
+			f.t = t
+			tc.fn(t, &f)
+		})
+	}
+}
+
+// testInvitationLifecycle — create, list, revoke, resend through the service as the API calls it.
+func testInvitationLifecycle(t *testing.T, f *fixture) {
 	clock := time.Now().UTC().Truncate(time.Second)
 	notes := &tokenNotifier{}
 	svc := tenants.New(f.st, tenants.Options{Notifier: notes, Now: func() time.Time { return clock }})
@@ -156,10 +175,9 @@ func TestInvitationLifecycle(t *testing.T) {
 	}
 }
 
-// TestInvitationIdempotency — the same Idempotency-Key and request returns the stored invitation (nothing created
+// testInvitationIdempotency — the same Idempotency-Key and request returns the stored invitation (nothing created
 // twice); the key with another request is refused.
-func TestInvitationIdempotency(t *testing.T) {
-	f := newFixture(t)
+func testInvitationIdempotency(t *testing.T, f *fixture) {
 	svc := tenants.New(f.st, tenants.Options{})
 	ctx := context.Background()
 	a, idpA := f.tenant("idem-a", "A", "active", false)
@@ -195,9 +213,8 @@ func TestInvitationIdempotency(t *testing.T) {
 	}
 }
 
-// TestBindFirstLoginRefusals — the binder alone: membership kept, each refusal reason, single use.
-func TestBindFirstLoginRefusals(t *testing.T) {
-	f := newFixture(t)
+// testBindFirstLoginRefusals — the binder alone: membership kept, each refusal reason, single use.
+func testBindFirstLoginRefusals(t *testing.T, f *fixture) {
 	now := time.Now().UTC()
 	svc := tenants.New(f.st, tenants.Options{Now: func() time.Time { return now }})
 	ctx := context.Background()
