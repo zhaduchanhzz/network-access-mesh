@@ -7,12 +7,12 @@ PostgreSQL của Management Plane (§6 của [bản master](../docs/planning/imp
 | Đường dẫn | Nội dung |
 |---|---|
 | `bootstrap/superuser.sql` | Chạy **một lần** bằng superuser của cụm, trong database `meshguard`, trước migration đầu tiên (chạy lại được): tạo `mg_migrator` (CREATEROLE, owner database) và `mg_backup` (BYPASSRLS + `pg_read_all_data`) — hai role chỉ superuser tạo được |
-| `migrations/0001…0007_*.sql` | Migration goose, forward-only (không có phần Down), nhúng vào binary qua `embed.go`; bản đồ bảng ở §6.3. `0007` (sau rà soát G2 vòng 1, F3) chỉ thêm CHECK: owner segment của `identity_providers.client_secret_ref` = `tenant_id` (hoặc `platform`) — số có thể phải đổi khi gộp (§6.3 dành `0007` cho P3-T06) |
+| `migrations/0001…0013_*.sql` | Migration goose, forward-only (không có phần Down), nhúng vào binary qua `embed.go`; bản đồ bảng ở §6.3. `0007` (G2 vòng 1, F3) chỉ thêm CHECK: owner segment của `identity_providers.client_secret_ref` = `tenant_id` (hoặc `platform`); `0008` (G2 vòng 2, A-1) chỉ thêm cột `sessions.id_token_hint_enc`; `0009`–`0013` (P3-T06) — xem mục "Bảng của Phase 3" |
 | `queries/*.sql` + `sqlc.yaml` | Truy vấn sqlc → mã sinh ở `internal/store/sqlcdb` (không sửa tay); `jobs.sql` = khung job + idempotency (P2-T12); `devices.sql` = sổ thiết bị + trạng thái sync + thu hồi hai pha (P2-T13) |
 | `river/grants.sql` | Quyền trên schema `river` của job queue (P2-T12), chạy lại sau mỗi lần migrate River — xem mục "Job queue (River)" |
 | `checks/partition_grants.sql` | Truy vấn CI: mỗi hàng là một vi phạm (quyền trên partition, partition chưa bật RLS, default privileges) |
 | `embed.go` | Package Go `database`: `Migrations`, `Seeds`, `Bootstrap`, `Checks`, `River` (embed.FS) |
-| `seeds/*.sql` | Dữ liệu tham chiếu áp **sau mỗi lần migrate** (`store.Migrate` → `store.Seed`: theo tên file, một transaction, `pg_advisory_xact_lock`, chạy bằng `mg_migrator`, idempotent). `seeds/rbac.sql` (P2-T07) là file **sinh** từ §8.4–§8.6 bằng `make authz-gen` — không sửa tay, spec-lint fail khi lệch; seed gói/plan ở P3-T06 |
+| `seeds/*.sql` | Dữ liệu tham chiếu áp **sau mỗi lần migrate** (`store.Migrate` → `store.Seed`: theo tên file, một transaction, `pg_advisory_xact_lock`, chạy bằng `mg_migrator`, idempotent). `seeds/rbac.sql` (P2-T07) là file **sinh** từ §8.4–§8.6 bằng `make authz-gen` — không sửa tay, spec-lint fail khi lệch; `seeds/plans.sql` (P3-T06, viết tay) chèn gói mặc định `standard` **chỉ khi chưa có** (không ghi đè gói chủ dự án đã chỉnh) |
 
 ## RBAC (P2-T07)
 
@@ -59,7 +59,7 @@ cả `mg_app_platform`), và ngược lại.
 - Helper `app_tenant_id()` = `NULLIF(current_setting('app.tenant_id', true), '')::uuid`, `app_is_platform()` =
   `COALESCE(current_setting('app.scope', true), '') = 'platform'` — biến chưa đặt hoặc rỗng ⇒ 0 hàng, không lỗi.
 - Mọi bảng có ký hiệu T, T+P, P ở §6.3: `ENABLE` + `FORCE ROW LEVEL SECURITY`. Ký hiệu "—": `roles`, `permissions`,
-  `role_permissions`, `sessions`, `auth_requests` (hai bảng sau chỉ cấp cho role platform).
+  `role_permissions`, `subscription_plans`, `sessions`, `auth_requests` (hai bảng sau chỉ cấp cho role platform).
 - Truy vấn chỉ chạy qua `store.WithTenantTx(ctx, tenantID, fn)` (pool tenant, `app.scope='tenant'` + `app.tenant_id`)
   hoặc `store.WithPlatformTx(ctx, fn)` (pool platform, `app.scope='platform'`, xóa `app.tenant_id`), biến đặt bằng
   `set_config(…, true)` nên hết hiệu lực khi transaction kết thúc. Test kiến trúc (`internal/archtest`) cấm mọi package
@@ -144,6 +144,26 @@ Module `internal/monitoring` (bằng chứng: [`P2-T13a.md`](../docs/planning/ev
 không có thông điệp thô của Headscale) và `last_health_at` = đồng hồ DB lúc probe **bắt đầu**; kết quả của lần probe bắt
 đầu sớm hơn kết quả đã ghi bị bỏ qua. `version`/`updated_at` của instance (ETag) không đổi. Dashboard tenant đọc qua
 pool tenant (RLS), Platform Health qua pool platform; số thiết bị chỉ đến từ service của `devices`.
+
+## Bảng của Phase 3 (P3-T06, migration 0009–0013)
+
+Bằng chứng: [`P3-T06.md`](../docs/planning/evidence/P3-T06.md). Mọi bảng có FK ghép theo tenant, `ENABLE` + `FORCE` RLS
+theo ký hiệu §6.3, quyền cấp tường minh theo tiến trình (ma trận đầy đủ: `TestP3GrantMatrix` trong
+`internal/store/schema_p3_test.go`), không role nào có `TRUNCATE`, không secret (chỉ secret reference/hash).
+
+| Migration | Bảng (RLS) | Ghi | Điểm cần biết |
+|---|---|---|---|
+| `0009` | `approval_requests` (T+P), `tenant_invitations` (T), `notification_outbox` (T+P) | approvals: api (tạo/duyệt/thực thi), worker platform (hết hạn, retention); lời mời: api tenant, worker tenant (lời mời Owner — §11.3 bước 16); outbox: mọi tiến trình chèn, api tenant đánh dấu đã đọc, worker gửi | 2P: `scope='platform'` ⇔ `tenant_id` NULL (yêu cầu của nền tảng về một tenant ghi đích ở `resource_type/resource_id` — pool tenant không thấy); người yêu cầu/duyệt ràng buộc bằng FK `(id, scope)` + `(tenant_id, id)` tới `identities`; không tự duyệt (CHECK); `payload`/`payload_sha256` bất biến. Lời mời: FK `(accepted_identity_id, idp_id) → identities(id, idp_id)` (UNIQUE mới trên `identities`) — chỉ identity của đúng IdP ghi trong lời mời nhận được |
+| `0010` | `relay_regions`, `relay_assignments` (T+P) | chỉ `mg_worker_platform` (bước `relay.assign`); mọi pool đọc | embedded/standalone thuộc một tenant, `shared` ⇔ `tenant_id` NULL; ở MVP assignment chỉ trỏ region của chính tenant (FK ghép) |
+| `0011` | `backups` (T+P) | worker (cả hai pool); api platform đọc; api tenant không có quyền | `key_ref` owner = `tenant_id`; `storage_uri` cấm userinfo. Service `mg-backup` (P2-T03a) **không** ghi bảng này (role `mg_backup` chỉ đọc) — bản PostgreSQL/IdP/edge có nguồn là manifest + `status.json` |
+| `0012` | `subscription_plans` (—), `subscriptions` (T+P) | plans: api platform; subscriptions: api platform (tạo/đổi), worker platform (trạng thái/kỳ) | CHECK `mg_plan_limits_valid` (khóa của `PlanLimits` §13.3; plan bắt buộc đủ 4 khóa quota). Role ghi cần `EXECUTE` hàm này (chỉ hai role platform có). Role tenant có `UPDATE (updated_at)` **chỉ** để `SELECT … FOR UPDATE` hàng subscription của mình (§7.4 bước 3); không có `EXECUTE` nên mọi `UPDATE` thật của nó vẫn bị từ chối. 0012 chèn `system_settings` `quota.max_tenants = 10` khi chưa có (tạm `NO FORCE` trong transaction — mẫu "migration dữ liệu" dưới) |
+| `0013` | `policy_versions`, `policy_applications` (T) + FK `tenants(id, desired_policy_version_id)` | versions: api tenant (soạn/duyệt), worker tenant (baseline/suspension, trạng thái); applications: chỉ worker tenant (job `policy.apply`); role tenant `UPDATE (desired_policy_version_id)` trên hàng tenant của mình | Nội dung: `source` (jsonb có kiểu, P4-T10) **hoặc** `source_hujson` (HuJSON do nền tảng sinh — lõi P3-T08a); DB kiểm sha256 của HuJSON/`applied_hujson` và chặn chuỗi rỗng (L2). "Lần áp dụng hiện hành" = hàng `applied` có `superseded_at` NULL (một hàng mỗi instance) |
+
+Gói tối thiểu (`seeds/plans.sql`): `standard` = `max_devices` 100, `max_users` 100, `max_tagged_devices` 25,
+`max_live_enrollment_credentials` 25, `backup_interval_minutes` 60, `instance` {cpus 1, memory_mb 512, pids 256} — giá trị
+khởi đầu chủ dự án chỉnh được (lý do từng số: chú thích trong file). QuotaChecker (P3-T06a) đọc hạn mức hiệu lực =
+`subscription_plans.limits || subscriptions.overrides` của subscription còn hiệu lực, và trần số tenant ở
+`system_settings` `quota.max_tenants` (pool platform).
 
 ## Triển khai (P2-T16 nối vào job `migrate` của `mg-core`)
 

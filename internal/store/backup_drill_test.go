@@ -8,7 +8,7 @@ import (
 
 // TestBackupDrillSource prepares the source database of the backup restore drill (tests/backup/drill.sh, P2-T03a)
 // and KEEPS it: a database bootstrapped and migrated like a deployment (goose + seeds + River), three fixtures (rows
-// of every table of 0001–0006, both tenants and the platform), audit events in four partitions (this month, the next
+// of every table of 0001–0013, both tenants and the platform), audit events in four partitions (this month, the next
 // two and DEFAULT), River jobs and live sessions; mg_backup gets the password of the drill's secret file. The drill
 // renames the database to `meshguard` and backs it up with the real pg-backup container.
 //

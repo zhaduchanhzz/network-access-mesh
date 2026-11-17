@@ -11,7 +11,8 @@ import "embed"
 var Migrations embed.FS
 
 // Seeds holds seeds/*.sql: idempotent reference data applied after every migration run, in file-name order
-// (seeds/rbac.sql — roles, permissions and grants generated from §8.4–§8.6 by tools/openapi_lint.py, P2-T07).
+// (seeds/plans.sql — the default plan, inserted only when missing, P3-T06; seeds/rbac.sql — roles, permissions and
+// grants generated from §8.4–§8.6 by tools/openapi_lint.py, P2-T07).
 //
 //go:embed seeds/*.sql
 var Seeds embed.FS

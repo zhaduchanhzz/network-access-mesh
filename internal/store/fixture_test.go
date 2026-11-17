@@ -2,6 +2,8 @@ package store
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"math/big"
 	"testing"
@@ -10,7 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// fixture holds one row per scope (tenant A, tenant B, platform) in every table of migrations 0001–0008, inserted
+// fixture holds one row per scope (tenant A, tenant B, platform) in every table of migrations 0001–0013, inserted
 // by the superuser (bypassing RLS) so the tests can check what each role and scope sees. Every identifier is random,
 // so fixtures of parallel tests share a database without colliding.
 type fixture struct {
@@ -25,11 +27,15 @@ type fixture struct {
 	platformDEK  uuid.UUID
 	opsDEK       uuid.UUID
 	setting      string
+	// 0009–0013 (P3-T06): rows of the platform scope and the plan of this fixture
+	platformApproval, platformNotification, sharedRegion, platformBackup, plan uuid.UUID
 }
 
 type tenantRows struct {
 	id, instance, config, idp, identity, membership, dek, secret, device, job uuid.UUID
-	slug                                                                      string
+	// 0009–0013 (P3-T06)
+	approval, invitation, notification, region, assignment, backup, subscription, policy, application uuid.UUID
+	slug                                                                                              string
 }
 
 func newID() uuid.UUID { return uuid.Must(uuid.NewV7()) }
@@ -41,12 +47,15 @@ func randInt(n int64) int64 {
 
 func newFixture() *fixture {
 	f := &fixture{sfx: randomHex(4), host: newID(), tenantRole: newID(), platformRole: newID(), platformIdP: newID(),
-		platformUser: newID(), platformDEK: newID(), opsDEK: newID()}
+		platformUser: newID(), platformDEK: newID(), opsDEK: newID(), platformApproval: newID(), platformNotification: newID(),
+		sharedRegion: newID(), platformBackup: newID(), plan: newID()}
 	f.permission = "tenant.fixture_" + f.sfx + ":read" // permissions.key: <scope>.<resource>:<action>, prefix = scope
 	f.setting = "test.setting_" + f.sfx
 	for _, tr := range []*tenantRows{&f.a, &f.b} {
 		*tr = tenantRows{id: newID(), instance: newID(), config: newID(), idp: newID(), identity: newID(),
-			membership: newID(), dek: newID(), secret: newID(), device: newID(), job: newID()}
+			membership: newID(), dek: newID(), secret: newID(), device: newID(), job: newID(), approval: newID(), invitation: newID(),
+			notification: newID(), region: newID(), assignment: newID(), backup: newID(), subscription: newID(), policy: newID(),
+			application: newID()}
 		tr.slug = "t" + randomHex(5)
 	}
 	return f
@@ -56,12 +65,13 @@ func newFixture() *fixture {
 // migrations; insertAll runs them all on a fully migrated database).
 var fixtureSteps = map[int64]func(f *fixture, t *testing.T, c *pgx.Conn){
 	1: (*fixture).step1, 2: (*fixture).step2, 3: (*fixture).step3, 4: (*fixture).step4, 5: (*fixture).step5, 6: (*fixture).step6,
-	7: (*fixture).step7, 8: (*fixture).step8,
+	7: (*fixture).step7, 8: (*fixture).step8, 9: (*fixture).step9, 10: (*fixture).step10, 11: (*fixture).step11,
+	12: (*fixture).step12, 13: (*fixture).step13,
 }
 
 // latestMigration is the number of the last migration of database/migrations (TestMigrationsUpWithData,
 // TestMigrationsShareClusterRoles).
-const latestMigration = 8
+const latestMigration = 13
 
 func (f *fixture) insertAll(t *testing.T, c *pgx.Conn) {
 	t.Helper()
@@ -210,4 +220,95 @@ func (f *fixture) step6(t *testing.T, c *pgx.Conn) {
 		VALUES ($1, 'createTenant', $2, sha256(convert_to($2, 'UTF8')), now() + interval '1 day')`, f.platformUser, randomHex(8))
 	exec(t, c, `UPDATE device_inventory_cache SET revocation_state = 'applied', revocation_kind = 'expire', revocation_job_id = $1
 		WHERE id = $2`, f.a.job, f.a.device)
+}
+
+// sha256Hex is the lowercase hex SHA-256 of s (payload_sha256, content_sha256, applied_sha256).
+func sha256Hex(s string) string {
+	h := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(h[:])
+}
+
+// baselinePolicy is the deny-all HuJSON of the fixture's baseline version (§11.3 step 15): a comment and a trailing
+// comma keep it HuJSON rather than JSON.
+const baselinePolicy = "{\n  // baseline: deny-all (fixture)\n  \"grants\": [],\n}\n"
+
+// 0009: approval_requests (tenant A, tenant B: pending requests of the tenant's identity; platform: a pending 2P request
+// about tenant A, its target in resource_type/resource_id), tenant_invitations (A, B), notification_outbox (in-portal
+// to the tenant's membership for A and B, an e-mail of the platform scope).
+func (f *fixture) step9(t *testing.T, c *pgx.Conn) {
+	const payload = `{"four_eyes": false}`
+	for _, tr := range f.tenants() {
+		exec(t, c, `INSERT INTO approval_requests (id, scope, tenant_id, action, resource_type, resource_id, payload, payload_sha256,
+				requested_by_identity_id, reason, expires_at)
+			VALUES ($1, 'tenant', $2, 'tenant.settings.disable_four_eyes', 'tenant_settings', $3, $4, $5, $6, 'fixture',
+				now() + interval '24 hours')`,
+			tr.approval, tr.id, tr.id.String(), payload, sha256Hex(payload), tr.identity)
+		exec(t, c, `INSERT INTO tenant_invitations (id, tenant_id, idp_id, email, role_id, token_hash, expires_at)
+			VALUES ($1, $2, $3, 'invitee@'||$4||'.test', $5, sha256(convert_to($6, 'UTF8')), now() + interval '7 days')`,
+			tr.invitation, tr.id, tr.idp, tr.slug, f.tenantRole, "invitation-token-"+randomHex(8))
+		exec(t, c, `INSERT INTO notification_outbox (id, tenant_id, recipient_membership_id, kind, payload)
+			VALUES ($1, $2, $3, 'tenant.activated', '{"slug": "x"}')`, tr.notification, tr.id, tr.membership)
+	}
+	exec(t, c, `INSERT INTO approval_requests (id, scope, action, resource_type, resource_id, payload, payload_sha256,
+			requested_by_identity_id, expires_at)
+		VALUES ($1, 'platform', 'tenant.delete', 'tenant', $2, '{}', $3, $4, now() + interval '24 hours')`,
+		f.platformApproval, f.a.id.String(), sha256Hex("{}"), f.platformUser)
+	exec(t, c, `INSERT INTO notification_outbox (id, recipient_email, kind) VALUES ($1, 'ops@example.test', 'platform.backup_overdue')`,
+		f.platformNotification)
+}
+
+// 0010: relay_regions (an embedded region per tenant on the fixture host, a shared region of the platform scope),
+// relay_assignments (each tenant's instance to its own region).
+func (f *fixture) step10(t *testing.T, c *pgx.Conn) {
+	for _, tr := range f.tenants() {
+		exec(t, c, `INSERT INTO relay_regions (id, code, name, kind, derp_region_id, hostname, ipv4, stun_port, verify_mode, host_id,
+				tenant_id, status)
+			VALUES ($1, 'mg-'||$2, 'Relay '||$2, 'embedded', 900, $2||'.mesh.test', '192.0.2.10', 3478, 'in_process', $3, $4, 'active')`,
+			tr.region, tr.slug, f.host, tr.id)
+		exec(t, c, `INSERT INTO relay_assignments (id, tenant_id, instance_id, relay_region_id, status) VALUES ($1, $2, $3, $4, 'active')`,
+			tr.assignment, tr.id, tr.instance, tr.region)
+	}
+	exec(t, c, `INSERT INTO relay_regions (id, code, name, kind, derp_region_id, hostname, verify_mode)
+		VALUES ($1, 'shared-'||$2, 'Shared '||$2, 'shared', 901, 'derp-'||$2||'.relay.test', 'verify_url')`, f.sharedRegion, f.sfx)
+}
+
+// 0011: backups (a finished instance archive per tenant, keyed by the tenant's own backup key and linked to the
+// tenant's job; a PostgreSQL dump of the platform scope).
+func (f *fixture) step11(t *testing.T, c *pgx.Conn) {
+	for _, tr := range f.tenants() {
+		exec(t, c, `INSERT INTO backups (id, tenant_id, instance_id, kind, status, storage_uri, size_bytes, sha256, key_ref,
+				headscale_version, finished_at, expires_at, job_id)
+			VALUES ($1, $2, $3, 'instance', 'succeeded', $4, 4096, repeat('c', 64), $5, '0.29.7', now(), now() + interval '30 days', $6)`,
+			tr.backup, tr.id, tr.instance, "file:///opt/meshguard/backups/tenants/"+tr.instance.String()+"/fixture.age",
+			"mgsec://"+tr.id.String()+"/backup-key#1", tr.job)
+	}
+	exec(t, c, `INSERT INTO backups (id, kind, status, storage_uri, size_bytes, sha256, finished_at)
+		VALUES ($1, 'postgres', 'succeeded', 'file:///opt/meshguard/backups/postgres/fixture-'||$2||'.age', 1024, repeat('d', 64), now())`,
+		f.platformBackup, f.sfx)
+}
+
+// 0012: subscription_plans (a plan of this fixture), subscriptions (one live subscription per tenant with an override).
+func (f *fixture) step12(t *testing.T, c *pgx.Conn) {
+	exec(t, c, `INSERT INTO subscription_plans (id, key, name, limits)
+		VALUES ($1, 'fixture-'||$2, 'Fixture', '{"max_devices": 5, "max_users": 5, "max_tagged_devices": 1, "max_live_enrollment_credentials": 2}')`,
+		f.plan, f.sfx)
+	for _, tr := range f.tenants() {
+		exec(t, c, `INSERT INTO subscriptions (id, tenant_id, plan_id, overrides) VALUES ($1, $2, $3, '{"max_devices": 7}')`,
+			tr.subscription, tr.id, f.plan)
+	}
+}
+
+// 0013: policy_versions (the baseline v1 of each tenant, approved by the system), tenants.desired_policy_version_id,
+// policy_applications (the bootstrap application of that baseline on the tenant's instance — the current one).
+func (f *fixture) step13(t *testing.T, c *pgx.Conn) {
+	for _, tr := range f.tenants() {
+		exec(t, c, `INSERT INTO policy_versions (id, tenant_id, version, kind, source_hujson, content_sha256, state, approved_at,
+				approved_content_sha256)
+			VALUES ($1, $2, 1, 'baseline', $3, $4, 'approved', now(), $4)`, tr.policy, tr.id, baselinePolicy, sha256Hex(baselinePolicy))
+		exec(t, c, `UPDATE tenants SET desired_policy_version_id = $1 WHERE id = $2`, tr.policy, tr.id)
+		exec(t, c, `INSERT INTO policy_applications (id, tenant_id, instance_id, policy_version_id, trigger, applied_hujson,
+				applied_sha256, state, finished_at)
+			VALUES ($1, $2, $3, $4, 'bootstrap', $5, $6, 'applied', now())`,
+			tr.application, tr.id, tr.instance, tr.policy, baselinePolicy, sha256Hex(baselinePolicy))
+	}
 }

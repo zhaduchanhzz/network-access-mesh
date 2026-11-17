@@ -173,6 +173,7 @@ edge $NET_BASE.0.0/24 no $NET_BASE.0.128/25
 data $NET_BASE.1.0/24 yes -
 egress $NET_BASE.5.0/24 no -
 idp-data $NET_BASE.6.0/24 yes -
+idp $NET_BASE.7.0/24 yes $NET_BASE.7.128/25
 prep $NET_BASE.10.0/24 no -
 EOF
   if [ -z "$GO_CACHE" ]; then GO_CACHE=$PREFIX-gomod; GO_CACHE_OWN=1; $D volume create "$GO_CACHE" >/dev/null; fi
@@ -345,7 +346,7 @@ idp_part() {
   say "2. IdP — Keycloak + idp-db (compose mg-idp đã render, image idp pin digest); chờ healthy"
   t0=$(date +%s)
   if idp up -d --wait --wait-timeout 600 > "$W/state/idp-up.log" 2>&1; then ok "Keycloak healthy sau $(( $(date +%s) - t0 )) s"; else ko "Keycloak không healthy"; tail -20 "$W/state/idp-up.log"; return 1; fi
-  kcip=$($D inspect -f "{{(index .NetworkSettings.Networks \"$PREFIX-edge\").IPAddress}}" "$(idp ps -q idp)")
+  kcip=$($D inspect -f "{{(index .NetworkSettings.Networks \"$PREFIX-idp\").IPAddress}}" "$(idp ps -q idp)")
   if python3 -I "$ROOT/tests/backup/kc_drill.py" prepare --base "http://$kcip:8080" --domain "$DOMAIN" \
       --admin-conf <(sudo cat "$W/secrets/idp/keycloak.conf") --state "$W/state/kc.json"; then ok "Keycloak: dữ liệu thử đã tạo"; else ko "kc_drill prepare"; fi
   rc=0; bk run --rm -T idp-backup once --label manual > "$W/state/idp-live.log" 2>&1 || rc=$?
@@ -375,7 +376,7 @@ idp_part() {
   echo "DB keycloak: $(wc -l < "$W/state/kc-src-counts") bảng, $(awk -F'|' '{s += $3} END {print s}' "$W/state/kc-src-counts") hàng"
   t0=$(date +%s)
   if idp up -d --wait --wait-timeout 600 idp > "$W/state/idp-up2.log" 2>&1; then ok "Keycloak khởi động trên DB đã restore sau $(( $(date +%s) - t0 )) s"; else ko "Keycloak sau restore"; return 1; fi
-  kcip=$($D inspect -f "{{(index .NetworkSettings.Networks \"$PREFIX-edge\").IPAddress}}" "$(idp ps -q idp)")
+  kcip=$($D inspect -f "{{(index .NetworkSettings.Networks \"$PREFIX-idp\").IPAddress}}" "$(idp ps -q idp)")
   if python3 -I "$ROOT/tests/backup/kc_drill.py" verify --base "http://$kcip:8080" --domain "$DOMAIN" \
       --admin-conf <(sudo cat "$W/secrets/idp/keycloak.conf") --state "$W/state/kc.json"; then ok "Keycloak: realm, user, discovery như trước backup"; else ko "kc_drill verify"; fi
 }
@@ -466,7 +467,7 @@ down() {
   $D rm -f "$PREFIX-src-pg" "$PREFIX-restore-pg" > /dev/null 2>&1
   for v in "$PREFIX-edge-data" "$PREFIX-edge-restored" "$PREFIX-idp_idp-db-data"; do $D volume rm "$v" > /dev/null 2>&1; done
   [ "$GO_CACHE_OWN" = 1 ] && $D volume rm "$GO_CACHE" > /dev/null 2>&1
-  for n in edge data egress idp-data prep; do $D network rm "$PREFIX-$n" > /dev/null 2>&1; done
+  for n in edge data egress idp-data idp prep; do $D network rm "$PREFIX-$n" > /dev/null 2>&1; done
   [ -d "$W/keys" ] && shred -u "$W/keys/identity" "$W/keys/other" 2> /dev/null
   sudo rm -rf "$W"
   echo "còn lại: $($D ps -a --filter "name=$PREFIX" -q | wc -l) container, $($D network ls --filter "name=$PREFIX" -q | wc -l) network, $($D volume ls --filter "name=$PREFIX" -q | wc -l) volume"
