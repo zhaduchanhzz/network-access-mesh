@@ -40,7 +40,7 @@ import string
 import time
 
 import checks
-from stack import ENV_DIR, ROOT, SECRET_RE, TENANTS, Stack
+from stack import ENV_DIR, ROOT, SECRET_RE, TENANTS, Stack, log
 
 ENROLL_SLUG = "tenant-a"
 ENROLL_USER = "mg-e2e-enroll"
@@ -344,21 +344,28 @@ def cli_keys(st: Stack) -> tuple[dict[str, bool], str]:
 
 
 def check_apikey_rotate(r, st: Stack) -> None:
-    rows, ok = [], True
+    """Every condition is named; the names of the failed ones lead the detail, and the whole detail is recorded
+    (results.json, summary) and logged without the 400-character cut of the other cases."""
+    rows, conds = [], []
+
+    def cond(name: str, good: bool, row: str) -> None:
+        conds.append((name, good))
+        rows.append(f"[{'ok' if good else 'FAIL'} {name}] {row}")
+
+    psql = ("postgres", "psql", "-U", "postgres", "-d", "meshguard", "-tAF", "|", "-v", "ON_ERROR_STOP=1", "-c")
     sql_row = ("SELECT i.id, i.api_key_prefix, i.api_key_secret_ref FROM tenant_instances i JOIN tenants t ON t.id = i.tenant_id "
                f"WHERE t.slug = '{ROTATE_SLUG}' AND i.status <> 'removed'")
-    db = lambda: st.exec("postgres", "psql", "-U", "postgres", "-d", "meshguard", "-tAF", "|", "-v", "ON_ERROR_STOP=1",  # noqa: E731
-                         "-c", sql_row).stdout.strip().split("|")
+    db = lambda: st.exec(*psql, sql_row).stdout.strip().split("|")  # noqa: E731
     instance, old_prefix, old_ref = db()
+    version = lambda s: int(s.rsplit("#", 1)[-1])  # noqa: E731
     before, _ = cli_keys(st)
-    rows.append(f"before: recorded {old_prefix} (ref …#{old_ref.rsplit('#', 1)[-1]}), valid {sorted(p for p, v in before.items() if v)}")
+    rows.append(f"before: recorded {old_prefix} (ref version {version(old_ref)}), valid {sorted(p for p, v in before.items() if v)}")
     texts = []
     code, out, text = apikey_rotate(st)
     texts.append(text)
-    not_due = code == 0 and out.get("outcome") == "skipped" and out.get("skip_reason") == "not_due" and \
-        out.get("key_prefix") == old_prefix and db()[1] == old_prefix
-    ok &= not_due
-    rows.append(f"without --force: exit {code} {out.get('outcome')}/{out.get('skip_reason')}")
+    cond("not_due", code == 0 and out.get("outcome") == "skipped" and out.get("skip_reason") == "not_due" and
+         out.get("key_prefix") == old_prefix and db()[1] == old_prefix,
+         f"without --force: exit {code} {out.get('outcome')}/{out.get('skip_reason')} prefix {out.get('key_prefix')}")
     code, out, text = apikey_rotate(st, "--force")
     texts.append(text)
     new_prefix = str(out.get("key_prefix", ""))
@@ -367,21 +374,16 @@ def check_apikey_rotate(r, st: Stack) -> None:
         days = (calendar.timegm(time.strptime(exp, "%Y-%m-%dT%H:%M:%SZ")) - time.time()) / 86400
     except ValueError:
         days = 0
-    rotated = code == 0 and out.get("outcome") == "rotated" and len(new_prefix) == 12 and new_prefix != old_prefix and \
-        89 <= days <= 91 and set(out) == {"tenant_id", "instance_id", "outcome", "key_prefix", "expires_at"}
-    ok &= rotated
-    rows.append(f"--force: exit {code} {out.get('outcome')} prefix {new_prefix} expires {exp} (≈{days:.1f} days), "
-                f"fields {sorted(out)}")
+    cond("rotated", code == 0 and out.get("outcome") == "rotated" and len(new_prefix) == 12 and new_prefix != old_prefix and
+         89 <= days <= 91 and set(out) == {"tenant_id", "instance_id", "outcome", "key_prefix", "expires_at"},
+         f"--force: exit {code} {out.get('outcome')} prefix {new_prefix} expires {exp} (≈{days:.1f} days), fields {sorted(out)}")
     after, _ = cli_keys(st)
-    only_new = [p for p, v in after.items() if v] == [new_prefix] and after.get(old_prefix) is False
-    ok &= only_new
-    rows.append(f"CLI: valid {sorted(p for p, v in after.items() if v)}, old {old_prefix} valid={after.get(old_prefix)}")
+    cond("one_valid_key", [p for p, v in after.items() if v] == [new_prefix] and after.get(old_prefix) is False,
+         f"CLI: valid {sorted(p for p, v in after.items() if v)}, old {old_prefix} valid={after.get(old_prefix)}")
     _, prefix, ref = db()
-    version = lambda s: int(s.rsplit("#", 1)[-1])  # noqa: E731
-    recorded = prefix == new_prefix and version(ref) == version(old_ref) + 1
-    ok &= recorded
-    rows.append(f"register: prefix {prefix}, ref version {version(old_ref)} → {version(ref)}")
-    counts = st.exec("postgres", "psql", "-U", "postgres", "-d", "meshguard", "-tAF", "|", "-v", "ON_ERROR_STOP=1", "-c",
+    cond("registry", prefix == new_prefix and version(ref) == version(old_ref) + 1,
+         f"register: prefix {prefix}, ref version {version(old_ref)} → {version(ref)}")
+    counts = st.exec(*psql,
                      "SELECT (SELECT count(*) FROM audit_events WHERE tenant_id IS NULL AND resource_id = "
                      f"'{instance}' AND action = 'instance.apikey.rotate.requested'), "
                      "(SELECT count(*) FROM audit_events WHERE tenant_id IS NULL AND resource_id = "
@@ -390,22 +392,28 @@ def check_apikey_rotate(r, st: Stack) -> None:
                      f"(SELECT count(*) FROM secrets s JOIN tenants t ON t.id = s.tenant_id WHERE t.slug = '{ROTATE_SLUG}' "
                      f"AND s.name = 'headscale-api-key' AND s.version = {version(old_ref)} AND s.destroyed_at IS NOT NULL)"
                      ).stdout.strip()
-    audited = counts == "1|1|0|1"
-    ok &= audited
-    rows.append(f"audit requested|succeeded, security events apikey.*, old version destroyed = {counts}")
+    cond("audit_events_secrets", counts == "1|1|0|1",
+         f"audit requested|succeeded, security events apikey.*, old version destroyed = {counts} (want 1|1|0|1)")
     base = (ROOT / "infrastructure" / "headscale" / "templates" / "bootstrap-policy.hujson").read_text(encoding="utf-8")
     worker = st.compose("ps", "-q", "worker").stdout.strip()
     p = st.docker("exec", "-i", worker, "/usr/local/bin/meshguard", "admin", "policy-apply", "--tenant", ROTATE_SLUG,
                   "--trigger", "bootstrap", "--file", "-", check=False, timeout=180, input=base)
-    applied = p.returncode == 0 and '"state":"applied"' in p.stdout
-    ok &= applied
-    rows.append(f"fresh process with the stored key (policy-apply baseline): exit {p.returncode}")
-    clean = not any(leaked(x) for x in texts) and "mgsec://" not in "".join(texts)
-    ok &= clean
-    rows.append(f"no key or reference in the command output: {clean}")
+    state = next((json.loads(ln).get("state") for ln in p.stdout.splitlines() if ln.startswith("{")), None)
+    cond("fresh_process", p.returncode == 0 and state == "applied",
+         f"fresh process with the stored key (policy-apply baseline): exit {p.returncode} state {state}"
+         + ("" if p.returncode == 0 else f" stderr {st.redact(p.stderr)[-300:]}"))
+    keys_out = [x for x in texts if leaked(x)]
+    refs_out = [ln for x in texts for ln in x.splitlines() if "mgsec://" in ln]
+    cond("no_secret_in_output", not keys_out and not refs_out,
+         f"command output: {len(keys_out)} with a key, {len(refs_out)} line(s) naming a SecretStore reference"
+         + "".join(f" | {st.redact(ln)[:200]}" for ln in refs_out[:3]))
+    failed = [n for n, good in conds if not good]
+    detail = (f"FAILED: {', '.join(failed)} — " if failed else "") + "; ".join(rows)
+    for row in rows:
+        log(f"  E2E-52 {st.redact(row)}")
     r.add("E2E-52", "P3-T10 xoay API key qua `meshguard admin apikey-rotate` trong worker: chưa tới hạn ⇒ bỏ qua; --force ⇒ "
           "key mới 90 ngày, đúng 1 key còn hạn (key cũ hết hạn), registry + audit cặp + version secret kế tiếp, "
-          "tiến trình mới dùng được key mới", ok, "; ".join(rows))
+          "tiến trình mới dùng được key mới; đầu ra không có key hay reference", not failed, detail, limit=4000)
 
 
 def run_all(r, st: Stack, guarded) -> None:

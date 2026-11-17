@@ -164,7 +164,9 @@ func openKeyRotator(ctx context.Context, cfg config.Config, logw io.Writer) (key
 	}
 	fail := func(err error) (keyRotator, func(), error) { closeAll(); return nil, nil, err }
 	log := logx.New(logw, cfg.LogLevel, "apikey-rotate")
-	ss, err := secrets.New(st, secrets.Options{App: app, Ops: ops, Logger: log})
+	// No logger for the SecretStore: its INFO lines name the secret references (mgsec://…), and this command's output —
+	// stdout and stderr alike — carries the key prefix and expiry only (E2E-52 checks both).
+	ss, err := secrets.New(st, secrets.Options{App: app, Ops: ops})
 	if err != nil {
 		return fail(err)
 	}
