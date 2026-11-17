@@ -1,0 +1,23 @@
+# Ngoại lệ grype CHỈ cho image idp (Keycloak — infrastructure/docker/idp). Workflow images truyền file này bằng
+# `--config` ở đúng dòng matrix `idp` (cột grype_config); image khác quét không có ngoại lệ nào. Không đổi tên thành
+# .grype.yaml ở gốc repo: grype tự nạp file đó cho MỌI lần quét.
+# Quyết định chủ dự án 2026-11-16 "Vá + ngoại lệ có hạn". Lý do, phạm vi, kết quả kiểm: docs/planning/evidence/P2-T05.md
+# mục 7. Mọi điều kiện của rule phải khớp cùng lúc: đổi base (bản Java khác), Red Hat phát hành bản sửa (fix-state khác
+# wont-fix) hay lỗ hổng/gói khác ⇒ rule không còn khớp ⇒ gate --fail-on critical chặn lại như bình thường.
+#
+# Dòng dưới là hạn dùng, máy đọc (đúng một dòng, dạng YYYY-MM-DD): bước grype của workflow images FAIL từ ngày kế tiếp
+# (UTC). Gia hạn = quyết định mới của chủ dự án, ghi vào bằng chứng; hết lý do (base mới không còn bị báo) ⇒ xóa file và cột.
+# expires: 2027-02-16
+ignore:
+  - vulnerability: CVE-2026-91403
+    namespace: "redhat:distro:redhat:9"      # dữ liệu Red Hat (RHEL 9) — không bỏ qua kết quả khớp từ nguồn khác (NVD…)
+    fix-state: wont-fix                      # Red Hat: "Will not fix" cho java-21-openjdk
+    package:
+      name: java-21-openjdk-headless
+      version: "1:21.0.13.0.9-1.2.el9"      # đúng bản trong base Keycloak 26.8.2 (digest c68e286c…)
+      type: rpm
+    reason: >-
+      Red Hat Will not fix: JDK của RHEL dùng kho CA hệ thống; bản sửa là ca-certificates 2026.2.92_v9.0.319-90.3.el9_8
+      (RHSA-2026:88459, CVE-2026-114406) — base đã có. Image idp gỡ thêm root emSign Root CA - G1 khỏi kho CA của JVM
+      (Dockerfile, stage truststore); CI kiểm bằng TrustCheck.java: JVM không tin root nào trong 4 root của
+      openjdk.org/emudhra. Chủ dự án duyệt 2026-11-16; hết hạn 2027-02-16.

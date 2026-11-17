@@ -63,7 +63,7 @@ user = "1000"
 run_as = "1000:1000 — chạy qua image mg-idp (build tối ưu từ base này: infrastructure/docker/idp), rootfs chỉ đọc"
 released = "2026-11-05"
 revision = "e514445f9dcdabc5bdcf67cab56c1e49655de067"   # commit của tag 26.8.2 trong keycloak/keycloak (GitHub API)
-note = "Bản vá bảo mật (~30 CVE, gồm stored XSS trang login và chiếm tài khoản qua race xác thực) — dưới 14 ngày tuổi, chấp nhận. Digest kiểm qua Registry API v2 của quay.io ngày 2026-11-17 (sha256 của index, manifest amd64 và config blob khớp Docker-Content-Digest; config build 2026-11-12). Tag 26.8.2 đã bị push lại khi rebuild base (05/11, 09/11, 12/11) — chỉ dùng theo digest"
+note = "Bản vá bảo mật (~30 CVE, gồm stored XSS trang login và chiếm tài khoản qua race xác thực) — dưới 14 ngày tuổi, chấp nhận. Digest kiểm qua Registry API v2 của quay.io ngày 2026-11-17 (sha256 của index, manifest amd64 và config blob khớp Docker-Content-Digest; config build 2026-11-12). Tag 26.8.2 đã bị push lại khi rebuild base (05/11, 09/11, 12/11) — chỉ dùng theo digest. grype báo Critical CVE-2026-91403 trên java-21-openjdk-headless 1:21.0.13.0.9-1.2.el9 (Red Hat 'Will not fix' — sửa qua ca-certificates): base đã có ca-certificates 2026.2.92_v9.0.319-90.3.el9_8 (RHSA-2026:88459); image mg-idp gỡ thêm root emSign Root CA - G1 khỏi kho CA của JVM và chỉ image đó có ngoại lệ grype, hết hạn 2027-02-16 (infrastructure/docker/idp/grype.yaml; P2-T05 mục 7). Còn 5 High chưa có bản vá trong base (sqlite-libs ×4, guava 33.6.0-jre) — không cần ngoại lệ, gate chỉ chặn Critical"
 
 [images.haproxy]   # l4proxy trên VPS (§14.9)
 image = "docker.io/library/haproxy"
@@ -254,6 +254,6 @@ docker_engine = "29.9.3"    # moby release docker-v29.9.3, 2026-11-03
 docker_compose = "5.7.1"    # 2026-11-11
 
 [pending]
-mg_idp = "Image idp (Keycloak 26.8.2 build tối ưu — infrastructure/docker/idp, P2-T05) CHƯA vào workflow images: grype v0.121.1 báo 1 Critical (CVE-2026-91403, java-21-openjdk-headless, Red Hat 'will not fix' — sửa qua ca-certificates) ⇒ gate --fail-on critical chặn; chờ chủ dự án quyết. Khi có digest GHCR: ghi [images.mg-idp] — tools/render_idp.py tự lấy từ đó"
+mg_idp = "Image idp (Keycloak 26.8.2 build tối ưu + kho CA của JVM đã gỡ emSign Root CA - G1 — infrastructure/docker/idp, P2-T05) đã vào workflow images ngày 2026-11-17, kèm ngoại lệ grype có hạn cho CVE-2026-91403 chỉ ở dòng matrix idp (infrastructure/docker/idp/grype.yaml, hết hạn 2027-02-16 — chủ dự án duyệt 2026-11-16; P2-T05 mục 7). CHƯA có digest: sau lần chạy xanh đầu tiên của workflow trên main, ghi [images.mg-idp] theo mẫu mg-edge (image ghcr.io/zhaduchanhzz/network-access-mesh/idp, tag = commit SHA, index/amd64 = digest GHCR, user 1000) bằng commit riêng — tools/render_idp.py tự lấy từ đó; tới lúc đó render cho staging cần --image"
 monitoring = "Prometheus, Alertmanager, Grafana, Loki, Alloy, exporters — pin ở P6-T01"
 own_images = "edge và stund đã pin (P1-T04); api, worker, agent, web pin khi build ở Phase 2–4. Quy ước: tag = commit SHA, pin theo digest lấy từ GHCR sau khi workflow images xanh"
