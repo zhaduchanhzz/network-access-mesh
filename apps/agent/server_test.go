@@ -323,9 +323,10 @@ func (h *harness) restart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h.gs = srv.grpcServer(h.cfg)
-	go func() { _ = h.gs.Serve(l) }()
-	t.Cleanup(h.gs.Stop)
+	gs := srv.grpcServer(h.cfg) // local: see start() — the Serve goroutine never reads h.gs
+	h.gs = gs
+	go func() { _ = gs.Serve(l) }()
+	t.Cleanup(gs.Stop)
 }
 
 func TestBusyInstanceLock(t *testing.T) {
