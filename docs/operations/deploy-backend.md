@@ -93,7 +93,7 @@ Theo mục "Đưa tenant A/B vào registry — `meshguard admin adopt-instance`"
 
 ```bash
 CORE="$APP"
-$CORE run --rm --no-deps -T -e MG_IDP_ID_PLATFORM api admin register-platform-idp
+$CORE run --rm --no-deps -T -e "MG_IDP_ID_PLATFORM=$MG_IDP_ID_PLATFORM" api admin register-platform-idp
 # adopt: S=tenant-a rồi tenant-b — đúng khối lệnh của RUNBOOK (API key mới đi thẳng từ `headscale apikeys create` qua pipe)
 # client secret mg-portal của từng realm, chỉ qua pipe (script từ chối stdout là terminal hoặc file):
 sudo bash infrastructure/host/idp-client-secret.sh platform | $CORE run --rm --no-deps -T api admin set-idp-client-secret "$MG_IDP_ID_PLATFORM"
@@ -113,7 +113,7 @@ Hoàn tác: mục "Hoàn tác" tương ứng của RUNBOOK; user mẫu xóa ở 
 
 ## g. `mg-backup` theo lịch
 
-`$BK up -d` rồi [backup-restore.md](backup-restore.md) mục 4 bước 6 (`status.json` của `postgres`, `idp`, `edge`: `last_attempt.ok = true`). Hoàn tác: `$BK down`.
+`$BK up -d` rồi [backup-restore.md](backup-restore.md) mục 4 bước 6 (`status.json` của `postgres`, `idp`, `edge`: `last_attempt.ok = true`). Postgres **không** chạy bù vì bộ pre-migration của bước b đã tạo `status.json`, mà bộ đó chụp DB lúc còn rỗng. Vì vậy chạy ngay một bộ sau khi registry có dữ liệu: `$BK run --rm -T pg-backup once --label manual` (lần đầu trên staging 2026-11-17: `postgres-20261117T103025Z-manual`). Hoàn tác: `$BK down`.
 
 ## h. Edge với site `app.`/`admin.`/`auth.` (template v5) — reload có lịch
 

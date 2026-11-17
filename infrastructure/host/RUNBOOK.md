@@ -161,7 +161,7 @@ RANGE=$(python3 -c 'import tomllib; print(tomllib.load(open("versions.lock","rb"
 POOL=$(python3 -c 'import tomllib; print(tomllib.load(open("versions.lock","rb"))["ids"]["tenant_net_pool"])')
 
 # 0. IdP của nền tảng (một lần; chạy lại vô hại)
-$CORE run --rm --no-deps -T -e MG_IDP_ID_PLATFORM api admin register-platform-idp
+$CORE run --rm --no-deps -T -e "MG_IDP_ID_PLATFORM=$MG_IDP_ID_PLATFORM" api admin register-platform-idp
 
 # 1. mỗi tenant: S=tenant-a, rồi S=tenant-b (lần đầu kèm vùng/dải của host; lần sau chỉ --host)
 S=tenant-a; NAME="Tenant A"
@@ -170,7 +170,7 @@ sudo docker exec mg-hs-$S headscale apikeys list            # ghi lại các pre
 T=$(sudo mktemp -d)                                         # meta không chứa secret; bản 0444 cho uid 65532 của api
 sudo install -m 0444 /opt/meshguard/tenants/$IID/meta/instance.json "$T/instance.json"
 sudo docker exec mg-hs-$S headscale apikeys create -e 2160h -o json \
-  | $CORE run --rm --no-deps -T -e MG_IDP_ID_TENANT_A -e MG_IDP_ID_TENANT_B \
+  | $CORE run --rm --no-deps -T -e "MG_IDP_ID_TENANT_A=$MG_IDP_ID_TENANT_A" -e "MG_IDP_ID_TENANT_B=$MG_IDP_ID_TENANT_B" \
       -v "$T/instance.json:/run/mg-adopt/instance.json:ro" \
       api admin adopt-instance --host mg-staging --host-region lab --run-uid-range "$RANGE" --tenant-net-pool "$POOL" \
       --name "$NAME" /run/mg-adopt/instance.json
@@ -272,8 +272,8 @@ echo "$SA1 $SA2 $TOA $TAA $TOB $TAB"    # sub không phải secret — ghi vào 
 
 ```bash
 CORE="sudo docker compose -p mg-core -f /opt/meshguard/core/compose.core.yaml"   # như mục adopt (tên theo P2-T16)
-$CORE run --rm --no-deps -T -e MG_IDP_ID_PLATFORM api admin bootstrap-super-admin --subject "$SA1" --display-name "<tên 1>"
-$CORE run --rm --no-deps -T -e MG_IDP_ID_PLATFORM api admin bootstrap-super-admin --subject "$SA2" --display-name "<tên 2>"
+$CORE run --rm --no-deps -T -e "MG_IDP_ID_PLATFORM=$MG_IDP_ID_PLATFORM" api admin bootstrap-super-admin --subject "$SA1" --display-name "<tên 1>"
+$CORE run --rm --no-deps -T -e "MG_IDP_ID_PLATFORM=$MG_IDP_ID_PLATFORM" api admin bootstrap-super-admin --subject "$SA2" --display-name "<tên 2>"
 ```
 
 Kết quả mong đợi (lần 1 có cảnh báo vì mới 1 SA; lần 2 `active Super Admins: 2`, không cảnh báo):
