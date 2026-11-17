@@ -41,6 +41,7 @@ service AgentService {
   rpc GetHostInfo(GetHostInfoRequest) returns (GetHostInfoResponse);
   // ValidateConfig renders the configuration of spec into config.next/ and runs `headscale configtest` in a
   // throw-away container with a scratch data directory (§11.5). A syntax gate only: the health gate decides.
+  // config.next/ and the container are removed whatever happens; config/ is written by EnsureInstance (P3-T03).
   rpc ValidateConfig(ValidateConfigRequest) returns (ValidateConfigResponse);
   // EnsureInstance runs the instance up to target_phase (storage → config → network → container — steps 7–10 of
   // §11.3); idempotent. dry_run returns the planned actions without touching anything.
@@ -59,7 +60,8 @@ service AgentService {
   rpc UpgradeInstance(UpgradeInstanceRequest) returns (UpgradeInstanceResponse);
   // WriteDnsRecords writes records/extra-records.json atomically from typed records (sorted, [] when empty).
   rpc WriteDnsRecords(WriteDnsRecordsRequest) returns (WriteDnsRecordsResponse);
-  // BootstrapPolicy sets the baseline deny-all policy through the CLI inside the container (§11.3 step 12).
+  // BootstrapPolicy sets the baseline deny-all policy through the CLI inside the container (§11.3 step 12), reads it
+  // back and compares sha256; a policy already equal to it is not set again.
   rpc BootstrapPolicy(BootstrapPolicyRequest) returns (BootstrapPolicyResponse);
   // BootstrapApiKey expires every API key whose prefix differs from keep_prefix, then creates one (§11.3 step 13).
   rpc BootstrapApiKey(BootstrapApiKeyRequest) returns (BootstrapApiKeyResponse);
@@ -69,9 +71,12 @@ service AgentService {
   rpc Restore(RestoreRequest) returns (RestoreResponse);
   // PostRestoreReconcile expires keys/nodes and resets routes/tags of a restored instance (§17.2 step 5).
   rpc PostRestoreReconcile(PostRestoreReconcileRequest) returns (PostRestoreReconcileResponse);
-  // EnsureEdgeAttachment attaches the edge to the tenant network after the alias check (§11.3 step 14).
+  // EnsureEdgeAttachment attaches the edge to the tenant network after the alias check (§11.3 step 14). The instance
+  // must run, have a policy (BootstrapPolicy first) and pass the start guard; the first call records the Noise key
+  // fingerprint and writes meta/activated, then the edge_attach flag, then connects the edge (P3-T03).
   rpc EnsureEdgeAttachment(EnsureEdgeAttachmentRequest) returns (EnsureEdgeAttachmentResponse);
-  // RemoveEdgeAttachment clears the edge_attach flag, then detaches the edge (§11.4).
+  // RemoveEdgeAttachment clears the edge_attach flag, then detaches the edge (§11.4). With
+  // EDGE_DETACH_REASON_COMPENSATION it also removes meta/activated when the same job_id wrote it (§11.3 step 14).
   rpc RemoveEdgeAttachment(RemoveEdgeAttachmentRequest) returns (RemoveEdgeAttachmentResponse);
 }
 
@@ -172,6 +177,10 @@ enum PathKind {
   PATH_KIND_POLICY_FILE = 9;
   PATH_KIND_RECORDS_FILE = 10;
   PATH_KIND_META_FILE = 11;
+  // The files of data/ the start guard requires (§11.4) — lstat only: the agent never reads the tenant's files (P3-T03).
+  PATH_KIND_DB_FILE = 12;        // data/db.sqlite
+  PATH_KIND_NOISE_KEY_FILE = 13; // data/noise_private.key
+  PATH_KIND_DERP_KEY_FILE = 14;  // data/derp_server_private.key
 }
 
 // PathState is the owner/mode of one agent-managed path (reconcile: "quyền file").
@@ -210,7 +219,9 @@ message InstanceStatus {
   uint32 template_version = 8;
   NetworkState network = 9;
   repeated PathState paths = 10;
-  // Fingerprint of data/noise_private.key, computed by the one-shot helper container (fixed-length hex).
+  // Fingerprint of data/noise_private.key, computed by the one-shot helper container (§11.5): the 64-hex X25519
+  // public key — the instance serves it as "publicKey": "mkey:<fingerprint>" at /key (§11.3 step 18). Empty when the
+  // key file does not exist (yet) or the helper could not run.
   string noise_key_fingerprint = 11;
   bool activated = 12;        // meta/activated exists
   bool edge_attach_flag = 13; // meta/instance.json edge_attach
@@ -319,7 +330,8 @@ message ValidateConfigResponse {
   bool valid = 1;
   string config_sha256 = 2;
   int32 exit_code = 3;
-  // stderr of configtest, redacted and truncated to 4 KiB.
+  // When not valid: stderr of configtest and the warning/error lines it logged (Headscale logs to stdout with
+  // log.format json), redacted and truncated to 4 KiB.
   string detail = 4;
 }
 

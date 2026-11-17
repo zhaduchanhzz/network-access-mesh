@@ -53,6 +53,7 @@ def main() -> int:
                  "    pids_limit: 256", "    mem_limit: 512m", "    cpus: 1.0", "      - /tmp:size=16m,mode=1777",
                  f"    image: {IMAGE}", "      MG_AGENT_DRIVER: compose", "      DOCKER_HOST: unix:///var/run/docker.sock",
                  "      DOCKER_CONFIG: /tmp/docker", "      MG_AGENT_TOKEN_FILE: /run/secrets/agent_token",
+                 f"      MG_AGENT_HELPER_IMAGE: {IMAGE}", "      MG_AGENT_EDGE_NETWORK: mg-edge",
                  "    file: /opt/meshguard/secrets/worker/agent_token", "name: mg-agent", "    restart: unless-stopped"):
         check(want in lines, f"hardening/line: {want.strip()}")
     for bad in ("ports:", "expose:", "privileged", "network_mode: host", "pid:", "ipc:", "devices:", "env_file", "SYS_ADMIN",

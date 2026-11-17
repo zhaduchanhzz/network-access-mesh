@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"log/slog"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -22,6 +23,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	agentv1 "github.com/zhaduchanhzz/network-access-mesh/api/agent/v1"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/kit/logx"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/agentspec"
 )
 
@@ -45,6 +47,7 @@ type rig struct {
 	g    *agentspec.Guard
 	dir  string // tenants directory
 	idir string // instance directory
+	logs *logBuf
 }
 
 func newRig(t *testing.T) *rig {
@@ -55,11 +58,13 @@ func newRig(t *testing.T) *rig {
 	e := newFakeEngine()
 	g := &agentspec.Guard{Host: h, Inventory: NewInventory(e), Edge: "mg-edge"}
 	r := &fakeCompose{e: e}
-	d, err := New(Config{Host: h, Guard: g, AgentGID: os.Getegid(), Engine: e, Compose: r, Edge: "mg-edge"})
+	logs := &logBuf{}
+	d, err := New(Config{Host: h, Guard: g, AgentGID: os.Getegid(), Engine: e, Compose: r, Edge: "mg-edge", HelperImage: testHelperImage,
+		Log: logx.New(logs, slog.LevelDebug, "agent")})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &rig{d: d, e: e, r: r, h: h, s: s, g: g, dir: dir, idir: filepath.Join(dir, s.Ref.InstanceID.String())}
+	return &rig{d: d, e: e, r: r, h: h, s: s, g: g, dir: dir, idir: filepath.Join(dir, s.Ref.InstanceID.String()), logs: logs}
 }
 
 func (rg *rig) ensure(t *testing.T, phase agentv1.TargetPhase) *agentv1.EnsureInstanceResponse {
@@ -200,7 +205,7 @@ func TestEnsureInstanceLayout(t *testing.T) {
 	if st.GetContainerState() != agentv1.ContainerState_CONTAINER_STATE_RUNNING || st.GetHealth() != agentv1.HealthState_HEALTH_STATE_HEALTHY ||
 		st.GetImageDigest() != rg.s.Image.Digest || !st.GetNetwork().GetExists() || st.GetNetwork().GetSubnet() != "10.250.0.8/29" ||
 		!st.GetNetwork().GetInternal() || len(st.GetNetwork().GetMembers()) != 1 || st.GetNetwork().GetEdgeAttached() || st.GetActivated() ||
-		len(st.GetPaths()) != 10 || st.GetStartedAt() == nil {
+		len(st.GetPaths()) != 13 || st.GetStartedAt() == nil || len(st.GetNoiseKeyFingerprint()) != 64 {
 		t.Fatalf("status %v", st)
 	}
 	for _, p := range st.GetPaths() {
@@ -434,9 +439,7 @@ func TestRemoveInstance(t *testing.T) {
 func TestActivatedInstance(t *testing.T) {
 	rg := newRig(t)
 	rg.ensure(t, agentv1.TargetPhase_TARGET_PHASE_CONTAINER)
-	if err := os.WriteFile(filepath.Join(rg.idir, "meta", "activated"), nil, 0o400); err != nil {
-		t.Fatal(err)
-	}
+	rg.activate(t)
 	rg.ensure(t, agentv1.TargetPhase_TARGET_PHASE_CONTAINER)
 	if err := os.RemoveAll(filepath.Join(rg.idir, "data")); err != nil {
 		t.Fatal(err)
@@ -529,8 +532,9 @@ func TestRefusals(t *testing.T) {
 	if _, err := rg.d.EnsureInstance(ctx, agentspec.Ensure{Spec: rg.s, Phase: agentv1.TargetPhase_TARGET_PHASE_NETWORK}); reason(err) != agentv1.RefusalReason_REFUSAL_REASON_FOREIGN_OBJECT {
 		t.Fatalf("racing foreign network: %v", err)
 	}
-	if _, err := rg.d.InstanceStatus(ctx, rg.s.Ref, true); status.Code(err) != codes.Unimplemented {
-		t.Fatalf("include_api_keys: %v", err)
+	// include_api_keys needs the CLI in a running container (P3-T03)
+	if _, err := rg.d.InstanceStatus(ctx, rg.s.Ref, true); reason(err) != agentv1.RefusalReason_REFUSAL_REASON_STATE {
+		t.Fatalf("include_api_keys without a container: %v", err)
 	}
 }
 

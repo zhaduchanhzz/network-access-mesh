@@ -170,6 +170,7 @@ func testEnv(dir string) map[string]string {
 		"MG_AGENT_PUBLIC_ENTRY_IPV4":    "203.0.113.10",
 		"MG_BASE_DOMAIN":                "example.com",
 		"MG_AGENT_LOCK_WAIT":            "300ms",
+		"MG_AGENT_HELPER_IMAGE":         "ghcr.io/zhaduchanhzz/network-access-mesh/agent@sha256:" + strings.Repeat("d", 64),
 	}
 }
 

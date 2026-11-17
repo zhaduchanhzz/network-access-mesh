@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 
+	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -35,17 +36,20 @@ type Driver interface {
 	RemoveEdgeAttachment(ctx context.Context, d agentspec.EdgeDetach) (*agentv1.RemoveEdgeAttachmentResponse, error)
 }
 
-// composeDriver is the driver of the agent from P3-T02 on: the compose driver for EnsureInstance (storage → config →
-// network → container), status, inventory, start/stop/restart and remove; every other operation is still
-// UNIMPLEMENTED (after validation, authorisation, lock and guard): ValidateConfig (configtest), BootstrapPolicy,
-// BootstrapApiKey, edge attachment (P3-T03), WriteDnsRecords, Backup/Restore/PostRestoreReconcile (P3-T11),
-// UpgradeInstance (P3-T13a).
+// composeDriver is the driver of the agent: the compose driver for EnsureInstance (storage → config → network →
+// container), status, inventory, start/stop/restart and remove (P3-T02); ValidateConfig (configtest in a throw-away
+// container), BootstrapPolicy, BootstrapApiKey, the edge attachment, the start guard and the edge supervisor (P3-T03).
+// Still UNIMPLEMENTED (after validation, authorisation, lock and guard): WriteDnsRecords, Backup/Restore/
+// PostRestoreReconcile (P3-T11), UpgradeInstance (P3-T13a).
 type composeDriver struct {
 	noDriver
 	c *compose.Driver
 }
 
 func (d composeDriver) Name() string { return d.c.Name() }
+func (d composeDriver) ValidateConfig(ctx context.Context, s agentspec.InstanceSpec) (*agentv1.ValidateConfigResponse, error) {
+	return d.c.ValidateConfig(ctx, s)
+}
 func (d composeDriver) EnsureInstance(ctx context.Context, e agentspec.Ensure) (*agentv1.EnsureInstanceResponse, error) {
 	return d.c.EnsureInstance(ctx, e)
 }
@@ -67,6 +71,24 @@ func (d composeDriver) RestartInstance(ctx context.Context, c agentspec.Call) (*
 func (d composeDriver) RemoveInstance(ctx context.Context, r agentspec.Remove) (*agentv1.RemoveInstanceResponse, error) {
 	return d.c.RemoveInstance(ctx, r)
 }
+func (d composeDriver) BootstrapPolicy(ctx context.Context, c agentspec.Call, kind agentv1.PolicyKind) (*agentv1.BootstrapPolicyResponse, error) {
+	return d.c.BootstrapPolicy(ctx, c, kind)
+}
+func (d composeDriver) BootstrapAPIKey(ctx context.Context, k agentspec.APIKey) (*agentv1.BootstrapApiKeyResponse, error) {
+	return d.c.BootstrapAPIKey(ctx, k)
+}
+func (d composeDriver) EnsureEdgeAttachment(ctx context.Context, c agentspec.Call) (*agentv1.EnsureEdgeAttachmentResponse, error) {
+	return d.c.EnsureEdgeAttachment(ctx, c)
+}
+func (d composeDriver) RemoveEdgeAttachment(ctx context.Context, r agentspec.EdgeDetach) (*agentv1.RemoveEdgeAttachmentResponse, error) {
+	return d.c.RemoveEdgeAttachment(ctx, r)
+}
+
+// EdgeCycle / EdgeStarts make composeDriver an edgeSupervisor (supervisor.go).
+func (d composeDriver) EdgeCycle(ctx context.Context, tryLock func(uuid.UUID) (func(), bool)) (compose.EdgeReport, error) {
+	return d.c.EdgeCycle(ctx, tryLock)
+}
+func (d composeDriver) EdgeStarts(ctx context.Context) <-chan struct{} { return d.c.EdgeStarts(ctx) }
 
 // noDriver answers UNIMPLEMENTED for every operation (MG_AGENT_DRIVER=none, and the operations composeDriver does not
 // implement yet) — after the request was validated, authorised, locked and guarded.

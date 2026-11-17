@@ -324,6 +324,22 @@ func (t *tree) createInstance(l layout, runUID int, meta []byte) (err error) {
 	return t.syncDir(".")
 }
 
+// removeFile removes the regular file rel (absent is not an error; anything else than a regular file is refused) and
+// syncs its directory.
+func (t *tree) removeFile(rel string) error {
+	fi, err := t.lstat(rel)
+	if err != nil || fi == nil {
+		return err
+	}
+	if !fi.Mode().IsRegular() {
+		return unsafePath(rel, "not a regular file")
+	}
+	if err := t.root.Remove(rel); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("remove %s: %w", filepath.ToSlash(rel), err)
+	}
+	return t.syncDir(filepath.Dir(rel))
+}
+
 // removeAll removes rel and everything below it without following any symlink (os.Root). Absent is not an error.
 func (t *tree) removeAll(rel string) error {
 	if err := t.root.RemoveAll(rel); err != nil && !errors.Is(err, fs.ErrNotExist) {

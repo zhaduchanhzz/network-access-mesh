@@ -33,7 +33,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import mgenv  # noqa: E402 — env file of the environment (no secrets)
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-TEMPLATE_VERSION = "1"
+TEMPLATE_VERSION = "2"  # 2: MG_AGENT_HELPER_IMAGE (P3-T03)
 COMPOSE_TMPL = ROOT / "infrastructure" / "compose" / "compose.agent.yaml.tmpl"
 VERSIONS = ROOT / "versions.lock"
 IMAGE_RE = re.compile(r"^(?:[a-z0-9][a-z0-9._/:-]*@)?sha256:[0-9a-f]{64}$")

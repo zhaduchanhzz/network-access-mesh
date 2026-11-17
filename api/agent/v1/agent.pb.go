@@ -288,6 +288,10 @@ const (
 	PathKind_PATH_KIND_POLICY_FILE  PathKind = 9
 	PathKind_PATH_KIND_RECORDS_FILE PathKind = 10
 	PathKind_PATH_KIND_META_FILE    PathKind = 11
+	// The files of data/ the start guard requires (§11.4) — lstat only: the agent never reads the tenant's files (P3-T03).
+	PathKind_PATH_KIND_DB_FILE        PathKind = 12 // data/db.sqlite
+	PathKind_PATH_KIND_NOISE_KEY_FILE PathKind = 13 // data/noise_private.key
+	PathKind_PATH_KIND_DERP_KEY_FILE  PathKind = 14 // data/derp_server_private.key
 )
 
 // Enum value maps for PathKind.
@@ -305,20 +309,26 @@ var (
 		9:  "PATH_KIND_POLICY_FILE",
 		10: "PATH_KIND_RECORDS_FILE",
 		11: "PATH_KIND_META_FILE",
+		12: "PATH_KIND_DB_FILE",
+		13: "PATH_KIND_NOISE_KEY_FILE",
+		14: "PATH_KIND_DERP_KEY_FILE",
 	}
 	PathKind_value = map[string]int32{
-		"PATH_KIND_UNSPECIFIED":  0,
-		"PATH_KIND_INSTANCE_DIR": 1,
-		"PATH_KIND_CONFIG_DIR":   2,
-		"PATH_KIND_RECORDS_DIR":  3,
-		"PATH_KIND_DATA_DIR":     4,
-		"PATH_KIND_META_DIR":     5,
-		"PATH_KIND_SECRETS_DIR":  6,
-		"PATH_KIND_COMPOSE_FILE": 7,
-		"PATH_KIND_CONFIG_FILE":  8,
-		"PATH_KIND_POLICY_FILE":  9,
-		"PATH_KIND_RECORDS_FILE": 10,
-		"PATH_KIND_META_FILE":    11,
+		"PATH_KIND_UNSPECIFIED":    0,
+		"PATH_KIND_INSTANCE_DIR":   1,
+		"PATH_KIND_CONFIG_DIR":     2,
+		"PATH_KIND_RECORDS_DIR":    3,
+		"PATH_KIND_DATA_DIR":       4,
+		"PATH_KIND_META_DIR":       5,
+		"PATH_KIND_SECRETS_DIR":    6,
+		"PATH_KIND_COMPOSE_FILE":   7,
+		"PATH_KIND_CONFIG_FILE":    8,
+		"PATH_KIND_POLICY_FILE":    9,
+		"PATH_KIND_RECORDS_FILE":   10,
+		"PATH_KIND_META_FILE":      11,
+		"PATH_KIND_DB_FILE":        12,
+		"PATH_KIND_NOISE_KEY_FILE": 13,
+		"PATH_KIND_DERP_KEY_FILE":  14,
 	}
 )
 
@@ -1360,7 +1370,9 @@ type InstanceStatus struct {
 	TemplateVersion uint32                 `protobuf:"varint,8,opt,name=template_version,json=templateVersion,proto3" json:"template_version,omitempty"`
 	Network         *NetworkState          `protobuf:"bytes,9,opt,name=network,proto3" json:"network,omitempty"`
 	Paths           []*PathState           `protobuf:"bytes,10,rep,name=paths,proto3" json:"paths,omitempty"`
-	// Fingerprint of data/noise_private.key, computed by the one-shot helper container (fixed-length hex).
+	// Fingerprint of data/noise_private.key, computed by the one-shot helper container (§11.5): the 64-hex X25519
+	// public key — the instance serves it as "publicKey": "mkey:<fingerprint>" at /key (§11.3 step 18). Empty when the
+	// key file does not exist (yet) or the helper could not run.
 	NoiseKeyFingerprint string        `protobuf:"bytes,11,opt,name=noise_key_fingerprint,json=noiseKeyFingerprint,proto3" json:"noise_key_fingerprint,omitempty"`
 	Activated           bool          `protobuf:"varint,12,opt,name=activated,proto3" json:"activated,omitempty"`                                   // meta/activated exists
 	EdgeAttachFlag      bool          `protobuf:"varint,13,opt,name=edge_attach_flag,json=edgeAttachFlag,proto3" json:"edge_attach_flag,omitempty"` // meta/instance.json edge_attach
@@ -1971,7 +1983,8 @@ type ValidateConfigResponse struct {
 	Valid        bool                   `protobuf:"varint,1,opt,name=valid,proto3" json:"valid,omitempty"`
 	ConfigSha256 string                 `protobuf:"bytes,2,opt,name=config_sha256,json=configSha256,proto3" json:"config_sha256,omitempty"`
 	ExitCode     int32                  `protobuf:"varint,3,opt,name=exit_code,json=exitCode,proto3" json:"exit_code,omitempty"`
-	// stderr of configtest, redacted and truncated to 4 KiB.
+	// When not valid: stderr of configtest and the warning/error lines it logged (Headscale logs to stdout with
+	// log.format json), redacted and truncated to 4 KiB.
 	Detail        string `protobuf:"bytes,4,opt,name=detail,proto3" json:"detail,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -4759,7 +4772,7 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x11HEALTH_STATE_NONE\x10\x01\x12\x19\n" +
 	"\x15HEALTH_STATE_STARTING\x10\x02\x12\x18\n" +
 	"\x14HEALTH_STATE_HEALTHY\x10\x03\x12\x1a\n" +
-	"\x16HEALTH_STATE_UNHEALTHY\x10\x04*\xc8\x02\n" +
+	"\x16HEALTH_STATE_UNHEALTHY\x10\x04*\x9a\x03\n" +
 	"\bPathKind\x12\x19\n" +
 	"\x15PATH_KIND_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16PATH_KIND_INSTANCE_DIR\x10\x01\x12\x18\n" +
@@ -4773,7 +4786,10 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x15PATH_KIND_POLICY_FILE\x10\t\x12\x1a\n" +
 	"\x16PATH_KIND_RECORDS_FILE\x10\n" +
 	"\x12\x17\n" +
-	"\x13PATH_KIND_META_FILE\x10\v*\x87\x05\n" +
+	"\x13PATH_KIND_META_FILE\x10\v\x12\x15\n" +
+	"\x11PATH_KIND_DB_FILE\x10\f\x12\x1c\n" +
+	"\x18PATH_KIND_NOISE_KEY_FILE\x10\r\x12\x1b\n" +
+	"\x17PATH_KIND_DERP_KEY_FILE\x10\x0e*\x87\x05\n" +
 	"\rRefusalReason\x12\x1e\n" +
 	"\x1aREFUSAL_REASON_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18REFUSAL_REASON_MALFORMED\x10\x01\x12\x1d\n" +

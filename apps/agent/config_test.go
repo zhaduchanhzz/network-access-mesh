@@ -46,6 +46,17 @@ func TestLoadConfigRefusals(t *testing.T) {
 		"relative Docker socket":             func(env map[string]string) { env["DOCKER_HOST"] = "unix://docker.sock" },
 		"relative compose binary":            func(env map[string]string) { env["MG_AGENT_COMPOSE_BIN"] = "docker-compose" },
 		"unclean DOCKER_CONFIG":              func(env map[string]string) { env["DOCKER_CONFIG"] = "/tmp/../root/.docker" },
+		// P3-T03: the helper image is the agent's own, pinned; the supervisor's network and period are bounded
+		"no helper image with compose":   func(env map[string]string) { delete(env, "MG_AGENT_HELPER_IMAGE") },
+		"helper image by tag":            func(env map[string]string) { env["MG_AGENT_HELPER_IMAGE"] = "ghcr.io/x/agent:latest" },
+		"helper image digest upper case": func(env map[string]string) { env["MG_AGENT_HELPER_IMAGE"] = "sha256:" + strings.Repeat("A", 64) },
+		"helper image with options": func(env map[string]string) {
+			env["MG_AGENT_HELPER_IMAGE"] = "--privileged sha256:" + strings.Repeat("a", 64)
+		},
+		"edge network with a slash":          func(env map[string]string) { env["MG_AGENT_EDGE_NETWORK"] = "../mg-edge" },
+		"supervisor interval too short":      func(env map[string]string) { env["MG_AGENT_EDGE_SUPERVISOR_INTERVAL"] = "100ms" },
+		"supervisor interval too long":       func(env map[string]string) { env["MG_AGENT_EDGE_SUPERVISOR_INTERVAL"] = "1h" },
+		"supervisor interval not a duration": func(env map[string]string) { env["MG_AGENT_EDGE_SUPERVISOR_INTERVAL"] = "30" },
 	}
 	for name, mut := range cases {
 		env := testEnv(dir)

@@ -51,7 +51,7 @@ isolation: ## Isolation suite v1 (P2-T15): ma trận authz sinh từ OpenAPI + I
 isolation-headscale: ## IT-06, IT-10 (API key), IT-20 (gồm Locator thật + PostgreSQL) trên hai Headscale thật (cần Docker, python3 ≥ 3.11)
 	bash tests/isolation/headscale/run.sh
 
-agent-it: ## Test tích hợp compose driver của Host Agent trên Docker thật (P3-T02): tenant dùng-một-lần end-to-end trong image agent đã hardening, snapshot trước/sau (cần Docker, python3 ≥ 3.11; DOCKER="sudo docker" nếu cần)
+agent-it: ## Test tích hợp Host Agent trên Docker thật (P3-T02 compose driver, P3-T03 thao tác/edge supervisor/start guard): tenant dùng-một-lần trong image agent đã hardening, snapshot trước/sau (cần Docker, python3 ≥ 3.11; DOCKER="sudo docker" nếu cần)
 	bash tests/integration/agent/run.sh
 
 sqlc: ## Sinh lại internal/store/sqlcdb từ database/migrations + database/queries (sqlc pin trong versions.lock; cần CGO)

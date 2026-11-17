@@ -23,6 +23,21 @@
 //   - status and inventory (status.go, inventory.go): the Docker Engine API (moby client — engine.go), never parsed
 //     CLI output.
 //
+// P3-T03 adds the operations after the container (§11.3 steps 8, 12–14; §11.4):
+//
+//   - one-shot helper containers (helper.go): network none, read-only, cap_drop ALL, the tenant's run_uid, a hard
+//     timeout, always removed — `headscale configtest` with a scratch data directory on tmpfs (configtest.go:
+//     ValidateConfig, data/ never mounted) and the Noise key fingerprint (`meshguard-agent noise-fingerprint` of the
+//     agent's own image, data/ read-only — the agent never reads a file of the tenant);
+//   - the Headscale CLI inside the tenant container over its local socket (headscale.go): BootstrapPolicy (set, read
+//     back, compare sha256), BootstrapAPIKey (list, expire the others, create with an explicit expiration — the key in
+//     the response only, APIKeySecret never prints) and the API keys of the status;
+//   - the edge attachment (edge.go): EnsureEdgeAttachment / RemoveEdgeAttachment and EdgeCycle, one cycle of the edge
+//     supervisor that apps/agent runs (re-attach exactly the flagged networks, start guard of every activated
+//     instance, gateway of the edge);
+//   - the start guard (startguard.go): data/ files present and the fingerprint recorded at activation — a violation
+//     is refused and contained (flag cleared, edge detached, container stopped, Critical log line).
+//
 // Every operation is idempotent: repeated, it changes nothing and returns no error; a partial state (directory without
 // container, network without container, container stopped…) converges to the requested phase.
 package compose

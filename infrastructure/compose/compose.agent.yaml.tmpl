@@ -41,6 +41,9 @@ services:
       MG_AGENT_TENANT_NET_POOL: ${tenant_net_pool}
       MG_AGENT_PUBLIC_ENTRY_IPV4: ${public_ipv4}
       MG_AGENT_EDGE_CONTAINER: mg-edge
+      MG_AGENT_EDGE_NETWORK: mg-edge
+      # P3-T03: the one-shot helper that fingerprints a tenant's Noise key (start guard, §11.5) runs this same image
+      MG_AGENT_HELPER_IMAGE: ${agent_image}
       MG_AGENT_COMPOSE_BIN: /usr/local/bin/docker-compose
       DOCKER_HOST: unix:///var/run/docker.sock
       DOCKER_CONFIG: /tmp/docker
