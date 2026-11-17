@@ -467,7 +467,7 @@ down() {
   $D rm -f "$PREFIX-src-pg" "$PREFIX-restore-pg" > /dev/null 2>&1
   for v in "$PREFIX-edge-data" "$PREFIX-edge-restored" "$PREFIX-idp_idp-db-data"; do $D volume rm "$v" > /dev/null 2>&1; done
   [ "$GO_CACHE_OWN" = 1 ] && $D volume rm "$GO_CACHE" > /dev/null 2>&1
-  for n in edge data egress idp-data prep; do $D network rm "$PREFIX-$n" > /dev/null 2>&1; done
+  for n in edge data egress idp-data idp prep; do $D network rm "$PREFIX-$n" > /dev/null 2>&1; done
   [ -d "$W/keys" ] && shred -u "$W/keys/identity" "$W/keys/other" 2> /dev/null
   sudo rm -rf "$W"
   echo "còn lại: $($D ps -a --filter "name=$PREFIX" -q | wc -l) container, $($D network ls --filter "name=$PREFIX" -q | wc -l) network, $($D volume ls --filter "name=$PREFIX" -q | wc -l) volume"
