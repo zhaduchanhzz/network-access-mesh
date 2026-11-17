@@ -123,7 +123,7 @@ meshguard/
 │   ├── probe/          # prober: STUN/HTTPS/allow-list từ phía ngoài (không secret)
 │   └── web/            # React SPA (app + admin)
 ├── internal/           # identity, idp, authz, tenants, members, platform, devices, enrollment, headscale, policies, network,
-│                       # provisioning (driver/compose, agentspec — lớp kiểm tra của Agent), agentclient, relay, audit, usage, secrets, monitoring,
+│                       # provisioning (driver/compose, agentspec — lớp kiểm tra của Agent, reconcile), agentclient, relay, audit, usage, secrets, monitoring,
 │                       # notifications, store, jobs, httpapi, config
 ├── api/
 │   ├── openapi.yaml    # contract của SaaS API (nguồn sự thật)
