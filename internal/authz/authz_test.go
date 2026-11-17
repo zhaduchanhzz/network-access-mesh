@@ -6,6 +6,7 @@ package authz
 import (
 	"context"
 	"errors"
+	"reflect"
 	"regexp"
 	"slices"
 	"sort"
@@ -373,7 +374,7 @@ func TestOperationTable(t *testing.T) {
 				t.Errorf("%s: special permission %q with flags or on a tenant path", o.ID, o.Permission)
 			}
 		}
-		if got, ok := OperationByID(goName(o.ID)); !ok || got != o {
+		if got, ok := OperationByID(goName(o.ID)); !ok || !reflect.DeepEqual(got, o) {
 			t.Errorf("%s: not found by its Go name %s", o.ID, goName(o.ID))
 		}
 	}
@@ -383,5 +384,36 @@ func TestOperationTable(t *testing.T) {
 	ops[0].ID = "changed"
 	if Operations()[0].ID == "changed" {
 		t.Error("Operations must return a copy")
+	}
+}
+
+// TestOperationConditions — x-conditions of the spec reach the Requirement (P3-T04a): the conditional grant of the
+// Platform Operator on platform.approval:decide ("chỉ cho restore", §8.5) is granted on the approve/reject operations
+// that declare restore_only — with the condition in the decision for the service to enforce — and refused anywhere it
+// is not declared.
+func TestOperationConditions(t *testing.T) {
+	p := Principal{IdentityID: uuid.New(), Scope: ScopePlatform, Origin: OriginAdmin}
+	acc := &access{subjectID: uuid.New(), subjectStatus: StatusActive, identityStatus: StatusActive,
+		roleKey: RolePlatformOperator, roleRank: 3, grantScope: GrantAny, grantCondition: CondRestoreOnly}
+	for _, id := range []string{"approvePlatformApproval", "rejectPlatformApproval"} {
+		op, ok := OperationByID(id)
+		if !ok || !slices.Equal(op.Requirement().Conditions, []string{CondRestoreOnly}) {
+			t.Fatalf("%s: conditions %v (found %v)", id, op.Conditions, ok)
+		}
+		d, err := decidePlatform(p, op.Requirement(), acc)
+		if err != nil || d.Condition != CondRestoreOnly {
+			t.Errorf("%s: decision %+v, %v — want a grant carrying restore_only", id, d, err)
+		}
+		req := op.Requirement()
+		req.Conditions = nil
+		var den *Denial
+		if _, err := decidePlatform(p, req, acc); !errors.As(err, &den) || den.Reason != "condition_not_enforced:"+CondRestoreOnly {
+			t.Errorf("%s without x-conditions: %v — want condition_not_enforced", id, err)
+		}
+	}
+	for _, o := range Operations() {
+		if len(o.Conditions) > 0 && o.ID != "approvePlatformApproval" && o.ID != "rejectPlatformApproval" {
+			t.Errorf("%s declares conditions %v — extend this test", o.ID, o.Conditions)
+		}
 	}
 }

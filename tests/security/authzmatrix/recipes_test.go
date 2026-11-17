@@ -80,6 +80,21 @@ var recipes = map[string]recipe{
 	"getPlatformHealth":  {ok: answer{status: http.StatusOK}},
 	// notifications (P3-T05b, notificationsapi — mounted; own-only for every role, the list is the caller's own rows)
 	"listNotifications": {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
+	// dual control (P3-T04a, approvalsapi — mounted with the matrix's actions, world_test.go): granted deciders race
+	// on the same request (one executes, the others get 409) — any answer that is not a refusal
+	"listPlatformApprovals":   {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
+	"getPlatformApproval":     {ok: answer{status: http.StatusOK}},
+	"approvePlatformApproval": {body: `{"payload_sha256":"` + matrixPlatformHash + `"}`},
+	"rejectPlatformApproval":  {},
+	"listTenantApprovals":     {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
+	"getTenantApproval":       {ok: answer{status: http.StatusOK}},
+	"approveTenantApproval":   {body: `{"payload_sha256":"` + matrixTenantHash + `"}`},
+	"rejectTenantApproval":    {},
+	// invitations (P3-T05a, invitationsapi — mounted): the same address from every granted caller (201, then 409)
+	"listTenantInvitations":  {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
+	"createTenantInvitation": {idempotent: true, body: `{"email":"matrix-invitee@example.test","role":"tenant_viewer"}`},
+	"revokeTenantInvitation": {},
+	"resendTenantInvitation": {},
 }
 
 // objectKind is what a path parameter (other than the {tenantId} context of a tenant route) designates.
@@ -93,10 +108,12 @@ const (
 	objTenant     objectKind = "tenant" // /platform/tenants/{tenantId}: a resource, not a context
 	objSession    objectKind = "session"
 	objIdP        objectKind = "idp"
+	objApproval   objectKind = "approval"
+	objInvitation objectKind = "invitation"
 )
 
 // paramObjects maps path parameters to object kinds; a new parameter must be added (TestEveryOperationHasAnExpectation).
 var paramObjects = map[string]objectKind{
 	"deviceId": objDevice, "membershipId": objMembership, "jobId": objJob, "instanceId": objInstance,
-	"tenantId": objTenant, "sessionId": objSession, "idpId": objIdP,
+	"tenantId": objTenant, "sessionId": objSession, "idpId": objIdP, "approvalId": objApproval, "invitationId": objInvitation,
 }

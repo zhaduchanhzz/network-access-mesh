@@ -27,6 +27,7 @@ except ImportError:            # Windows: only `render` is useful there
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import backend  # noqa: E402 — E2E-17 … E2E-25 (P2-T16)
 import checks  # noqa: E402
+import dualcontrol  # noqa: E402 — E2E-37 … E2E-39 (P3-T05a, P3-T04a)
 import phase3  # noqa: E402 — E2E-32 … E2E-36 (P3-T14a, P3-T03a, P3-T08a)
 from stack import CLIENTS, SECRET_RE, TENANTS, Stack, StackError, log  # noqa: E402
 
@@ -179,6 +180,8 @@ def test(st: Stack, r: checks.Results) -> None:
         backend.run_all(r, st, guarded)
     with timed("ca E2E-32 … E2E-36 (Phase 3: helper enrollment P3-T14a, prober P3-T03a, lõi policy P3-T08a)"):
         phase3.run_all(r, st, guarded)
+    with timed("ca E2E-37 … E2E-39 (Phase 3: lời mời P3-T05a, dual control P3-T04a — Keycloak + TOTP thật)"):
+        dualcontrol.run_all(r, st, guarded)
 
 
 def versions(st: Stack) -> dict[str, str]:

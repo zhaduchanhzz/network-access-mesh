@@ -8,12 +8,15 @@ import (
 
 	"github.com/zhaduchanhzz/network-access-mesh/internal/audit"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/authz"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/authz/approvals"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/config"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/approvalsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/auditapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/authzhook"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/devicesapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/identityapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/invitationsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/jobsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/monitoringapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/notificationsapi"
@@ -34,12 +37,17 @@ import (
 //	identity         OIDC RP + BFF session (P2-T06): app./admin. origins, the issuer client = hardened client + the
 //	                 narrow route to auth.<domain> restricted to the public OIDC endpoints (P2-T05a), client secrets from
 //	                 the SecretStore, its audit through auditapi.IdentityAuditor, request id / client IP / problems of
-//	                 the httpapi chain (authzhook — P2-T15a)
+//	                 the httpapi chain (authzhook — P2-T15a); the first login of a tenant identity is bound to the
+//	                 pending invitation of its tenant by tenants.Service (P3-T05a)
+//	approvals        dual control (P3-T04a): authz.Authorizer decides the second person, the audit Logger raises the
+//	                 security events; the registry of executable actions (approvalActions) is empty until P3-T09/T11/T18
 //	hooks            Session = identity middleware, Authz = authz.New(store) (P2-T07), Audit = auditapi.Middleware
 //	handlers         Auth (identityapi), Tenants (tenantsapi over tenants + platform), Devices (devicesapi over devices
 //	                 + the Headscale registry), Audit (auditapi over audit.Reader), Jobs (jobsapi over jobs.Service),
 //	                 Monitoring (monitoringapi over monitoring, reads only — the worker probes), Notifications
-//	                 (notificationsapi over notifications.Reader — the caller's own Portal notifications, P3-T05b)
+//	                 (notificationsapi over notifications.Reader — the caller's own Portal notifications, P3-T05b),
+//	                 Approvals (approvalsapi over approvals), Invitations (invitationsapi over tenants +
+//	                 authz.GuardInvitationRole)
 //	readiness        postgres, secretstore, edge_admin (§16.2)
 func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prometheus.Registerer) (_ *component, err error) {
 	d, err := openDeps(ctx, cfg, log, idp.PlatformOIDCPaths)
@@ -66,6 +74,7 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 		HTTPClient:    idp.NewIssuerClient(d.hardened, d.route),
 		ClientSecrets: clientSecrets(d.secrets, d.tenants),
 		Auditor:       auditapi.IdentityAuditor(auditLog),
+		Invitations:   d.tenants,
 		Logger:        log,
 		ClientIP:      authzhook.ClientIP,
 		RequestID:     authzhook.RequestID,
@@ -82,7 +91,17 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 	if err != nil {
 		return nil, err
 	}
-	hooks := authzhook.Hooks(svc, authz.New(d.st))
+	actions, err := approvalActions()
+	if err != nil {
+		return nil, err
+	}
+	authorizer := authz.New(d.st)
+	appr, err := approvals.New(d.st, approvals.Config{Approvers: authorizer, Registry: actions, Security: auditLog,
+		Logger: log})
+	if err != nil {
+		return nil, err
+	}
+	hooks := authzhook.Hooks(svc, authorizer)
 	hooks.Audit = auditapi.Middleware(auditLog)
 	public, err := httpapi.New(httpapi.Options{
 		Logger:         log,
@@ -96,6 +115,8 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 			Jobs:          jobsapi.New(jobs.NewService(d.st)),
 			Monitoring:    monitoringapi.New(mon),
 			Notifications: notificationsapi.New(notifications.NewReader(d.st)),
+			Approvals:     approvalsapi.New(appr),
+			Invitations:   invitationsapi.New(d.tenants, authz.GuardInvitationRole),
 		},
 	})
 	if err != nil {
@@ -104,4 +125,12 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 	log.Info("api wired", "app_host", cfg.AppHost(), "admin_host", cfg.AdminHost(), "idp_platform_host",
 		cfg.IdPPlatformHost(), "trusted_proxies", len(cfg.TrustedProxies), "egress_deny", len(cfg.EgressDeny))
 	return &component{probes: d.probes(), public: edgeOnly(cfg.TrustedProxies, public), close: d.close}, nil
+}
+
+// approvalActions is the registry of the actions the api executes after a second person approved them (§8.5/§8.6 2P,
+// P3-T04a). Empty until the tasks that build the 2P operations register theirs: deprovision (P3-T09), restore
+// (P3-T11), release (P3-T18), Super Admin role and tenant IdP changes (P4-T03a), break-glass (P4-T13). Until then a
+// request can be read and rejected, never approved (409 action_unavailable).
+func approvalActions() (*approvals.Registry, error) {
+	return approvals.NewRegistry()
 }

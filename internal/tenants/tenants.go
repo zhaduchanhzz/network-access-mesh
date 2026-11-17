@@ -127,17 +127,30 @@ type Options struct {
 	// BaseDomain (MG_BASE_DOMAIN) gives the control URL https://<slug>.mesh.<BaseDomain> of a tenant that has no live
 	// instance yet; a tenant with an instance reports the instance's registered server_url.
 	BaseDomain string
+	// Notifier delivers invitations (P3-T05b); nil ⇒ OutboxNotifier (notification_outbox kind tenant.invitation).
+	Notifier InvitationNotifier
+	// Now is the clock of the invitations; nil ⇒ time.Now.
+	Now func() time.Time
 }
 
-// Service reads (and, for the admin commands, writes) the Tenant Registry.
+// Service reads (and, for the admin commands, writes) the Tenant Registry, and manages invitations (P3-T05a).
 type Service struct {
-	st   *store.Store
-	base string
+	st       *store.Store
+	base     string
+	notifier InvitationNotifier
+	now      func() time.Time
 }
 
 // New returns the registry service on st (the process's two pools).
 func New(st *store.Store, o Options) *Service {
-	return &Service{st: st, base: strings.ToLower(strings.TrimSpace(o.BaseDomain))}
+	s := &Service{st: st, base: strings.ToLower(strings.TrimSpace(o.BaseDomain)), notifier: o.Notifier, now: o.Now}
+	if s.notifier == nil {
+		s.notifier = OutboxNotifier{}
+	}
+	if s.now == nil {
+		s.now = time.Now
+	}
+	return s
 }
 
 var (

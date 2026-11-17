@@ -44,6 +44,12 @@ def new_user(st: Stack, kc: KeycloakAdmin, realm: str, prefix: str) -> dict:
     u = {"username": f"{prefix}-" + secrets.token_hex(3), "password": secrets.token_urlsafe(18)}
     st.secret_values.add(u["password"])
     u["sub"] = kc.create_user(realm, u["username"], u["password"])
+    if realm != "platform":
+        # P3-T05a: the first login of a tenant identity needs a membership (seeded by sub, as E2E-22) or an invitation
+        p = admin_cmd(st, ["seed-membership", "--tenant", realm, "--role", "tenant_admin", "--subject", u["sub"],
+                           "--display-name", prefix])
+        if p.returncode != 0:
+            raise StackError(f"seed-membership {realm}: {st.redact(p.stdout + p.stderr)[-300:]}")
     return u
 
 

@@ -536,6 +536,229 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tenants/{tenantId}/approvals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Yêu cầu phê duyệt phạm vi tenant (dual control trong tenant)
+         * @description Chỉ yêu cầu `scope = tenant` của tenant trong path (§8.6) — yêu cầu 2P của nền tảng về tenant này (xóa, restore) không hiện ở đây. Mới nhất trước; `status` là trạng thái hiệu lực (`pending`/`approved` đã quá `expires_at` là `expired`).
+         */
+        get: operations["listTenantApprovals"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/approvals/{approvalId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Một yêu cầu phê duyệt phạm vi tenant — kèm đúng `payload` sẽ thực thi */
+        get: operations["getTenantApproval"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/approvals/{approvalId}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Duyệt một yêu cầu phạm vi tenant (người thứ hai) — thao tác chạy ngay sau khi duyệt
+         * @description Người duyệt phải step-up (`auth_time` ≤ 15 phút, nếu không ⇒ `401 reauth_required`), khác người yêu cầu (tự
+         *     duyệt ⇒ `403`) và giữ cả `tenant.approval:decide` lẫn permission của chính thao tác (§8.6). Body mang
+         *     `payload_sha256` người duyệt đã xem: khác hash hiện tại ⇒ `412 precondition_failed`. Payload lưu trữ không còn
+         *     khớp hash ⇒ `409` (không thực thi). Hết hạn, đã quyết định hoặc đã `executed` ⇒ `409`; thao tác mà bản này
+         *     không thực thi được ⇒ `409`. Thành công: yêu cầu ở trạng thái `executed` (kèm `job_id` khi thao tác chạy bằng
+         *     job); thực thi lỗi thì yêu cầu ở `approved` và chính người duyệt gọi lại để thử thực thi lại.
+         */
+        post: operations["approveTenantApproval"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/approvals/{approvalId}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Từ chối một yêu cầu phạm vi tenant (người thứ hai, step-up) — không gì được thực thi */
+        post: operations["rejectTenantApproval"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/approvals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Yêu cầu phê duyệt phạm vi platform (xóa tenant, restore, release, gán Super Admin…)
+         * @description Chỉ yêu cầu `scope = platform` — yêu cầu nội bộ của tenant không bao giờ hiện cho nhân sự nền tảng. Mới nhất trước; `status` là trạng thái hiệu lực.
+         */
+        get: operations["listPlatformApprovals"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/approvals/{approvalId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Một yêu cầu phê duyệt phạm vi platform — kèm đúng `payload` sẽ thực thi (ví dụ `backup_id` của restore) */
+        get: operations["getPlatformApproval"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/approvals/{approvalId}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Duyệt một yêu cầu phạm vi platform (người thứ hai) — thao tác chạy ngay sau khi duyệt
+         * @description Như `approveTenantApproval`: step-up, khác người yêu cầu, giữ permission của chính thao tác (ví dụ
+         *     `platform.instance:restore`), `payload_sha256` đã xem. Platform Operator chỉ duyệt được yêu cầu restore (ô "chỉ
+         *     cho restore" của §8.5 — `x-conditions: [restore_only]`): yêu cầu khác ⇒ `403`.
+         */
+        post: operations["approvePlatformApproval"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/approvals/{approvalId}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Từ chối một yêu cầu phạm vi platform (người thứ hai, step-up) */
+        post: operations["rejectPlatformApproval"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/invitations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Lời mời của tenant
+         * @description Mới nhất trước; `status` là trạng thái hiệu lực (`pending` đã quá `expires_at` là `expired`).
+         */
+        get: operations["listTenantInvitations"];
+        put?: never;
+        /**
+         * Mời một người chưa từng đăng nhập vào tenant
+         * @description Lời mời ghi IdP đang `active` của tenant, email và role; role theo quy tắc role đích 3a (§8.4: thấp hơn hẳn role
+         *     của người mời trừ Owner; không bao giờ là Owner). Lần đăng nhập đầu tiên qua đúng IdP đó, với email đã xác minh
+         *     trùng email mời (không phân biệt hoa thường) và còn hạn, tạo membership với role này — một lần. Email đã có
+         *     lời mời đang chờ hoặc đã là thành viên ⇒ `409`. Không trả token: thư mời đi qua outbox (`tenant.invitation`,
+         *     P3-T05b).
+         */
+        post: operations["createTenantInvitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/invitations/{invitationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Thu hồi một lời mời đang chờ
+         * @description Role ghi trong lời mời theo quy tắc role đích 3a; lời mời không còn `pending` ⇒ `409`.
+         */
+        delete: operations["revokeTenantInvitation"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/invitations/{invitationId}/resend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Gửi lại một lời mời (token và hạn mới)
+         * @description Lời mời `pending` hoặc `expired` nhận token mới (link cũ mất hiệu lực) và hạn mới, trở lại `pending`, và một thư mời mới vào outbox. Đã `accepted`/`revoked` ⇒ `409`.
+         */
+        post: operations["resendTenantInvitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1087,6 +1310,109 @@ export interface components {
             instances: components["schemas"]["InstanceCounts"];
             jobs: components["schemas"]["JobQueueHealth"];
         };
+        /**
+         * @description `pending` → `approved` (người thứ hai) → `executed` (thực thi một lần, cùng transaction với job — trạng thái cuối); `pending` → `rejected`; `pending`/`approved` quá `expires_at` → `expired`
+         * @enum {string}
+         */
+        ApprovalStatus: "pending" | "approved" | "rejected" | "expired" | "executed";
+        /** @description Một danh tính kèm tên hiển thị đọc lúc trả lời */
+        IdentityRef: {
+            /** Format: uuid */
+            identity_id: string;
+            display_name: string;
+        };
+        /** @description Yêu cầu dual control (`approval_requests`). `payload` là tham số đã chuẩn hóa của thao tác — đúng thứ sẽ được thực thi, không chứa secret; `payload_sha256` = SHA-256 (hex) của JSON chuẩn hóa của nó (khóa sắp xếp theo byte, không khoảng trắng, không escape HTML, chỉ số nguyên). Người duyệt gửi lại đúng hash này khi duyệt. */
+        ApprovalRequest: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            scope: "platform" | "tenant";
+            /**
+             * @description Thao tác cần phê duyệt (ví dụ `platform.instance.restore`)
+             * @example platform.instance.restore
+             */
+            action: string;
+            /** @example instance */
+            resource_type: string;
+            resource_id?: string;
+            /** @description Tham số sẽ thực thi, nguyên văn (ví dụ `backup_id` và `instance_id` của restore) */
+            payload: {
+                [key: string]: unknown;
+            };
+            payload_sha256: string;
+            status: components["schemas"]["ApprovalStatus"];
+            /** @description Lý do của người yêu cầu */
+            reason?: string;
+            requested_by: components["schemas"]["IdentityRef"];
+            decided_by?: components["schemas"]["IdentityRef"];
+            /** Format: date-time */
+            decided_at?: string;
+            /** Format: date-time */
+            expires_at: string;
+            /**
+             * Format: uuid
+             * @description Job do thao tác enqueue khi thực thi (chỉ ở `executed`)
+             */
+            job_id?: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        ApprovalList: {
+            items: components["schemas"]["ApprovalRequest"][];
+            next_cursor: string | null;
+        };
+        /** @description Quyết định duyệt — mang hash của đúng payload người duyệt đã xem */
+        ApprovalDecision: {
+            payload_sha256: string;
+        };
+        /**
+         * @description `pending` → `accepted` (lần đăng nhập đầu qua đúng IdP, email đã xác minh trùng, còn hạn — một lần) | `revoked` | `expired` (gửi lại đưa lời mời hết hạn về `pending`)
+         * @enum {string}
+         */
+        InvitationStatus: "pending" | "accepted" | "revoked" | "expired";
+        /**
+         * @description Role một Tenant Owner/Admin ghi được vào lời mời (quy tắc role đích 3a của §8.4 quyết định role nào người gọi được mời); Tenant Owner không bao giờ được mời qua API (chỉ lời mời Owner đầu tiên do orchestrator tạo)
+         * @enum {string}
+         */
+        InvitationRole: "tenant_admin" | "tenant_operator" | "tenant_viewer" | "end_user";
+        /** @description Lời mời người chưa từng đăng nhập (`tenant_invitations`) — không bao giờ chứa token */
+        Invitation: {
+            /** Format: uuid */
+            id: string;
+            email: string;
+            /** @description Khóa role phạm vi tenant (`roles.key`) */
+            role: string;
+            status: components["schemas"]["InvitationStatus"];
+            /** Format: date-time */
+            expires_at: string;
+            invited_by?: components["schemas"]["IdentityRef"];
+            /** Format: uuid */
+            accepted_identity_id?: string;
+            /** Format: date-time */
+            accepted_at?: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        InvitationList: {
+            items: components["schemas"]["Invitation"][];
+            next_cursor: string | null;
+        };
+        InvitationCreate: {
+            /** @description Email người được mời — phải là email đã xác minh của họ ở IdP của tenant */
+            email: string;
+            role: components["schemas"]["InvitationRole"];
+            /**
+             * @description Hạn của lời mời (mặc định 7 ngày, tối đa 30 ngày)
+             * @default 168
+             */
+            expires_in_hours: number;
+        };
+        InvitationResend: {
+            /** @default 168 */
+            expires_in_hours: number;
+        };
     };
     responses: {
         /** @description Chưa xác thực — `unauthenticated` (thiếu, hết hạn hoặc đã thu hồi session) hoặc `reauth_required` (cần step-up, §8.3 bước 7) */
@@ -1218,6 +1544,16 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
+        /** @description Điều kiện trước không còn đúng — `precondition_failed` (ví dụ `payload_sha256` người duyệt đã xem khác payload hiện tại) */
+        PreconditionFailed: {
+            headers: {
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
     };
     parameters: {
         /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
@@ -1248,6 +1584,16 @@ export interface components {
         ToFilter: string;
         JobStatusFilter: components["schemas"]["JobStatus"];
         JobKindFilter: components["schemas"]["JobKind"];
+        /** @description ID yêu cầu phê duyệt (`approval_requests.id`) */
+        ApprovalId: string;
+        /** @description Lọc theo trạng thái hiệu lực */
+        ApprovalStatusFilter: components["schemas"]["ApprovalStatus"];
+        /** @description Lọc theo thao tác (khớp chính xác) */
+        ApprovalActionFilter: string;
+        /** @description ID lời mời (`tenant_invitations.id`) */
+        InvitationId: string;
+        /** @description Lọc theo trạng thái hiệu lực */
+        InvitationStatusFilter: components["schemas"]["InvitationStatus"];
     };
     requestBodies: never;
     headers: {
@@ -2204,6 +2550,406 @@ export interface operations {
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    listTenantApprovals: {
+        parameters: {
+            query?: {
+                /** @description Số phần tử tối đa của trang */
+                limit?: components["parameters"]["Limit"];
+                /** @description Con trỏ mờ lấy từ `next_cursor` của trang trước */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Lọc theo trạng thái hiệu lực */
+                status?: components["parameters"]["ApprovalStatusFilter"];
+                /** @description Lọc theo thao tác (khớp chính xác) */
+                action?: components["parameters"]["ApprovalActionFilter"];
+            };
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Một trang yêu cầu phê duyệt */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalList"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    getTenantApproval: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+                /** @description ID yêu cầu phê duyệt (`approval_requests.id`) */
+                approvalId: components["parameters"]["ApprovalId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Yêu cầu phê duyệt */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalRequest"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    approveTenantApproval: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+                /** @description ID yêu cầu phê duyệt (`approval_requests.id`) */
+                approvalId: components["parameters"]["ApprovalId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApprovalDecision"];
+            };
+        };
+        responses: {
+            /** @description Yêu cầu sau khi duyệt và thực thi */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalRequest"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    rejectTenantApproval: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+                /** @description ID yêu cầu phê duyệt (`approval_requests.id`) */
+                approvalId: components["parameters"]["ApprovalId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Yêu cầu đã bị từ chối */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalRequest"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    listPlatformApprovals: {
+        parameters: {
+            query?: {
+                /** @description Số phần tử tối đa của trang */
+                limit?: components["parameters"]["Limit"];
+                /** @description Con trỏ mờ lấy từ `next_cursor` của trang trước */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Lọc theo trạng thái hiệu lực */
+                status?: components["parameters"]["ApprovalStatusFilter"];
+                /** @description Lọc theo thao tác (khớp chính xác) */
+                action?: components["parameters"]["ApprovalActionFilter"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Một trang yêu cầu phê duyệt */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalList"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    getPlatformApproval: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID yêu cầu phê duyệt (`approval_requests.id`) */
+                approvalId: components["parameters"]["ApprovalId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Yêu cầu phê duyệt */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalRequest"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    approvePlatformApproval: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID yêu cầu phê duyệt (`approval_requests.id`) */
+                approvalId: components["parameters"]["ApprovalId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApprovalDecision"];
+            };
+        };
+        responses: {
+            /** @description Yêu cầu sau khi duyệt và thực thi */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalRequest"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    rejectPlatformApproval: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID yêu cầu phê duyệt (`approval_requests.id`) */
+                approvalId: components["parameters"]["ApprovalId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Yêu cầu đã bị từ chối */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalRequest"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    listTenantInvitations: {
+        parameters: {
+            query?: {
+                /** @description Số phần tử tối đa của trang */
+                limit?: components["parameters"]["Limit"];
+                /** @description Con trỏ mờ lấy từ `next_cursor` của trang trước */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Lọc theo trạng thái hiệu lực */
+                status?: components["parameters"]["InvitationStatusFilter"];
+            };
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Một trang lời mời */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationList"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    createTenantInvitation: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InvitationCreate"];
+            };
+        };
+        responses: {
+            /** @description Lời mời đã tạo */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Invitation"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    revokeTenantInvitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+                /** @description ID lời mời (`tenant_invitations.id`) */
+                invitationId: components["parameters"]["InvitationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Đã thu hồi */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    resendTenantInvitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+                /** @description ID lời mời (`tenant_invitations.id`) */
+                invitationId: components["parameters"]["InvitationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["InvitationResend"];
+            };
+        };
+        responses: {
+            /** @description Lời mời sau khi gửi lại */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Invitation"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
             429: components["responses"]["RateLimited"];
             default: components["responses"]["Unexpected"];
         };

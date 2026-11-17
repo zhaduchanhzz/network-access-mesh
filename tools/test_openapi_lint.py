@@ -223,6 +223,18 @@ FIXTURES = [
      "has no 2P cell"),
     ("2P operation without x-dual-control", add_tenant_delete, "x-dual-control: true required"),
     ("x-permission-secondary on two operations", secondary_twice, "allowed on at most one operation"),
+    # x-conditions (§13.1 — conditional cells enforced by the operation, P3-T04a)
+    ("x-conditions not a list", set_(["paths", "/platform/approvals/{approvalId}/approve", "post", "x-conditions"],
+                                     "restore_only"), "x-conditions must be a non-empty list"),
+    ("x-conditions empty", set_(["paths", "/platform/approvals/{approvalId}/approve", "post", "x-conditions"], []),
+     "x-conditions must be a non-empty list"),
+    ("x-conditions not a condition of the row", set_(["paths", "/platform/approvals/{approvalId}/approve", "post",
+                                                      "x-conditions"], ["self_enroll"]),
+     "x-conditions 'self_enroll' is not the condition of a conditional cell of platform.approval:decide"),
+    ("x-conditions on a row without conditional cell", set_(["paths", DEVICES, "get", "x-conditions"], ["restore_only"]),
+     "is not the condition of a conditional cell of tenant.device:read"),
+    ("x-conditions on a special permission", set_(["paths", "/auth/session", "get", "x-conditions"], ["restore_only"]),
+     "x-conditions only apply to permissions of §8.5/§8.6"),
     # x-task (§20, §13.2)
     ("missing x-task", pop(["paths", DEVICES, "get", "x-task"]), "missing x-task"),
     ("x-task not in §20", set_(["paths", DEVICES, "get", "x-task"], "P2-T99"), "is not a task ID of §20"),

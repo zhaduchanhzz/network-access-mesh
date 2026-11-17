@@ -56,6 +56,19 @@ var operations = []struct {
 	{http.MethodGet, "/api/v1/platform/audit", "", "ListPlatformAuditEvents", nil},
 	{http.MethodGet, "/api/v1/platform/jobs?kind=inventory.sync", "", "ListPlatformJobs", nil},
 	{http.MethodGet, "/api/v1/platform/jobs/" + itemID, "", "GetPlatformJob", nil},
+	// dual control (P3-T04a) and invitations (P3-T05a)
+	{http.MethodGet, "/api/v1/platform/approvals?status=pending&action=platform.instance.restore", "", "ListPlatformApprovals", nil},
+	{http.MethodGet, "/api/v1/platform/approvals/" + itemID, "", "GetPlatformApproval", nil},
+	{http.MethodPost, "/api/v1/platform/approvals/" + itemID + "/approve", `{"payload_sha256":"` + strings.Repeat("a", 64) + `"}`, "ApprovePlatformApproval", nil},
+	{http.MethodPost, "/api/v1/platform/approvals/" + itemID + "/reject", "", "RejectPlatformApproval", nil},
+	{http.MethodGet, "/api/v1/tenants/" + tenantID + "/approvals?status=executed", "", "ListTenantApprovals", nil},
+	{http.MethodGet, "/api/v1/tenants/" + tenantID + "/approvals/" + itemID, "", "GetTenantApproval", nil},
+	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/approvals/" + itemID + "/approve", `{"payload_sha256":"` + strings.Repeat("b", 64) + `"}`, "ApproveTenantApproval", nil},
+	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/approvals/" + itemID + "/reject", "", "RejectTenantApproval", nil},
+	{http.MethodGet, "/api/v1/tenants/" + tenantID + "/invitations?status=pending", "", "ListTenantInvitations", nil},
+	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/invitations", `{"email":"a@example.test","role":"tenant_viewer"}`, "CreateTenantInvitation", []func(*http.Request){idempotency}},
+	{http.MethodDelete, "/api/v1/tenants/" + tenantID + "/invitations/" + itemID, "", "RevokeTenantInvitation", nil},
+	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/invitations/" + itemID + "/resend", "", "ResendTenantInvitation", nil},
 }
 
 // TestEveryOperationAnswers501: with no handler set mounted, every operation of the spec is routed under /api/v1

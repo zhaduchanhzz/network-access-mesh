@@ -242,6 +242,13 @@ func (s *Service) completeLogin(ctx context.Context, in CallbackRequest, ev *Aud
 	if p.Scope == ScopePlatform && !hasMFAEvidence(prof.AMR) {
 		return nil, newErr(KindReauthRequired, reasonMFAEvidenceMissing, nil)
 	}
+	// Tenant identities that never completed a login are bound to the pending invitation of their tenant — or refused
+	// (P3-T05a, invitations.go): before the session exists, so a refused first login leaves no session behind.
+	if p.Scope == ScopeTenant && s.cfg.Invitations != nil {
+		if err := s.bindFirstLogin(ctx, in, p, prof, ev); err != nil {
+			return nil, err
+		}
+	}
 
 	// 5. Identity (idp_id, sub) and session, in one transaction. The session presented on this origin is revoked when it
 	// is the same identity's (rotation); a session of another identity is kept and the login refused (G2 F1): a login
