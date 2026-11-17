@@ -99,7 +99,8 @@ test_() {
     $D inspect -f '{{.Name}} image={{.Config.Image}} user={{.Config.User}} read_only={{.HostConfig.ReadonlyRootfs}} cap_drop={{.HostConfig.CapDrop}} cap_add={{.HostConfig.CapAdd}} security_opt={{.HostConfig.SecurityOpt}} mem={{.HostConfig.Memory}} pids={{.HostConfig.PidsLimit}} ports={{.HostConfig.PortBindings}} health={{.State.Health.Status}}' "$cid"
     names=$($D inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$cid" | cut -d= -f1 | sort | tr '\n' ' ')
     echo "  tên biến môi trường: $names"
-    bad=$(echo "$names" | tr ' ' '\n' | grep -Ei 'PASSWORD|SECRET|TOKEN' | grep -v '_FILE$' || true)
+    # *_FILE, *_PATH là đường dẫn, không phải secret (…_BLACKLISTS_PATH: danh sách mật khẩu cấm — G2 vòng 2, A-3)
+    bad=$(echo "$names" | tr ' ' '\n' | grep -Ei 'PASSWORD|SECRET|TOKEN' | grep -vE '_(FILE|PATH)$' || true)
     if [ -n "$bad" ]; then echo "FAIL $svc có biến môi trường mang secret: $bad"; exit 1; fi
     echo "PASS $svc: không biến môi trường nào mang secret"
     $D inspect -f '  network: {{range $k, $v := .NetworkSettings.Networks}}{{$k}}={{$v.IPAddress}} {{end}}' "$cid"

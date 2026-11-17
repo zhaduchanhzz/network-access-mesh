@@ -282,8 +282,11 @@ func TestKeycloakLoginThroughTheAPI(t *testing.T) {
 
 	// 8. Logout through the API (CSRF + Origin): the session is revoked at once — the old cookie replayed is refused.
 	hdr := http.Header{"Origin": {"https://" + appHost}, identity.CSRFHeader: {s.CsrfToken}}
-	if rec := b.do(http.MethodPost, api+"/auth/logout", hdr); rec.Code != http.StatusNoContent {
-		t.Fatalf("logout: HTTP %d %s", rec.Code, rec.Body.String())
+	// G2 round 2, A-1: 200 with the redirect that ends the Keycloak session too (end_session_endpoint + id_token_hint)
+	if rec := b.do(http.MethodPost, api+"/auth/logout", hdr); rec.Code != http.StatusOK ||
+		!strings.Contains(rec.Body.String(), "/protocol/openid-connect/logout?") ||
+		!strings.Contains(rec.Body.String(), "id_token_hint=") {
+		t.Fatalf("logout: HTTP %d (redirect_to not the end_session_endpoint with a hint)", rec.Code)
 	}
 	replay := &apiBrowser{t: t, w: w, jar: map[string]map[string]string{appHost: {identity.SessionCookieName: sc.Value}}}
 	if rec := replay.do(http.MethodGet, api+"/auth/session", nil); rec.Code != http.StatusUnauthorized {
