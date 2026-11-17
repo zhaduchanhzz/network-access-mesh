@@ -105,7 +105,7 @@ Kiểm: như mục "Kiểm" của RUNBOOK; thêm `sudo docker exec mg-core-postg
 
 ## f. Tài khoản mẫu, Super Admin, TO/TA
 
-1. Tài khoản trong realm: dùng script tạo user của mục IdP (người điều phối). Mật khẩu tạm sinh **trên máy vận hành** vào `config/secrets/staging/<realm>-<username>.txt` (git bỏ qua) và đi tới script qua stdin của `ssh` — không in, không nằm trên dòng lệnh. TOTP do chính người dùng đăng ký ở lần đăng nhập đầu.
+1. Tài khoản trong realm: [infrastructure/idp/create-user.sh](../../infrastructure/idp/create-user.sh) (mục IdP của RUNBOOK). Mật khẩu (không tạm — chủ dự án giữ trong kho secret của họ) sinh **trên máy vận hành** vào `config/secrets/staging/idp-accounts/<realm>-<username>.txt` (git bỏ qua) và đi tới script qua stdin của `ssh` — không in, không nằm trên dòng lệnh. TOTP do chính người dùng đăng ký ở lần đăng nhập đầu (CONFIGURE_TOTP) — file không chứa seed TOTP.
 2. `sub` của từng người: `sudo bash infrastructure/idp/user-id.sh <realm> <username>`.
 3. Super Admin (D-11: hai người) và TO/TA của A/B: mục "Super Admin đầu tiên và TO/TA…" của [RUNBOOK](../../infrastructure/host/RUNBOOK.md) với `CORE="$APP"`. Ghi `sub`, id, request id (không secret) vào `current.md`.
 
