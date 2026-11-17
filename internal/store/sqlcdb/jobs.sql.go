@@ -14,23 +14,23 @@ import (
 
 const acquireJob = `-- name: AcquireJob :one
 UPDATE provisioning_jobs
-SET status = 'running', attempt = attempt + 1, started_at = COALESCE(started_at, now()),
-    timeout_at = COALESCE(timeout_at, now() + $1::float8 * interval '1 second')
-WHERE id = $2 AND queue_job_id = $3::bigint AND status IN ('queued', 'running')
+SET status = 'running', attempt = attempt + 1
+WHERE id = $1 AND queue_job_id = $2::bigint AND status IN ('queued', 'running')
 RETURNING id, tenant_id, instance_id, kind, request_key, dedupe_key, lock_key, status, current_step, attempt, max_attempts, input, output, error, resource_type, resource_id, queue_job_id, requested_by, created_at, timeout_at, started_at, finished_at
 `
 
 type AcquireJobParams struct {
-	TimeoutSecs float64
-	ID          uuid.UUID
-	QueueJobID  int64
+	ID         uuid.UUID
+	QueueJobID int64
 }
 
 // Worker nhận job: queued → running — đồng thời chiếm khóa chạy lifecycle: đụng partial unique index lock_key ⇒ 23505,
 // job tự hoãn (snooze) rồi thử lại, không advisory lock (§11.3, §13.5 mục d) — hoặc running → running (lượt retry,
-// rescue của chính job queue đó). Chỉ job River đang chở job (queue_job_id) được chạy; timeout_at đặt ở lần nhận đầu.
+// rescue của chính job queue đó). Chỉ job River đang chở job (queue_job_id) được chạy. Không đặt mốc thời gian ở đây:
+// câu lệnh này có thể chờ bên giữ khóa commit ngay tại bước chèn index, nên mọi mốc tính trong câu lệnh có thể cũ hơn
+// lúc bên giữ khóa kết thúc — MarkJobStarted (câu lệnh sau, trong cùng transaction) đặt started_at/timeout_at.
 func (q *Queries) AcquireJob(ctx context.Context, arg AcquireJobParams) (ProvisioningJob, error) {
-	row := q.db.QueryRow(ctx, acquireJob, arg.TimeoutSecs, arg.ID, arg.QueueJobID)
+	row := q.db.QueryRow(ctx, acquireJob, arg.ID, arg.QueueJobID)
 	var i ProvisioningJob
 	err := row.Scan(
 		&i.ID,
@@ -62,7 +62,7 @@ func (q *Queries) AcquireJob(ctx context.Context, arg AcquireJobParams) (Provisi
 const beginCompensation = `-- name: BeginCompensation :one
 UPDATE provisioning_jobs
 SET status = 'compensating', error = $1,
-    timeout_at = now() + $2::float8 * interval '1 second'
+    timeout_at = clock_timestamp() + $2::float8 * interval '1 second'
 WHERE id = $3 AND status = 'running' AND attempt = $4
 RETURNING id, tenant_id, instance_id, kind, request_key, dedupe_key, lock_key, status, current_step, attempt, max_attempts, input, output, error, resource_type, resource_id, queue_job_id, requested_by, created_at, timeout_at, started_at, finished_at
 `
@@ -352,7 +352,7 @@ func (q *Queries) FinishIdempotencyKey(ctx context.Context, arg FinishIdempotenc
 
 const finishJobStep = `-- name: FinishJobStep :exec
 UPDATE provisioning_job_steps
-SET status = $1::text, finished_at = now(), error_code = $2,
+SET status = $1::text, finished_at = clock_timestamp(), error_code = $2,
     detail = COALESCE($3, detail)
 WHERE job_id = $4 AND name = $5 AND status = 'running'
 `
@@ -651,6 +651,12 @@ type InsertJobParams struct {
 
 // Job nghiệp vụ (P2-T12, §6.3, §11.3, §13.5) — khung job ở internal/jobs. provisioning_jobs là read model của
 // GET /jobs cho mọi job kind; River chỉ chở tham chiếu provisioning_jobs.id (+ kind).
+// Đồng hồ: now() là thời điểm BẮT ĐẦU transaction, không phải lúc câu lệnh chạy; transaction chờ khóa (partial unique
+// index lock_key) có thể bắt đầu sớm hơn lúc bên giữ khóa kết thúc. Mốc ghi LÚC TRẠNG THÁI ĐỔI (started_at, finished_at
+// của job và step, và hạn timeout_at tính từ mốc đó) dùng clock_timestamp() — đồng hồ thực tại lúc câu lệnh chạy; riêng
+// started_at của job đặt bằng câu lệnh riêng (MarkJobStarted) sau khi đã giữ khóa, vì AcquireJob có thể chờ bên giữ
+// khóa commit ngay ở bước chèn index. Nhờ vậy khoảng chạy của hai job cùng khóa không chồng nhau trong DB. now() giữ
+// ở nơi so sánh với ảnh chụp của chính transaction (reaper, idempotency_keys) và ở created_at mặc định.
 // Enqueue trong cùng transaction với thay đổi nghiệp vụ. ON CONFLICT DO NOTHING không chỉ định đích nên bắt cả
 // UNIQUE (requested_by, kind, request_key) lẫn partial unique dedupe_key của job chưa kết thúc: trùng ⇒ 0 hàng
 // (store.ErrNoRows), caller tra job đang giữ khóa.
@@ -699,7 +705,7 @@ func (q *Queries) InsertJob(ctx context.Context, arg InsertJobParams) (Provision
 const insertRunningJob = `-- name: InsertRunningJob :one
 INSERT INTO provisioning_jobs (kind, dedupe_key, status, attempt, max_attempts, queue_job_id, started_at, timeout_at)
 VALUES ($1, $2::text, 'running', 1, $3, $4::bigint,
-        now(), now() + $5::float8 * interval '1 second')
+        clock_timestamp(), clock_timestamp() + $5::float8 * interval '1 second')
 ON CONFLICT DO NOTHING
 RETURNING id, tenant_id, instance_id, kind, request_key, dedupe_key, lock_key, status, current_step, attempt, max_attempts, input, output, error, resource_type, resource_id, queue_job_id, requested_by, created_at, timeout_at, started_at, finished_at
 `
@@ -964,6 +970,51 @@ func (q *Queries) ListTenantIDs(ctx context.Context) ([]uuid.UUID, error) {
 	return items, nil
 }
 
+const markJobStarted = `-- name: MarkJobStarted :one
+UPDATE provisioning_jobs
+SET started_at = COALESCE(started_at, clock_timestamp()),
+    timeout_at = COALESCE(timeout_at, clock_timestamp() + $1::float8 * interval '1 second')
+WHERE id = $2
+RETURNING id, tenant_id, instance_id, kind, request_key, dedupe_key, lock_key, status, current_step, attempt, max_attempts, input, output, error, resource_type, resource_id, queue_job_id, requested_by, created_at, timeout_at, started_at, finished_at
+`
+
+type MarkJobStartedParams struct {
+	TimeoutSecs float64
+	ID          uuid.UUID
+}
+
+// Sau AcquireJob, cùng transaction: started_at và timeout_at đặt ở lần nhận đầu (clock_timestamp() — chạy sau khi đã
+// giữ khóa, tức sau lúc bên giữ khóa trước commit finished_at của nó).
+func (q *Queries) MarkJobStarted(ctx context.Context, arg MarkJobStartedParams) (ProvisioningJob, error) {
+	row := q.db.QueryRow(ctx, markJobStarted, arg.TimeoutSecs, arg.ID)
+	var i ProvisioningJob
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.InstanceID,
+		&i.Kind,
+		&i.RequestKey,
+		&i.DedupeKey,
+		&i.LockKey,
+		&i.Status,
+		&i.CurrentStep,
+		&i.Attempt,
+		&i.MaxAttempts,
+		&i.Input,
+		&i.Output,
+		&i.Error,
+		&i.ResourceType,
+		&i.ResourceID,
+		&i.QueueJobID,
+		&i.RequestedBy,
+		&i.CreatedAt,
+		&i.TimeoutAt,
+		&i.StartedAt,
+		&i.FinishedAt,
+	)
+	return i, err
+}
+
 const recordJobError = `-- name: RecordJobError :exec
 UPDATE provisioning_jobs SET error = $1
 WHERE id = $2 AND status = 'running' AND attempt = $3
@@ -1034,9 +1085,9 @@ const startJobStep = `-- name: StartJobStep :one
 INSERT INTO provisioning_job_steps (tenant_id, job_id, seq, name, status, attempt, started_at)
 VALUES ($1, $2,
         (SELECT COALESCE(max(s.seq) + 1, 0) FROM provisioning_job_steps s WHERE s.job_id = $2),
-        $3, 'running', 1, now())
+        $3, 'running', 1, clock_timestamp())
 ON CONFLICT (job_id, name) DO UPDATE
-SET status = 'running', attempt = provisioning_job_steps.attempt + 1, started_at = now(), finished_at = NULL,
+SET status = 'running', attempt = provisioning_job_steps.attempt + 1, started_at = clock_timestamp(), finished_at = NULL,
     error_code = NULL
 WHERE provisioning_job_steps.status <> 'succeeded'
 RETURNING id, tenant_id, job_id, seq, name, status, attempt, started_at, finished_at, error_code, detail, created_resources, compensation_status
@@ -1078,7 +1129,7 @@ SET status        = $1::text,
     error         = $3,
     resource_type = COALESCE($4, resource_type),
     resource_id   = COALESCE($5, resource_id),
-    finished_at   = CASE WHEN $1::text IN ('succeeded', 'failed', 'cancelled', 'rolled_back') THEN now() END
+    finished_at   = CASE WHEN $1::text IN ('succeeded', 'failed', 'cancelled', 'rolled_back') THEN clock_timestamp() END
 WHERE id = $6 AND status = $7::text AND attempt = $8
 RETURNING id, tenant_id, instance_id, kind, request_key, dedupe_key, lock_key, status, current_step, attempt, max_attempts, input, output, error, resource_type, resource_id, queue_job_id, requested_by, created_at, timeout_at, started_at, finished_at
 `
