@@ -7,7 +7,7 @@
 
 | Network | Thành viên | Mục đích | Ghi chú |
 |---|---|---|---|
-| `mg-edge` | edge, web, api, idp, grafana, prober | Định tuyến HTTP public; edge mang alias `app.<domain>`/`auth.<domain>` trên network này để các service trong host gọi tên public **không cần hairpin** | Default gateway của edge được **ghim** vào network này (`gw_priority` — cần Docker Engine ≥ 28.0 và Compose ≥ 2.33.1, theo phản biện); edge có **IP tĩnh** trên network này (subnet tĩnh) và mọi site public chỉ `bind` vào IP đó (§14.6) |
+| `mg-edge` | edge, web, api, worker (**IP tĩnh** `10.249.0.4` — để edge chỉ cho Admin API của IdP từ worker, P2-T05a/P2-T16), idp, grafana, prober | Định tuyến HTTP public; edge mang alias `app.<domain>`/`auth.<domain>` trên network này để các service trong host gọi tên public **không cần hairpin** | Default gateway của edge được **ghim** vào network này (`gw_priority` — cần Docker Engine ≥ 28.0 và Compose ≥ 2.33.1, theo phản biện); edge có **IP tĩnh** trên network này (subnet tĩnh) và mọi site public chỉ `bind` vào IP đó (§14.6) |
 | `mg-data` (`internal`) | api, worker, postgres, postgres-exporter, pg-backup (project `mg-backup`) | Truy cập DB | Không có đường ra ngoài |
 | `mg-idp-data` (`internal`) | idp, PostgreSQL riêng của idp (`idp-db`), idp-backup (project `mg-backup`, P2-T05b — role chỉ-đọc `idp_backup`) | DB của IdP | IdP **không** thuộc `mg-data` và không có đường tới PostgreSQL của nền tảng; idp-backup cũng chỉ thuộc network này |
 | `mg-admin` (`internal`, subnet tĩnh) | edge (IP tĩnh), api, worker, prober | Gọi Headscale API qua listener admin của edge; Worker gọi Prober | Listener admin của edge chỉ `bind` vào IP tĩnh này |
