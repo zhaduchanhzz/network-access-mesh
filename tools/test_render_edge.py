@@ -177,6 +177,12 @@ def check_platform_sites(caddyfile: str, params: dict) -> list[str]:
             errors.append(f"admin.{d} is served on another listener: {addr!r}")
         if tunnel and f":{tport}" in addr and f"admin.{d}" in addr:
             errors.append("admin.<domain> on the tunnel-facing listener")
+    if tunnel:   # host without a site on the TLS tunnel-facing server ⇒ abort, never Caddy's default empty 200 (G2)
+        catch_all = site_block(code, f"https://:{tport}")
+        if catch_all.strip() != "abort":
+            errors.append(f"tunnel-facing catch-all site https://:{tport} missing or not a bare abort: {catch_all!r}")
+        if code.find(f"https://:{tport} {{") < code.find(f"auth.{d}:{tport} {{"):
+            errors.append("tunnel-facing catch-all is not after the tunnel-facing sites")
     if "abort @outside_admin" not in admin or "@outside_admin not remote_ip " + " ".join(params["admin_allow"]) not in admin:
         errors.append("admin: the IP allow-list is not enforced")
     if admin.find("abort @outside_admin") > admin.find("reverse_proxy"):

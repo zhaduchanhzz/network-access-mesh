@@ -36,7 +36,7 @@ import sys
 import mgenv  # noqa: E402 — tools/mgenv.py: env file of the environment (no secrets)
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-TEMPLATE_VERSION = "5"
+TEMPLATE_VERSION = "6"
 CADDYFILE_TMPL = ROOT / "infrastructure" / "caddy" / "Caddyfile.tmpl"
 COMPOSE_TMPL = ROOT / "infrastructure" / "compose" / "compose.edge.yaml.tmpl"
 
@@ -116,7 +116,14 @@ def tunnel_values(p: dict, edge_ip: str, mesh_domain: str, base_domain: str) -> 
         "\t@idp_public {\n\t\tpath /realms/* /resources/*\n\t\tnot path /realms/master /realms/master/*\n\t}\n"
         "\troute {\n\t\tabort @direct_tunnel\n\t\tabort @from_tenant_pool\n\t\trespond @unsafe_path 404\n"
         "\t\treverse_proxy @idp_public idp.:8080 {\n\t\t\timport upstream_headers\n\t\t}\n"
-        "\t\trespond 404\n\t}\n}\n")
+        "\t\trespond 404\n\t}\n}\n"
+        # A host with no site on the TLS tunnel-facing server (admin.<domain>, or any name the edge holds a certificate
+        # for) would get Caddy's default empty 200 — answered, through the VPS or straight to the port. Catch-all site of
+        # lowest precedence ⇒ close the connection instead (G2: run_staging.sh tunnel-reject with SNI admin., 2026-11-17).
+        # The plain-HTTP tunnel-facing listener needs none: its site `http://…, http://:<port>` already matches any host.
+        "\n# Listener tunnel-facing: host không có site trên server này (admin." + base_domain + " và mọi tên khác edge có chứng\n"
+        "# chỉ) ⇒ đóng kết nối, thay cho phản hồi 200 rỗng mặc định của Caddy khi không site nào khớp.\n"
+        f"https://:{https_port} {{\n\tabort\n}}\n")
     return {
         "tunnel_servers": server(https_port, True) + server(http_port, False),
         "tunnel_tls_site": f", *.{mesh_domain}:{https_port}",
