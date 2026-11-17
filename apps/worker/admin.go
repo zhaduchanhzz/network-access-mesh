@@ -80,8 +80,12 @@ func admin(ctx context.Context, args []string, stdin stdinFile, stdout, stderr i
 		return policyApply(ctx, args[1:], stdin, stdout, stderr, policyApplyEnv{getenv: getenv, environ: environ,
 			open: openPolicyCore})
 	}
+	if len(args) > 0 && args[0] == "apikey-rotate" { // P3-T10 — apikeyrotate.go
+		return apikeyRotate(ctx, args[1:], stdout, stderr, apikeyRotateEnv{getenv: getenv, environ: environ,
+			open: openKeyRotator})
+	}
 	if len(args) == 0 || args[0] != "idp-bootstrap" {
-		_, _ = io.WriteString(stderr, "meshguard-worker admin: unknown command\n"+adminUsage+policyApplyUsage+auditSyncUsage)
+		_, _ = io.WriteString(stderr, "meshguard-worker admin: unknown command\n"+adminUsage+policyApplyUsage+auditSyncUsage+apikeyRotateUsage)
 		return 2
 	}
 	fset := flag.NewFlagSet("idp-bootstrap", flag.ContinueOnError)

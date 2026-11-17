@@ -20,7 +20,7 @@
 #     (P2-T13a, internal/monitoring) — chỉ trên mạng admin thử.
 # API key của instance, token của listener admin và mật khẩu superuser PostgreSQL sinh mới mỗi lần chạy, nằm trong thư
 # mục tạm 0700, không in ra.
-# Các pha (TestP1_ … TestP11_) và việc runner làm giữa các pha: xem doc.go. Kết quả: $HSCT_OUT/observations.jsonl,
+# Các pha (TestP1_ … TestP13_) và việc runner làm giữa các pha: xem doc.go. Kết quả: $HSCT_OUT/observations.jsonl,
 # phase-<n>.log, headscale-crash.log. Mọi container/network/volume/image mang tiền tố $HSCT_PREFIX và bị xóa khi thoát
 # (giữ lại hai volume cache Go <prefix>-gomod, <prefix>-gocache; HSCT_KEEP_CACHE=0 để xóa).
 set -euo pipefail
@@ -361,6 +361,11 @@ run_phase 11 || { finish; exit 1; }
 # chỉ-đọc ở /fixtures) ⇒ sha256 đọc lại khớp; chuỗi rỗng/thiếu grants bị lint chặn trước mọi lời gọi; áp đồng thời được
 # tuần tự hóa; kết thúc bằng baseline deny-all.
 run_phase 12 || { finish; exit 1; }
+
+# Pha 13: xoay API key của instance (P3-T10, internal/provisioning/apikey) trên bản vá, cùng sổ của pha 8–12 — key của
+# lần chạy thành key đã đăng ký (version 1), xoay qua adapter ⇒ key cũ 401, đúng một key còn hạn. Pha này đổi API key
+# của instance nên luôn là pha CUỐI.
+run_phase 13 || { finish; exit 1; }
 
 finish
 python3 - "$OUT/observations.jsonl" <<'PY'

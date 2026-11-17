@@ -30,8 +30,8 @@ class Results:
         self.st = st
         self.rows: list[dict] = []
 
-    def add(self, tid: str, name: str, ok: bool, detail: str = "") -> bool:
-        detail = self.st.redact(str(detail)).replace("\n", " ")[:400]
+    def add(self, tid: str, name: str, ok: bool, detail: str = "", limit: int = 400) -> bool:
+        detail = self.st.redact(str(detail)).replace("\n", " ")[:limit]
         self.rows.append({"id": tid, "name": name, "result": "PASS" if ok else "FAIL", "label": "functional",
                           "detail": detail})
         log(f"{'PASS' if ok else 'FAIL'} [{tid}] {name}" + (f" — {detail}" if detail else ""))

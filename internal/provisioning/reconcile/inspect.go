@@ -68,6 +68,23 @@ type Inspector struct {
 	// EventWindow deduplicates the security events of one subject.
 	EventWindow time.Duration
 	Now         func() time.Time
+	// KeyGuard serialises the API key check with apikey.rotate (P3-T10); nil = no guard (the desired prefix and Now
+	// are used as given).
+	KeyGuard KeyGuard
+}
+
+// KeyGuard serialises the API key check with the key rotation (P3-T10): WithKeyLock runs fn under the instance's API
+// key lock (apikey.LockName) with the registry's current key prefix and clock read UNDER that lock, so a rotation never
+// runs between that read and ListAPIKeys — reconcile never sees its intermediate states (a new key not recorded yet,
+// two valid keys). An error (lock not acquired in time, registry unreadable) makes the check unavailable.
+type KeyGuard interface {
+	WithKeyLock(ctx context.Context, tenantID, instanceID uuid.UUID, fn func(ctx context.Context, cur CurrentKey) error) error
+}
+
+// CurrentKey is the registry's key of an instance as read under the key lock.
+type CurrentKey struct {
+	Prefix string    // tenant_instances.api_key_prefix ("" = not recorded)
+	Now    time.Time // the database clock of that read
 }
 
 func (in *Inspector) now() time.Time {
@@ -95,6 +112,7 @@ const (
 	ReasonNotReported         = "not_reported"
 	ReasonNotExpected         = "not_expected"
 	ReasonHeadscaleNoRegistry = "headscale_not_configured"
+	ReasonKeyLocked           = "api_key_rotation_in_progress" // KeyGuard: the instance's API key lock was not acquired
 )
 
 // Instance compares one instance; the security events are platform-scope (tenant_id NULL) and name the instance.
@@ -398,7 +416,23 @@ func (in *Inspector) keyChecks(ctx context.Context, d Desired, r *Report, ev *ev
 	case in.Headscale == nil:
 		r.check(CheckAPIKeys, OutcomeUnavailable, ReasonHeadscaleNoRegistry, "")
 		return
-	case d.APIKeyPrefix == "":
+	case in.KeyGuard == nil:
+		in.keyCheck(ctx, d, in.now(), r, ev)
+		return
+	}
+	err := in.KeyGuard.WithKeyLock(ctx, d.TenantID, d.InstanceID, func(ctx context.Context, cur CurrentKey) error {
+		d.APIKeyPrefix = cur.Prefix
+		in.keyCheck(ctx, d, cur.Now, r, ev)
+		return nil
+	})
+	if err != nil {
+		r.check(CheckAPIKeys, OutcomeUnavailable, ReasonKeyLocked, "")
+	}
+}
+
+// keyCheck compares the instance's API keys with the recorded current key at time now.
+func (in *Inspector) keyCheck(ctx context.Context, d Desired, now time.Time, r *Report, ev *events) {
+	if d.APIKeyPrefix == "" {
 		r.check(CheckAPIKeys, OutcomeNotApplicable, ReasonNotRecorded, "")
 		return
 	}
@@ -411,7 +445,6 @@ func (in *Inspector) keyChecks(ctx context.Context, d Desired, r *Report, ev *ev
 		r.check(CheckAPIKeys, OutcomeUnavailable, headscaleReason(err), "")
 		return
 	}
-	now := in.now()
 	valid := func(k headscale.APIKey) bool { return k.Expiration.IsZero() || k.Expiration.After(now) }
 	var cur *headscale.APIKey
 	for i := range keys {

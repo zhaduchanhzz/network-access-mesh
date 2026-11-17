@@ -19,6 +19,8 @@
 // (patched → official → patched), snapshot and restore its database. Phases 8–10 run the device inventory of P2-T13
 // (internal/devices) on the patched build, with its register in a PostgreSQL of the run (devices_test.go); phase 11
 // runs the health probe of P2-T13a (internal/monitoring, health_test.go) on that register; phase 12 the policy core of
-// P3-T08a (internal/policies, policies_test.go) with the fixtures of infrastructure/headscale/templates. Run everything
-// with run.sh; without its environment every test is skipped.
+// P3-T08a (internal/policies, policies_test.go) with the fixtures of infrastructure/headscale/templates; phase 13 — the
+// last one, since it changes the instance's API key — the key rotation of P3-T10 (internal/provisioning/apikey,
+// apikey_test.go) and the reconcile key check of P3-T12 after it. Run everything with run.sh; without its environment
+// every test is skipped.
 package contract

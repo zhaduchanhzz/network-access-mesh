@@ -24,6 +24,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/jobs"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/monitoring"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/notifications"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/apikey"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/reconcile"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/secrets"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
@@ -44,6 +45,7 @@ const partitionRole = "mg_partition_maint"
 //	notifications    notification.send over the SMTP relay of MG_SMTP_* (none configured ⇒ e-mail rows cancelled,
 //	                 Portal records kept — refused in production by config) — P3-T05b
 //	reconcile        instance.reconcile + host.reconcile, report only, and their schedule (P3-T12; agent: MG_AGENT_*)
+//	apikey           apikey.rotate (P3-T10): its handler, its daily schedule per instance and the key expiry gauge
 //	idp              driver registry keycloak (narrow route to auth.<domain> incl. /admin/realms, provisioning identity
 //	                 from the SecretStore — platform_ops) + external (hardened client) — P2-T05a; idp.audit_sync every
 //	                 minute over the keycloak driver (admin + login events of every realm → audit_events, security
@@ -102,6 +104,13 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 	if err := rec.Register(w); err != nil {
 		return nil, err
 	}
+	keys, err := newAPIKeyRotation(cfg, d, reg) // P3-T10: apikey.rotate + its schedule and expiry gauge
+	if err != nil {
+		return nil, err
+	}
+	if err := keys.Register(w); err != nil {
+		return nil, err
+	}
 	drivers, kc, provisioned, err := idpDrivers(ctx, cfg, d)
 	if err != nil {
 		return nil, err
@@ -131,6 +140,7 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 			"inventory.sync": dev.NewScheduler(devices.SchedulerConfig{}).Run,
 			"health.probe":   mon.NewScheduler(monitoring.SchedulerConfig{}).Run,
 			"reconcile":      rec.NewScheduler(reconcile.SchedulerConfig{}).Run,
+			"apikey.rotate":  keys.NewScheduler(apikey.SchedulerConfig{}).Run,
 		} {
 			wg.Add(1)
 			go func() {
