@@ -13,7 +13,7 @@
 | cAdvisor | CPU, RAM, network, restart theo container | **Không** mount Docker socket ⇒ chỉ có nhãn `id` (đường dẫn cgroup chứa container ID), không có tên/label container; nhãn tenant được ghép bằng join theo container ID với chuỗi `meshguard_instance_info{container_id, tenant_id, instance_id}` do API xuất (container ID do Agent báo trong `InstanceStatus`) — REQUIRES VALIDATION (V-31) | `mg-obs` |
 | node_exporter | CPU, RAM, đĩa, mạng của host | — | `mg-obs` |
 | Edge | Request theo hostname, mã trạng thái, thời lượng; access log JSON | `host` ⇒ ánh xạ tenant | Metrics Caddy + log → collector |
-| API / Worker | Metrics HTTP, job (độ sâu hàng đợi, lỗi, thời lượng), độ trễ inventory sync theo tenant, số ngày còn lại của API key, tuổi bản backup gần nhất, số lần policy drift, số lần giải mã SecretStore theo tenant và thành phần gọi | `tenant_id` | `/metrics` nội bộ |
+| API / Worker | Metrics HTTP, job (độ sâu hàng đợi, lỗi, thời lượng), độ trễ inventory sync theo tenant, số ngày còn lại của API key, tuổi bản backup gần nhất, số lần policy drift, drift của reconcile theo kind (`meshguard_reconcile_drift` — P3-T12), số lần giải mã SecretStore theo tenant và thành phần gọi | `tenant_id` | `/metrics` nội bộ |
 | PostgreSQL exporter | Kết nối, lock, replication/WAL (Phase 6) | — | `mg-obs` |
 | blackbox_exporter (trong service `prober`) | HTTPS `https://<slug>.<mesh_domain>/key?v=<capver>` (kỳ vọng 200 và body có `publicKey`; `<capver>` lấy từ `versions.lock`), hạn chứng chỉ, Portal, IdP | `tenant_id` | Probe định kỳ |
 | Probe STUN/DERP trong service `prober` (P3-T03a) | STUN binding tới điểm vào công khai dùng chung (UDP 3478); `GET /derp/probe` theo từng hostname tenant | `tenant_id` (DERP) | blackbox_exporter không có UDP prober (ST-08) |
@@ -44,7 +44,7 @@
 | Credential | API key của instance còn < 14 ngày; chứng chỉ còn < 21 ngày | High |
 | DNS | Bản ghi `*.mesh.<domain>`, `app.`, `auth.` hoặc CAA của zone sản xuất khác giá trị mong đợi (prober truy vấn resolver công cộng) | Critical |
 | Backup | Quá hạn lịch backup của tenant/PostgreSQL; kiểm tra restore định kỳ thất bại | High |
-| Orchestrator | Job `failed` hoặc `failed_resumable`; job tự kết thúc ở `rolled_back` do lỗi không phục hồi được (không tính trường hợp operator gọi `/rollback`); job bị `job.reaper` thu hồi (quá `timeout_at`); reconcile phát hiện network tenant ≠ 2 thành viên | High |
+| Orchestrator | Job `failed` hoặc `failed_resumable`; job tự kết thúc ở `rolled_back` do lỗi không phục hồi được (không tính trường hợp operator gọi `/rollback`); job bị `job.reaper` thu hồi (quá `timeout_at`); reconcile phát hiện network tenant ≠ 2 thành viên (`meshguard_reconcile_drift{kind="network_extra_member"}` > 0 — P3-T12) | High |
 | Hạ tầng | Đĩa > 80%; `data/` của một instance vượt ngưỡng dung lượng theo plan; RAM host; PostgreSQL down; tỉ lệ 5xx ở edge (lưu ý: site wildcard đổi 502/503/504 thành 404 nên tenant ngừng **không** làm tăng 5xx — do probe `/key?v=<capver>` phát hiện); container restart loop | High/Critical |
 | Đồng bộ | Độ trễ inventory sync vượt ngưỡng | Medium |
 

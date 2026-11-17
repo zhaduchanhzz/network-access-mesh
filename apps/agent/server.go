@@ -359,7 +359,11 @@ func (s *server) ListInstances(ctx context.Context, _ *agentv1.ListInstancesRequ
 	if err != nil {
 		return nil, err
 	}
-	return &agentv1.ListInstancesResponse{Instances: list}, nil
+	aliases, err := s.guard.EdgeAliases(ctx) // reconcile (P3-T12): hs-<slug> names on the edge's networks — read only
+	if err != nil {
+		return nil, err
+	}
+	return &agentv1.ListInstancesResponse{Instances: list, EdgeAliases: aliases}, nil
 }
 
 func statusCall[R interface {

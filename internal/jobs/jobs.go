@@ -144,6 +144,7 @@ func DefaultKinds() map[string]Kind {
 		other("policy.apply", "tenant:{tenant}:policy.apply", ScopeTenant, QueueDefault, 6, 5*time.Minute),
 		other("policy.drift_check", "tenant:{tenant}:policy.drift:{slot}", ScopeTenant, QueueDefault, 3, 2*time.Minute),
 		other("instance.reconcile", "instance:{instance}:reconcile:{slot}", ScopeInstance, QueueDefault, 3, 5*time.Minute),
+		other("host.reconcile", "host.reconcile:{slot}", ScopePlatform, QueueDefault, 3, 5*time.Minute),
 		other("instance.oidc_check", "instance:{instance}:oidc:{slot}", ScopeInstance, QueueDefault, 3, 2*time.Minute),
 		other("partition.maintain", "partition.maintain:{slot}", ScopePlatform, QueueMaintenance, 3, 5*time.Minute),
 		other("notification.send", "notification:{object}", ScopeAny, QueueDefault, 8, 2*time.Minute),

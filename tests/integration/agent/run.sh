@@ -15,7 +15,9 @@
 # ngoài container. Test (apps/agent/integration_test.go) dựng một agent thật (socket, token, guard, compose driver),
 # tạo tenant dùng-một-lần từ tham số có kiểu với image [images.mg-headscale] thật: thư mục → file → network → compose up
 # → healthy → status; gọi lặp mọi lời gọi (idempotent); stop/start/restart; remove giữ data, hội tụ lại, ca âm (object
-# trùng tên mang label lạ / không label ⇒ FOREIGN_OBJECT, không đụng gì), remove xóa data. Script chụp
+# trùng tên mang label lạ / không label ⇒ FOREIGN_OBJECT, không đụng gì), remove xóa data. P3-T12: reconcile chỉ báo
+# cáo (apps/agent/reconcile_integration_test.go) — network/container mang label meshguard dựng tay được báo là lạ, drift
+# của tenant được báo, host không đổi, agent chỉ nhận lời gọi đọc. Script chụp
 # `docker ps -a`, `docker network ls` và cây thư mục gốc TRƯỚC và SAU — phải trùng nhau.
 #
 # Dải mạng: 10.250.240.0/20 dành riêng cho test này (trong pool tenant 10.250.0.0/16 của versions.lock, không chồng
@@ -116,7 +118,7 @@ d run --name "$P-run" --network none --read-only --tmpfs /tmp:size=64m,mode=1777
   --cap-add CHOWN --cap-add FOWNER --cap-add DAC_OVERRIDE --security-opt no-new-privileges --user 0:0 \
   -v /var/run/docker.sock:/var/run/docker.sock -v "$IT_ROOT:$IT_ROOT" -v "$WORK/bin/agent.test:/it/agent.test:ro" \
   -e MG_IT_ROOT="$IT_ROOT" -e MG_IT_IMAGE="$HS_IMAGE" -e MG_IT_PREFIX="$P" -e MG_IT_POOL="$POOL" -e MG_IT_NET="$NET" \
-  --entrypoint /it/agent.test "$IMAGE" -test.v -test.count=1 -test.timeout=20m -test.run '^TestComposeDriverEndToEnd$' \
+  --entrypoint /it/agent.test "$IMAGE" -test.v -test.count=1 -test.timeout=20m -test.run '^(TestComposeDriverEndToEnd|TestReconcileReportsForeignObjectsUntouched)$' \
   > "$OUT/agentit.log" 2>&1 || rc=$?
 d rm -f "$P-run" >/dev/null 2>&1 || true
 snapshot > "$OUT/after.txt"
@@ -126,7 +128,7 @@ if ! diff -u "$OUT/before.txt" "$OUT/after.txt" > "$OUT/snapshot.diff"; then
 else
   log "snapshot trước = sau: $(grep -c . "$OUT/before.txt") dòng (container, network, cây thư mục gốc)"
 fi
-if [ "$rc" = 0 ] && grep -q '^--- PASS: TestComposeDriverEndToEnd' "$OUT/agentit.log"; then
+if [ "$rc" = 0 ] && grep -q '^--- PASS: TestComposeDriverEndToEnd' "$OUT/agentit.log" && grep -q '^--- PASS: TestReconcileReportsForeignObjectsUntouched' "$OUT/agentit.log"; then
   log "AGENT DRIVER IT: PASS"
 else
   log "AGENT DRIVER IT: FAIL (log: $OUT/agentit.log)"; tail -40 "$OUT/agentit.log"; exit 1

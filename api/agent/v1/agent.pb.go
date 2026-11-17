@@ -2483,8 +2483,11 @@ func (x *InventoryEntry) GetHasNetwork() bool {
 }
 
 type ListInstancesResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Instances     []*InventoryEntry      `protobuf:"bytes,1,rep,name=instances,proto3" json:"instances,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Instances []*InventoryEntry      `protobuf:"bytes,1,rep,name=instances,proto3" json:"instances,omitempty"`
+	// Reconcile (P3-T12, read-only): every hs-<slug> name on the networks the edge is attached to — the name the edge
+	// routes a tenant to must exist once, on that tenant's own network (§11.4). Empty without Docker access.
+	EdgeAliases   []*EdgeAlias `protobuf:"bytes,2,rep,name=edge_aliases,json=edgeAliases,proto3" json:"edge_aliases,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2526,6 +2529,74 @@ func (x *ListInstancesResponse) GetInstances() []*InventoryEntry {
 	return nil
 }
 
+func (x *ListInstancesResponse) GetEdgeAliases() []*EdgeAlias {
+	if x != nil {
+		return x.EdgeAliases
+	}
+	return nil
+}
+
+// EdgeAlias is one container on a network of the edge whose name or network-scoped alias has the form hs-<slug>.
+type EdgeAlias struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Network       string                 `protobuf:"bytes,1,opt,name=network,proto3" json:"network,omitempty"`
+	Container     string                 `protobuf:"bytes,2,opt,name=container,proto3" json:"container,omitempty"`
+	Alias         string                 `protobuf:"bytes,3,opt,name=alias,proto3" json:"alias,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EdgeAlias) Reset() {
+	*x = EdgeAlias{}
+	mi := &file_agent_v1_agent_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EdgeAlias) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EdgeAlias) ProtoMessage() {}
+
+func (x *EdgeAlias) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EdgeAlias.ProtoReflect.Descriptor instead.
+func (*EdgeAlias) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *EdgeAlias) GetNetwork() string {
+	if x != nil {
+		return x.Network
+	}
+	return ""
+}
+
+func (x *EdgeAlias) GetContainer() string {
+	if x != nil {
+		return x.Container
+	}
+	return ""
+}
+
+func (x *EdgeAlias) GetAlias() string {
+	if x != nil {
+		return x.Alias
+	}
+	return ""
+}
+
 type StartInstanceRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Instance      *InstanceRef           `protobuf:"bytes,1,opt,name=instance,proto3" json:"instance,omitempty"`
@@ -2536,7 +2607,7 @@ type StartInstanceRequest struct {
 
 func (x *StartInstanceRequest) Reset() {
 	*x = StartInstanceRequest{}
-	mi := &file_agent_v1_agent_proto_msgTypes[25]
+	mi := &file_agent_v1_agent_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2548,7 +2619,7 @@ func (x *StartInstanceRequest) String() string {
 func (*StartInstanceRequest) ProtoMessage() {}
 
 func (x *StartInstanceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[25]
+	mi := &file_agent_v1_agent_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2561,7 +2632,7 @@ func (x *StartInstanceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartInstanceRequest.ProtoReflect.Descriptor instead.
 func (*StartInstanceRequest) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{25}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *StartInstanceRequest) GetInstance() *InstanceRef {
@@ -2587,7 +2658,7 @@ type StartInstanceResponse struct {
 
 func (x *StartInstanceResponse) Reset() {
 	*x = StartInstanceResponse{}
-	mi := &file_agent_v1_agent_proto_msgTypes[26]
+	mi := &file_agent_v1_agent_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2599,7 +2670,7 @@ func (x *StartInstanceResponse) String() string {
 func (*StartInstanceResponse) ProtoMessage() {}
 
 func (x *StartInstanceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[26]
+	mi := &file_agent_v1_agent_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2612,7 +2683,7 @@ func (x *StartInstanceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartInstanceResponse.ProtoReflect.Descriptor instead.
 func (*StartInstanceResponse) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{26}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *StartInstanceResponse) GetStatus() *InstanceStatus {
@@ -2632,7 +2703,7 @@ type StopInstanceRequest struct {
 
 func (x *StopInstanceRequest) Reset() {
 	*x = StopInstanceRequest{}
-	mi := &file_agent_v1_agent_proto_msgTypes[27]
+	mi := &file_agent_v1_agent_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2644,7 +2715,7 @@ func (x *StopInstanceRequest) String() string {
 func (*StopInstanceRequest) ProtoMessage() {}
 
 func (x *StopInstanceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[27]
+	mi := &file_agent_v1_agent_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2657,7 +2728,7 @@ func (x *StopInstanceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopInstanceRequest.ProtoReflect.Descriptor instead.
 func (*StopInstanceRequest) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{27}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *StopInstanceRequest) GetInstance() *InstanceRef {
@@ -2683,7 +2754,7 @@ type StopInstanceResponse struct {
 
 func (x *StopInstanceResponse) Reset() {
 	*x = StopInstanceResponse{}
-	mi := &file_agent_v1_agent_proto_msgTypes[28]
+	mi := &file_agent_v1_agent_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2695,7 +2766,7 @@ func (x *StopInstanceResponse) String() string {
 func (*StopInstanceResponse) ProtoMessage() {}
 
 func (x *StopInstanceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[28]
+	mi := &file_agent_v1_agent_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2708,7 +2779,7 @@ func (x *StopInstanceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopInstanceResponse.ProtoReflect.Descriptor instead.
 func (*StopInstanceResponse) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{28}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *StopInstanceResponse) GetStatus() *InstanceStatus {
@@ -2728,7 +2799,7 @@ type RestartInstanceRequest struct {
 
 func (x *RestartInstanceRequest) Reset() {
 	*x = RestartInstanceRequest{}
-	mi := &file_agent_v1_agent_proto_msgTypes[29]
+	mi := &file_agent_v1_agent_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2740,7 +2811,7 @@ func (x *RestartInstanceRequest) String() string {
 func (*RestartInstanceRequest) ProtoMessage() {}
 
 func (x *RestartInstanceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[29]
+	mi := &file_agent_v1_agent_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2753,7 +2824,7 @@ func (x *RestartInstanceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RestartInstanceRequest.ProtoReflect.Descriptor instead.
 func (*RestartInstanceRequest) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{29}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *RestartInstanceRequest) GetInstance() *InstanceRef {
@@ -2779,7 +2850,7 @@ type RestartInstanceResponse struct {
 
 func (x *RestartInstanceResponse) Reset() {
 	*x = RestartInstanceResponse{}
-	mi := &file_agent_v1_agent_proto_msgTypes[30]
+	mi := &file_agent_v1_agent_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2791,7 +2862,7 @@ func (x *RestartInstanceResponse) String() string {
 func (*RestartInstanceResponse) ProtoMessage() {}
 
 func (x *RestartInstanceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[30]
+	mi := &file_agent_v1_agent_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2804,7 +2875,7 @@ func (x *RestartInstanceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RestartInstanceResponse.ProtoReflect.Descriptor instead.
 func (*RestartInstanceResponse) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{30}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *RestartInstanceResponse) GetStatus() *InstanceStatus {
@@ -2827,7 +2898,7 @@ type RemoveInstanceRequest struct {
 
 func (x *RemoveInstanceRequest) Reset() {
 	*x = RemoveInstanceRequest{}
-	mi := &file_agent_v1_agent_proto_msgTypes[31]
+	mi := &file_agent_v1_agent_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2839,7 +2910,7 @@ func (x *RemoveInstanceRequest) String() string {
 func (*RemoveInstanceRequest) ProtoMessage() {}
 
 func (x *RemoveInstanceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[31]
+	mi := &file_agent_v1_agent_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2852,7 +2923,7 @@ func (x *RemoveInstanceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoveInstanceRequest.ProtoReflect.Descriptor instead.
 func (*RemoveInstanceRequest) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{31}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *RemoveInstanceRequest) GetInstance() *InstanceRef {
@@ -2894,7 +2965,7 @@ type RemoveInstanceResponse struct {
 
 func (x *RemoveInstanceResponse) Reset() {
 	*x = RemoveInstanceResponse{}
-	mi := &file_agent_v1_agent_proto_msgTypes[32]
+	mi := &file_agent_v1_agent_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2906,7 +2977,7 @@ func (x *RemoveInstanceResponse) String() string {
 func (*RemoveInstanceResponse) ProtoMessage() {}
 
 func (x *RemoveInstanceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[32]
+	mi := &file_agent_v1_agent_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2919,7 +2990,7 @@ func (x *RemoveInstanceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoveInstanceResponse.ProtoReflect.Descriptor instead.
 func (*RemoveInstanceResponse) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{32}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *RemoveInstanceResponse) GetContainerRemoved() bool {
@@ -2956,7 +3027,7 @@ type UpgradeInstanceRequest struct {
 
 func (x *UpgradeInstanceRequest) Reset() {
 	*x = UpgradeInstanceRequest{}
-	mi := &file_agent_v1_agent_proto_msgTypes[33]
+	mi := &file_agent_v1_agent_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2968,7 +3039,7 @@ func (x *UpgradeInstanceRequest) String() string {
 func (*UpgradeInstanceRequest) ProtoMessage() {}
 
 func (x *UpgradeInstanceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[33]
+	mi := &file_agent_v1_agent_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2981,7 +3052,7 @@ func (x *UpgradeInstanceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpgradeInstanceRequest.ProtoReflect.Descriptor instead.
 func (*UpgradeInstanceRequest) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{33}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *UpgradeInstanceRequest) GetInstance() *InstanceRef {
@@ -3021,7 +3092,7 @@ type UpgradeInstanceResponse struct {
 
 func (x *UpgradeInstanceResponse) Reset() {
 	*x = UpgradeInstanceResponse{}
-	mi := &file_agent_v1_agent_proto_msgTypes[34]
+	mi := &file_agent_v1_agent_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3033,7 +3104,7 @@ func (x *UpgradeInstanceResponse) String() string {
 func (*UpgradeInstanceResponse) ProtoMessage() {}
 
 func (x *UpgradeInstanceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[34]
+	mi := &file_agent_v1_agent_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3046,7 +3117,7 @@ func (x *UpgradeInstanceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpgradeInstanceResponse.ProtoReflect.Descriptor instead.
 func (*UpgradeInstanceResponse) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{34}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *UpgradeInstanceResponse) GetStatus() *InstanceStatus {
@@ -3071,7 +3142,7 @@ type DnsRecord struct {
 
 func (x *DnsRecord) Reset() {
 	*x = DnsRecord{}
-	mi := &file_agent_v1_agent_proto_msgTypes[35]
+	mi := &file_agent_v1_agent_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3083,7 +3154,7 @@ func (x *DnsRecord) String() string {
 func (*DnsRecord) ProtoMessage() {}
 
 func (x *DnsRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[35]
+	mi := &file_agent_v1_agent_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3096,7 +3167,7 @@ func (x *DnsRecord) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DnsRecord.ProtoReflect.Descriptor instead.
 func (*DnsRecord) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{35}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *DnsRecord) GetName() string {
@@ -3132,7 +3203,7 @@ type WriteDnsRecordsRequest struct {
 
 func (x *WriteDnsRecordsRequest) Reset() {
 	*x = WriteDnsRecordsRequest{}
-	mi := &file_agent_v1_agent_proto_msgTypes[36]
+	mi := &file_agent_v1_agent_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3144,7 +3215,7 @@ func (x *WriteDnsRecordsRequest) String() string {
 func (*WriteDnsRecordsRequest) ProtoMessage() {}
 
 func (x *WriteDnsRecordsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[36]
+	mi := &file_agent_v1_agent_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3157,7 +3228,7 @@ func (x *WriteDnsRecordsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteDnsRecordsRequest.ProtoReflect.Descriptor instead.
 func (*WriteDnsRecordsRequest) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{36}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *WriteDnsRecordsRequest) GetInstance() *InstanceRef {
@@ -3190,7 +3261,7 @@ type WriteDnsRecordsResponse struct {
 
 func (x *WriteDnsRecordsResponse) Reset() {
 	*x = WriteDnsRecordsResponse{}
-	mi := &file_agent_v1_agent_proto_msgTypes[37]
+	mi := &file_agent_v1_agent_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3202,7 +3273,7 @@ func (x *WriteDnsRecordsResponse) String() string {
 func (*WriteDnsRecordsResponse) ProtoMessage() {}
 
 func (x *WriteDnsRecordsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[37]
+	mi := &file_agent_v1_agent_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3215,7 +3286,7 @@ func (x *WriteDnsRecordsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteDnsRecordsResponse.ProtoReflect.Descriptor instead.
 func (*WriteDnsRecordsResponse) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{37}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *WriteDnsRecordsResponse) GetRecordsSha256() string {
@@ -3236,7 +3307,7 @@ type BootstrapPolicyRequest struct {
 
 func (x *BootstrapPolicyRequest) Reset() {
 	*x = BootstrapPolicyRequest{}
-	mi := &file_agent_v1_agent_proto_msgTypes[38]
+	mi := &file_agent_v1_agent_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3248,7 +3319,7 @@ func (x *BootstrapPolicyRequest) String() string {
 func (*BootstrapPolicyRequest) ProtoMessage() {}
 
 func (x *BootstrapPolicyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[38]
+	mi := &file_agent_v1_agent_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3261,7 +3332,7 @@ func (x *BootstrapPolicyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BootstrapPolicyRequest.ProtoReflect.Descriptor instead.
 func (*BootstrapPolicyRequest) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{38}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *BootstrapPolicyRequest) GetInstance() *InstanceRef {
@@ -3295,7 +3366,7 @@ type BootstrapPolicyResponse struct {
 
 func (x *BootstrapPolicyResponse) Reset() {
 	*x = BootstrapPolicyResponse{}
-	mi := &file_agent_v1_agent_proto_msgTypes[39]
+	mi := &file_agent_v1_agent_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3307,7 +3378,7 @@ func (x *BootstrapPolicyResponse) String() string {
 func (*BootstrapPolicyResponse) ProtoMessage() {}
 
 func (x *BootstrapPolicyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[39]
+	mi := &file_agent_v1_agent_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3320,7 +3391,7 @@ func (x *BootstrapPolicyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BootstrapPolicyResponse.ProtoReflect.Descriptor instead.
 func (*BootstrapPolicyResponse) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{39}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *BootstrapPolicyResponse) GetPolicySha256() string {
@@ -3344,7 +3415,7 @@ type BootstrapApiKeyRequest struct {
 
 func (x *BootstrapApiKeyRequest) Reset() {
 	*x = BootstrapApiKeyRequest{}
-	mi := &file_agent_v1_agent_proto_msgTypes[40]
+	mi := &file_agent_v1_agent_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3356,7 +3427,7 @@ func (x *BootstrapApiKeyRequest) String() string {
 func (*BootstrapApiKeyRequest) ProtoMessage() {}
 
 func (x *BootstrapApiKeyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[40]
+	mi := &file_agent_v1_agent_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3369,7 +3440,7 @@ func (x *BootstrapApiKeyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BootstrapApiKeyRequest.ProtoReflect.Descriptor instead.
 func (*BootstrapApiKeyRequest) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{40}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *BootstrapApiKeyRequest) GetInstance() *InstanceRef {
@@ -3414,7 +3485,7 @@ type BootstrapApiKeyResponse struct {
 
 func (x *BootstrapApiKeyResponse) Reset() {
 	*x = BootstrapApiKeyResponse{}
-	mi := &file_agent_v1_agent_proto_msgTypes[41]
+	mi := &file_agent_v1_agent_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3426,7 +3497,7 @@ func (x *BootstrapApiKeyResponse) String() string {
 func (*BootstrapApiKeyResponse) ProtoMessage() {}
 
 func (x *BootstrapApiKeyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[41]
+	mi := &file_agent_v1_agent_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3439,7 +3510,7 @@ func (x *BootstrapApiKeyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BootstrapApiKeyResponse.ProtoReflect.Descriptor instead.
 func (*BootstrapApiKeyResponse) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{41}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *BootstrapApiKeyResponse) GetApiKey() string {
@@ -3492,7 +3563,7 @@ type BackupRequest struct {
 
 func (x *BackupRequest) Reset() {
 	*x = BackupRequest{}
-	mi := &file_agent_v1_agent_proto_msgTypes[42]
+	mi := &file_agent_v1_agent_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3504,7 +3575,7 @@ func (x *BackupRequest) String() string {
 func (*BackupRequest) ProtoMessage() {}
 
 func (x *BackupRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[42]
+	mi := &file_agent_v1_agent_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3517,7 +3588,7 @@ func (x *BackupRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BackupRequest.ProtoReflect.Descriptor instead.
 func (*BackupRequest) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{42}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *BackupRequest) GetInstance() *InstanceRef {
@@ -3563,7 +3634,7 @@ type BackupArtifact struct {
 
 func (x *BackupArtifact) Reset() {
 	*x = BackupArtifact{}
-	mi := &file_agent_v1_agent_proto_msgTypes[43]
+	mi := &file_agent_v1_agent_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3575,7 +3646,7 @@ func (x *BackupArtifact) String() string {
 func (*BackupArtifact) ProtoMessage() {}
 
 func (x *BackupArtifact) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[43]
+	mi := &file_agent_v1_agent_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3588,7 +3659,7 @@ func (x *BackupArtifact) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BackupArtifact.ProtoReflect.Descriptor instead.
 func (*BackupArtifact) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{43}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *BackupArtifact) GetSequence() uint64 {
@@ -3649,7 +3720,7 @@ type BackupResponse struct {
 
 func (x *BackupResponse) Reset() {
 	*x = BackupResponse{}
-	mi := &file_agent_v1_agent_proto_msgTypes[44]
+	mi := &file_agent_v1_agent_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3661,7 +3732,7 @@ func (x *BackupResponse) String() string {
 func (*BackupResponse) ProtoMessage() {}
 
 func (x *BackupResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[44]
+	mi := &file_agent_v1_agent_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3674,7 +3745,7 @@ func (x *BackupResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BackupResponse.ProtoReflect.Descriptor instead.
 func (*BackupResponse) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{44}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *BackupResponse) GetArtifact() *BackupArtifact {
@@ -3697,7 +3768,7 @@ type ArtifactRef struct {
 
 func (x *ArtifactRef) Reset() {
 	*x = ArtifactRef{}
-	mi := &file_agent_v1_agent_proto_msgTypes[45]
+	mi := &file_agent_v1_agent_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3709,7 +3780,7 @@ func (x *ArtifactRef) String() string {
 func (*ArtifactRef) ProtoMessage() {}
 
 func (x *ArtifactRef) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[45]
+	mi := &file_agent_v1_agent_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3722,7 +3793,7 @@ func (x *ArtifactRef) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ArtifactRef.ProtoReflect.Descriptor instead.
 func (*ArtifactRef) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{45}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *ArtifactRef) GetSequence() uint64 {
@@ -3765,7 +3836,7 @@ type RestoreRequest struct {
 
 func (x *RestoreRequest) Reset() {
 	*x = RestoreRequest{}
-	mi := &file_agent_v1_agent_proto_msgTypes[46]
+	mi := &file_agent_v1_agent_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3777,7 +3848,7 @@ func (x *RestoreRequest) String() string {
 func (*RestoreRequest) ProtoMessage() {}
 
 func (x *RestoreRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[46]
+	mi := &file_agent_v1_agent_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3790,7 +3861,7 @@ func (x *RestoreRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RestoreRequest.ProtoReflect.Descriptor instead.
 func (*RestoreRequest) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{46}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *RestoreRequest) GetInstance() *InstanceRef {
@@ -3874,7 +3945,7 @@ type RestoreResponse struct {
 
 func (x *RestoreResponse) Reset() {
 	*x = RestoreResponse{}
-	mi := &file_agent_v1_agent_proto_msgTypes[47]
+	mi := &file_agent_v1_agent_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3886,7 +3957,7 @@ func (x *RestoreResponse) String() string {
 func (*RestoreResponse) ProtoMessage() {}
 
 func (x *RestoreResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[47]
+	mi := &file_agent_v1_agent_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3899,7 +3970,7 @@ func (x *RestoreResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RestoreResponse.ProtoReflect.Descriptor instead.
 func (*RestoreResponse) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{47}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *RestoreResponse) GetRestoredDataSha256() string {
@@ -3928,7 +3999,7 @@ type NodeDesiredState struct {
 
 func (x *NodeDesiredState) Reset() {
 	*x = NodeDesiredState{}
-	mi := &file_agent_v1_agent_proto_msgTypes[48]
+	mi := &file_agent_v1_agent_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3940,7 +4011,7 @@ func (x *NodeDesiredState) String() string {
 func (*NodeDesiredState) ProtoMessage() {}
 
 func (x *NodeDesiredState) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[48]
+	mi := &file_agent_v1_agent_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3953,7 +4024,7 @@ func (x *NodeDesiredState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NodeDesiredState.ProtoReflect.Descriptor instead.
 func (*NodeDesiredState) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{48}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *NodeDesiredState) GetMachineKey() string {
@@ -3995,7 +4066,7 @@ type ReconcilePlan struct {
 
 func (x *ReconcilePlan) Reset() {
 	*x = ReconcilePlan{}
-	mi := &file_agent_v1_agent_proto_msgTypes[49]
+	mi := &file_agent_v1_agent_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4007,7 +4078,7 @@ func (x *ReconcilePlan) String() string {
 func (*ReconcilePlan) ProtoMessage() {}
 
 func (x *ReconcilePlan) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[49]
+	mi := &file_agent_v1_agent_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4020,7 +4091,7 @@ func (x *ReconcilePlan) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReconcilePlan.ProtoReflect.Descriptor instead.
 func (*ReconcilePlan) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{49}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *ReconcilePlan) GetApiKeyTtl() *durationpb.Duration {
@@ -4069,7 +4140,7 @@ type PostRestoreReconcileRequest struct {
 
 func (x *PostRestoreReconcileRequest) Reset() {
 	*x = PostRestoreReconcileRequest{}
-	mi := &file_agent_v1_agent_proto_msgTypes[50]
+	mi := &file_agent_v1_agent_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4081,7 +4152,7 @@ func (x *PostRestoreReconcileRequest) String() string {
 func (*PostRestoreReconcileRequest) ProtoMessage() {}
 
 func (x *PostRestoreReconcileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[50]
+	mi := &file_agent_v1_agent_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4094,7 +4165,7 @@ func (x *PostRestoreReconcileRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PostRestoreReconcileRequest.ProtoReflect.Descriptor instead.
 func (*PostRestoreReconcileRequest) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{50}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *PostRestoreReconcileRequest) GetInstance() *InstanceRef {
@@ -4136,7 +4207,7 @@ type PostRestoreReconcileResponse struct {
 
 func (x *PostRestoreReconcileResponse) Reset() {
 	*x = PostRestoreReconcileResponse{}
-	mi := &file_agent_v1_agent_proto_msgTypes[51]
+	mi := &file_agent_v1_agent_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4148,7 +4219,7 @@ func (x *PostRestoreReconcileResponse) String() string {
 func (*PostRestoreReconcileResponse) ProtoMessage() {}
 
 func (x *PostRestoreReconcileResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[51]
+	mi := &file_agent_v1_agent_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4161,7 +4232,7 @@ func (x *PostRestoreReconcileResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PostRestoreReconcileResponse.ProtoReflect.Descriptor instead.
 func (*PostRestoreReconcileResponse) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{51}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *PostRestoreReconcileResponse) GetApiKey() string {
@@ -4244,7 +4315,7 @@ type EnsureEdgeAttachmentRequest struct {
 
 func (x *EnsureEdgeAttachmentRequest) Reset() {
 	*x = EnsureEdgeAttachmentRequest{}
-	mi := &file_agent_v1_agent_proto_msgTypes[52]
+	mi := &file_agent_v1_agent_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4256,7 +4327,7 @@ func (x *EnsureEdgeAttachmentRequest) String() string {
 func (*EnsureEdgeAttachmentRequest) ProtoMessage() {}
 
 func (x *EnsureEdgeAttachmentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[52]
+	mi := &file_agent_v1_agent_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4269,7 +4340,7 @@ func (x *EnsureEdgeAttachmentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EnsureEdgeAttachmentRequest.ProtoReflect.Descriptor instead.
 func (*EnsureEdgeAttachmentRequest) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{52}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *EnsureEdgeAttachmentRequest) GetInstance() *InstanceRef {
@@ -4297,7 +4368,7 @@ type EnsureEdgeAttachmentResponse struct {
 
 func (x *EnsureEdgeAttachmentResponse) Reset() {
 	*x = EnsureEdgeAttachmentResponse{}
-	mi := &file_agent_v1_agent_proto_msgTypes[53]
+	mi := &file_agent_v1_agent_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4309,7 +4380,7 @@ func (x *EnsureEdgeAttachmentResponse) String() string {
 func (*EnsureEdgeAttachmentResponse) ProtoMessage() {}
 
 func (x *EnsureEdgeAttachmentResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[53]
+	mi := &file_agent_v1_agent_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4322,7 +4393,7 @@ func (x *EnsureEdgeAttachmentResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EnsureEdgeAttachmentResponse.ProtoReflect.Descriptor instead.
 func (*EnsureEdgeAttachmentResponse) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{53}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *EnsureEdgeAttachmentResponse) GetAttached() bool {
@@ -4357,7 +4428,7 @@ type RemoveEdgeAttachmentRequest struct {
 
 func (x *RemoveEdgeAttachmentRequest) Reset() {
 	*x = RemoveEdgeAttachmentRequest{}
-	mi := &file_agent_v1_agent_proto_msgTypes[54]
+	mi := &file_agent_v1_agent_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4369,7 +4440,7 @@ func (x *RemoveEdgeAttachmentRequest) String() string {
 func (*RemoveEdgeAttachmentRequest) ProtoMessage() {}
 
 func (x *RemoveEdgeAttachmentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[54]
+	mi := &file_agent_v1_agent_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4382,7 +4453,7 @@ func (x *RemoveEdgeAttachmentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoveEdgeAttachmentRequest.ProtoReflect.Descriptor instead.
 func (*RemoveEdgeAttachmentRequest) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{54}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *RemoveEdgeAttachmentRequest) GetInstance() *InstanceRef {
@@ -4416,7 +4487,7 @@ type RemoveEdgeAttachmentResponse struct {
 
 func (x *RemoveEdgeAttachmentResponse) Reset() {
 	*x = RemoveEdgeAttachmentResponse{}
-	mi := &file_agent_v1_agent_proto_msgTypes[55]
+	mi := &file_agent_v1_agent_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4428,7 +4499,7 @@ func (x *RemoveEdgeAttachmentResponse) String() string {
 func (*RemoveEdgeAttachmentResponse) ProtoMessage() {}
 
 func (x *RemoveEdgeAttachmentResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[55]
+	mi := &file_agent_v1_agent_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4441,7 +4512,7 @@ func (x *RemoveEdgeAttachmentResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoveEdgeAttachmentResponse.ProtoReflect.Descriptor instead.
 func (*RemoveEdgeAttachmentResponse) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{55}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *RemoveEdgeAttachmentResponse) GetDetached() bool {
@@ -4597,9 +4668,14 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\rhas_directory\x18\x04 \x01(\bR\fhasDirectory\x12#\n" +
 	"\rhas_container\x18\x05 \x01(\bR\fhasContainer\x12\x1f\n" +
 	"\vhas_network\x18\x06 \x01(\bR\n" +
-	"hasNetwork\"Y\n" +
+	"hasNetwork\"\x9b\x01\n" +
 	"\x15ListInstancesResponse\x12@\n" +
-	"\tinstances\x18\x01 \x03(\v2\".meshguard.agent.v1.InventoryEntryR\tinstances\"j\n" +
+	"\tinstances\x18\x01 \x03(\v2\".meshguard.agent.v1.InventoryEntryR\tinstances\x12@\n" +
+	"\fedge_aliases\x18\x02 \x03(\v2\x1d.meshguard.agent.v1.EdgeAliasR\vedgeAliases\"Y\n" +
+	"\tEdgeAlias\x12\x18\n" +
+	"\anetwork\x18\x01 \x01(\tR\anetwork\x12\x1c\n" +
+	"\tcontainer\x18\x02 \x01(\tR\tcontainer\x12\x14\n" +
+	"\x05alias\x18\x03 \x01(\tR\x05alias\"j\n" +
 	"\x14StartInstanceRequest\x12;\n" +
 	"\binstance\x18\x01 \x01(\v2\x1f.meshguard.agent.v1.InstanceRefR\binstance\x12\x15\n" +
 	"\x06job_id\x18\x02 \x01(\tR\x05jobId\"S\n" +
@@ -4864,7 +4940,7 @@ func file_agent_v1_agent_proto_rawDescGZIP() []byte {
 }
 
 var file_agent_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 13)
-var file_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 56)
+var file_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 57)
 var file_agent_v1_agent_proto_goTypes = []any{
 	(LogLevel)(0),                        // 0: meshguard.agent.v1.LogLevel
 	(TargetPhase)(0),                     // 1: meshguard.agent.v1.TargetPhase
@@ -4904,39 +4980,40 @@ var file_agent_v1_agent_proto_goTypes = []any{
 	(*ListInstancesRequest)(nil),         // 35: meshguard.agent.v1.ListInstancesRequest
 	(*InventoryEntry)(nil),               // 36: meshguard.agent.v1.InventoryEntry
 	(*ListInstancesResponse)(nil),        // 37: meshguard.agent.v1.ListInstancesResponse
-	(*StartInstanceRequest)(nil),         // 38: meshguard.agent.v1.StartInstanceRequest
-	(*StartInstanceResponse)(nil),        // 39: meshguard.agent.v1.StartInstanceResponse
-	(*StopInstanceRequest)(nil),          // 40: meshguard.agent.v1.StopInstanceRequest
-	(*StopInstanceResponse)(nil),         // 41: meshguard.agent.v1.StopInstanceResponse
-	(*RestartInstanceRequest)(nil),       // 42: meshguard.agent.v1.RestartInstanceRequest
-	(*RestartInstanceResponse)(nil),      // 43: meshguard.agent.v1.RestartInstanceResponse
-	(*RemoveInstanceRequest)(nil),        // 44: meshguard.agent.v1.RemoveInstanceRequest
-	(*RemoveInstanceResponse)(nil),       // 45: meshguard.agent.v1.RemoveInstanceResponse
-	(*UpgradeInstanceRequest)(nil),       // 46: meshguard.agent.v1.UpgradeInstanceRequest
-	(*UpgradeInstanceResponse)(nil),      // 47: meshguard.agent.v1.UpgradeInstanceResponse
-	(*DnsRecord)(nil),                    // 48: meshguard.agent.v1.DnsRecord
-	(*WriteDnsRecordsRequest)(nil),       // 49: meshguard.agent.v1.WriteDnsRecordsRequest
-	(*WriteDnsRecordsResponse)(nil),      // 50: meshguard.agent.v1.WriteDnsRecordsResponse
-	(*BootstrapPolicyRequest)(nil),       // 51: meshguard.agent.v1.BootstrapPolicyRequest
-	(*BootstrapPolicyResponse)(nil),      // 52: meshguard.agent.v1.BootstrapPolicyResponse
-	(*BootstrapApiKeyRequest)(nil),       // 53: meshguard.agent.v1.BootstrapApiKeyRequest
-	(*BootstrapApiKeyResponse)(nil),      // 54: meshguard.agent.v1.BootstrapApiKeyResponse
-	(*BackupRequest)(nil),                // 55: meshguard.agent.v1.BackupRequest
-	(*BackupArtifact)(nil),               // 56: meshguard.agent.v1.BackupArtifact
-	(*BackupResponse)(nil),               // 57: meshguard.agent.v1.BackupResponse
-	(*ArtifactRef)(nil),                  // 58: meshguard.agent.v1.ArtifactRef
-	(*RestoreRequest)(nil),               // 59: meshguard.agent.v1.RestoreRequest
-	(*RestoreResponse)(nil),              // 60: meshguard.agent.v1.RestoreResponse
-	(*NodeDesiredState)(nil),             // 61: meshguard.agent.v1.NodeDesiredState
-	(*ReconcilePlan)(nil),                // 62: meshguard.agent.v1.ReconcilePlan
-	(*PostRestoreReconcileRequest)(nil),  // 63: meshguard.agent.v1.PostRestoreReconcileRequest
-	(*PostRestoreReconcileResponse)(nil), // 64: meshguard.agent.v1.PostRestoreReconcileResponse
-	(*EnsureEdgeAttachmentRequest)(nil),  // 65: meshguard.agent.v1.EnsureEdgeAttachmentRequest
-	(*EnsureEdgeAttachmentResponse)(nil), // 66: meshguard.agent.v1.EnsureEdgeAttachmentResponse
-	(*RemoveEdgeAttachmentRequest)(nil),  // 67: meshguard.agent.v1.RemoveEdgeAttachmentRequest
-	(*RemoveEdgeAttachmentResponse)(nil), // 68: meshguard.agent.v1.RemoveEdgeAttachmentResponse
-	(*timestamppb.Timestamp)(nil),        // 69: google.protobuf.Timestamp
-	(*durationpb.Duration)(nil),          // 70: google.protobuf.Duration
+	(*EdgeAlias)(nil),                    // 38: meshguard.agent.v1.EdgeAlias
+	(*StartInstanceRequest)(nil),         // 39: meshguard.agent.v1.StartInstanceRequest
+	(*StartInstanceResponse)(nil),        // 40: meshguard.agent.v1.StartInstanceResponse
+	(*StopInstanceRequest)(nil),          // 41: meshguard.agent.v1.StopInstanceRequest
+	(*StopInstanceResponse)(nil),         // 42: meshguard.agent.v1.StopInstanceResponse
+	(*RestartInstanceRequest)(nil),       // 43: meshguard.agent.v1.RestartInstanceRequest
+	(*RestartInstanceResponse)(nil),      // 44: meshguard.agent.v1.RestartInstanceResponse
+	(*RemoveInstanceRequest)(nil),        // 45: meshguard.agent.v1.RemoveInstanceRequest
+	(*RemoveInstanceResponse)(nil),       // 46: meshguard.agent.v1.RemoveInstanceResponse
+	(*UpgradeInstanceRequest)(nil),       // 47: meshguard.agent.v1.UpgradeInstanceRequest
+	(*UpgradeInstanceResponse)(nil),      // 48: meshguard.agent.v1.UpgradeInstanceResponse
+	(*DnsRecord)(nil),                    // 49: meshguard.agent.v1.DnsRecord
+	(*WriteDnsRecordsRequest)(nil),       // 50: meshguard.agent.v1.WriteDnsRecordsRequest
+	(*WriteDnsRecordsResponse)(nil),      // 51: meshguard.agent.v1.WriteDnsRecordsResponse
+	(*BootstrapPolicyRequest)(nil),       // 52: meshguard.agent.v1.BootstrapPolicyRequest
+	(*BootstrapPolicyResponse)(nil),      // 53: meshguard.agent.v1.BootstrapPolicyResponse
+	(*BootstrapApiKeyRequest)(nil),       // 54: meshguard.agent.v1.BootstrapApiKeyRequest
+	(*BootstrapApiKeyResponse)(nil),      // 55: meshguard.agent.v1.BootstrapApiKeyResponse
+	(*BackupRequest)(nil),                // 56: meshguard.agent.v1.BackupRequest
+	(*BackupArtifact)(nil),               // 57: meshguard.agent.v1.BackupArtifact
+	(*BackupResponse)(nil),               // 58: meshguard.agent.v1.BackupResponse
+	(*ArtifactRef)(nil),                  // 59: meshguard.agent.v1.ArtifactRef
+	(*RestoreRequest)(nil),               // 60: meshguard.agent.v1.RestoreRequest
+	(*RestoreResponse)(nil),              // 61: meshguard.agent.v1.RestoreResponse
+	(*NodeDesiredState)(nil),             // 62: meshguard.agent.v1.NodeDesiredState
+	(*ReconcilePlan)(nil),                // 63: meshguard.agent.v1.ReconcilePlan
+	(*PostRestoreReconcileRequest)(nil),  // 64: meshguard.agent.v1.PostRestoreReconcileRequest
+	(*PostRestoreReconcileResponse)(nil), // 65: meshguard.agent.v1.PostRestoreReconcileResponse
+	(*EnsureEdgeAttachmentRequest)(nil),  // 66: meshguard.agent.v1.EnsureEdgeAttachmentRequest
+	(*EnsureEdgeAttachmentResponse)(nil), // 67: meshguard.agent.v1.EnsureEdgeAttachmentResponse
+	(*RemoveEdgeAttachmentRequest)(nil),  // 68: meshguard.agent.v1.RemoveEdgeAttachmentRequest
+	(*RemoveEdgeAttachmentResponse)(nil), // 69: meshguard.agent.v1.RemoveEdgeAttachmentResponse
+	(*timestamppb.Timestamp)(nil),        // 70: google.protobuf.Timestamp
+	(*durationpb.Duration)(nil),          // 71: google.protobuf.Duration
 }
 var file_agent_v1_agent_proto_depIdxs = []int32{
 	0,  // 0: meshguard.agent.v1.HeadscaleParams.log_level:type_name -> meshguard.agent.v1.LogLevel
@@ -4944,18 +5021,18 @@ var file_agent_v1_agent_proto_depIdxs = []int32{
 	14, // 2: meshguard.agent.v1.InstanceSpec.limits:type_name -> meshguard.agent.v1.ResourceLimits
 	15, // 3: meshguard.agent.v1.InstanceSpec.headscale:type_name -> meshguard.agent.v1.HeadscaleParams
 	4,  // 4: meshguard.agent.v1.PathState.kind:type_name -> meshguard.agent.v1.PathKind
-	69, // 5: meshguard.agent.v1.ApiKeyInfo.expiration:type_name -> google.protobuf.Timestamp
-	69, // 6: meshguard.agent.v1.ApiKeyInfo.created_at:type_name -> google.protobuf.Timestamp
+	70, // 5: meshguard.agent.v1.ApiKeyInfo.expiration:type_name -> google.protobuf.Timestamp
+	70, // 6: meshguard.agent.v1.ApiKeyInfo.created_at:type_name -> google.protobuf.Timestamp
 	13, // 7: meshguard.agent.v1.InstanceStatus.instance:type_name -> meshguard.agent.v1.InstanceRef
 	2,  // 8: meshguard.agent.v1.InstanceStatus.container_state:type_name -> meshguard.agent.v1.ContainerState
 	3,  // 9: meshguard.agent.v1.InstanceStatus.health:type_name -> meshguard.agent.v1.HealthState
-	69, // 10: meshguard.agent.v1.InstanceStatus.started_at:type_name -> google.protobuf.Timestamp
+	70, // 10: meshguard.agent.v1.InstanceStatus.started_at:type_name -> google.protobuf.Timestamp
 	18, // 11: meshguard.agent.v1.InstanceStatus.network:type_name -> meshguard.agent.v1.NetworkState
 	17, // 12: meshguard.agent.v1.InstanceStatus.paths:type_name -> meshguard.agent.v1.PathState
 	19, // 13: meshguard.agent.v1.InstanceStatus.api_keys:type_name -> meshguard.agent.v1.ApiKeyInfo
 	5,  // 14: meshguard.agent.v1.Refusal.reason:type_name -> meshguard.agent.v1.RefusalReason
 	6,  // 15: meshguard.agent.v1.HealthResponse.status:type_name -> meshguard.agent.v1.ServingStatus
-	69, // 16: meshguard.agent.v1.HealthResponse.started_at:type_name -> google.protobuf.Timestamp
+	70, // 16: meshguard.agent.v1.HealthResponse.started_at:type_name -> google.protobuf.Timestamp
 	25, // 17: meshguard.agent.v1.GetHostInfoResponse.run_uid_range:type_name -> meshguard.agent.v1.UintRange
 	25, // 18: meshguard.agent.v1.GetHostInfoResponse.stun_port_range:type_name -> meshguard.agent.v1.UintRange
 	26, // 19: meshguard.agent.v1.GetHostInfoResponse.allowed_images:type_name -> meshguard.agent.v1.AllowedImage
@@ -4969,81 +5046,82 @@ var file_agent_v1_agent_proto_depIdxs = []int32{
 	13, // 27: meshguard.agent.v1.GetInstanceStatusRequest.instance:type_name -> meshguard.agent.v1.InstanceRef
 	20, // 28: meshguard.agent.v1.GetInstanceStatusResponse.status:type_name -> meshguard.agent.v1.InstanceStatus
 	36, // 29: meshguard.agent.v1.ListInstancesResponse.instances:type_name -> meshguard.agent.v1.InventoryEntry
-	13, // 30: meshguard.agent.v1.StartInstanceRequest.instance:type_name -> meshguard.agent.v1.InstanceRef
-	20, // 31: meshguard.agent.v1.StartInstanceResponse.status:type_name -> meshguard.agent.v1.InstanceStatus
-	13, // 32: meshguard.agent.v1.StopInstanceRequest.instance:type_name -> meshguard.agent.v1.InstanceRef
-	20, // 33: meshguard.agent.v1.StopInstanceResponse.status:type_name -> meshguard.agent.v1.InstanceStatus
-	13, // 34: meshguard.agent.v1.RestartInstanceRequest.instance:type_name -> meshguard.agent.v1.InstanceRef
-	20, // 35: meshguard.agent.v1.RestartInstanceResponse.status:type_name -> meshguard.agent.v1.InstanceStatus
-	13, // 36: meshguard.agent.v1.RemoveInstanceRequest.instance:type_name -> meshguard.agent.v1.InstanceRef
-	8,  // 37: meshguard.agent.v1.RemoveInstanceRequest.data:type_name -> meshguard.agent.v1.DataDisposition
-	13, // 38: meshguard.agent.v1.UpgradeInstanceRequest.instance:type_name -> meshguard.agent.v1.InstanceRef
-	20, // 39: meshguard.agent.v1.UpgradeInstanceResponse.status:type_name -> meshguard.agent.v1.InstanceStatus
-	9,  // 40: meshguard.agent.v1.DnsRecord.type:type_name -> meshguard.agent.v1.DnsRecordType
-	13, // 41: meshguard.agent.v1.WriteDnsRecordsRequest.instance:type_name -> meshguard.agent.v1.InstanceRef
-	48, // 42: meshguard.agent.v1.WriteDnsRecordsRequest.records:type_name -> meshguard.agent.v1.DnsRecord
-	13, // 43: meshguard.agent.v1.BootstrapPolicyRequest.instance:type_name -> meshguard.agent.v1.InstanceRef
-	10, // 44: meshguard.agent.v1.BootstrapPolicyRequest.policy:type_name -> meshguard.agent.v1.PolicyKind
-	13, // 45: meshguard.agent.v1.BootstrapApiKeyRequest.instance:type_name -> meshguard.agent.v1.InstanceRef
-	70, // 46: meshguard.agent.v1.BootstrapApiKeyRequest.ttl:type_name -> google.protobuf.Duration
-	69, // 47: meshguard.agent.v1.BootstrapApiKeyResponse.expires_at:type_name -> google.protobuf.Timestamp
-	13, // 48: meshguard.agent.v1.BackupRequest.instance:type_name -> meshguard.agent.v1.InstanceRef
-	11, // 49: meshguard.agent.v1.BackupArtifact.method:type_name -> meshguard.agent.v1.BackupMethod
-	69, // 50: meshguard.agent.v1.BackupArtifact.created_at:type_name -> google.protobuf.Timestamp
-	56, // 51: meshguard.agent.v1.BackupResponse.artifact:type_name -> meshguard.agent.v1.BackupArtifact
-	13, // 52: meshguard.agent.v1.RestoreRequest.instance:type_name -> meshguard.agent.v1.InstanceRef
-	58, // 53: meshguard.agent.v1.RestoreRequest.artifact:type_name -> meshguard.agent.v1.ArtifactRef
-	70, // 54: meshguard.agent.v1.ReconcilePlan.api_key_ttl:type_name -> google.protobuf.Duration
-	61, // 55: meshguard.agent.v1.ReconcilePlan.nodes:type_name -> meshguard.agent.v1.NodeDesiredState
-	13, // 56: meshguard.agent.v1.PostRestoreReconcileRequest.instance:type_name -> meshguard.agent.v1.InstanceRef
-	62, // 57: meshguard.agent.v1.PostRestoreReconcileRequest.plan:type_name -> meshguard.agent.v1.ReconcilePlan
-	69, // 58: meshguard.agent.v1.PostRestoreReconcileResponse.api_key_expires_at:type_name -> google.protobuf.Timestamp
-	13, // 59: meshguard.agent.v1.EnsureEdgeAttachmentRequest.instance:type_name -> meshguard.agent.v1.InstanceRef
-	13, // 60: meshguard.agent.v1.RemoveEdgeAttachmentRequest.instance:type_name -> meshguard.agent.v1.InstanceRef
-	12, // 61: meshguard.agent.v1.RemoveEdgeAttachmentRequest.reason:type_name -> meshguard.agent.v1.EdgeDetachReason
-	22, // 62: meshguard.agent.v1.AgentService.Health:input_type -> meshguard.agent.v1.HealthRequest
-	24, // 63: meshguard.agent.v1.AgentService.GetHostInfo:input_type -> meshguard.agent.v1.GetHostInfoRequest
-	28, // 64: meshguard.agent.v1.AgentService.ValidateConfig:input_type -> meshguard.agent.v1.ValidateConfigRequest
-	31, // 65: meshguard.agent.v1.AgentService.EnsureInstance:input_type -> meshguard.agent.v1.EnsureInstanceRequest
-	33, // 66: meshguard.agent.v1.AgentService.GetInstanceStatus:input_type -> meshguard.agent.v1.GetInstanceStatusRequest
-	35, // 67: meshguard.agent.v1.AgentService.ListInstances:input_type -> meshguard.agent.v1.ListInstancesRequest
-	38, // 68: meshguard.agent.v1.AgentService.StartInstance:input_type -> meshguard.agent.v1.StartInstanceRequest
-	40, // 69: meshguard.agent.v1.AgentService.StopInstance:input_type -> meshguard.agent.v1.StopInstanceRequest
-	42, // 70: meshguard.agent.v1.AgentService.RestartInstance:input_type -> meshguard.agent.v1.RestartInstanceRequest
-	44, // 71: meshguard.agent.v1.AgentService.RemoveInstance:input_type -> meshguard.agent.v1.RemoveInstanceRequest
-	46, // 72: meshguard.agent.v1.AgentService.UpgradeInstance:input_type -> meshguard.agent.v1.UpgradeInstanceRequest
-	49, // 73: meshguard.agent.v1.AgentService.WriteDnsRecords:input_type -> meshguard.agent.v1.WriteDnsRecordsRequest
-	51, // 74: meshguard.agent.v1.AgentService.BootstrapPolicy:input_type -> meshguard.agent.v1.BootstrapPolicyRequest
-	53, // 75: meshguard.agent.v1.AgentService.BootstrapApiKey:input_type -> meshguard.agent.v1.BootstrapApiKeyRequest
-	55, // 76: meshguard.agent.v1.AgentService.Backup:input_type -> meshguard.agent.v1.BackupRequest
-	59, // 77: meshguard.agent.v1.AgentService.Restore:input_type -> meshguard.agent.v1.RestoreRequest
-	63, // 78: meshguard.agent.v1.AgentService.PostRestoreReconcile:input_type -> meshguard.agent.v1.PostRestoreReconcileRequest
-	65, // 79: meshguard.agent.v1.AgentService.EnsureEdgeAttachment:input_type -> meshguard.agent.v1.EnsureEdgeAttachmentRequest
-	67, // 80: meshguard.agent.v1.AgentService.RemoveEdgeAttachment:input_type -> meshguard.agent.v1.RemoveEdgeAttachmentRequest
-	23, // 81: meshguard.agent.v1.AgentService.Health:output_type -> meshguard.agent.v1.HealthResponse
-	27, // 82: meshguard.agent.v1.AgentService.GetHostInfo:output_type -> meshguard.agent.v1.GetHostInfoResponse
-	29, // 83: meshguard.agent.v1.AgentService.ValidateConfig:output_type -> meshguard.agent.v1.ValidateConfigResponse
-	32, // 84: meshguard.agent.v1.AgentService.EnsureInstance:output_type -> meshguard.agent.v1.EnsureInstanceResponse
-	34, // 85: meshguard.agent.v1.AgentService.GetInstanceStatus:output_type -> meshguard.agent.v1.GetInstanceStatusResponse
-	37, // 86: meshguard.agent.v1.AgentService.ListInstances:output_type -> meshguard.agent.v1.ListInstancesResponse
-	39, // 87: meshguard.agent.v1.AgentService.StartInstance:output_type -> meshguard.agent.v1.StartInstanceResponse
-	41, // 88: meshguard.agent.v1.AgentService.StopInstance:output_type -> meshguard.agent.v1.StopInstanceResponse
-	43, // 89: meshguard.agent.v1.AgentService.RestartInstance:output_type -> meshguard.agent.v1.RestartInstanceResponse
-	45, // 90: meshguard.agent.v1.AgentService.RemoveInstance:output_type -> meshguard.agent.v1.RemoveInstanceResponse
-	47, // 91: meshguard.agent.v1.AgentService.UpgradeInstance:output_type -> meshguard.agent.v1.UpgradeInstanceResponse
-	50, // 92: meshguard.agent.v1.AgentService.WriteDnsRecords:output_type -> meshguard.agent.v1.WriteDnsRecordsResponse
-	52, // 93: meshguard.agent.v1.AgentService.BootstrapPolicy:output_type -> meshguard.agent.v1.BootstrapPolicyResponse
-	54, // 94: meshguard.agent.v1.AgentService.BootstrapApiKey:output_type -> meshguard.agent.v1.BootstrapApiKeyResponse
-	57, // 95: meshguard.agent.v1.AgentService.Backup:output_type -> meshguard.agent.v1.BackupResponse
-	60, // 96: meshguard.agent.v1.AgentService.Restore:output_type -> meshguard.agent.v1.RestoreResponse
-	64, // 97: meshguard.agent.v1.AgentService.PostRestoreReconcile:output_type -> meshguard.agent.v1.PostRestoreReconcileResponse
-	66, // 98: meshguard.agent.v1.AgentService.EnsureEdgeAttachment:output_type -> meshguard.agent.v1.EnsureEdgeAttachmentResponse
-	68, // 99: meshguard.agent.v1.AgentService.RemoveEdgeAttachment:output_type -> meshguard.agent.v1.RemoveEdgeAttachmentResponse
-	81, // [81:100] is the sub-list for method output_type
-	62, // [62:81] is the sub-list for method input_type
-	62, // [62:62] is the sub-list for extension type_name
-	62, // [62:62] is the sub-list for extension extendee
-	0,  // [0:62] is the sub-list for field type_name
+	38, // 30: meshguard.agent.v1.ListInstancesResponse.edge_aliases:type_name -> meshguard.agent.v1.EdgeAlias
+	13, // 31: meshguard.agent.v1.StartInstanceRequest.instance:type_name -> meshguard.agent.v1.InstanceRef
+	20, // 32: meshguard.agent.v1.StartInstanceResponse.status:type_name -> meshguard.agent.v1.InstanceStatus
+	13, // 33: meshguard.agent.v1.StopInstanceRequest.instance:type_name -> meshguard.agent.v1.InstanceRef
+	20, // 34: meshguard.agent.v1.StopInstanceResponse.status:type_name -> meshguard.agent.v1.InstanceStatus
+	13, // 35: meshguard.agent.v1.RestartInstanceRequest.instance:type_name -> meshguard.agent.v1.InstanceRef
+	20, // 36: meshguard.agent.v1.RestartInstanceResponse.status:type_name -> meshguard.agent.v1.InstanceStatus
+	13, // 37: meshguard.agent.v1.RemoveInstanceRequest.instance:type_name -> meshguard.agent.v1.InstanceRef
+	8,  // 38: meshguard.agent.v1.RemoveInstanceRequest.data:type_name -> meshguard.agent.v1.DataDisposition
+	13, // 39: meshguard.agent.v1.UpgradeInstanceRequest.instance:type_name -> meshguard.agent.v1.InstanceRef
+	20, // 40: meshguard.agent.v1.UpgradeInstanceResponse.status:type_name -> meshguard.agent.v1.InstanceStatus
+	9,  // 41: meshguard.agent.v1.DnsRecord.type:type_name -> meshguard.agent.v1.DnsRecordType
+	13, // 42: meshguard.agent.v1.WriteDnsRecordsRequest.instance:type_name -> meshguard.agent.v1.InstanceRef
+	49, // 43: meshguard.agent.v1.WriteDnsRecordsRequest.records:type_name -> meshguard.agent.v1.DnsRecord
+	13, // 44: meshguard.agent.v1.BootstrapPolicyRequest.instance:type_name -> meshguard.agent.v1.InstanceRef
+	10, // 45: meshguard.agent.v1.BootstrapPolicyRequest.policy:type_name -> meshguard.agent.v1.PolicyKind
+	13, // 46: meshguard.agent.v1.BootstrapApiKeyRequest.instance:type_name -> meshguard.agent.v1.InstanceRef
+	71, // 47: meshguard.agent.v1.BootstrapApiKeyRequest.ttl:type_name -> google.protobuf.Duration
+	70, // 48: meshguard.agent.v1.BootstrapApiKeyResponse.expires_at:type_name -> google.protobuf.Timestamp
+	13, // 49: meshguard.agent.v1.BackupRequest.instance:type_name -> meshguard.agent.v1.InstanceRef
+	11, // 50: meshguard.agent.v1.BackupArtifact.method:type_name -> meshguard.agent.v1.BackupMethod
+	70, // 51: meshguard.agent.v1.BackupArtifact.created_at:type_name -> google.protobuf.Timestamp
+	57, // 52: meshguard.agent.v1.BackupResponse.artifact:type_name -> meshguard.agent.v1.BackupArtifact
+	13, // 53: meshguard.agent.v1.RestoreRequest.instance:type_name -> meshguard.agent.v1.InstanceRef
+	59, // 54: meshguard.agent.v1.RestoreRequest.artifact:type_name -> meshguard.agent.v1.ArtifactRef
+	71, // 55: meshguard.agent.v1.ReconcilePlan.api_key_ttl:type_name -> google.protobuf.Duration
+	62, // 56: meshguard.agent.v1.ReconcilePlan.nodes:type_name -> meshguard.agent.v1.NodeDesiredState
+	13, // 57: meshguard.agent.v1.PostRestoreReconcileRequest.instance:type_name -> meshguard.agent.v1.InstanceRef
+	63, // 58: meshguard.agent.v1.PostRestoreReconcileRequest.plan:type_name -> meshguard.agent.v1.ReconcilePlan
+	70, // 59: meshguard.agent.v1.PostRestoreReconcileResponse.api_key_expires_at:type_name -> google.protobuf.Timestamp
+	13, // 60: meshguard.agent.v1.EnsureEdgeAttachmentRequest.instance:type_name -> meshguard.agent.v1.InstanceRef
+	13, // 61: meshguard.agent.v1.RemoveEdgeAttachmentRequest.instance:type_name -> meshguard.agent.v1.InstanceRef
+	12, // 62: meshguard.agent.v1.RemoveEdgeAttachmentRequest.reason:type_name -> meshguard.agent.v1.EdgeDetachReason
+	22, // 63: meshguard.agent.v1.AgentService.Health:input_type -> meshguard.agent.v1.HealthRequest
+	24, // 64: meshguard.agent.v1.AgentService.GetHostInfo:input_type -> meshguard.agent.v1.GetHostInfoRequest
+	28, // 65: meshguard.agent.v1.AgentService.ValidateConfig:input_type -> meshguard.agent.v1.ValidateConfigRequest
+	31, // 66: meshguard.agent.v1.AgentService.EnsureInstance:input_type -> meshguard.agent.v1.EnsureInstanceRequest
+	33, // 67: meshguard.agent.v1.AgentService.GetInstanceStatus:input_type -> meshguard.agent.v1.GetInstanceStatusRequest
+	35, // 68: meshguard.agent.v1.AgentService.ListInstances:input_type -> meshguard.agent.v1.ListInstancesRequest
+	39, // 69: meshguard.agent.v1.AgentService.StartInstance:input_type -> meshguard.agent.v1.StartInstanceRequest
+	41, // 70: meshguard.agent.v1.AgentService.StopInstance:input_type -> meshguard.agent.v1.StopInstanceRequest
+	43, // 71: meshguard.agent.v1.AgentService.RestartInstance:input_type -> meshguard.agent.v1.RestartInstanceRequest
+	45, // 72: meshguard.agent.v1.AgentService.RemoveInstance:input_type -> meshguard.agent.v1.RemoveInstanceRequest
+	47, // 73: meshguard.agent.v1.AgentService.UpgradeInstance:input_type -> meshguard.agent.v1.UpgradeInstanceRequest
+	50, // 74: meshguard.agent.v1.AgentService.WriteDnsRecords:input_type -> meshguard.agent.v1.WriteDnsRecordsRequest
+	52, // 75: meshguard.agent.v1.AgentService.BootstrapPolicy:input_type -> meshguard.agent.v1.BootstrapPolicyRequest
+	54, // 76: meshguard.agent.v1.AgentService.BootstrapApiKey:input_type -> meshguard.agent.v1.BootstrapApiKeyRequest
+	56, // 77: meshguard.agent.v1.AgentService.Backup:input_type -> meshguard.agent.v1.BackupRequest
+	60, // 78: meshguard.agent.v1.AgentService.Restore:input_type -> meshguard.agent.v1.RestoreRequest
+	64, // 79: meshguard.agent.v1.AgentService.PostRestoreReconcile:input_type -> meshguard.agent.v1.PostRestoreReconcileRequest
+	66, // 80: meshguard.agent.v1.AgentService.EnsureEdgeAttachment:input_type -> meshguard.agent.v1.EnsureEdgeAttachmentRequest
+	68, // 81: meshguard.agent.v1.AgentService.RemoveEdgeAttachment:input_type -> meshguard.agent.v1.RemoveEdgeAttachmentRequest
+	23, // 82: meshguard.agent.v1.AgentService.Health:output_type -> meshguard.agent.v1.HealthResponse
+	27, // 83: meshguard.agent.v1.AgentService.GetHostInfo:output_type -> meshguard.agent.v1.GetHostInfoResponse
+	29, // 84: meshguard.agent.v1.AgentService.ValidateConfig:output_type -> meshguard.agent.v1.ValidateConfigResponse
+	32, // 85: meshguard.agent.v1.AgentService.EnsureInstance:output_type -> meshguard.agent.v1.EnsureInstanceResponse
+	34, // 86: meshguard.agent.v1.AgentService.GetInstanceStatus:output_type -> meshguard.agent.v1.GetInstanceStatusResponse
+	37, // 87: meshguard.agent.v1.AgentService.ListInstances:output_type -> meshguard.agent.v1.ListInstancesResponse
+	40, // 88: meshguard.agent.v1.AgentService.StartInstance:output_type -> meshguard.agent.v1.StartInstanceResponse
+	42, // 89: meshguard.agent.v1.AgentService.StopInstance:output_type -> meshguard.agent.v1.StopInstanceResponse
+	44, // 90: meshguard.agent.v1.AgentService.RestartInstance:output_type -> meshguard.agent.v1.RestartInstanceResponse
+	46, // 91: meshguard.agent.v1.AgentService.RemoveInstance:output_type -> meshguard.agent.v1.RemoveInstanceResponse
+	48, // 92: meshguard.agent.v1.AgentService.UpgradeInstance:output_type -> meshguard.agent.v1.UpgradeInstanceResponse
+	51, // 93: meshguard.agent.v1.AgentService.WriteDnsRecords:output_type -> meshguard.agent.v1.WriteDnsRecordsResponse
+	53, // 94: meshguard.agent.v1.AgentService.BootstrapPolicy:output_type -> meshguard.agent.v1.BootstrapPolicyResponse
+	55, // 95: meshguard.agent.v1.AgentService.BootstrapApiKey:output_type -> meshguard.agent.v1.BootstrapApiKeyResponse
+	58, // 96: meshguard.agent.v1.AgentService.Backup:output_type -> meshguard.agent.v1.BackupResponse
+	61, // 97: meshguard.agent.v1.AgentService.Restore:output_type -> meshguard.agent.v1.RestoreResponse
+	65, // 98: meshguard.agent.v1.AgentService.PostRestoreReconcile:output_type -> meshguard.agent.v1.PostRestoreReconcileResponse
+	67, // 99: meshguard.agent.v1.AgentService.EnsureEdgeAttachment:output_type -> meshguard.agent.v1.EnsureEdgeAttachmentResponse
+	69, // 100: meshguard.agent.v1.AgentService.RemoveEdgeAttachment:output_type -> meshguard.agent.v1.RemoveEdgeAttachmentResponse
+	82, // [82:101] is the sub-list for method output_type
+	63, // [63:82] is the sub-list for method input_type
+	63, // [63:63] is the sub-list for extension type_name
+	63, // [63:63] is the sub-list for extension extendee
+	0,  // [0:63] is the sub-list for field type_name
 }
 
 func init() { file_agent_v1_agent_proto_init() }
@@ -5052,7 +5130,7 @@ func file_agent_v1_agent_proto_init() {
 		return
 	}
 	file_agent_v1_agent_proto_msgTypes[2].OneofWrappers = []any{}
-	file_agent_v1_agent_proto_msgTypes[46].OneofWrappers = []any{
+	file_agent_v1_agent_proto_msgTypes[47].OneofWrappers = []any{
 		(*RestoreRequest_AppliedPolicyHujson)(nil),
 		(*RestoreRequest_KeepBackupPolicy)(nil),
 	}
@@ -5062,7 +5140,7 @@ func file_agent_v1_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agent_v1_agent_proto_rawDesc), len(file_agent_v1_agent_proto_rawDesc)),
 			NumEnums:      13,
-			NumMessages:   56,
+			NumMessages:   57,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

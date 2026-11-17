@@ -66,6 +66,8 @@ type Config struct {
 	// driver's provisioning identity; empty = the driver's default (mg-provisioner). Its secret is found in the
 	// SecretStore (platform_ops), never configured.
 	IdPProvisionerClientID string
+	// Agent (MG_AGENT_SOCKET, MG_AGENT_TOKEN_FILE, worker, optional): the Host Agent — LoadAgentClient.
+	Agent AgentClient
 	// SMTP is the relay of notification e-mails (worker only — P3-T05b, §21.3 external dependency). Addr empty = no relay:
 	// e-mail notifications are cancelled and only the Portal records are delivered — refused in production.
 	SMTP SMTP
@@ -204,6 +206,9 @@ func Load(service string, getenv func(string) string, environ []string) (Config,
 	if err != nil {
 		errs = append(errs, err)
 	}
+	var agentErrs []error
+	cfg.Agent, agentErrs = LoadAgentClient(service, getenv)
+	errs = append(errs, agentErrs...)
 	cfg.Wired = cfg.Env != "dev" || strings.TrimSpace(getenv("MG_DB_URL")) != ""
 	if cfg.Wired && services[service] {
 		errs = append(errs, cfg.loadDependencies(getenv)...)
