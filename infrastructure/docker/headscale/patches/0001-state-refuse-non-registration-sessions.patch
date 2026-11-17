@@ -1,0 +1,304 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: MeshGuard <noreply@meshguard.invalid>
+Date: Tue, 17 Nov 2026 00:00:00 +0000
+Subject: [PATCH 1/2] state: refuse auth sessions that are not node
+ registrations
+
+MeshGuard security patch 0001 (task P2-T10a, validation item V-26; root
+cause, bypass analysis and tests: docs/planning/evidence/P2-T10a.md of
+the MeshGuard repository). Not reported upstream: decision of the
+project owner, 2026-11-17.
+
+Node registrations and SSH check-mode sessions share the auth cache.
+State.HandleNodeFromAuthPath fetched the cached entry and called
+AuthRequest.RegistrationData without checking IsRegistration, so
+RegisterNode/AuthRegister (CLI "headscale auth register", REST
+POST /api/v1/auth/register) with the auth ID of a pending SSH check
+panicked with "RegistrationData can only be used in registration
+requests". The gRPC servers recover no panic, so the whole process
+exited. The OIDC paths (oidc.go) and the registration follow-up
+(auth.go) already check the kind of the session.
+
+Refuse such an entry with state.ErrAuthRequestNotRegistration before
+using it. RegisterNode returns it as codes.InvalidArgument, which the
+REST gateway answers with HTTP 400 {"code":3,...}; the message does not
+echo the auth ID. The session is left untouched, so its owner can still
+approve or reject it. Registration entries take exactly the same path
+as before.
+
+Tests: hscontrol/grpcv1_auth_session_test.go (SSH check and verdict-only
+sessions refused without panic and without side effect, the SSH check
+still resolvable, a registration still registering, HTTP 400 through
+the REST gateway).
+
+Remove this patch when upstream checks the kind of the session in
+HandleNodeFromAuthPath (or RegistrationData no longer panics), after
+the MeshGuard contract test passes on that release without it.
+---
+ hscontrol/grpcv1.go                   |   7 +
+ hscontrol/grpcv1_auth_session_test.go | 207 ++++++++++++++++++++++++++
+ hscontrol/state/state.go              |  12 ++
+ 3 files changed, 226 insertions(+)
+ create mode 100644 hscontrol/grpcv1_auth_session_test.go
+
+diff --git a/hscontrol/grpcv1.go b/hscontrol/grpcv1.go
+index a1d349a..1db6c29 100644
+--- a/hscontrol/grpcv1.go
++++ b/hscontrol/grpcv1.go
+@@ -269,6 +269,13 @@ func (api headscaleV1APIServer) RegisterNode(
+ 			Str(zf.RegistrationKey, registrationKey).
+ 			Err(err).
+ 			Msg("failed to register node")
++
++		// The auth ID names a session of another kind (e.g. an SSH check):
++		// a client error, answered by grpc-gateway with HTTP 400.
++		if errors.Is(err, state.ErrAuthRequestNotRegistration) {
++			return nil, status.Error(codes.InvalidArgument, err.Error())
++		}
++
+ 		return nil, err
+ 	}
+ 
+diff --git a/hscontrol/grpcv1_auth_session_test.go b/hscontrol/grpcv1_auth_session_test.go
+new file mode 100644
+index 0000000..20d26b4
+--- /dev/null
++++ b/hscontrol/grpcv1_auth_session_test.go
+@@ -0,0 +1,207 @@
++package hscontrol
++
++// MeshGuard patch 0001 (V-26) — remove together with the patch.
++//
++// Registering a node with the auth ID of a pending session that is not a node
++// registration (an SSH check-mode session) must be refused as a client error.
++// Before, [types.AuthRequest.RegistrationData] panicked inside the gRPC handler
++// and, with no recovery on the gRPC servers, terminated the whole process.
++
++import (
++	"context"
++	"encoding/json"
++	"fmt"
++	"net"
++	"net/http"
++	"net/http/httptest"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++	"time"
++
++	grpcRuntime "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
++	v1 "github.com/juanfont/headscale/gen/go/headscale/v1"
++	"github.com/juanfont/headscale/hscontrol/state"
++	"github.com/juanfont/headscale/hscontrol/types"
++	"github.com/juanfont/headscale/hscontrol/util"
++	"github.com/stretchr/testify/assert"
++	"github.com/stretchr/testify/require"
++	"google.golang.org/grpc"
++	"google.golang.org/grpc/codes"
++	"google.golang.org/grpc/credentials/insecure"
++	"google.golang.org/grpc/status"
++	"tailscale.com/tailcfg"
++	"tailscale.com/types/key"
++)
++
++func TestAuthRegisterRefusesNonRegistrationSession(t *testing.T) {
++	app := createTestApp(t)
++	t.Cleanup(func() { _ = app.state.Close() })
++
++	api := newHeadscaleV1APIServer(app)
++	user := app.state.CreateUserForTest("auth-session-user")
++
++	sessions := []struct {
++		name string
++		new  func() *types.AuthRequest
++	}{
++		{"ssh check", func() *types.AuthRequest { return types.NewSSHCheckAuthRequest(1, 2) }},
++		{"verdict only", types.NewAuthRequest},
++	}
++	for _, tc := range sessions {
++		t.Run(tc.name, func(t *testing.T) {
++			id := types.MustAuthID()
++			session := tc.new()
++			require.NoError(t, app.state.SetAuthCacheEntry(id, session))
++
++			var err error
++
++			require.NotPanics(t, func() {
++				_, _, err = app.state.HandleNodeFromAuthPath(id, types.UserID(user.ID), nil, util.RegisterMethodCLI)
++			})
++			require.ErrorIs(t, err, state.ErrAuthRequestNotRegistration)
++
++			require.NotPanics(t, func() {
++				_, err = api.AuthRegister(context.Background(), &v1.AuthRegisterRequest{AuthId: id.String(), User: user.Name})
++			})
++
++			st, ok := status.FromError(err)
++			require.True(t, ok, "AuthRegister must answer with a gRPC status, got %v", err)
++			assert.Equal(t, codes.InvalidArgument, st.Code())
++			assert.Equal(t, state.ErrAuthRequestNotRegistration.Error(), st.Message())
++			assert.NotContains(t, st.Message(), id.String(), "the answer must not echo the auth ID")
++			assert.Equal(t, http.StatusBadRequest, grpcRuntime.HTTPStatusFromCode(st.Code()))
++
++			require.NotPanics(t, func() {
++				_, err = api.RegisterNode(context.Background(), &v1.RegisterNodeRequest{Key: id.String(), User: user.Name})
++			})
++			assert.Equal(t, codes.InvalidArgument, status.Code(err))
++
++			// Nothing was registered and the session is left to the flow that owns it.
++			assert.Equal(t, 0, app.state.ListNodes().Len())
++
++			got, ok := app.state.GetAuthCacheEntry(id)
++			require.True(t, ok, "the session must stay pending")
++			require.Same(t, session, got)
++			require.False(t, got.IsFinished())
++		})
++	}
++}
++
++func TestAuthRegisterLeavesSSHCheckSessionResolvable(t *testing.T) {
++	app := createTestApp(t)
++	t.Cleanup(func() { _ = app.state.Close() })
++
++	api := newHeadscaleV1APIServer(app)
++	user := app.state.CreateUserForTest("ssh-check-user")
++
++	for _, approve := range []bool{true, false} {
++		id := types.MustAuthID()
++		session := types.NewSSHCheckAuthRequest(1, 2)
++		require.NoError(t, app.state.SetAuthCacheEntry(id, session))
++
++		_, err := api.AuthRegister(context.Background(), &v1.AuthRegisterRequest{AuthId: id.String(), User: user.Name})
++		require.Equal(t, codes.InvalidArgument, status.Code(err))
++
++		if approve {
++			_, err = api.AuthApprove(context.Background(), &v1.AuthApproveRequest{AuthId: id.String()})
++		} else {
++			_, err = api.AuthReject(context.Background(), &v1.AuthRejectRequest{AuthId: id.String()})
++		}
++		require.NoError(t, err)
++
++		select {
++		case verdict := <-session.WaitForAuth():
++			assert.Equal(t, approve, verdict.Accept())
++		case <-time.After(5 * time.Second):
++			t.Fatal("the SSH check session was not resolved")
++		}
++	}
++
++	assert.Equal(t, 0, app.state.ListNodes().Len())
++}
++
++func TestAuthRegisterRegistrationSessionStillRegisters(t *testing.T) {
++	app := createTestApp(t)
++	t.Cleanup(func() { _ = app.state.Close() })
++
++	api := newHeadscaleV1APIServer(app)
++	user := app.state.CreateUserForTest("registration-user")
++
++	id := types.MustAuthID()
++	require.NoError(t, app.state.SetAuthCacheEntry(id, types.NewRegisterAuthRequest(&types.RegistrationData{
++		MachineKey: key.NewMachine().Public(),
++		NodeKey:    key.NewNode().Public(),
++		Hostname:   "registration-node",
++		Hostinfo:   &tailcfg.Hostinfo{Hostname: "registration-node"},
++	})))
++
++	resp, err := api.AuthRegister(context.Background(), &v1.AuthRegisterRequest{AuthId: id.String(), User: user.Name})
++	require.NoError(t, err)
++	assert.Equal(t, "registration-node", resp.GetNode().GetName())
++	assert.Equal(t, user.Name, resp.GetNode().GetUser().GetName())
++	assert.Equal(t, v1.RegisterMethod_REGISTER_METHOD_CLI, resp.GetNode().GetRegisterMethod())
++	assert.Equal(t, 1, app.state.ListNodes().Len())
++
++	_, ok := app.state.GetAuthCacheEntry(id)
++	assert.False(t, ok, "a completed registration leaves the auth cache")
++}
++
++func TestAuthRegisterNonRegistrationSessionOverGateway(t *testing.T) {
++	app := createTestApp(t)
++	t.Cleanup(func() { _ = app.state.Close() })
++
++	user := app.state.CreateUserForTest("gateway-user")
++	id := types.MustAuthID()
++	require.NoError(t, app.state.SetAuthCacheEntry(id, types.NewSSHCheckAuthRequest(1, 2)))
++
++	gateway := authSessionTestGateway(t, newHeadscaleV1APIServer(app))
++	body := fmt.Sprintf(`{"user":%q,"authId":%q}`, user.Name, id.String())
++	rec := httptest.NewRecorder()
++	gateway.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", strings.NewReader(body)))
++
++	require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
++
++	var answer struct {
++		Code    int    `json:"code"`
++		Message string `json:"message"`
++	}
++	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &answer))
++	assert.Equal(t, int(codes.InvalidArgument), answer.Code)
++	assert.Equal(t, state.ErrAuthRequestNotRegistration.Error(), answer.Message)
++
++	_, ok := app.state.GetAuthCacheEntry(id)
++	assert.True(t, ok, "the SSH check session must stay pending")
++}
++
++// authSessionTestGateway serves api on a gRPC server listening on a unix
++// socket, as the local server behind the REST gateway does, and returns the
++// REST gateway in front of it.
++func authSessionTestGateway(t *testing.T, api v1.HeadscaleServiceServer) http.Handler {
++	t.Helper()
++
++	dir, err := os.MkdirTemp("", "hsgw")
++	require.NoError(t, err)
++	t.Cleanup(func() { _ = os.RemoveAll(dir) })
++
++	socket := filepath.Join(dir, "grpc.sock")
++	listener, err := new(net.ListenConfig).Listen(context.Background(), "unix", socket)
++	require.NoError(t, err)
++
++	server := grpc.NewServer()
++	v1.RegisterHeadscaleServiceServer(server, api)
++
++	go func() { _ = server.Serve(listener) }()
++
++	t.Cleanup(server.Stop)
++
++	conn, err := grpc.NewClient("unix://"+socket, grpc.WithTransportCredentials(insecure.NewCredentials()))
++	require.NoError(t, err)
++	t.Cleanup(func() { _ = conn.Close() })
++
++	mux := grpcRuntime.NewServeMux()
++	require.NoError(t, v1.RegisterHeadscaleServiceHandler(context.Background(), mux, conn))
++
++	return mux
++}
+diff --git a/hscontrol/state/state.go b/hscontrol/state/state.go
+index 5894a0f..5c725d9 100644
+--- a/hscontrol/state/state.go
++++ b/hscontrol/state/state.go
+@@ -130,6 +130,11 @@ var ErrAuthCacheClosed = errors.New("authentication cache closed")
+ // ErrAuthRequestFinished prevents reusing an already resolved verdict channel.
+ var ErrAuthRequestFinished = errors.New("authentication request already finished")
+ 
++// ErrAuthRequestNotRegistration is returned when a node registration names a
++// pending authentication that is not a node registration, for example an SSH
++// check-mode session. Such a session carries no [types.RegistrationData].
++var ErrAuthRequestNotRegistration = errors.New("auth session is not for node registration")
++
+ // ErrNodeKeyInUse is returned when a registration or re-auth claims a NodeKey
+ // already bound to a different machine, enforcing the 1:1 NodeKey<->MachineKey
+ // binding.
+@@ -2397,6 +2402,13 @@ func (s *State) HandleNodeFromAuthPath(
+ 		return types.NodeView{}, change.Change{}, hsdb.ErrNodeNotFoundRegistrationCache
+ 	}
+ 
++	// Registrations and SSH check-mode sessions share the auth cache. Refuse
++	// any other kind of session before [types.AuthRequest.RegistrationData]
++	// panics on it, and leave that session to the flow that owns it.
++	if !regEntry.IsRegistration() {
++		return types.NodeView{}, change.Change{}, ErrAuthRequestNotRegistration
++	}
++
+ 	// Get the user
+ 	user, err := s.db.GetUserByID(userID)
+ 	if err != nil {
