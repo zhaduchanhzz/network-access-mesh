@@ -12,6 +12,7 @@ import (
 
 	"github.com/zhaduchanhzz/network-access-mesh/internal/audit"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/headscale"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/notifications"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store/sqlcdb"
 )
@@ -49,6 +50,12 @@ type Config struct {
 	// Now is the clock of the module's own decisions (pre-auth key expiry); default time.Now. Times written to the
 	// database come from the database clock.
 	Now func() time.Time
+	// ExpiryNotice is how long before a node key expires its device gets the device.expiring notification (P3-T05b),
+	// sent after each inventory.sync of the worker; default 7 days, negative = off.
+	ExpiryNotice time.Duration
+	// Notifier receives the device.expiring events in the transaction that looks for them; default
+	// notifications.Default.
+	Notifier notifications.Enqueuer
 }
 
 // Service is the device inventory of every tenant: API operations, the inventory.sync and device.revoke handlers
@@ -62,6 +69,8 @@ type Service struct {
 	fresh   time.Duration
 	now     func() time.Time
 	sysWait time.Duration // bound of the detached writes that settle a job's outcome
+	notice  time.Duration
+	notify  notifications.Enqueuer
 }
 
 // New returns the service of the process whose store is st (api: mg_api_*, worker: mg_worker_*).
@@ -70,7 +79,13 @@ func New(st *store.Store, cfg Config) (*Service, error) {
 		return nil, errors.New("devices: a store and a headscale registry are required")
 	}
 	s := &Service{st: st, reg: cfg.Registry, log: cfg.Logger, m: newMetrics(cfg.Registerer), fresh: cfg.FreshTimeout,
-		now: cfg.Now, sysWait: 10 * time.Second}
+		now: cfg.Now, sysWait: 10 * time.Second, notice: cfg.ExpiryNotice, notify: cfg.Notifier}
+	if s.notice == 0 {
+		s.notice = 7 * 24 * time.Hour
+	}
+	if s.notify == nil {
+		s.notify = notifications.Default
+	}
 	if s.log == nil {
 		s.log = slog.New(slog.DiscardHandler)
 	}

@@ -44,6 +44,8 @@ type SyncReport struct {
 	// ClampSkipped counts candidates left alone when the clamp looked again: the node is gone or already within the
 	// limit or expired, or the device's revocation is pending (a clamp only ever shortens an expiry — T-17).
 	ClampSkipped int `json:"clamp_skipped"`
+	// ExpiryNotices counts the device.expiring notifications written after the sync (inventory.sync job only).
+	ExpiryNotices int `json:"expiry_notices,omitempty"`
 	// ClampLimit is node_expiry in hours (0: no limit known or never expires) and ClampSource where it came from
 	// (tenant_settings, instance_config, none).
 	ClampLimitHours float64 `json:"clamp_limit_hours"`
@@ -705,6 +707,13 @@ func (s *Service) runSync(ctx context.Context, run *jobs.Run) error {
 			return jobs.Permanent(codeOf(e), err)
 		}
 		return jobs.Transient(codeOf(e), err)
+	}
+	// device.expiring (P3-T05b): best effort — a failure is logged, never a reason to retry the sync.
+	if n, err := s.notifyExpiring(ctx, tenantID, *run.InstanceID); err != nil {
+		s.log.ErrorContext(ctx, "devices: expiry notifications not written", "tenant_id", tenantID, "sqlstate",
+			store.SQLState(err), "error", err.Error())
+	} else {
+		rep.ExpiryNotices = n
 	}
 	if err := run.SetOutput(rep); err != nil {
 		return jobs.Permanent("invalid_output", err)

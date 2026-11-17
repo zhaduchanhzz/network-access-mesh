@@ -146,6 +146,7 @@ type SweepReport struct {
 	IdempotencyKeys int64 `json:"idempotency_keys"`
 	SecurityEvents  int64 `json:"security_events"`
 	RemovedDevices  int64 `json:"removed_devices"`
+	Notifications   int64 `json:"notifications"`
 }
 
 func (w *Worker) runSweep(ctx context.Context, run *Run) error {
@@ -157,7 +158,8 @@ func (w *Worker) runSweep(ctx context.Context, run *Run) error {
 }
 
 // sweep applies the retention of §6.4 in batches: finished jobs (+ steps) after Retention.Jobs, expired Idempotency-Keys,
-// security_events after Retention.SecurityEvents (as mg_worker_platform), and per tenant the device_inventory_cache rows
+// security_events after Retention.SecurityEvents, notification_outbox after Retention.Notifications (as
+// mg_worker_platform), and per tenant the device_inventory_cache rows
 // removed more than Retention.RemovedDevices ago (tenant-internal table, mg_worker_tenant). audit_events is NOT a target:
 // its retention is the drop of whole partitions (§6.1), and no worker role may delete from it.
 func (w *Worker) sweep(ctx context.Context) (SweepReport, error) {
@@ -199,6 +201,12 @@ func (w *Worker) sweep(ctx context.Context) (SweepReport, error) {
 			OccurredBefore: now.Add(-w.cfg.Retention.SecurityEvents), RowLimit: batch})
 	}); err != nil {
 		return rep, fmt.Errorf("jobs: retention.sweep: security_events: %w", err)
+	}
+	if rep.Notifications, err = drain(func(q *sqlcdb.Queries) (int64, error) {
+		return q.DeleteOldNotifications(ctx, sqlcdb.DeleteOldNotificationsParams{
+			Before: now.Add(-w.cfg.Retention.Notifications), RowLimit: batch})
+	}); err != nil {
+		return rep, fmt.Errorf("jobs: retention.sweep: notification_outbox: %w", err)
 	}
 	var tenants []uuid.UUID
 	if err := w.st.WithPlatformTx(ctx, func(q *sqlcdb.Queries) error {

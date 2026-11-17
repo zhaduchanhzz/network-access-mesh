@@ -207,7 +207,8 @@ func TestReaperQueueLost(t *testing.T) {
 
 // TestRetentionSweep: retention.sweep applies §6.4 — finished jobs after 180 days (steps by cascade, the device's
 // revocation reference set NULL), expired Idempotency-Keys, security_events after 400 days, device cache rows removed
-// more than 90 days ago — and never touches audit_events, which no worker role may delete from.
+// more than 90 days ago, notification_outbox rows 90 days after sent_at (failed/cancelled: after created_at) — and never
+// touches audit_events, which no worker role may delete from.
 func TestRetentionSweep(t *testing.T) {
 	f := newFixture(t)
 	st := f.workerStore(t)
@@ -245,6 +246,18 @@ func TestRetentionSweep(t *testing.T) {
 		f.exec(t, `INSERT INTO audit_events (tenant_id, actor_type, action, resource_type, outcome, occurred_at)
 			VALUES ($1, 'system', 'test.retention', 'test', 'success', now() - $2::interval)`, f.a, at)
 	}
+	// notification_outbox (P3-T05b): 90 days after sent_at; failed/cancelled 90 days after created_at; pending never.
+	outbox := func(tenant *uuid.UUID, status, created, sent string) uuid.UUID {
+		id := uuid.New()
+		f.exec(t, fmt.Sprintf(`INSERT INTO notification_outbox (id, tenant_id, recipient_email, kind, status, created_at, sent_at)
+			VALUES ($1, $2, 'r@example.test', 'policy.applied', $3, now() - interval '%s', %s)`, created, sent), id, tenant, status)
+		return id
+	}
+	oldSent := outbox(&f.a, "sent", "95 days", "now() - interval '91 days'")
+	recentSent := outbox(&f.a, "sent", "95 days", "now() - interval '89 days'")
+	oldFailed := outbox(&f.a, "failed", "91 days", "NULL")
+	oldPending := outbox(&f.a, "pending", "100 days", "NULL")
+	oldPlatform := outbox(nil, "sent", "92 days", "now() - interval '91 days'")
 	audit := func() int64 { return scalar[int64](t, f, "SELECT count(*) FROM audit_events") }
 	auditBefore := audit()
 
@@ -252,8 +265,8 @@ func TestRetentionSweep(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rep != (SweepReport{Jobs: 3, IdempotencyKeys: 1, SecurityEvents: 1, RemovedDevices: 1}) {
-		t.Errorf("sweep report %+v, want 3 jobs, 1 key, 1 security event, 1 device", rep)
+	if rep != (SweepReport{Jobs: 3, IdempotencyKeys: 1, SecurityEvents: 1, RemovedDevices: 1, Notifications: 3}) {
+		t.Errorf("sweep report %+v, want 3 jobs, 1 key, 1 security event, 1 device, 3 notifications", rep)
 	}
 	exists := func(table string, id uuid.UUID) bool {
 		return scalar[int64](t, f, "SELECT count(*) FROM "+table+" WHERE id = $1", id) == 1
@@ -268,6 +281,11 @@ func TestRetentionSweep(t *testing.T) {
 	}
 	if !exists("device_inventory_cache", live) || exists("device_inventory_cache", oldDevice) || !exists("device_inventory_cache", recentDevice) {
 		t.Error("device_inventory_cache retention: wrong rows deleted")
+	}
+	for id, want := range map[uuid.UUID]bool{oldSent: false, recentSent: true, oldFailed: false, oldPending: true, oldPlatform: false} {
+		if exists("notification_outbox", id) != want {
+			t.Errorf("notification %s: present = %v, want %v", id, !want, want)
+		}
 	}
 	if ref := scalar[*uuid.UUID](t, f, "SELECT revocation_job_id FROM device_inventory_cache WHERE id = $1", live); ref != nil {
 		t.Errorf("revocation_job_id of the live device = %v after its job was deleted, want NULL", ref)

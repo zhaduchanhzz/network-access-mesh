@@ -236,6 +236,7 @@ run_phase() {
   log "pha $n"
   d create --name "$P-run" --network "$P-admin" --user "$(id -u):$(id -g)" -e HOME=/tmp \
     -v "$WORK/bin:/hsct:ro" -v "$WORK/secrets:/secrets:ro" -v "$WORK/state:/state" \
+    -v "$ROOT/infrastructure/headscale/templates:/fixtures:ro" -e HSCT_FIXTURES=/fixtures \
     -e "HSCT_ADMIN_URL=http://$EDGE_IP:$ADMIN_PORT" -e "HSCT_SLUG=$SLUG" -e "HSCT_CONTROL_URL=http://hs-$SLUG:8080" \
     -e HSCT_SECRETS_DIR=/secrets -e HSCT_STATE_DIR=/state -e HSCT_OBS_FILE=/state/observations.jsonl \
     -e "HSCT_NODE_EXPIRY=$NODE_EXPIRY" -e "HSCT_EXPECT_COMMIT=$EXPECT_COMMIT" -e "HSCT_OFFICIAL_COMMIT=$OFFICIAL_COMMIT"     --env-file "$WORK/secrets/pg.env"     "$ALPINE_IMAGE" /hsct/hsct.test -test.v -test.count=1 -test.timeout=20m -test.run "^TestP${n}_" >/dev/null
@@ -355,6 +356,11 @@ run_phase 10 || { finish; exit 1; }
 # Pha 11: health probe của internal/monitoring (P2-T13a) trên bản vá, với sổ thiết bị của pha 8–10 — job health.probe
 # trong khung job thật, các chế độ lỗi tạo qua target (runner không làm gì giữa 10 và 11).
 run_phase 11 || { finish; exit 1; }
+
+# Pha 12: lõi policy của P3-T08a (internal/policies) trên bản vá, cùng sổ của pha 8–11 — fixture allow của repo (mount
+# chỉ-đọc ở /fixtures) ⇒ sha256 đọc lại khớp; chuỗi rỗng/thiếu grants bị lint chặn trước mọi lời gọi; áp đồng thời được
+# tuần tự hóa; kết thúc bằng baseline deny-all.
+run_phase 12 || { finish; exit 1; }
 
 finish
 python3 - "$OUT/observations.jsonl" <<'PY'
