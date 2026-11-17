@@ -6,7 +6,12 @@ Usage:  python tools/render_instance.py <params.json> <out_dir>
 Writes <out_dir>/compose.yaml, config/config.yaml, config/bootstrap-policy.hujson, records/extra-records.json and
 meta/instance.json (input of `adopt-instance`, P2-T11). Output is deterministic — guarded by
 tools/test_render_instance.py (golden files). If params omit `base_domain`, the MG_BASE_DOMAIN environment variable
-is used (the domain is never hard-coded — D-1). Standard library only.
+is used (the domain is never hard-coded — D-1). Optional `log_level`: info (default), warn or error. Standard library
+only.
+
+The Host Agent renders the SAME templates in Go (internal/provisioning/driver/compose, P3-T02 — embedded through
+infrastructure/headscale/templates/templates.go) from typed parameters; its parity test runs this script on the golden
+case and on the staging tenants and requires byte-identical files. Keep both in step.
 
 Headscale image (P2-T10a, ADR-02 as amended 2026-11-17): `headscale_build` = "patched" (the MeshGuard build of
 infrastructure/docker/headscale, versions.lock [images.mg-headscale]) or "official" ([images.headscale], kept for
@@ -32,6 +37,10 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 TEMPLATES = ROOT / "infrastructure" / "headscale" / "templates"
 VERSIONS = ROOT / "versions.lock"
 TEMPLATE_VERSION = "1"
+# Bind-mount sources of compose.yaml (§14.2). The agent renders its own host's tenants directory (same value in
+# production); the e2e/contract stacks of the repo do not use these paths.
+TENANTS_DIR = "/opt/meshguard/tenants"
+LOG_LEVELS = ("info", "warn", "error")   # §11.3 step 8: log.level ∈ {info, warn, error}
 # headscale_build → versions.lock [images.<name>] (P2-T10a)
 HEADSCALE_BUILDS = {"patched": "mg-headscale", "official": "headscale"}
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -90,6 +99,7 @@ def validate(p: dict, lock: dict | None = None) -> dict:
     p["image"], p["headscale_note"] = headscale_image(p, lock)
     p.pop("headscale_build", None)
     p.setdefault("base_domain", os.environ.get("MG_BASE_DOMAIN", ""))
+    p.setdefault("log_level", "info")
     missing = [k for k in REQUIRED if k not in p]
     if missing:
         raise ParamError(f"missing parameters: {', '.join(missing)}")
@@ -124,6 +134,8 @@ def validate(p: dict, lock: dict | None = None) -> dict:
         raise ParamError("mem_limit like 512m, cpus like 1.0")
     if int(p["pids_limit"]) < 32:
         raise ParamError("pids_limit too low")
+    if p["log_level"] not in LOG_LEVELS:
+        raise ParamError(f"log_level must be one of {', '.join(LOG_LEVELS)}")
     return p
 
 
@@ -132,6 +144,7 @@ def render(params: dict, lock: dict | None = None) -> dict[str, str]:
     v = {k: str(val) for k, val in p.items() if k != "nameservers"}
     v.update(
         template_version=TEMPLATE_VERSION,
+        tenants_dir=TENANTS_DIR,
         mesh_domain=f"mesh.{p['base_domain']}",
         tailnet_suffix=f"tail.{p['base_domain']}",
         derp_region_code=f"mg-{p['slug']}",

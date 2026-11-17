@@ -33,6 +33,7 @@ BAD = {
     "unknown headscale_build": {"headscale_build": "custom"},
     "image and headscale_build together": {"image": "docker.io/headscale/headscale@sha256:" + "1" * 64,
                                             "headscale_build": "official"},
+    "log level debug (§11.3 step 8)": {"log_level": "debug"},
 }
 
 OFFICIAL = "docker.io/headscale/headscale@sha256:" + "a" * 64
@@ -71,6 +72,23 @@ def check_headscale_image() -> int:
         print(f"FAIL headscale image: versions.lock official = {real}")
         failures += 1
     print(f"{'FAIL' if failures else 'PASS'} headscale image switch: 10 cases")
+    return failures
+
+
+def check_log_level() -> int:
+    """log_level (P3-T02): default info — the golden files — and warn/error render into log.level only."""
+    case = sorted(p for p in GOLDEN.iterdir() if (p / "params.json").is_file())[0]
+    params = json.loads((case / "params.json").read_text(encoding="utf-8"))
+    base = ri.render(params)
+    failures = 0
+    for level in ("warn", "error"):
+        files = ri.render({**params, "log_level": level})
+        want = base["config/config.yaml"].replace("  level: info\n", f"  level: {level}\n")
+        diff = [rel for rel in files if rel not in ("config/config.yaml", "meta/instance.json") and files[rel] != base[rel]]
+        if files["config/config.yaml"] != want or want == base["config/config.yaml"] or diff:
+            print(f"FAIL log_level {level}: config.yaml or other files differ unexpectedly")
+            failures += 1
+    print(f"{'FAIL' if failures else 'PASS'} log_level: default info (golden), warn and error only change log.level")
     return failures
 
 
@@ -114,6 +132,7 @@ def main() -> int:
         print("FAIL: no golden cases found")
         return 1
     failures += check_headscale_image()
+    failures += check_log_level()
     return 1 if failures else 0
 
 

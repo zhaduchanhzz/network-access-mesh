@@ -7,6 +7,8 @@
 #
 #   api/db_api_tenant_password, api/db_api_platform_password          root:mg-sec-api 0440     (api)
 #   worker/db_worker_tenant_password, …platform…, db_partition_password root:mg-sec-worker 0440  (worker)
+#   worker/agent_token                                                 root:mg-sec-worker 0440  (worker; Host Agent đọc
+#                                                                      với tư cách owner — §11.1, P3-T02)
 #   app/db_audit_writer_password                                       root:mg-sec-app 0440     (api — mg_audit_writer)
 #   app/edge_admin_token                                               (có sẵn từ layout.sh — P1-T03)
 #   migrate/ (thư mục root:mg-sec-migrate 0750): mg_migrator (mới) + BẢN của job migrate cho 6 role đăng nhập
@@ -49,6 +51,7 @@ new_secret "$R/api/db_api_platform_password";        own "$R/api/db_api_platform
 new_secret "$R/worker/db_worker_tenant_password";    own "$R/worker/db_worker_tenant_password" mg-sec-worker
 new_secret "$R/worker/db_worker_platform_password";  own "$R/worker/db_worker_platform_password" mg-sec-worker
 new_secret "$R/worker/db_partition_password";        own "$R/worker/db_partition_password" mg-sec-worker
+new_secret "$R/worker/agent_token";                  own "$R/worker/agent_token" mg-sec-worker   # token Agent (P3-T02)
 new_secret "$R/app/db_audit_writer_password";        own "$R/app/db_audit_writer_password" mg-sec-app
 new_secret "$R/migrate/mg_migrator";                 own "$R/migrate/mg_migrator" mg-sec-migrate
 while read -r role src; do

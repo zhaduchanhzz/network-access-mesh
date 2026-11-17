@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ["infrastructure/docker/**", "apps/**", "internal/**", "api/agent/**", "go.mod", "go.sum", ".github/workflows/images.yml"]
+    paths: ["infrastructure/docker/**", "apps/**", "internal/**", "api/agent/**", "infrastructure/headscale/templates/**", "go.mod", "go.sum", ".github/workflows/images.yml"]
 
 permissions:
   contents: read
@@ -209,9 +209,19 @@ jobs:
             agent)
               # P3-T01: chạy root (compose của agent thả capability); chỉ Unix socket 0660 nhóm mg-sec-worker (20003) trong
               # thư mục root 0750; healthcheck = Health với token từ chính UID của agent; UID khác bị từ chối ngay khi kết nối
-              # (SO_PEERCRED); không có socket TCP/UDP nào trong network namespace của container.
+              # (SO_PEERCRED); không có socket TCP/UDP nào trong network namespace của container. P3-T02: driver compose
+              # (không có Docker socket ở bước này: agent vẫn khởi động, chỉ ghi agent_docker_unreachable); test tích hợp
+              # trên Docker thật ở workflow agent-driver.
               test "$user" = "0:0"
               docker run --rm --network none --read-only --cap-drop ALL "${IMAGE}:${GITHUB_SHA}" version | grep '^meshguard-agent '
+              # P3-T02: docker-compose của versions.lock [sources.docker-compose] (build tái lập) — đúng build_sha256, chạy được với rootfs chỉ đọc
+              read -r dc_version dc_sha < <(python3 -c 'import tomllib; e = tomllib.load(open("versions.lock", "rb"))["sources"]["docker-compose"]; print(e["version"], e["build_sha256"])')
+              cid=$(docker create "${IMAGE}:${GITHUB_SHA}")
+              docker cp "$cid:/usr/local/bin/docker-compose" "${RUNNER_TEMP}/docker-compose"
+              docker rm "$cid" >/dev/null
+              test "$(sha256sum "${RUNNER_TEMP}/docker-compose" | cut -d' ' -f1)" = "$dc_sha"
+              docker run --rm --network none --read-only --cap-drop ALL --entrypoint /usr/local/bin/docker-compose "${IMAGE}:${GITHUB_SHA}" version \
+                | grep -qx "Docker Compose version ${dc_version}"
               d="${RUNNER_TEMP}/agent"; mkdir -p "$d/run" "$d/tenants" "$d/cfg"
               openssl rand -hex 32 > "$d/cfg/token"
               python3 -c 'import tomllib; e = tomllib.load(open("versions.lock", "rb"))["images"]["mg-headscale"]; print(e["image"] + "@" + e["index"])' > "$d/cfg/allowlist"
@@ -224,7 +234,7 @@ jobs:
                 --cap-add DAC_OVERRIDE --security-opt no-new-privileges "${env[@]}" -v "$d/run:/run/meshguard" \
                 -v "$d/tenants:/opt/meshguard/tenants" -v "$d/cfg:/etc/mg-agent:ro" "${IMAGE}:${GITHUB_SHA}"
               for i in $(seq 1 20); do docker exec smoke /usr/local/bin/meshguard-agent healthcheck && break; sleep 1; done
-              docker exec smoke /usr/local/bin/meshguard-agent healthcheck
+              docker exec smoke /usr/local/bin/meshguard-agent healthcheck | grep -q ', driver compose,'
               test "$(sudo stat -c '%a %u:%g' "$d/run/agent.sock")" = "660 0:20003"
               rc=0; docker run --rm --network none --read-only --cap-drop ALL -u 12345:20003 "${env[@]}" -v "$d/run:/run/meshguard" \
                 -v "$d/cfg:/etc/mg-agent:ro" "${IMAGE}:${GITHUB_SHA}" healthcheck || rc=$?; test "$rc" = 1

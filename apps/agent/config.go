@@ -41,7 +41,16 @@ type Config struct {
 	Edge string
 	// LockWait (MG_AGENT_LOCK_WAIT) bounds the wait for the per-instance lock before BUSY (§11.5).
 	LockWait time.Duration
-	Host     agentspec.Host
+	// Driver (MG_AGENT_DRIVER): "compose" (default — P3-T02) or "none" (every infrastructure operation answers
+	// UNIMPLEMENTED after validation and guard; no Docker access at all).
+	Driver string
+	// ComposeBin (MG_AGENT_COMPOSE_BIN) is the absolute path of the Docker Compose binary of the agent image.
+	ComposeBin string
+	// DockerHost (DOCKER_HOST) is the Docker Engine: a Unix socket only (the agent has network_mode: none).
+	DockerHost string
+	// DockerConfig (DOCKER_CONFIG) is the config/home directory of compose: a tmpfs (the rootfs is read-only).
+	DockerConfig string
+	Host         agentspec.Host
 	// selfUID is the agent's effective UID (set by Prepare): accepted as a peer for Health only.
 	selfUID uint32
 }
@@ -74,6 +83,10 @@ func LoadConfig(getenv func(string) string, environ []string) (*Config, error) {
 		AllowlistFile: get("MG_AGENT_IMAGE_ALLOWLIST_FILE", ""),
 		Edge:          get("MG_AGENT_EDGE_CONTAINER", "mg-edge"),
 		SocketGID:     -1,
+		Driver:        get("MG_AGENT_DRIVER", "compose"),
+		ComposeBin:    get("MG_AGENT_COMPOSE_BIN", "/usr/local/bin/docker-compose"),
+		DockerHost:    get("DOCKER_HOST", "unix:///var/run/docker.sock"),
+		DockerConfig:  get("DOCKER_CONFIG", filepath.Join(os.TempDir(), "mg-agent-docker")),
 	}
 	if !envs[c.Env] {
 		errs = append(errs, errors.New("MG_ENV must be dev, ci, staging or production"))
@@ -114,6 +127,18 @@ func LoadConfig(getenv func(string) string, environ []string) (*Config, error) {
 	}
 	if !regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]{0,62}$`).MatchString(c.Edge) {
 		errs = append(errs, errors.New("MG_AGENT_EDGE_CONTAINER: a container name"))
+	}
+	if c.Driver != "compose" && c.Driver != "none" {
+		errs = append(errs, errors.New("MG_AGENT_DRIVER must be compose or none"))
+	}
+	for name, p := range map[string]string{"MG_AGENT_COMPOSE_BIN": c.ComposeBin, "DOCKER_CONFIG": c.DockerConfig} {
+		if !filepath.IsAbs(p) || filepath.Clean(p) != p {
+			errs = append(errs, fmt.Errorf("%s: a clean absolute path is required", name))
+		}
+	}
+	// the Docker Engine is reached through its Unix socket only — never tcp:// or ssh:// (the agent has no network)
+	if sock, ok := strings.CutPrefix(c.DockerHost, "unix://"); !ok || !filepath.IsAbs(sock) || filepath.Clean(sock) != sock {
+		errs = append(errs, errors.New("DOCKER_HOST must be unix://<absolute path of the Docker socket>"))
 	}
 	h := &c.Host
 	h.TenantsDir = get("MG_AGENT_TENANTS_DIR", "/opt/meshguard/tenants")

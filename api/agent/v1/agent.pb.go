@@ -1601,7 +1601,7 @@ type HealthResponse struct {
 	Version   string                 `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`
 	Commit    string                 `protobuf:"bytes,3,opt,name=commit,proto3" json:"commit,omitempty"`
 	StartedAt *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
-	// Infrastructure driver wired into this agent: "none" until the compose driver (P3-T02).
+	// Infrastructure driver wired into this agent: "compose" (P3-T02), or "none" (MG_AGENT_DRIVER=none: no Docker access).
 	Driver        string `protobuf:"bytes,5,opt,name=driver,proto3" json:"driver,omitempty"`
 	AllowedImages uint32 `protobuf:"varint,6,opt,name=allowed_images,json=allowedImages,proto3" json:"allowed_images,omitempty"`
 	unknownFields protoimpl.UnknownFields

@@ -279,7 +279,7 @@ message HealthResponse {
   string version = 2;
   string commit = 3;
   google.protobuf.Timestamp started_at = 4;
-  // Infrastructure driver wired into this agent: "none" until the compose driver (P3-T02).
+  // Infrastructure driver wired into this agent: "compose" (P3-T02), or "none" (MG_AGENT_DRIVER=none: no Docker access).
   string driver = 5;
   uint32 allowed_images = 6;
 }

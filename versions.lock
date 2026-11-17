@@ -311,6 +311,18 @@ age_linux_amd64_sha256 = "e442c7bc47bb52e08ccb02dfa5fc09ecf58ce6bce5de0cdda8443b
 age_keygen_linux_amd64_sha256 = "580c1a61d19c129cbdfa1c97689a061a91d27f22371eee9b30123afcde0a71a4"
 note = "Bản mới nhất, đã 80 ngày tuổi lúc pin (2026-11-17). Host không có age; không dùng gói age của Ubuntu 24.04 (1.1.1-1ubuntu0.24.04.3, Built-Using golang-1.22.2 + x/crypto 0.19.0; cài gói lên host là loại thay đổi cần duyệt riêng) — chọn build từ mã nguồn bằng toolchain Go 1.27.4 đã pin, binary tĩnh chép sang host và kiểm sha256 trước mỗi lần dùng. Image backup (P2-T03a, infrastructure/docker/backup) build lại age bằng đúng công thức này trong một stage và kiểm age_linux_amd64_sha256 ngay trong build (trùng — build tái lập lần thứ 5); agent (P3) dùng cùng cách"
 
+[sources.docker-compose]   # P3-T02: binary của image agent (compose driver chạy `docker-compose --project-name mg-t-<slug> …`)
+module = "github.com/docker/compose/v5"
+version = "v5.7.0"
+commit = "5bceecf985347fcf6dd23029ce440b502a0d4301"   # Origin của module trên proxy.golang.org (tag v5.7.0)
+date = "2026-11-02"
+h1 = "h1:nRBxm4HkCFo8Bgb49o6xdhnJ0nl1eGb1H0FAb/ExldE="   # hash module trong checksum DB của Go (sum.golang.org)
+overrides = "github.com/klauspost/compress v1.20.2 (GO-2026-6865), golang.org/x/net v0.62.0 (GO-2026-6860) — go get trên bản sao mã nguồn trước khi build"
+build = "infrastructure/docker/agent/Dockerfile stage compose: go mod download module@v5.7.0 → go get 2 bản vá → go build -trimpath -ldflags '-s -w -X github.com/docker/compose/v5/internal.Version=v5.7.0' ./cmd trong images.golang, CGO_ENABLED=0 — tái lập (cùng sha256 qua các lần build trên VM build và trong build image); kiểm build_sha256 ngay trong build"
+build_sha256 = "0580ba643450f8ca8e254b53886639e816de9805113e731b49a3da6efe1a0363"
+release_sha256 = "7758048ad38e580f22559603312874fec8bb638d021a9e64182385fc17cc12a2"   # docker-compose-linux-x86_64 của bản phát hành (đối chiếu; không dùng)
+note = "Bản mới nhất đã ≥ 14 ngày tuổi lúc pin (v5.7.1 ngày 2026-11-11, v5.7.2/v5.8.0 ngày 2026-11-17 — không phải bản vá bảo mật, và cả bốn bản vẫn khai báo klauspost/compress v1.20.0 + x/net v0.60.0 trong go.mod). Binary phát hành v5.7.0 (go1.26.10) bị grype báo 2 High (GO-2026-6865, GO-2026-6860) và govulncheck -mode=binary báo GO-2026-6865 + GO-2026-6859 (net/http) ⇒ build lại từ mã nguồn bằng toolchain đã pin với 2 bản vá: govulncheck -mode=binary không còn lỗ hổng nào. Binary tĩnh ⇒ image agent giữ base distroless static. Host staging chạy plugin v5.7.1 ([host] docker_compose) — cùng định dạng compose. Không cần CLI `docker`: trạng thái, inventory và network của driver đi qua Docker Engine API (github.com/moby/moby/client, [go])"
+
 [sources.password-blocklist]   # G2 vòng 2, A-3 (ASVS 6.2.4, 6.2.11, 6.2.12): passwordBlacklist(mg-passwords-v1.txt) của mọi realm
 repo = "github.com/danielmiessler/SecLists"
 commit = "0008f4343439b48257c0815fc797955d0ab1e755"   # 2026-10-30 (≥ 14 ngày lúc pin); file không đổi từ c205c36 (2025-05-08)
@@ -395,6 +407,8 @@ go = "1.27.4"
 "golang.org/x/oauth2" = "v0.37.0"              # 2026-08-25 (P2-T06): Authorization Code + PKCE S256; v0.38.0 (2026-11-06) chưa đủ 14 ngày
 "google.golang.org/grpc" = "v1.85.0"          # 2026-10-27 (P3-T01): gRPC worker ↔ Host Agent qua Unix socket (§11.1 — master chọn gRPC; mTLS qua TCP khi multi-host). Bản mới nhất đã ≥ 14 ngày (v1.74.x bị retract). Chỉ apps/agent và internal/agentclient import; kéo theo golang.org/x/net (pin v0.62.0 — bản vá GO-2026-6860/6866 của x/net/html, govulncheck: không gọi tới) và google.golang.org/genproto/googleapis/rpc (status)
 "google.golang.org/protobuf" = "v1.36.12"     # 2026-08-10 — trước là indirect (client_model của Prometheus); từ P3-T01 trực tiếp: runtime của api/agent/v1, cùng bản với protoc-gen-go
+"github.com/moby/moby/client" = "v0.6.2"      # 2026-10-08 (P3-T02): Docker Engine API của compose driver (inspect, list, network create/rm — trạng thái không đọc từ output CLI); bản mới nhất đã ≥ 14 ngày (v0.6.3 ngày 2026-11-13 không phải bản vá bảo mật). Kéo theo github.com/moby/moby/api v1.56.1 (kiểu của API, netip), containerd/errdefs v1.0.0, docker/go-connections, go-units, distribution/reference, opencontainers/{go-digest,image-spec}, moby/docker-image-spec, Microsoft/go-winio v0.6.3 (chỉ biên dịch trên Windows), OpenTelemetry (otelhttp v0.72.0, otel v1.47.0, 2026-10-02 — MVS lấy theo yêu cầu sẵn có của goose v3.29.0 trong đồ thị module; không exporter nào được cấu hình: agent không có network). Chỉ apps/agent và internal/provisioning/driver/compose import (archtest ADR-05); api/worker không link
+"go.yaml.in/yaml/v3" = "v3.0.5"               # 2026-07-26 — trước là indirect (oapi-codegen); từ P3-T02 trực tiếp: compose driver đọc lại config.yaml/compose.yaml đã render để kiểm các bất biến cách ly (§11.1, §11.3 bước 8)
 
 [go_test_modules]   # module Go riêng chỉ cho test (go.mod/go.sum của từng module là nguồn sự thật; không vào binary api/worker)
 "tests/integration/headscale" = "tailscale.com v1.104.7 (control/tsp + control/ts2021: client giao thức Tailscale để gửi RegisterRequest/MapRequest thật, kể cả RegisterRequest.Expiry mà client chính thức không gửi — P2-T10); main module qua replace ../../.. (adapter internal/headscale). Cùng bản với tests/isolation/derpprobe và [sources.tailscale]"

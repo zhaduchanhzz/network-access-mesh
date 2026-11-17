@@ -1,0 +1,94 @@
+# Sinh bởi tools/render_agent.py từ infrastructure/compose/compose.agent.yaml.tmpl (template_version ${template_version}).
+# KHÔNG sửa tay — render lại. Project mg-agent (P3-T02; master §11.1, §14.2, §14.4, ADR-05): Host Agent — thành phần DUY
+# NHẤT có Docker socket, project riêng để deploy mg-core/mg-app không bao giờ recreate agent (và ngược lại).
+# Trên host: /opt/meshguard/core/compose.agent.yaml; allowlist image (render cùng lúc, từ versions.lock) ở
+# /opt/meshguard/core/agent/allowlist (root, 0644 — worker không ghi được).
+# Không network (network_mode: none): listener duy nhất là Unix socket /opt/meshguard/run/agent.sock (thư mục
+# root:mg-sec-worker 0750 — layout.sh; socket 0660 nhóm mg-sec-worker). Docker socket, tenants/ và backups/tenants/
+# mount CÙNG đường dẫn trong và ngoài container: compose.yaml của tenant ghi đường dẫn host cho bind mount.
+# Token Agent: /opt/meshguard/secrets/worker/agent_token (root:mg-sec-worker 0440 — app-secrets.sh); agent đọc với tư
+# cách owner, worker qua nhóm. Image: ${agent_image}.
+name: mg-agent
+
+services:
+  agent:
+    image: ${agent_image}
+    container_name: mg-agent
+    user: "0:0"
+    network_mode: none
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER, DAC_OVERRIDE]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 256
+    mem_limit: 512m
+    cpus: 1.0
+    environment:
+      MG_ENV: ${env}
+      MG_LOG_LEVEL: info
+      MG_BASE_DOMAIN: ${base_domain}
+      MG_AGENT_DRIVER: compose
+      MG_AGENT_SOCKET: /run/meshguard/agent.sock
+      MG_AGENT_SOCKET_GID: "${worker_gid}"
+      MG_AGENT_PEER_UIDS: "${worker_uid}"
+      MG_AGENT_TOKEN_FILE: /run/secrets/agent_token
+      MG_AGENT_IMAGE_ALLOWLIST_FILE: /etc/meshguard/agent/allowlist
+      MG_AGENT_TENANTS_DIR: /opt/meshguard/tenants
+      MG_AGENT_BACKUPS_DIR: /opt/meshguard/backups/tenants
+      MG_AGENT_RUN_UID_RANGE: ${run_uid_range}
+      MG_AGENT_TENANT_NET_POOL: ${tenant_net_pool}
+      MG_AGENT_PUBLIC_ENTRY_IPV4: ${public_ipv4}
+      MG_AGENT_EDGE_CONTAINER: mg-edge
+      MG_AGENT_COMPOSE_BIN: /usr/local/bin/docker-compose
+      DOCKER_HOST: unix:///var/run/docker.sock
+      DOCKER_CONFIG: /tmp/docker
+    secrets:
+      - source: agent_token
+        target: agent_token
+    volumes:
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+      - type: bind
+        source: /opt/meshguard/tenants
+        target: /opt/meshguard/tenants
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /opt/meshguard/backups/tenants
+        target: /opt/meshguard/backups/tenants
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /opt/meshguard/run
+        target: /run/meshguard
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /opt/meshguard/core/agent/allowlist
+        target: /etc/meshguard/agent/allowlist
+        read_only: true
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/meshguard-agent", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+      start_interval: 2s
+    restart: unless-stopped
+    stop_grace_period: 35s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    labels:
+      meshguard.role: platform
+
+secrets:
+  agent_token:
+    file: /opt/meshguard/secrets/worker/agent_token
