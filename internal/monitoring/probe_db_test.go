@@ -162,6 +162,37 @@ func TestProbeKeepsTheNewerResult(t *testing.T) {
 	}
 }
 
+// TestProbeTimeout: a probe is bounded by ProbeTimeout — an instance that does not answer in time is recorded unhealthy
+// (what the adapter reports when its context ends: instance_unavailable) well within the job's own timeout, instead
+// of the job running out of time and failing.
+func TestProbeTimeout(t *testing.T) {
+	f := newFixture(t)
+	hung := ProberFunc(func(ctx context.Context, _ uuid.UUID) InstanceProbe {
+		<-ctx.Done() // the adapter's call gives up when its context ends
+		return InstanceProbe{InstanceID: f.a.instance, Breaker: "closed", Reason: headscale.ProbeInstanceUnavailable}
+	})
+	svc, err := New(f.wrkSt, Config{Devices: deviceCounter(f.devWrk), Prober: hung, ProbeTimeout: 300 * time.Millisecond,
+		Registerer: prometheus.NewRegistry()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second) // the job's deadline
+	defer cancel()
+	start := time.Now()
+	res, err := svc.Probe(ctx, f.a.id, f.a.instance)
+	if err != nil || !res.Recorded || res.Status != StatusUnhealthy || res.Reason != headscale.ProbeInstanceUnavailable {
+		t.Fatalf("hung instance: %+v %v", res, err)
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Errorf("the probe took %v with ProbeTimeout 300ms", d)
+	}
+	if def, _ := New(f.wrkSt, Config{Devices: deviceCounter(f.devWrk)}); def.probeLimit != DefaultProbeTimeout ||
+		DefaultProbeTimeout >= jobs.DefaultKinds()[KindProbe].Timeout {
+		t.Errorf("default probe bound %v must stay below the job timeout of health.probe (%v)", def.probeLimit,
+			jobs.DefaultKinds()[KindProbe].Timeout)
+	}
+}
+
 // TestScheduler: the first tick only notes the instances; after one interval exactly one health.probe per running
 // instance with the dedupe key instance:<id>:health:<slot>; ticking again in the same period enqueues nothing; a
 // stopped instance is not scheduled; offsets spread instances over the interval.

@@ -23,6 +23,9 @@ const (
 	DefaultStaleAfter = 3 * DefaultProbeInterval
 	// DefaultHeartbeatMaxAge is the age after which the worker's heartbeat (job.reaper, every minute) is stale.
 	DefaultHeartbeatMaxAge = 3 * time.Minute
+	// DefaultProbeTimeout bounds one probe, below the 1-minute timeout of health.probe (registry of P2-T12): an instance
+	// that does not answer in time is recorded unhealthy instead of failing the job.
+	DefaultProbeTimeout = 40 * time.Second
 )
 
 // Health statuses (schema HealthStatus of the API).
@@ -110,7 +113,10 @@ type Config struct {
 	StaleAfter time.Duration
 	// HeartbeatMaxAge: the worker is unhealthy when job.reaper last finished longer ago; default DefaultHeartbeatMaxAge.
 	HeartbeatMaxAge time.Duration
-	Logger          *slog.Logger
+	// ProbeTimeout bounds the Prober call of one probe; default DefaultProbeTimeout. Keep it below the job timeout of
+	// health.probe (jobs.Config.Kinds) — with the adapter's defaults a probe of a hung instance takes about 31 s.
+	ProbeTimeout time.Duration
+	Logger       *slog.Logger
 	// Registerer exports the module's metrics; nil keeps them unexported.
 	Registerer prometheus.Registerer
 }
@@ -123,6 +129,7 @@ type Service struct {
 	prober     Prober
 	staleAfter time.Duration
 	heartbeat  time.Duration
+	probeLimit time.Duration
 	log        *slog.Logger
 	m          *metrics
 }
@@ -133,12 +140,15 @@ func New(st *store.Store, cfg Config) (*Service, error) {
 		return nil, errors.New("monitoring: a store and a device counter are required")
 	}
 	s := &Service{st: st, devices: cfg.Devices, prober: cfg.Prober, staleAfter: cfg.StaleAfter, heartbeat: cfg.HeartbeatMaxAge,
-		log: cfg.Logger, m: newMetrics(cfg.Registerer)}
+		probeLimit: cfg.ProbeTimeout, log: cfg.Logger, m: newMetrics(cfg.Registerer)}
 	if s.staleAfter <= 0 {
 		s.staleAfter = DefaultStaleAfter
 	}
 	if s.heartbeat <= 0 {
 		s.heartbeat = DefaultHeartbeatMaxAge
+	}
+	if s.probeLimit <= 0 {
+		s.probeLimit = DefaultProbeTimeout
 	}
 	if s.log == nil {
 		s.log = slog.New(slog.DiscardHandler)

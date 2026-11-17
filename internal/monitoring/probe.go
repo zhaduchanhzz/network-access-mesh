@@ -92,10 +92,10 @@ type ProbeResult struct {
 
 var errNoProber = errors.New("monitoring: no Prober configured (Config.Prober)")
 
-// Probe checks the instance of a tenant through the Prober and records the result in tenant_instances.last_health,
-// with last_health_at = the database clock when the probe started (see the package documentation). An unhealthy
-// instance is a result, not an error; the error is for a probe that could not be recorded, or that ctx cut short (then
-// nothing is said about the instance).
+// Probe checks the instance of a tenant through the Prober — bounded by ProbeTimeout — and records the result in
+// tenant_instances.last_health, with last_health_at = the database clock when the probe started (see the package
+// documentation). An unhealthy instance is a result, not an error; the error is for a probe that could not be recorded,
+// or that ctx cut short (then nothing is said about the instance).
 func (s *Service) Probe(ctx context.Context, tenantID, instanceID uuid.UUID) (ProbeResult, error) {
 	if s.prober == nil {
 		return ProbeResult{}, errNoProber
@@ -114,7 +114,9 @@ func (s *Service) Probe(ctx context.Context, tenantID, instanceID uuid.UUID) (Pr
 	case row.Status != "running":
 		return s.skip(SkipInstanceNotRunning), nil
 	}
-	p := s.prober.ProbeInstance(ctx, tenantID)
+	pctx, cancel := context.WithTimeout(ctx, s.probeLimit) // a slow instance is a result (unhealthy), not a failed job
+	p := s.prober.ProbeInstance(pctx, tenantID)
+	cancel()
 	if err := ctx.Err(); err != nil {
 		return ProbeResult{}, fmt.Errorf("monitoring: probe interrupted: %w", err)
 	}

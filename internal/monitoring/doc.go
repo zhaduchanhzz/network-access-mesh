@@ -14,7 +14,8 @@
 // Probe (health.probe, one job per running instance and period, dedupe instance:<id>:health:<slot>):
 //
 //  1. a short platform transaction reads the instance (it must still be running) and the database clock — checked_at;
-//  2. the Prober checks the instance outside any transaction (§13.5);
+//  2. the Prober checks the instance outside any transaction (§13.5), bounded by ProbeTimeout (below the job's timeout:
+//     an instance that does not answer in time is recorded unhealthy, the job does not run out of time);
 //  3. the result — status, stable reason, reported version, database connectivity, breaker state — is written to
 //     tenant_instances.last_health with last_health_at = checked_at, unless a probe that started later has already
 //     been recorded (a slow probe never overwrites a newer one). The instance's version/updated_at (its ETag) do not
