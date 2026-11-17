@@ -82,6 +82,37 @@ func TestTrustedProxies(t *testing.T) {
 	}
 }
 
+// TestKEKKeyrings: keyrings come as directory paths only (§7.6); a KEK value in the environment is refused, and the
+// kek-ops keyring is accepted for the worker only.
+func TestKEKKeyrings(t *testing.T) {
+	get, list := env(map[string]string{"MG_KEK_APP_DIR": "/run/secrets/kek-app", "MG_KEK_OPS_DIR": "/run/secrets/kek-ops"})
+	cfg, err := Load("worker", get, list)
+	if err != nil || cfg.KEKAppDir != "/run/secrets/kek-app" || cfg.KEKOpsDir != "/run/secrets/kek-ops" {
+		t.Fatalf("worker: %+v, %v", cfg, err)
+	}
+	if _, err := Load("api", get, list); err == nil || !strings.Contains(err.Error(), "MG_KEK_OPS_DIR") {
+		t.Errorf("api with kek-ops: err = %v, want a refusal", err)
+	}
+	get, list = env(map[string]string{"MG_KEK_APP_DIR": "/run/secrets/kek-app"})
+	if cfg, err := Load("api", get, list); err != nil || cfg.KEKAppDir != "/run/secrets/kek-app" || cfg.KEKOpsDir != "" {
+		t.Errorf("api: %+v, %v", cfg, err)
+	}
+	get, list = env(map[string]string{"MG_KEK_APP_DIR": "run/secrets/kek-app"})
+	if _, err := Load("api", get, list); err == nil {
+		t.Error("relative keyring path accepted")
+	}
+	value := strings.Repeat("c4", 32) // shaped like a KEK file (64 hex characters)
+	for _, name := range []string{"MG_KEK_APP", "MG_KEK", "MG_KEK_OPS_HEX"} {
+		get, list := env(map[string]string{name: value})
+		_, err := Load("worker", get, list)
+		if err == nil || !strings.Contains(err.Error(), name+"_FILE") {
+			t.Errorf("%s: expected rejection, got %v", name, err)
+		} else if strings.Contains(err.Error(), value) {
+			t.Errorf("%s: the error repeats the value: %v", name, err)
+		}
+	}
+}
+
 func TestInvalidValues(t *testing.T) {
 	cases := map[string]map[string]string{
 		"bad env":        {"MG_ENV": "prod"},

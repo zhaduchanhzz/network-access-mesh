@@ -1,8 +1,9 @@
 // Package config loads process configuration from environment variables.
 //
 // Secret VALUES never come from the environment (§7.6, §25.1 rule 9): a variable whose name looks like a secret
-// (PASSWORD, TOKEN, SECRET, KEY, CREDENTIAL) is only accepted as *_FILE pointing at a file secret. Load refuses to
-// start otherwise, so a misconfigured deployment fails loudly instead of leaking a secret through `docker inspect`.
+// (PASSWORD, TOKEN, SECRET, KEY, KEK, CREDENTIAL) is only accepted as *_FILE pointing at a file secret, or *_DIR
+// pointing at a directory of file secrets (a KEK keyring). Load refuses to start otherwise, so a misconfigured
+// deployment fails loudly instead of leaking a secret through `docker inspect`.
 package config
 
 import (
@@ -11,6 +12,7 @@ import (
 	"log/slog"
 	"net"
 	"net/netip"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -28,10 +30,14 @@ type Config struct {
 	// the edge's static address on mg-edge (§14.3). Required for api outside dev: behind the edge every request comes
 	// from the edge, so without it the per-IP rate limit (§13.1) would be one bucket shared by all clients.
 	TrustedProxies []netip.Prefix
+	// KEK keyrings of the SecretStore (§7.6, secrets.LoadKeyring): directories of file secrets, one file per KEK
+	// version plus ACTIVE. kek-app is mounted into api and worker, kek-ops into the worker only.
+	KEKAppDir string // MG_KEK_APP_DIR
+	KEKOpsDir string // MG_KEK_OPS_DIR (worker only)
 }
 
 var (
-	secretName = regexp.MustCompile(`(?i)(PASSWORD|PASSWD|TOKEN|SECRET|_KEY$|_KEY_|APIKEY|CREDENTIAL)`)
+	secretName = regexp.MustCompile(`(?i)(PASSWORD|PASSWD|TOKEN|SECRET|_KEY$|_KEY_|APIKEY|CREDENTIAL|KEK)`)
 	domainRE   = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`)
 	envs       = map[string]bool{"dev": true, "staging": true, "production": true}
 	services   = map[string]bool{"api": true, "worker": true}
@@ -45,8 +51,9 @@ func Load(service string, getenv func(string) string, environ []string) (Config,
 	}
 	for _, kv := range environ {
 		name, _, _ := strings.Cut(kv, "=")
-		if strings.HasPrefix(name, "MG_") && secretName.MatchString(name) && !strings.HasSuffix(name, "_FILE") {
-			errs = append(errs, fmt.Errorf("%s: secret values must be passed as a file (%s_FILE), not in the environment", name, name))
+		if strings.HasPrefix(name, "MG_") && secretName.MatchString(name) &&
+			!strings.HasSuffix(name, "_FILE") && !strings.HasSuffix(name, "_DIR") {
+			errs = append(errs, fmt.Errorf("%s: secret values must be passed as a file (%s_FILE) or a directory of files (%s_DIR), not in the environment", name, name, name))
 		}
 	}
 	cfg := Config{
@@ -55,6 +62,16 @@ func Load(service string, getenv func(string) string, environ []string) (Config,
 		HTTPAddr:     withDefault(getenv("MG_HTTP_ADDR"), ":8080"),
 		InternalAddr: withDefault(getenv("MG_INTERNAL_ADDR"), ":9090"),
 		BaseDomain:   strings.ToLower(strings.TrimSpace(getenv("MG_BASE_DOMAIN"))),
+		KEKAppDir:    strings.TrimSpace(getenv("MG_KEK_APP_DIR")),
+		KEKOpsDir:    strings.TrimSpace(getenv("MG_KEK_OPS_DIR")),
+	}
+	for name, dir := range map[string]string{"MG_KEK_APP_DIR": cfg.KEKAppDir, "MG_KEK_OPS_DIR": cfg.KEKOpsDir} {
+		if dir != "" && !filepath.IsAbs(dir) {
+			errs = append(errs, fmt.Errorf("%s must be an absolute path", name))
+		}
+	}
+	if cfg.KEKOpsDir != "" && service != "worker" {
+		errs = append(errs, errors.New("MG_KEK_OPS_DIR: the kek-ops keyring is mounted into the worker only (§7.6)"))
 	}
 	if !envs[cfg.Env] {
 		errs = append(errs, fmt.Errorf("MG_ENV must be dev, staging or production, got %q", cfg.Env))

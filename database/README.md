@@ -42,7 +42,10 @@ cả `mg_app_platform`), và ngược lại.
   hoặc `store.WithPlatformTx(ctx, fn)` (pool platform, `app.scope='platform'`, xóa `app.tenant_id`), biến đặt bằng
   `set_config(…, true)` nên hết hiệu lực khi transaction kết thúc. Test kiến trúc (`internal/archtest`) cấm mọi package
   ngoài `internal/store` import driver DB (`pgx`, `database/sql`, `goose`).
-- `secrets`/`tenant_keys`: policy `RESTRICTIVE` theo role ẩn phạm vi `platform_ops` khỏi `mg_api_*` (§7.6).
+- `secrets`/`tenant_keys`: policy `RESTRICTIVE` theo role ẩn phạm vi `platform_ops` khỏi `mg_api_*` (§7.6); chỉ role
+  worker có `UPDATE` trên `tenant_keys` (xoay DEK, rewrap khi xoay KEK, hủy DEK của tenant — job của worker), api chỉ
+  `SELECT`/`INSERT`. Chỉ module `internal/secrets` dùng hai bảng này (truy vấn ở `queries/secrets.sql`; thiết kế
+  envelope encryption, AAD và keyring: [bằng chứng P2-T04](../docs/planning/evidence/P2-T04.md)).
 - `audit_events`: pool tenant thấy sự kiện của tenant đang đặt; pool platform chỉ thấy sự kiện platform (`tenant_id`
   NULL); append-only (không cấp `UPDATE/DELETE/TRUNCATE` + trigger chặn cả owner).
 
@@ -92,3 +95,10 @@ make sqlc-diff   # như CI
 
 Không có `MG_TEST_PG_ADMIN_URL` thì test tích hợp được bỏ qua — trừ khi `MG_TEST_PG_REQUIRED=1` (CI đặt biến này,
 nên thiếu PostgreSQL là FAIL). CI (`.github/workflows/go.yml`) chạy PostgreSQL bằng service container pin theo digest.
+Cùng cách đó cho test tích hợp của `internal/secrets` (P2-T04).
+
+**Nhiều package test dùng chung một cụm:** `go test ./...` chạy các package song song, mà role là đối tượng của cả
+cụm — hai package cùng bootstrap/migrate/đặt mật khẩu role một lúc sẽ lỗi (`duplicate key … pg_authid_rolname_index`,
+`tuple concurrently updated`; đối chứng ở bằng chứng P2-T04). Mọi harness tạo database thử phải giữ advisory lock
+`0x6d675f74657374` ("mg_test", lấy trong database `postgres`) suốt các bước đó và sinh mật khẩu role theo cùng công
+thức (`internal/store/harness_test.go`, `internal/secrets/harness_test.go`).
