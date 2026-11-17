@@ -231,9 +231,10 @@ func start(t *testing.T, inv agentspec.Inventory, peerUIDs []uint32, opts ...opt
 	if err != nil {
 		t.Fatal(err)
 	}
-	h.gs = srv.grpcServer(cfg)
-	go func() { _ = h.gs.Serve(l) }()
-	t.Cleanup(h.gs.Stop)
+	gs := srv.grpcServer(cfg) // local: the goroutine must not read h.gs, which restart() replaces (data race)
+	h.gs = gs
+	go func() { _ = gs.Serve(l) }()
+	t.Cleanup(gs.Stop)
 	h.client = h.dial(t, cfg.TokenFile)
 	return h
 }
