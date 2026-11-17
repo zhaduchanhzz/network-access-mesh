@@ -8,19 +8,22 @@
 //   - every refusal: a typed gRPC status (Refusal detail: reason + field) and one audit line (agent_call).
 //
 // The compose driver (P3-T02, internal/provisioning/driver/compose) performs EnsureInstance (storage → config →
-// network → container), GetInstanceStatus, ListInstances, Start/Stop/Restart and RemoveInstance; the other operations
-// are validated, guarded and answered UNIMPLEMENTED until their task (P3-T03, P3-T11, P3-T13a). MG_AGENT_DRIVER=none
-// keeps the P3-T01 behaviour (no Docker access).
+// network → container), GetInstanceStatus, ListInstances, Start/Stop/Restart and RemoveInstance; ValidateConfig,
+// BootstrapPolicy, BootstrapApiKey and the edge attachment (P3-T03); a loop inside the agent is the edge supervisor and
+// start guard of §11.4 (supervisor.go). The other operations are validated, guarded and answered UNIMPLEMENTED until
+// their task (P3-T11, P3-T13a). MG_AGENT_DRIVER=none keeps the P3-T01 behaviour (no Docker access).
 //
 // Subcommands (exit status 0 = ok, 1 = failure, 2 = configuration or usage error):
 //
-//	meshguard-agent              run the agent
-//	meshguard-agent healthcheck  container healthcheck: Health over the socket, with the token
+//	meshguard-agent                    run the agent
+//	meshguard-agent healthcheck        container healthcheck: Health over the socket, with the token
 //	meshguard-agent version
+//	meshguard-agent noise-fingerprint  the one-shot helper of the start guard, run by the agent itself (§11.5)
 package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -54,9 +57,32 @@ func dispatch(ctx context.Context, args []string, getenv func(string) string, en
 	case len(args) == 1 && args[0] == "version":
 		_, _ = fmt.Fprintf(stdout, "meshguard-agent %s (%s)\n", buildinfo.Version, buildinfo.Commit)
 		return 0
+	case len(args) == 1 && args[0] == compose.FingerprintCommand:
+		return noiseFingerprint(compose.NoiseKeyPath, stdout, stderr)
 	}
 	_, _ = fmt.Fprint(stderr, "meshguard-agent: unknown subcommand\nusage: meshguard-agent | meshguard-agent healthcheck | meshguard-agent version\n")
 	return 2
+}
+
+// noiseFingerprint is the one-shot helper of the start guard (§11.5), run by the agent in a container of its own image
+// as the tenant's run_uid, network none, read-only, data/ mounted read-only: it prints the fingerprint of the Noise
+// key (64 hex) — nothing of the key itself. Exit status: 0 ok, 3 key file absent, 4 not a valid key file, 1 error.
+// The path is fixed: the subcommand takes no argument.
+func noiseFingerprint(path string, stdout, stderr io.Writer) int {
+	fp, err := compose.FingerprintNoiseKeyFile(path)
+	switch {
+	case errors.Is(err, compose.ErrNoiseKeyAbsent):
+		_, _ = fmt.Fprintln(stderr, "noise-fingerprint: key file absent")
+		return compose.FingerprintExitAbsent
+	case errors.Is(err, compose.ErrNoiseKeyInvalid):
+		_, _ = fmt.Fprintln(stderr, "noise-fingerprint: not a valid key file")
+		return compose.FingerprintExitInvalid
+	case err != nil:
+		_, _ = fmt.Fprintln(stderr, "noise-fingerprint: cannot read the key file")
+		return 1
+	}
+	_, _ = fmt.Fprintln(stdout, fp)
+	return 0
 }
 
 func run(ctx context.Context, getenv func(string) string, environ []string, stdout, stderr io.Writer) int {
@@ -88,6 +114,10 @@ func run(ctx context.Context, getenv func(string) string, environ []string, stdo
 	log.Info("agent_started", "socket", cfg.Socket, "socket_gid", cfg.SocketGID, "peer_uids", cfg.PeerUIDs,
 		"driver", srv.drv.Name(), "allowed_images", cfg.Host.Images.Len(), "run_uid_range", cfg.Host.RunUIDs.String(),
 		"tenant_net_pool", cfg.Host.TenantPool.String(), "version", buildinfo.Version, "commit", buildinfo.Commit)
+	if sup, ok := drv.(edgeSupervisor); ok {
+		log.Info("edge_supervisor_started", "edge", cfg.Edge, "edge_network", cfg.EdgeNetwork, "interval", cfg.SupervisorInterval.String())
+		go srv.superviseEdge(ctx, sup, cfg.SupervisorInterval)
+	}
 	select {
 	case err := <-served:
 		log.Error("agent_serve_failed", "error", err)
@@ -124,7 +154,7 @@ func buildDriver(ctx context.Context, cfg *Config, log *slog.Logger) (Driver, ag
 	c, err := compose.New(compose.Config{
 		Host: &cfg.Host, Guard: &agentspec.Guard{Host: &cfg.Host, Inventory: inv, Edge: cfg.Edge}, AgentGID: os.Getegid(),
 		Engine: eng, Compose: &compose.CLI{Command: []string{cfg.ComposeBin}, DockerHost: cfg.DockerHost, ConfigDir: cfg.DockerConfig},
-		Edge: cfg.Edge, Log: log,
+		Edge: cfg.Edge, EdgeNetwork: cfg.EdgeNetwork, HelperImage: cfg.HelperImage, Log: log,
 	})
 	if err != nil {
 		return nil, nil, err

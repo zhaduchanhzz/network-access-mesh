@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -12,7 +13,9 @@ import (
 	"time"
 
 	cerrdefs "github.com/containerd/errdefs"
+	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
 	"google.golang.org/grpc/codes"
@@ -40,9 +43,25 @@ type Engine interface {
 	// RemoveContainer stops a container (grace period, then SIGKILL) and removes it; absent is not an error.
 	RemoveContainer(ctx context.Context, name string, grace time.Duration) error
 	// ConnectNetwork / DisconnectNetwork are the primitives of the edge attachment (EnsureEdgeAttachment,
-	// RemoveEdgeAttachment — P3-T03): the guard (agentspec.Guard.CheckEdgeAttach) runs before.
+	// RemoveEdgeAttachment, the edge supervisor — P3-T03): the guard (agentspec.Guard.CheckEdgeAttach) runs before a
+	// connect. A disconnect of a container that is not attached is not an error.
 	ConnectNetwork(ctx context.Context, network, container string) error
 	DisconnectNetwork(ctx context.Context, network, container string) error
+	// StopContainer stops a container (grace period, then SIGKILL); absent or already stopped is not an error.
+	StopContainer(ctx context.Context, name string, grace time.Duration) error
+	// EnsureImage makes an image reference (always pinned by digest — allowlist or the agent's own image) present,
+	// pulling it through the daemon when it is missing (the agent itself has no network).
+	EnsureImage(ctx context.Context, ref string) error
+	// RunOnce runs a throw-away helper container to completion and removes it whatever happens (§11.5: configtest,
+	// Noise key fingerprint). The container never has a network, a capability or a writable rootfs.
+	RunOnce(ctx context.Context, s OneShot) (OneShotResult, error)
+	// Exec runs a command inside a running container as the container's own user (the tenant's run_uid) — the
+	// Headscale CLI over its local Unix socket (§11.3 steps 12–13). No TTY, no stdin, no environment, no privilege.
+	Exec(ctx context.Context, container string, cmd []string, timeout time.Duration) (ExecResult, error)
+	// ContainerStarts signals (best effort) every start of the named container — the edge supervisor reacts to a
+	// recreated edge at once instead of at its next tick. The channel is closed when ctx ends or the event stream
+	// fails (the caller subscribes again later; its ticker keeps running meanwhile).
+	ContainerStarts(ctx context.Context, name string) <-chan struct{}
 }
 
 // Container is what the driver knows about one container.
@@ -58,6 +77,53 @@ type Container struct {
 	StartedAt time.Time
 	// Networks maps a network name to the DNS names of the container's endpoint (aliases ∪ Docker DNS names).
 	Networks map[string][]string
+	// GwPriority maps a network name to the gw_priority of the endpoint (inspect only): the edge's default gateway
+	// must stay on mg-edge (§11.4 edge supervisor, §14.3).
+	GwPriority map[string]int
+}
+
+// OneShot is a throw-away helper container (§11.5). Everything is set by the driver from validated values; the
+// container always gets network none, a read-only rootfs, cap_drop ALL, no-new-privileges, no restart, log driver
+// none (its output is read over the attach stream, never stored), and the given limits.
+type OneShot struct {
+	Name       string
+	Image      string
+	Entrypoint []string
+	Cmd        []string
+	User       string // uid:gid
+	Labels     map[string]string
+	// Binds are host paths (absolute, must exist — never created) mounted at Target.
+	Binds []Bind
+	// Tmpfs maps a mount point to its options (uid=…,gid=…,mode=…,size=…) — the scratch data directory of configtest.
+	Tmpfs       map[string]string
+	MemoryBytes int64
+	NanoCPUs    int64
+	PIDs        int64
+	// Timeout bounds the whole run: past it the container is killed and the run fails (fail closed).
+	Timeout time.Duration
+	// MaxOutput bounds what is kept of stdout and of stderr (each).
+	MaxOutput int
+}
+
+// Bind is one bind mount of a helper container.
+type Bind struct {
+	Source, Target string
+	ReadOnly       bool
+}
+
+// OneShotResult is the outcome of a helper container that ran to completion.
+type OneShotResult struct {
+	ExitCode       int
+	Stdout, Stderr []byte
+	// Truncated: an output exceeded MaxOutput (the kept part is its beginning).
+	Truncated bool
+}
+
+// ExecResult is the outcome of a command run inside a container.
+type ExecResult struct {
+	ExitCode       int
+	Stdout, Stderr []byte
+	Truncated      bool
 }
 
 // Network is what the driver knows about one network.
@@ -178,6 +244,12 @@ func (m *mobyEngine) Container(ctx context.Context, name string) (*Container, er
 	}
 	if r.NetworkSettings != nil {
 		c.Networks = endpoints(r.NetworkSettings.Networks)
+		c.GwPriority = make(map[string]int, len(r.NetworkSettings.Networks))
+		for name, ep := range r.NetworkSettings.Networks {
+			if ep != nil {
+				c.GwPriority[name] = ep.GwPriority
+			}
+		}
 	}
 	return c, nil
 }
@@ -263,14 +335,221 @@ func (m *mobyEngine) RemoveContainer(ctx context.Context, name string, grace tim
 	return wrap("remove container", err)
 }
 
+// attachedTo reports whether the named container has an endpoint on network nw (false when it does not exist).
+func (m *mobyEngine) attachedTo(ctx context.Context, nw, ctr string) (bool, error) {
+	c, err := m.Container(ctx, ctr)
+	if err != nil || c == nil {
+		return false, err
+	}
+	_, ok := c.Networks[nw]
+	return ok, nil
+}
+
+// ConnectNetwork attaches with the default endpoint settings: no alias, gw_priority 0 (the edge's default gateway
+// stays on mg-edge, gw_priority 1 — §14.3). Already attached is not an error.
 func (m *mobyEngine) ConnectNetwork(ctx context.Context, nw, ctr string) error {
 	_, err := m.c.NetworkConnect(ctx, nw, client.NetworkConnectOptions{Container: ctr})
+	if err != nil {
+		if ok, ierr := m.attachedTo(ctx, nw, ctr); ierr == nil && ok {
+			return nil
+		}
+	}
 	return wrap("connect network", err)
 }
 
 func (m *mobyEngine) DisconnectNetwork(ctx context.Context, nw, ctr string) error {
 	_, err := m.c.NetworkDisconnect(ctx, nw, client.NetworkDisconnectOptions{Container: ctr})
+	if err != nil {
+		if ok, ierr := m.attachedTo(ctx, nw, ctr); ierr == nil && !ok {
+			return nil
+		}
+	}
 	return wrap("disconnect network", err)
+}
+
+func (m *mobyEngine) StopContainer(ctx context.Context, name string, grace time.Duration) error {
+	c, err := m.Container(ctx, name)
+	if err != nil || c == nil {
+		return err
+	}
+	secs := int(grace / time.Second)
+	if _, err := m.c.ContainerStop(ctx, c.ID, client.ContainerStopOptions{Timeout: &secs}); err != nil && !cerrdefs.IsNotFound(err) {
+		return wrap("stop container", err)
+	}
+	return nil
+}
+
+func (m *mobyEngine) EnsureImage(ctx context.Context, ref string) error {
+	if _, err := m.c.ImageInspect(ctx, ref); err == nil {
+		return nil
+	} else if !cerrdefs.IsNotFound(err) {
+		return wrap("inspect image", err)
+	}
+	resp, err := m.c.ImagePull(ctx, ref, client.ImagePullOptions{})
+	if err != nil {
+		return wrap("pull image", err)
+	}
+	defer func() { _ = resp.Close() }()
+	return wrap("pull image", resp.Wait(ctx))
+}
+
+// bounded keeps the first max bytes written to it and notes whether more came.
+type bounded struct {
+	b    bytes.Buffer
+	max  int
+	over bool
+}
+
+func (w *bounded) Write(p []byte) (int, error) {
+	if room := w.max - w.b.Len(); room < len(p) {
+		w.over = true
+		if room > 0 {
+			w.b.Write(p[:room])
+		}
+		return len(p), nil
+	}
+	w.b.Write(p)
+	return len(p), nil
+}
+
+// cleanupTimeout bounds the removal of a helper container after its run (on a context of its own: the caller's may
+// be over).
+const cleanupTimeout = 30 * time.Second
+
+func (m *mobyEngine) RunOnce(ctx context.Context, s OneShot) (OneShotResult, error) {
+	if s.Timeout <= 0 || s.MaxOutput <= 0 || s.Name == "" || s.Image == "" {
+		return OneShotResult{}, errors.New("helper container: name, image, timeout and output bound required")
+	}
+	mounts := make([]mount.Mount, 0, len(s.Binds))
+	for _, b := range s.Binds {
+		mounts = append(mounts, mount.Mount{Type: mount.TypeBind, Source: b.Source, Target: b.Target, ReadOnly: b.ReadOnly,
+			BindOptions: &mount.BindOptions{CreateMountpoint: false}})
+	}
+	pids := s.PIDs
+	created, err := m.c.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Name: s.Name,
+		Config: &container.Config{Image: s.Image, Entrypoint: s.Entrypoint, Cmd: s.Cmd, User: s.User, Labels: s.Labels,
+			AttachStdout: true, AttachStderr: true, NetworkDisabled: true},
+		HostConfig: &container.HostConfig{
+			NetworkMode: "none", ReadonlyRootfs: true, CapDrop: []string{"ALL"}, SecurityOpt: []string{"no-new-privileges:true"},
+			LogConfig: container.LogConfig{Type: "none"}, RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyDisabled},
+			Mounts: mounts, Tmpfs: s.Tmpfs,
+			Resources: container.Resources{Memory: s.MemoryBytes, MemorySwap: s.MemoryBytes, NanoCPUs: s.NanoCPUs, PidsLimit: &pids},
+		},
+	})
+	if err != nil {
+		return OneShotResult{}, wrap("create helper container", err)
+	}
+	defer func() { // whatever happened: the helper never outlives its run
+		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
+		defer cancel()
+		_, _ = m.c.ContainerRemove(rctx, created.ID, client.ContainerRemoveOptions{Force: true})
+	}()
+	rctx, cancel := context.WithTimeout(ctx, s.Timeout)
+	defer cancel()
+	att, err := m.c.ContainerAttach(rctx, created.ID, client.ContainerAttachOptions{Stream: true, Stdout: true, Stderr: true})
+	if err != nil {
+		return OneShotResult{}, wrap("attach helper container", err)
+	}
+	defer att.Close()
+	// registered before the start: a fast exit is not missed
+	wait := m.c.ContainerWait(rctx, created.ID, client.ContainerWaitOptions{Condition: container.WaitConditionNextExit})
+	stdout, stderr := &bounded{max: s.MaxOutput}, &bounded{max: s.MaxOutput}
+	copied := make(chan error, 1)
+	go func() { _, err := stdcopy.StdCopy(stdout, stderr, att.Reader); copied <- err }()
+	if _, err := m.c.ContainerStart(rctx, created.ID, client.ContainerStartOptions{}); err != nil {
+		return OneShotResult{}, wrap("start helper container", err)
+	}
+	var code int64
+	select {
+	case r := <-wait.Result:
+		code = r.StatusCode
+	case err := <-wait.Error:
+		if rctx.Err() != nil {
+			return OneShotResult{}, status.Errorf(codes.DeadlineExceeded, "helper container %s did not finish within %s (killed)", s.Name, s.Timeout)
+		}
+		return OneShotResult{}, wrap("wait helper container", err)
+	}
+	select { // the output stream ends with the process; bounded by the run's deadline
+	case err := <-copied:
+		if err != nil {
+			return OneShotResult{}, wrap("helper container output", err)
+		}
+	case <-rctx.Done():
+		return OneShotResult{}, status.Errorf(codes.DeadlineExceeded, "helper container %s: output not complete within %s", s.Name, s.Timeout)
+	}
+	return OneShotResult{ExitCode: int(code), Stdout: stdout.b.Bytes(), Stderr: stderr.b.Bytes(), Truncated: stdout.over || stderr.over}, nil
+}
+
+func (m *mobyEngine) Exec(ctx context.Context, ctr string, cmd []string, timeout time.Duration) (ExecResult, error) {
+	ectx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	ec, err := m.c.ExecCreate(ectx, ctr, client.ExecCreateOptions{AttachStdout: true, AttachStderr: true, Cmd: cmd})
+	if err != nil {
+		return ExecResult{}, wrap("exec create", err)
+	}
+	att, err := m.c.ExecAttach(ectx, ec.ID, client.ExecAttachOptions{})
+	if err != nil {
+		return ExecResult{}, wrap("exec attach", err)
+	}
+	defer att.Close()
+	stop := context.AfterFunc(ectx, func() { _ = att.Conn.Close() }) // a hung command cannot block the agent
+	defer stop()
+	stdout, stderr := &bounded{max: maxExecOutput}, &bounded{max: maxExecOutput}
+	if _, err := stdcopy.StdCopy(stdout, stderr, att.Reader); err != nil && ectx.Err() == nil {
+		return ExecResult{}, wrap("exec output", err)
+	}
+	if ectx.Err() != nil {
+		return ExecResult{}, status.Errorf(codes.DeadlineExceeded, "command in %s did not finish within %s", ctr, timeout)
+	}
+	// the stream ended with the process; its exit code may be recorded a moment later
+	for range 50 {
+		in, err := m.c.ExecInspect(ectx, ec.ID, client.ExecInspectOptions{})
+		if err != nil {
+			return ExecResult{}, wrap("exec inspect", err)
+		}
+		if !in.Running {
+			return ExecResult{ExitCode: in.ExitCode, Stdout: stdout.b.Bytes(), Stderr: stderr.b.Bytes(), Truncated: stdout.over || stderr.over}, nil
+		}
+		select {
+		case <-ectx.Done():
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+	return ExecResult{}, status.Errorf(codes.DeadlineExceeded, "command in %s: no exit code", ctr)
+}
+
+// maxExecOutput bounds what is kept of the output of a CLI command (a policy is at most 256 KiB — agentspec).
+const maxExecOutput = 1 << 20
+
+func (m *mobyEngine) ContainerStarts(ctx context.Context, name string) <-chan struct{} {
+	out := make(chan struct{}, 1)
+	f := make(client.Filters).Add("type", "container").Add("event", "start").Add("container", name)
+	res := m.c.Events(ctx, client.EventsListOptions{Filters: f})
+	go func() {
+		defer close(out)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case err := <-res.Err:
+				_ = err // the stream ended (an error or ctx): the caller subscribes again later
+				return
+			case msg, ok := <-res.Messages:
+				if !ok {
+					return
+				}
+				if strings.TrimPrefix(msg.Actor.Attributes["name"], "/") != name {
+					continue // the "container" filter also matches an ID prefix
+				}
+				select {
+				case out <- struct{}{}:
+				default: // a trigger is already pending
+				}
+			}
+		}
+	}()
+	return out
 }
 
 // inventory is agentspec.Inventory over an Engine: what the guard checks before anything is touched. Every network

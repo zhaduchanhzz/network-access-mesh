@@ -79,6 +79,7 @@ type AgentServiceClient interface {
 	GetHostInfo(ctx context.Context, in *GetHostInfoRequest, opts ...grpc.CallOption) (*GetHostInfoResponse, error)
 	// ValidateConfig renders the configuration of spec into config.next/ and runs `headscale configtest` in a
 	// throw-away container with a scratch data directory (§11.5). A syntax gate only: the health gate decides.
+	// config.next/ and the container are removed whatever happens; config/ is written by EnsureInstance (P3-T03).
 	ValidateConfig(ctx context.Context, in *ValidateConfigRequest, opts ...grpc.CallOption) (*ValidateConfigResponse, error)
 	// EnsureInstance runs the instance up to target_phase (storage → config → network → container — steps 7–10 of
 	// §11.3); idempotent. dry_run returns the planned actions without touching anything.
@@ -97,7 +98,8 @@ type AgentServiceClient interface {
 	UpgradeInstance(ctx context.Context, in *UpgradeInstanceRequest, opts ...grpc.CallOption) (*UpgradeInstanceResponse, error)
 	// WriteDnsRecords writes records/extra-records.json atomically from typed records (sorted, [] when empty).
 	WriteDnsRecords(ctx context.Context, in *WriteDnsRecordsRequest, opts ...grpc.CallOption) (*WriteDnsRecordsResponse, error)
-	// BootstrapPolicy sets the baseline deny-all policy through the CLI inside the container (§11.3 step 12).
+	// BootstrapPolicy sets the baseline deny-all policy through the CLI inside the container (§11.3 step 12), reads it
+	// back and compares sha256; a policy already equal to it is not set again.
 	BootstrapPolicy(ctx context.Context, in *BootstrapPolicyRequest, opts ...grpc.CallOption) (*BootstrapPolicyResponse, error)
 	// BootstrapApiKey expires every API key whose prefix differs from keep_prefix, then creates one (§11.3 step 13).
 	BootstrapApiKey(ctx context.Context, in *BootstrapApiKeyRequest, opts ...grpc.CallOption) (*BootstrapApiKeyResponse, error)
@@ -107,9 +109,12 @@ type AgentServiceClient interface {
 	Restore(ctx context.Context, in *RestoreRequest, opts ...grpc.CallOption) (*RestoreResponse, error)
 	// PostRestoreReconcile expires keys/nodes and resets routes/tags of a restored instance (§17.2 step 5).
 	PostRestoreReconcile(ctx context.Context, in *PostRestoreReconcileRequest, opts ...grpc.CallOption) (*PostRestoreReconcileResponse, error)
-	// EnsureEdgeAttachment attaches the edge to the tenant network after the alias check (§11.3 step 14).
+	// EnsureEdgeAttachment attaches the edge to the tenant network after the alias check (§11.3 step 14). The instance
+	// must run, have a policy (BootstrapPolicy first) and pass the start guard; the first call records the Noise key
+	// fingerprint and writes meta/activated, then the edge_attach flag, then connects the edge (P3-T03).
 	EnsureEdgeAttachment(ctx context.Context, in *EnsureEdgeAttachmentRequest, opts ...grpc.CallOption) (*EnsureEdgeAttachmentResponse, error)
-	// RemoveEdgeAttachment clears the edge_attach flag, then detaches the edge (§11.4).
+	// RemoveEdgeAttachment clears the edge_attach flag, then detaches the edge (§11.4). With
+	// EDGE_DETACH_REASON_COMPENSATION it also removes meta/activated when the same job_id wrote it (§11.3 step 14).
 	RemoveEdgeAttachment(ctx context.Context, in *RemoveEdgeAttachmentRequest, opts ...grpc.CallOption) (*RemoveEdgeAttachmentResponse, error)
 }
 
@@ -326,6 +331,7 @@ type AgentServiceServer interface {
 	GetHostInfo(context.Context, *GetHostInfoRequest) (*GetHostInfoResponse, error)
 	// ValidateConfig renders the configuration of spec into config.next/ and runs `headscale configtest` in a
 	// throw-away container with a scratch data directory (§11.5). A syntax gate only: the health gate decides.
+	// config.next/ and the container are removed whatever happens; config/ is written by EnsureInstance (P3-T03).
 	ValidateConfig(context.Context, *ValidateConfigRequest) (*ValidateConfigResponse, error)
 	// EnsureInstance runs the instance up to target_phase (storage → config → network → container — steps 7–10 of
 	// §11.3); idempotent. dry_run returns the planned actions without touching anything.
@@ -344,7 +350,8 @@ type AgentServiceServer interface {
 	UpgradeInstance(context.Context, *UpgradeInstanceRequest) (*UpgradeInstanceResponse, error)
 	// WriteDnsRecords writes records/extra-records.json atomically from typed records (sorted, [] when empty).
 	WriteDnsRecords(context.Context, *WriteDnsRecordsRequest) (*WriteDnsRecordsResponse, error)
-	// BootstrapPolicy sets the baseline deny-all policy through the CLI inside the container (§11.3 step 12).
+	// BootstrapPolicy sets the baseline deny-all policy through the CLI inside the container (§11.3 step 12), reads it
+	// back and compares sha256; a policy already equal to it is not set again.
 	BootstrapPolicy(context.Context, *BootstrapPolicyRequest) (*BootstrapPolicyResponse, error)
 	// BootstrapApiKey expires every API key whose prefix differs from keep_prefix, then creates one (§11.3 step 13).
 	BootstrapApiKey(context.Context, *BootstrapApiKeyRequest) (*BootstrapApiKeyResponse, error)
@@ -354,9 +361,12 @@ type AgentServiceServer interface {
 	Restore(context.Context, *RestoreRequest) (*RestoreResponse, error)
 	// PostRestoreReconcile expires keys/nodes and resets routes/tags of a restored instance (§17.2 step 5).
 	PostRestoreReconcile(context.Context, *PostRestoreReconcileRequest) (*PostRestoreReconcileResponse, error)
-	// EnsureEdgeAttachment attaches the edge to the tenant network after the alias check (§11.3 step 14).
+	// EnsureEdgeAttachment attaches the edge to the tenant network after the alias check (§11.3 step 14). The instance
+	// must run, have a policy (BootstrapPolicy first) and pass the start guard; the first call records the Noise key
+	// fingerprint and writes meta/activated, then the edge_attach flag, then connects the edge (P3-T03).
 	EnsureEdgeAttachment(context.Context, *EnsureEdgeAttachmentRequest) (*EnsureEdgeAttachmentResponse, error)
-	// RemoveEdgeAttachment clears the edge_attach flag, then detaches the edge (§11.4).
+	// RemoveEdgeAttachment clears the edge_attach flag, then detaches the edge (§11.4). With
+	// EDGE_DETACH_REASON_COMPENSATION it also removes meta/activated when the same job_id wrote it (§11.3 step 14).
 	RemoveEdgeAttachment(context.Context, *RemoveEdgeAttachmentRequest) (*RemoveEdgeAttachmentResponse, error)
 	mustEmbedUnimplementedAgentServiceServer()
 }

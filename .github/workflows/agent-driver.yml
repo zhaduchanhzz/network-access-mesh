@@ -5,7 +5,9 @@
 # rootfs chỉ đọc, cap_drop ALL + CHOWN/FOWNER/DAC_OVERRIDE, no-new-privileges): tenant dùng-một-lần với image
 # [images.mg-headscale] thật — thư mục, file, network, compose up, healthy, status; mọi lời gọi lặp lại (idempotent);
 # stop/start/restart; remove giữ data và hội tụ lại; ca âm (object trùng tên mang label lạ hoặc không label ⇒ từ chối,
-# không đụng gì); remove xóa data. Snapshot `docker ps -a`, `docker network ls` và thư mục gốc tạm trước/sau phải trùng.
+# không đụng gì); remove xóa data. P3-T03 (TestAgentOperationsEndToEnd, không PostgreSQL/worker): configtest trong container
+# tạm, policy + API key qua CLI trong container, gắn/gỡ edge (edge giả: container alpine pin digest), edge supervisor khi
+# edge bị tạo lại, start guard. Snapshot `docker ps -a`, `docker network ls` và thư mục gốc tạm trước/sau phải trùng.
 # Không dùng secret nào (token agent sinh trong test); chỉ action đã pin theo commit SHA. Lọc theo đường dẫn để tiết
 # kiệm phút Actions: chỉ khi agent, driver, template instance, image agent hoặc test thay đổi.
 name: agent-driver
@@ -33,7 +35,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - name: Compose driver trên Docker thật — tenant dùng-một-lần end-to-end trong image agent đã hardening
+      - name: Compose driver + thao tác Agent (P3-T03) trên Docker thật — tenant dùng-một-lần trong image agent đã hardening
         run: AGENTIT_OUT="${RUNNER_TEMP}/agentit" AGENTIT_KEEP_CACHE=0 bash tests/integration/agent/run.sh
       - name: Lưu log và snapshot trước/sau
         if: always()

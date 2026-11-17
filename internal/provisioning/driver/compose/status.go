@@ -6,12 +6,11 @@ import (
 	"encoding/hex"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	agentv1 "github.com/zhaduchanhzz/network-access-mesh/api/agent/v1"
@@ -37,18 +36,26 @@ var healthStates = map[string]agentv1.HealthState{
 
 // InstanceStatus reports the actual state (§11.3 step 11 health gate, §11.4 reconcile and start guard): container,
 // health, image digest, config hash and template version, network and its members, owner/mode of every managed
-// path, meta/activated and the edge_attach flag. The API keys (a CLI call inside the container) and the Noise key
-// fingerprint (a one-shot helper container) arrive with P3-T03.
+// path (data/ files: lstat only), meta/activated, the edge_attach flag, the Noise key fingerprint (one-shot helper
+// container — once per change of the key file) and, with includeAPIKeys, the public part of the API keys (the CLI in
+// the running container — reconcile).
 func (d *Driver) InstanceStatus(ctx context.Context, ref agentspec.Ref, includeAPIKeys bool) (*agentv1.InstanceStatus, error) {
-	if includeAPIKeys {
-		return nil, status.Error(codes.Unimplemented, "include_api_keys needs the CLI inside the container (P3-T03)")
-	}
 	t, err := d.open()
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = t.Close() }()
-	return d.status(ctx, t, newLayout(ref.InstanceID.String()), d.cfg.Host.Names(ref), ref)
+	n := d.cfg.Host.Names(ref)
+	st, err := d.status(ctx, t, newLayout(ref.InstanceID.String()), n, ref)
+	if err != nil {
+		return nil, err
+	}
+	if includeAPIKeys {
+		if st.ApiKeys, err = d.apiKeyInfos(ctx, n, ref); err != nil {
+			return nil, err
+		}
+	}
+	return st, nil
 }
 
 func (d *Driver) status(ctx context.Context, t *tree, l layout, n agentspec.Names, ref agentspec.Ref) (*agentv1.InstanceStatus, error) {
@@ -118,6 +125,9 @@ func (d *Driver) status(ctx context.Context, t *tree, l layout, n agentspec.Name
 		{agentv1.PathKind_PATH_KIND_META_DIR, l.meta}, {agentv1.PathKind_PATH_KIND_COMPOSE_FILE, l.composeFile},
 		{agentv1.PathKind_PATH_KIND_CONFIG_FILE, l.configFile}, {agentv1.PathKind_PATH_KIND_POLICY_FILE, l.policyFile},
 		{agentv1.PathKind_PATH_KIND_RECORDS_FILE, l.recordsFile}, {agentv1.PathKind_PATH_KIND_META_FILE, l.metaFile},
+		{agentv1.PathKind_PATH_KIND_DB_FILE, filepath.Join(l.data, "db.sqlite")},
+		{agentv1.PathKind_PATH_KIND_NOISE_KEY_FILE, filepath.Join(l.data, "noise_private.key")},
+		{agentv1.PathKind_PATH_KIND_DERP_KEY_FILE, filepath.Join(l.data, "derp_server_private.key")},
 	} {
 		ps := &agentv1.PathState{Kind: p.kind}
 		fi, err := t.lstat(p.rel)
@@ -132,8 +142,26 @@ func (d *Driver) status(ctx context.Context, t *tree, l layout, n agentspec.Name
 			ps.Mode = uint32(fi.Mode().Perm() | fi.Mode()&(fs.ModeSetuid|fs.ModeSetgid|fs.ModeSticky|fs.ModeSymlink))
 		}
 		st.Paths = append(st.Paths, ps)
+		if p.kind == agentv1.PathKind_PATH_KIND_NOISE_KEY_FILE && fi != nil && fi.Mode().IsRegular() {
+			st.NoiseKeyFingerprint = d.statusFingerprint(ctx, n, ref, l, identity(fi))
+		}
 	}
 	return st, nil
+}
+
+// statusFingerprint is the fingerprint reported by the status: computed by the helper (cached per key-file
+// identity); empty when it cannot be computed — the status itself never fails on it (the start guard does).
+func (d *Driver) statusFingerprint(ctx context.Context, n agentspec.Names, ref agentspec.Ref, l layout, id fileID) string {
+	gm, err := d.cfg.Guard.ReadMeta(ref.InstanceID)
+	if err != nil || gm == nil {
+		return ""
+	}
+	fp, err := d.fingerprint(ctx, n, ref, gm.RunUID, id)
+	if err != nil {
+		d.cfg.Log.Warn("noise_key_fingerprint_unavailable", "instance_id", l.id, "error", err)
+		return ""
+	}
+	return fp
 }
 
 // ListInstances is the inventory of the host (reconcile, §17.2): every instance directory (UUID name), every

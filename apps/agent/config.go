@@ -39,6 +39,16 @@ type Config struct {
 	AllowlistFile string
 	// Edge (MG_AGENT_EDGE_CONTAINER) is the container name of the shared edge (mg-edge).
 	Edge string
+	// EdgeNetwork (MG_AGENT_EDGE_NETWORK) is the platform network that must carry the edge's default gateway (mg-edge,
+	// gw_priority — §14.3): the edge supervisor raises a Critical event when it drifts.
+	EdgeNetwork string
+	// SupervisorInterval (MG_AGENT_EDGE_SUPERVISOR_INTERVAL) is the period of the edge supervisor and start guard
+	// (§11.4: 30 s); a start of the edge container triggers a cycle at once.
+	SupervisorInterval time.Duration
+	// HelperImage (MG_AGENT_HELPER_IMAGE) is the agent's own image, pinned (<repository>@sha256:<digest> or the local
+	// image id sha256:<digest>): the one-shot helper that computes the Noise key fingerprint runs it (§11.5). Required
+	// with the compose driver.
+	HelperImage string
 	// LockWait (MG_AGENT_LOCK_WAIT) bounds the wait for the per-instance lock before BUSY (§11.5).
 	LockWait time.Duration
 	// Driver (MG_AGENT_DRIVER): "compose" (default — P3-T02) or "none" (every infrastructure operation answers
@@ -56,6 +66,9 @@ type Config struct {
 }
 
 var (
+	dockerName = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]{0,62}$`)
+	// an image pinned by digest: <repository>@sha256:<64 hex> or a local image id
+	pinnedImage = regexp.MustCompile(`^([a-z0-9]+([._-][a-z0-9]+)*(:[0-9]{1,5})?(/[a-z0-9]+([._-]{1,2}[a-z0-9]+)*)*@)?sha256:[0-9a-f]{64}$`)
 	// same rule as internal/config: a secret never comes from the environment (§7.6, §25.1 rule 9)
 	secretName = regexp.MustCompile(`(?i)(PASSWORD|PASSWD|TOKEN|SECRET|_KEY$|_KEY_|APIKEY|CREDENTIAL|KEK)`)
 	envs       = map[string]bool{"dev": true, "ci": true, "staging": true, "production": true}
@@ -82,6 +95,8 @@ func LoadConfig(getenv func(string) string, environ []string) (*Config, error) {
 		TokenFile:     get("MG_AGENT_TOKEN_FILE", ""),
 		AllowlistFile: get("MG_AGENT_IMAGE_ALLOWLIST_FILE", ""),
 		Edge:          get("MG_AGENT_EDGE_CONTAINER", "mg-edge"),
+		EdgeNetwork:   get("MG_AGENT_EDGE_NETWORK", "mg-edge"),
+		HelperImage:   get("MG_AGENT_HELPER_IMAGE", ""),
 		SocketGID:     -1,
 		Driver:        get("MG_AGENT_DRIVER", "compose"),
 		ComposeBin:    get("MG_AGENT_COMPOSE_BIN", "/usr/local/bin/docker-compose"),
@@ -125,8 +140,18 @@ func LoadConfig(getenv func(string) string, environ []string) (*Config, error) {
 	if c.LockWait, err = time.ParseDuration(get("MG_AGENT_LOCK_WAIT", "5s")); err != nil || c.LockWait <= 0 || c.LockWait > 5*time.Minute {
 		errs = append(errs, errors.New("MG_AGENT_LOCK_WAIT: a duration in (0, 5m]"))
 	}
-	if !regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]{0,62}$`).MatchString(c.Edge) {
+	if !dockerName.MatchString(c.Edge) {
 		errs = append(errs, errors.New("MG_AGENT_EDGE_CONTAINER: a container name"))
+	}
+	if !dockerName.MatchString(c.EdgeNetwork) {
+		errs = append(errs, errors.New("MG_AGENT_EDGE_NETWORK: a network name"))
+	}
+	if c.SupervisorInterval, err = time.ParseDuration(get("MG_AGENT_EDGE_SUPERVISOR_INTERVAL", "30s")); err != nil ||
+		c.SupervisorInterval < time.Second || c.SupervisorInterval > 10*time.Minute {
+		errs = append(errs, errors.New("MG_AGENT_EDGE_SUPERVISOR_INTERVAL: a duration in [1s, 10m]"))
+	}
+	if c.Driver == "compose" && !pinnedImage.MatchString(c.HelperImage) {
+		errs = append(errs, errors.New("MG_AGENT_HELPER_IMAGE: the agent's own image pinned by digest (<repository>@sha256:<64 hex> or sha256:<64 hex>) is required with the compose driver"))
 	}
 	if c.Driver != "compose" && c.Driver != "none" {
 		errs = append(errs, errors.New("MG_AGENT_DRIVER must be compose or none"))

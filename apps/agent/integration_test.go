@@ -42,15 +42,20 @@ import (
 
 type itEnv struct {
 	root, image, prefix, pool string
-	nets                      [4]string // four consecutive /29 from MG_IT_NET: the tenant, then three negative cases
+	// eight consecutive /29 from MG_IT_NET: TestComposeDriverEndToEnd uses the first four (the tenant, three negative
+	// cases), TestAgentOperationsEndToEnd the next four (tenants A and B, the alias network, the edge network)
+	nets [8]string
+	// helper: the agent image the test runs in (MG_IT_HELPER_IMAGE, image id); alpine: [images.alpine] (fake edge)
+	helper, alpine string
 }
 
 func itConfig(t *testing.T) itEnv {
 	t.Helper()
-	e := itEnv{root: os.Getenv("MG_IT_ROOT"), image: os.Getenv("MG_IT_IMAGE"), prefix: os.Getenv("MG_IT_PREFIX"), pool: os.Getenv("MG_IT_POOL")}
+	e := itEnv{root: os.Getenv("MG_IT_ROOT"), image: os.Getenv("MG_IT_IMAGE"), prefix: os.Getenv("MG_IT_PREFIX"), pool: os.Getenv("MG_IT_POOL"),
+		helper: os.Getenv("MG_IT_HELPER_IMAGE"), alpine: os.Getenv("MG_IT_ALPINE")}
 	base, err := netip.ParsePrefix(os.Getenv("MG_IT_NET"))
-	if e.root == "" || e.image == "" || e.prefix == "" || e.pool == "" || err != nil || base.Bits() != 29 {
-		t.Fatal("MG_IT_ROOT, MG_IT_IMAGE, MG_IT_PREFIX, MG_IT_POOL and MG_IT_NET (a /29) are required (tests/integration/agent/run.sh)")
+	if e.root == "" || e.image == "" || e.prefix == "" || e.pool == "" || e.helper == "" || e.alpine == "" || err != nil || base.Bits() != 29 {
+		t.Fatal("MG_IT_ROOT, MG_IT_IMAGE, MG_IT_PREFIX, MG_IT_POOL, MG_IT_NET (a /29), MG_IT_HELPER_IMAGE and MG_IT_ALPINE are required (tests/integration/agent/run.sh)")
 	}
 	a := base.Addr().As4()
 	for i := range e.nets {
@@ -84,7 +89,11 @@ func observe(t *testing.T, c *client.Client, root string) world {
 		if self != "" && strings.HasPrefix(s.ID, self) {
 			continue // the container this test runs in (its own state is not part of the host it observes)
 		}
-		w.ctrs[strings.TrimPrefix(s.Names[0], "/")] = fmt.Sprintf("%s %s %s %d", s.ID, s.State, s.Image, s.Created)
+		name := strings.TrimPrefix(s.Names[0], "/")
+		if strings.HasPrefix(name, "mg-helper-") {
+			continue // the agent's one-shot helpers come and go (asserted gone at the end of each test)
+		}
+		w.ctrs[name] = fmt.Sprintf("%s %s %s %d", s.ID, s.State, s.Image, s.Created)
 	}
 	nl, err := c.NetworkList(ctx, client.NetworkListOptions{})
 	if err != nil {
@@ -164,65 +173,8 @@ func TestComposeDriverEndToEnd(t *testing.T) {
 	defer func() { _ = dc.Close() }()
 	before := observe(t, dc, e.root)
 
-	// ---- the test host: layout of /opt/meshguard under MG_IT_ROOT (root-owned like layout.sh), token, allowlist
-	for _, d := range []struct {
-		rel  string
-		mode fs.FileMode
-	}{{"tenants", 0o750}, {"backups", 0o700}, {"backups/tenants", 0o700}, {"run", 0o750}, {"cfg", 0o700}} {
-		if err := os.Mkdir(filepath.Join(e.root, d.rel), d.mode); err != nil {
-			t.Fatal(err)
-		}
-	}
-	t.Cleanup(func() {
-		for _, d := range []string{"tenants", "backups", "run", "cfg"} {
-			_ = os.RemoveAll(filepath.Join(e.root, d))
-		}
-	})
-	write(t, filepath.Join(e.root, "cfg", "token"), token, 0o440)
-	write(t, filepath.Join(e.root, "cfg", "allowlist"), "# test allowlist (versions.lock [images.mg-headscale])\n"+e.image+"\n", 0o644)
-	env := map[string]string{
-		"MG_ENV": "ci", "MG_LOG_LEVEL": "debug", "MG_AGENT_SOCKET": filepath.Join(e.root, "run", "agent.sock"),
-		"MG_AGENT_SOCKET_GID": "20003", "MG_AGENT_PEER_UIDS": "65532",
-		"MG_AGENT_TOKEN_FILE": filepath.Join(e.root, "cfg", "token"), "MG_AGENT_IMAGE_ALLOWLIST_FILE": filepath.Join(e.root, "cfg", "allowlist"),
-		"MG_AGENT_TENANTS_DIR": filepath.Join(e.root, "tenants"), "MG_AGENT_BACKUPS_DIR": filepath.Join(e.root, "backups", "tenants"),
-		"MG_AGENT_RUN_UID_RANGE": "30000-39999", "MG_AGENT_TENANT_NET_POOL": e.pool, "MG_AGENT_PUBLIC_ENTRY_IPV4": "192.0.2.10",
-		"MG_BASE_DOMAIN": "agentit.test", "MG_AGENT_COMPOSE_BIN": os.Getenv("MG_AGENT_COMPOSE_BIN"), "MG_AGENT_LOCK_WAIT": "10s",
-	}
-	if env["MG_AGENT_COMPOSE_BIN"] == "" {
-		env["MG_AGENT_COMPOSE_BIN"] = "/usr/local/bin/docker-compose"
-	}
-	cfg, err := LoadConfig(getenv(env), environ(env))
-	if err != nil {
-		t.Fatal(err)
-	}
-	tok, err := cfg.Prepare()
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg.PeerUIDs, cfg.SocketGID = []uint32{0}, -1 // the test process (root) is the worker
-	logs := &syncBuffer{}
-	h := &harness{logs: logs, cfg: cfg, sock: cfg.Socket, tenants: cfg.Host.TenantsDir}
-	drv, inv, err := buildDriver(ctx, cfg, h.logger())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if drv.Name() != "compose" {
-		t.Fatalf("driver %s", drv.Name())
-	}
-	srv := newServer(cfg, tok, drv, inv, h.logger())
-	l, err := listenUnix(ctx, cfg.Socket, -1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	gs := srv.grpcServer(cfg)
-	go func() { _ = gs.Serve(l) }()
-	t.Cleanup(gs.Stop)
-	ac := h.dial(t, cfg.TokenFile)
-	defer func() {
-		if t.Failed() {
-			t.Logf("agent log:\n%s", logs.String())
-		}
-	}()
+	a := startIT(ctx, t, e, nil)
+	cfg, logs, ac, inv := a.cfg, a.logs, a.client, a.inv
 
 	// ---- the throwaway tenant, typed parameters only
 	_, digest, _ := strings.Cut(e.image, "@")

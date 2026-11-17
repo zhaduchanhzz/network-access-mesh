@@ -42,6 +42,7 @@ type server struct {
 	token   []byte
 	log     *slog.Logger
 	started time.Time
+	edge    string
 }
 
 func newServer(cfg *Config, token []byte, drv Driver, inv agentspec.Inventory, log *slog.Logger) *server {
@@ -54,6 +55,7 @@ func newServer(cfg *Config, token []byte, drv Driver, inv agentspec.Inventory, l
 		token:   token,
 		log:     log,
 		started: time.Now().UTC(),
+		edge:    cfg.Edge,
 	}
 }
 
@@ -241,6 +243,24 @@ func (l *instanceLocks) lock(ctx context.Context, id uuid.UUID) (func(), error) 
 			return nil, ctx.Err()
 		}
 	}
+}
+
+// tryLock takes the instance's lock without waiting (the edge supervisor: an instance busy with an operation is left
+// to its next cycle).
+func (l *instanceLocks) tryLock(id uuid.UUID) (func(), bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if _, busy := l.held[id]; busy {
+		return nil, false
+	}
+	ch := make(chan struct{})
+	l.held[id] = ch
+	return func() {
+		l.mu.Lock()
+		delete(l.held, id)
+		close(ch)
+		l.mu.Unlock()
+	}, true
 }
 
 // locked runs fn under the instance's lock.

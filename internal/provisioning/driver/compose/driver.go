@@ -41,9 +41,16 @@ type Config struct {
 	Engine   Engine
 	Compose  Runner
 	// Edge is the container name of the shared edge (mg-edge): a tenant network with the edge attached is not removed
-	// here (RemoveEdgeAttachment first — §11.4).
+	// here (RemoveEdgeAttachment first — §11.4); the edge supervisor attaches it to the networks of the activated
+	// instances.
 	Edge string
-	Log  *slog.Logger
+	// EdgeNetwork is the platform network that must carry the edge's default gateway (mg-edge, gw_priority — §14.3).
+	EdgeNetwork string
+	// HelperImage is the image of the fingerprint helper (§11.5): the agent's own image, pinned by digest
+	// (MG_AGENT_HELPER_IMAGE); it runs `meshguard-agent noise-fingerprint` as the tenant's run_uid. Empty: every
+	// fingerprint is indeterminate — the start guard then fails closed.
+	HelperImage string
+	Log         *slog.Logger
 }
 
 // Driver is the compose driver: it implements the infrastructure operations of apps/agent's Driver interface up to
@@ -54,6 +61,8 @@ type Driver struct {
 	// createMu serialises the creation of instance directories host-wide: uniqueness of slug, run_uid and subnet is
 	// re-checked under it (the per-instance lock does not exclude two instances racing for the same values).
 	createMu sync.Mutex
+	// fps caches the fingerprint helper's answers per key-file identity (fileid.go).
+	fps fpCache
 }
 
 // New returns a driver; every field of c but Log is required.
@@ -63,6 +72,9 @@ func New(c Config) (*Driver, error) {
 	}
 	if c.Log == nil {
 		c.Log = slog.New(slog.DiscardHandler)
+	}
+	if c.EdgeNetwork == "" {
+		c.EdgeNetwork = "mg-edge"
 	}
 	return &Driver{cfg: c}, nil
 }
@@ -163,6 +175,13 @@ func (d *Driver) ensureStorage(ctx context.Context, t *tree, l layout, s agentsp
 		{l.data, o["data"], activated == nil},
 	} {
 		changed, err := t.ensureDir(p.rel, p.o, p.create)
+		if errors.Is(err, errMissing) && p.rel == l.data {
+			// an activated instance lost data/: never re-created empty — a start-guard violation (§11.4)
+			if m, merr := readMetaMap(t, l); merr == nil {
+				d.contain(ctx, t, l, d.cfg.Host.Names(s.Ref), s.Ref, m, guardCheck{violation: reasonDataMissing}, "ensure_storage")
+			}
+			return state("spec.instance", "data of an activated instance is missing — never re-created empty (start guard, §11.4)")
+		}
 		if errors.Is(err, errMissing) {
 			return state("spec.instance", "%s of an activated instance is missing — never re-created empty (start guard, §11.4)", filepath.Base(p.rel))
 		}
@@ -176,7 +195,7 @@ func (d *Driver) ensureStorage(ctx context.Context, t *tree, l layout, s agentsp
 	return t.ensureFileOwner(l.metaFile, o["metaf"])
 }
 
-// ensureConfig — §11.3 step 8 without configtest (ValidateConfig — P3-T03): render, check the invariants, write
+// ensureConfig — §11.3 step 8 without configtest (ValidateConfig runs it before): render, check the invariants, write
 // atomically the files that differ, then record template_version, config_sha256 and image in meta/instance.json.
 // records/extra-records.json is written ([]) only when absent: WriteDnsRecords owns it afterwards. The image of an
 // existing instance is not changed here (UpgradeInstance — compare-and-swap, §11.4).
@@ -281,8 +300,9 @@ func ownNetwork(nw *Network, s agentspec.InstanceSpec) error {
 }
 
 // ensureContainer — §11.3 step 10: records/extra-records.json must be a regular file holding a JSON array, the network
-// must exist; then `compose up -d` (the image is pinned by digest in compose.yaml; pulled by the daemon when missing)
-// and the container must carry this instance's labels and run exactly that image.
+// must exist, an activated instance must pass the start guard; then `compose up -d` (the image is pinned by digest in
+// compose.yaml; pulled by the daemon when missing) and the container must carry this instance's labels and run
+// exactly that image.
 func (d *Driver) ensureContainer(ctx context.Context, t *tree, l layout, n agentspec.Names, s agentspec.InstanceSpec, r *Rendered) error {
 	raw, err := t.readFile(l.recordsFile, maxRecords)
 	if err != nil {
@@ -300,6 +320,10 @@ func (d *Driver) ensureContainer(ctx context.Context, t *tree, l layout, n agent
 		return state("spec.instance", "network %s does not exist (TARGET_PHASE_NETWORK first)", n.Network)
 	}
 	if err := ownNetwork(nw, s); err != nil {
+		return err
+	}
+	// an activated instance starts only on its own data (start guard, §11.4)
+	if err := d.enforceStartGuard(ctx, t, l, n, s.Ref, "compose_up"); err != nil {
 		return err
 	}
 	uctx, cancel := context.WithTimeout(ctx, upTimeout)
@@ -368,6 +392,10 @@ func (d *Driver) lifecycle(ctx context.Context, c agentspec.Call, timeout time.D
 			} else if nw == nil {
 				return nil, state("instance", "network %s does not exist (EnsureInstance with TARGET_PHASE_NETWORK)", n.Network)
 			}
+			// an activated instance starts only on its own data (start guard, §11.4)
+			if err := d.enforceStartGuard(ctx, t, l, n, c.Ref, args[0]); err != nil {
+				return nil, err
+			}
 		}
 		cctx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
@@ -379,8 +407,9 @@ func (d *Driver) lifecycle(ctx context.Context, c agentspec.Call, timeout time.D
 	return d.status(ctx, t, l, n, c.Ref)
 }
 
-// StartInstance starts the existing container (`compose start`; already running ⇒ nothing changes). The start guard
-// of an activated instance (data/ keys and Noise key fingerprint — §11.4) arrives with P3-T03.
+// StartInstance starts the existing container (`compose start`; already running ⇒ nothing changes). An activated
+// instance passes the start guard first (data/ files and Noise key fingerprint — §11.4): a violation is refused and
+// contained (edge_attach cleared, edge detached, container stopped, Critical event).
 func (d *Driver) StartInstance(ctx context.Context, c agentspec.Call) (*agentv1.InstanceStatus, error) {
 	return d.lifecycle(ctx, c, stopTimeout, "start")
 }
@@ -390,7 +419,8 @@ func (d *Driver) StopInstance(ctx context.Context, c agentspec.Call) (*agentv1.I
 	return d.lifecycle(ctx, c, stopTimeout, "stop")
 }
 
-// RestartInstance restarts the existing container (`compose restart`; a stopped container is started).
+// RestartInstance restarts the existing container (`compose restart`; a stopped container is started) — after the
+// start guard, like StartInstance.
 func (d *Driver) RestartInstance(ctx context.Context, c agentspec.Call) (*agentv1.InstanceStatus, error) {
 	return d.lifecycle(ctx, c, restartTimeout, "restart")
 }
