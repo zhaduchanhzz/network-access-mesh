@@ -7,8 +7,10 @@
 //     internal/provisioning/agentspec, then the ownership guard — before any driver is reached;
 //   - every refusal: a typed gRPC status (Refusal detail: reason + field) and one audit line (agent_call).
 //
-// P3-T01 wires no infrastructure driver: Health and GetHostInfo answer, EnsureInstance can dry-run, every other
-// operation is validated, guarded and then answered UNIMPLEMENTED. The compose driver arrives in P3-T02.
+// The compose driver (P3-T02, internal/provisioning/driver/compose) performs EnsureInstance (storage → config →
+// network → container), GetInstanceStatus, ListInstances, Start/Stop/Restart and RemoveInstance; the other operations
+// are validated, guarded and answered UNIMPLEMENTED until their task (P3-T03, P3-T11, P3-T13a). MG_AGENT_DRIVER=none
+// keeps the P3-T01 behaviour (no Docker access).
 //
 // Subcommands (exit status 0 = ok, 1 = failure, 2 = configuration or usage error):
 //
@@ -21,6 +23,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -30,6 +33,8 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/agentclient"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/kit/buildinfo"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/kit/logx"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/agentspec"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/driver/compose"
 )
 
 func main() {
@@ -66,7 +71,12 @@ func run(ctx context.Context, getenv func(string) string, environ []string, stdo
 		return 2
 	}
 	log := logx.New(stdout, cfg.LogLevel, "agent")
-	srv := newServer(cfg, token, noDriver{}, nil, log)
+	drv, inv, err := buildDriver(ctx, cfg, log)
+	if err != nil {
+		log.Error("agent_driver_failed", "error", err)
+		return 2
+	}
+	srv := newServer(cfg, token, drv, inv, log)
 	l, err := listenUnix(ctx, cfg.Socket, cfg.SocketGID)
 	if err != nil {
 		log.Error("agent_listen_failed", "error", err)
@@ -93,6 +103,38 @@ func run(ctx context.Context, getenv func(string) string, environ []string, stdo
 	}
 	log.Info("agent_stopped")
 	return 0
+}
+
+// buildDriver wires the driver of cfg.Driver. The compose driver talks to the Docker Engine through DOCKER_HOST (a
+// Unix socket) and runs the compose binary of the image; an unreachable engine at start is logged, not fatal (the
+// agent still answers Health; operations fail UNAVAILABLE until the engine is back).
+func buildDriver(ctx context.Context, cfg *Config, log *slog.Logger) (Driver, agentspec.Inventory, error) {
+	if cfg.Driver == "none" {
+		return noDriver{}, nil, nil
+	}
+	fi, err := os.Lstat(cfg.ComposeBin)
+	if err != nil || !fi.Mode().IsRegular() || fi.Mode().Perm()&0o022 != 0 || fi.Mode().Perm()&0o111 == 0 {
+		return nil, nil, fmt.Errorf("MG_AGENT_COMPOSE_BIN must be an executable regular file not writable by group or others")
+	}
+	eng, err := compose.NewEngine(cfg.DockerHost)
+	if err != nil {
+		return nil, nil, err
+	}
+	inv := compose.NewInventory(eng)
+	c, err := compose.New(compose.Config{
+		Host: &cfg.Host, Guard: &agentspec.Guard{Host: &cfg.Host, Inventory: inv, Edge: cfg.Edge}, AgentGID: os.Getegid(),
+		Engine: eng, Compose: &compose.CLI{Command: []string{cfg.ComposeBin}, DockerHost: cfg.DockerHost, ConfigDir: cfg.DockerConfig},
+		Edge: cfg.Edge, Log: log,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	pctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := eng.Ping(pctx); err != nil {
+		log.Warn("agent_docker_unreachable", "docker_host", cfg.DockerHost, "error", err)
+	}
+	return composeDriver{c: c}, inv, nil
 }
 
 // healthcheck calls Health over the socket like the worker would (same token file), as the agent's own UID — the

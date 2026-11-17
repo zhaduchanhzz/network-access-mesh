@@ -22,26 +22,27 @@ Mục tiêu ban đầu: **một** Ubuntu host (IP private trong LAN, thư mục 
 
 ```text
 /opt/meshguard/
-├── core/                       # compose project mg-core và project riêng mg-edge (file compose của từng project, Caddyfile, cấu hình crowdsec/monitoring) — không có secret
+├── core/                       # compose project mg-core và project riêng mg-edge, mg-agent (file compose của từng project, Caddyfile, cấu hình crowdsec/monitoring; agent/allowlist — image Headscale được phép, sinh từ versions.lock bằng tools/render_agent.py, root 0644) — không có secret
 ├── secrets/                    # root:root 0700 — keyring KEK (kek-app/, kek-ops/: mỗi KEK một file <kek_id> + file ACTIVE), mật khẩu DB, token DNS, khóa bouncer (mỗi secret một file 0400 thuộc UID:GID cố định của service dùng nó, trong secrets/<service>/ — không phải root 0400)
 │                               #   ST-05: Compose bỏ qua uid/gid/mode của secret dạng file nên file root:root 0400 KHÔNG đọc được từ edge/api/worker (non-root — §14.4).
 │                               #   UID:GID số của từng service core ghim trong compose (user:) và versions.lock; thư mục cha vẫn root 0700 (file được bind mount riêng lẻ).
 │                               #   Secret mà hai UID cùng cần (khóa bouncer: crowdsec + edge; mật khẩu DB: postgres + api/worker/migrate) lưu mỗi consumer một bản, xoay cùng lúc.
 │                               #   Không dùng 0444, không chạy service bằng root; service không đọc được secret ⇒ dừng ngay và chỉ log đường dẫn, không log giá trị.
 ├── tenants/
+│   ├── .<instance_id>.creating/ .<instance_id>.removing/  # tạm của Agent (tên ẩn, không phải UUID — guard bỏ qua): instance mới dựng xong rồi rename vào chỗ; gỡ thì rename đi rồi xóa
 │   └── <instance_id>/          # root:run_gid 0750 — tiến trình tenant KHÔNG ghi được vào đây
-│       ├── compose.yaml        # do Agent render lại ở mỗi lần chạy (không secret); root 0440
-│       ├── config/             # config.yaml, bootstrap-policy.hujson (root, mount read-only)
-│       ├── records/            # extra-records.json (không có bản ghi = "[]", không để file rỗng) — Agent ghi atomically; mount read-only cả thư mục (Headscale theo dõi file)
+│       ├── compose.yaml        # do Agent render lại ở mỗi lần chạy (không secret); root:root 0440
+│       ├── config/             # root:run_gid 0750; config.yaml, bootstrap-policy.hujson root:run_gid 0440 (mount read-only)
+│       ├── records/            # root:run_gid 0750; extra-records.json root:run_gid 0440 (không có bản ghi = "[]", không để file rỗng; EnsureInstance chỉ ghi "[]" khi chưa có — sau đó WriteDnsRecords) — Agent ghi atomically; mount read-only cả thư mục (Headscale theo dõi file)
 │       ├── secrets/            # oidc_client_secret (nếu dùng), root 0440 group run_gid
-│       ├── data/               # run_uid 0700: db.sqlite(+wal/shm), noise_private.key, derp_server_private.key
-│       └── meta/               # root: instance.json (tenant_id, instance_id, slug, run_uid, net_cidr, template_version, config_sha256, image digest, noise_key_fingerprint, edge_attach), activated
+│       ├── data/               # run_uid:run_gid 0700 — đường dẫn DUY NHẤT thuộc tenant: db.sqlite(+wal/shm), noise_private.key, derp_server_private.key; chỉ tạo cùng instance, không bao giờ tạo lại cho instance đã có meta/activated
+│       └── meta/               # root:root 0700: instance.json root:root 0400 (tenant_id, instance_id, slug, run_uid, net_cidr — ghi cùng thư mục ở bước 7; template_version, config_sha256, image — bước 8, cùng khóa và định dạng với render_instance.py; noise_key_fingerprint, edge_attach — P3-T03), activated
 ├── backups/                    # root 0700; filesystem riêng (khác tenants/) hoặc có quota + cảnh báo dung lượng — retention không được làm đầy đĩa dữ liệu; nếu là mount riêng thì thêm vào RequiresMountsFor
 │   ├── postgres/               # 10007:mg-sec-backup 0750 — chỉ pg-backup ghi (project mg-backup, P2-T03a)
 │   ├── idp/                    # 10007:mg-sec-backup 0750 — chỉ idp-backup ghi (P2-T05b)
 │   ├── edge/                   # 10001:mg-sec-backup 0750 — bản sao volume ACME của edge (đã mã hóa), chỉ edge-backup ghi
 │   └── tenants/<instance_id>/  # root 0700 — archive đã mã hóa + manifest (agent)
-└── run/agent.sock              # Unix socket worker ↔ agent, 0660 nhóm mg-sec-worker; run/ = root:mg-sec-worker 0750 (thư mục chỉ mount vào hai container này — §11.1)
+└── run/agent.sock              # Unix socket worker ↔ agent, 0660 nhóm mg-sec-worker; run/ = root:mg-sec-worker 0750 (layout.sh, từ P3-T02; thư mục chỉ mount vào hai container này — §11.1)
 ```
 
 **Quyền đọc secret file.** Compose gắn secret dạng file bằng bind mount và **bỏ qua** `uid/gid/mode` khai báo trong compose (ST-05), nên quyền phải đặt ở host cho đúng UID/GID mà tiến trình trong container dùng. Thư mục `secrets/` giữ `root:root 0700` (chỉ Docker daemon cần đi qua, vì từng file được mount riêng vào container khai báo nó); mỗi file thuộc `root:<nhóm>` với mode `0440`, và service non-root nhận GID của nhóm qua `group_add` (ASSUMED theo tài liệu Compose — script kiểm quyền của P1-T03 là phép thử). File `root:root 0400` chỉ dành cho service chạy root. Một service chỉ khai báo đúng các secret nó dùng. Bảng khởi đầu (danh sách file chốt ở P1-T03, bổ sung khi service tương ứng được triển khai):

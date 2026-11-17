@@ -2,8 +2,9 @@
 version: "2"
 run:
   timeout: 5m
-  # Fixture phiên kiểm thử (P2-T15a, tests/security) chỉ build với tag này — lint cả nó.
-  build-tags: [mgtestfixture]
+  # Fixture phiên kiểm thử (P2-T15a, tests/security) chỉ build với tag này — lint cả nó; dockerintegration: test tích
+  # hợp compose driver trên Docker thật (P3-T02, apps/agent/integration_test.go — chạy bằng tests/integration/agent/run.sh).
+  build-tags: [mgtestfixture, dockerintegration]
 linters:
   default: standard
   enable:

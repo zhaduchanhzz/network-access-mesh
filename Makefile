@@ -3,7 +3,7 @@ PYTHON ?= python3
 
 SQLC_VERSION ?= v1.31.1
 
-.PHONY: help docs docs-check render-test lint secret-scan api-lint api-gen agent-gen authz-gen go-test go-lint go-build sqlc sqlc-diff e2e-functional isolation isolation-headscale
+.PHONY: help docs docs-check render-test lint secret-scan api-lint api-gen agent-gen authz-gen go-test go-lint go-build sqlc sqlc-diff e2e-functional isolation isolation-headscale agent-it
 
 help: ## Liệt kê các target
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-14s %s\n", $$1, $$2}'
@@ -18,8 +18,8 @@ secret-scan: ## Quét secret trong repo (cần gitleaks; cấu hình .gitleaks.t
 	@command -v gitleaks >/dev/null || { echo "gitleaks chưa cài — xem README"; exit 1; }
 	gitleaks git --config .gitleaks.toml --redact --no-banner .
 
-render-test: ## Test tham số môi trường (mgenv) + golden test của tool render (instance Headscale, edge, IdP, backup, mg-app) + migrate.sh
-	$(PYTHON) tools/test_mgenv.py && $(PYTHON) tools/test_render_instance.py && $(PYTHON) tools/test_render_edge.py && $(PYTHON) tools/test_render_idp.py && $(PYTHON) tools/test_render_backup.py && $(PYTHON) tools/test_render_app.py && $(PYTHON) tools/test_host_migrate.py
+render-test: ## Test tham số môi trường (mgenv) + golden test của tool render (instance Headscale, edge, IdP, backup, mg-app, mg-agent) + migrate.sh
+	$(PYTHON) tools/test_mgenv.py && $(PYTHON) tools/test_render_instance.py && $(PYTHON) tools/test_render_edge.py && $(PYTHON) tools/test_render_idp.py && $(PYTHON) tools/test_render_backup.py && $(PYTHON) tools/test_render_app.py && $(PYTHON) tools/test_render_agent.py && $(PYTHON) tools/test_host_migrate.py
 
 api-lint: ## Spec-lint api/openapi.yaml (x-permission hai chiều với §8.5/§8.6, x-task, tenant chỉ từ path, action path, problem+json) + seed RBAC/bảng authz đã sinh + test của lint
 	$(PYTHON) tools/openapi_lint.py && $(PYTHON) tools/test_openapi_lint.py
@@ -50,6 +50,9 @@ isolation: ## Isolation suite v1 (P2-T15): ma trận authz sinh từ OpenAPI + I
 
 isolation-headscale: ## IT-06, IT-10 (API key), IT-20 (gồm Locator thật + PostgreSQL) trên hai Headscale thật (cần Docker, python3 ≥ 3.11)
 	bash tests/isolation/headscale/run.sh
+
+agent-it: ## Test tích hợp compose driver của Host Agent trên Docker thật (P3-T02): tenant dùng-một-lần end-to-end trong image agent đã hardening, snapshot trước/sau (cần Docker, python3 ≥ 3.11; DOCKER="sudo docker" nếu cần)
+	bash tests/integration/agent/run.sh
 
 sqlc: ## Sinh lại internal/store/sqlcdb từ database/migrations + database/queries (sqlc pin trong versions.lock; cần CGO)
 	go run github.com/sqlc-dev/sqlc/cmd/sqlc@$(SQLC_VERSION) generate -f database/sqlc.yaml

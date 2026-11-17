@@ -1,5 +1,7 @@
 # CI cho mã Go (P2-T01): kiểm checksum module, gofmt, code sinh từ api/openapi.yaml khớp bản đã commit (P2-T02) và
-# từ api/agent/v1/agent.proto (buf, P3-T01),
+# từ api/agent/v1/agent.proto (buf, P3-T01), test tương đương render Go ↔ tools/render_instance.py của compose driver
+# (P3-T02 — chạy python3 có sẵn trong image golang trên tham số golden/staging/test; vì vậy paths gồm template, tool
+# render, tham số và env file),
 # `sqlc diff` (mã sinh khớp database/migrations + database/queries — P2-T03), go vet, test có race detector (gồm
 # test kiến trúc §13.6, test "canary secret", test định tuyến của mọi operation và test tích hợp internal/store trên
 # PostgreSQL thật: IT-17, RLS, partition, migration trên DB có dữ liệu, truy vấn CI về quyền trên partition), test
@@ -16,11 +18,15 @@ on:
     branches: [main]
     paths: ["**/*.go", "go.mod", "go.sum", ".golangci.yml", ".github/workflows/go.yml", "api/openapi.yaml",
             "internal/httpapi/gen/config.yaml", "api/agent/**", "api/buf.yaml", "api/buf.gen.yaml", "database/**",
-            "docs/planning/implementation-master-plan.md"]
+            "docs/planning/implementation-master-plan.md", "infrastructure/headscale/templates/**", "tools/render_instance.py",
+            "tools/mgenv.py", "infrastructure/environments/*/tenants/**", "infrastructure/environments/*/*.env",
+            "tests/golden/headscale/**", "tests/integration/*/testdata/**", "tests/isolation/headscale/testdata/**", "versions.lock"]
   pull_request:
     paths: ["**/*.go", "go.mod", "go.sum", ".golangci.yml", ".github/workflows/go.yml", "api/openapi.yaml",
             "internal/httpapi/gen/config.yaml", "api/agent/**", "api/buf.yaml", "api/buf.gen.yaml", "database/**",
-            "docs/planning/implementation-master-plan.md"]
+            "docs/planning/implementation-master-plan.md", "infrastructure/headscale/templates/**", "tools/render_instance.py",
+            "tools/mgenv.py", "infrastructure/environments/*/tenants/**", "infrastructure/environments/*/*.env",
+            "tests/golden/headscale/**", "tests/integration/*/testdata/**", "tests/isolation/headscale/testdata/**", "versions.lock"]
 
 permissions:
   contents: read

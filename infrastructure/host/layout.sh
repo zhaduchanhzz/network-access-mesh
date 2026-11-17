@@ -20,7 +20,10 @@ done
 
 sudo install -d -o root -g root -m 0755 "$R" "$R/core" "$R/core/caddy" "$R/core/crowdsec" "$R/core/crowdsec/acquis.d" \
                                          "$R/tenants" "$R/logs"
-sudo install -d -o root -g root -m 0750 "$R/run"
+# run/: thư mục của Unix socket worker ↔ agent (§11.1, §14.2) — chỉ mount vào agent (ghi socket) và worker (nhóm
+# mg-sec-worker đi qua được để connect tới socket 0660); agent đòi thư mục thuộc nó và không cho group/other ghi
+# (P3-T01/P3-T02). Chạy lại trên host đã có run/ root:root sẽ đổi sang nhóm mg-sec-worker.
+sudo install -d -o root -g mg-sec-worker -m 0750 "$R/run"
 sudo install -d -o 10001 -g 10001 -m 0750 "$R/logs/edge"   # access log của edge (UID 10001); crowdsec đọc qua nhóm 10001
 # File log phải có sẵn trước khi crowdsec khởi động: file datasource không nhận file tạo sau lúc start (P1-T06)
 sudo test -e "$R/logs/edge/access.log" || sudo install -o 10001 -g 10001 -m 0640 /dev/null "$R/logs/edge/access.log"

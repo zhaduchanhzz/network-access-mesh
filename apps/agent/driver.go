@@ -8,11 +8,12 @@ import (
 
 	agentv1 "github.com/zhaduchanhzz/network-access-mesh/api/agent/v1"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/agentspec"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/driver/compose"
 )
 
 // Driver performs the operations once they are validated, authorised, locked and guarded. It only ever receives
-// agentspec values — never a raw request. The compose driver (P3-T02, internal/provisioning/driver/compose)
-// implements it together with agentspec.Inventory; this agent (P3-T01) has none.
+// agentspec values — never a raw request. The compose driver (internal/provisioning/driver/compose, P3-T02) implements
+// it together with agentspec.Inventory.
 type Driver interface {
 	Name() string
 	ValidateConfig(ctx context.Context, s agentspec.InstanceSpec) (*agentv1.ValidateConfigResponse, error)
@@ -34,12 +35,45 @@ type Driver interface {
 	RemoveEdgeAttachment(ctx context.Context, d agentspec.EdgeDetach) (*agentv1.RemoveEdgeAttachmentResponse, error)
 }
 
-// noDriver is the driver of P3-T01: every operation answers UNIMPLEMENTED after the request was validated,
-// authorised, locked and guarded.
+// composeDriver is the driver of the agent from P3-T02 on: the compose driver for EnsureInstance (storage → config →
+// network → container), status, inventory, start/stop/restart and remove; every other operation is still
+// UNIMPLEMENTED (after validation, authorisation, lock and guard): ValidateConfig (configtest), BootstrapPolicy,
+// BootstrapApiKey, edge attachment (P3-T03), WriteDnsRecords, Backup/Restore/PostRestoreReconcile (P3-T11),
+// UpgradeInstance (P3-T13a).
+type composeDriver struct {
+	noDriver
+	c *compose.Driver
+}
+
+func (d composeDriver) Name() string { return d.c.Name() }
+func (d composeDriver) EnsureInstance(ctx context.Context, e agentspec.Ensure) (*agentv1.EnsureInstanceResponse, error) {
+	return d.c.EnsureInstance(ctx, e)
+}
+func (d composeDriver) InstanceStatus(ctx context.Context, ref agentspec.Ref, includeAPIKeys bool) (*agentv1.InstanceStatus, error) {
+	return d.c.InstanceStatus(ctx, ref, includeAPIKeys)
+}
+func (d composeDriver) ListInstances(ctx context.Context) ([]*agentv1.InventoryEntry, error) {
+	return d.c.ListInstances(ctx)
+}
+func (d composeDriver) StartInstance(ctx context.Context, c agentspec.Call) (*agentv1.InstanceStatus, error) {
+	return d.c.StartInstance(ctx, c)
+}
+func (d composeDriver) StopInstance(ctx context.Context, c agentspec.Call) (*agentv1.InstanceStatus, error) {
+	return d.c.StopInstance(ctx, c)
+}
+func (d composeDriver) RestartInstance(ctx context.Context, c agentspec.Call) (*agentv1.InstanceStatus, error) {
+	return d.c.RestartInstance(ctx, c)
+}
+func (d composeDriver) RemoveInstance(ctx context.Context, r agentspec.Remove) (*agentv1.RemoveInstanceResponse, error) {
+	return d.c.RemoveInstance(ctx, r)
+}
+
+// noDriver answers UNIMPLEMENTED for every operation (MG_AGENT_DRIVER=none, and the operations composeDriver does not
+// implement yet) — after the request was validated, authorised, locked and guarded.
 type noDriver struct{}
 
 func unimplemented() error {
-	return status.Error(codes.Unimplemented, "no infrastructure driver in this agent yet (compose driver: P3-T02)")
+	return status.Error(codes.Unimplemented, "not implemented by this agent's driver yet")
 }
 
 func (noDriver) Name() string { return "none" }

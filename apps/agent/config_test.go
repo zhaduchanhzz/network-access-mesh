@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,6 +40,12 @@ func TestLoadConfigRefusals(t *testing.T) {
 		"STUN port range not min-max":        func(env map[string]string) { env["MG_AGENT_STUN_PORT_RANGE"] = "3478" },
 		"log level":                          func(env map[string]string) { env["MG_LOG_LEVEL"] = "trace" },
 		"secret value under another MG name": func(env map[string]string) { env["MG_AGENT_PASSWORD"] = "x" },
+		"unknown driver":                     func(env map[string]string) { env["MG_AGENT_DRIVER"] = "kubernetes" },
+		"Docker over TCP":                    func(env map[string]string) { env["DOCKER_HOST"] = "tcp://10.0.0.1:2375" },
+		"Docker over SSH":                    func(env map[string]string) { env["DOCKER_HOST"] = "ssh://root@host" },
+		"relative Docker socket":             func(env map[string]string) { env["DOCKER_HOST"] = "unix://docker.sock" },
+		"relative compose binary":            func(env map[string]string) { env["MG_AGENT_COMPOSE_BIN"] = "docker-compose" },
+		"unclean DOCKER_CONFIG":              func(env map[string]string) { env["DOCKER_CONFIG"] = "/tmp/../root/.docker" },
 	}
 	for name, mut := range cases {
 		env := testEnv(dir)
@@ -53,6 +60,44 @@ func TestLoadConfigRefusals(t *testing.T) {
 		}
 	}
 	t.Logf("%d refused configurations", len(cases))
+}
+
+// TestBuildDriver: none needs no Docker at all; compose needs an executable compose binary nobody else can replace,
+// and starts (logging a warning) even when the engine is unreachable.
+func TestBuildDriver(t *testing.T) {
+	dir := testDir(t)
+	env := testEnv(dir)
+	env["MG_AGENT_DRIVER"] = "none"
+	cfg, err := LoadConfig(getenv(env), environ(env))
+	if err != nil {
+		t.Fatal(err)
+	}
+	logs := &syncBuffer{}
+	log := (&harness{logs: logs}).logger()
+	if d, inv, err := buildDriver(context.Background(), cfg, log); err != nil || d.Name() != "none" || inv != nil {
+		t.Fatalf("none: %v %v %v", d, inv, err)
+	}
+	cfg.Driver = "compose"
+	cfg.DockerHost = "unix://" + filepath.Join(dir, "no-docker.sock")
+	for name, mode := range map[string]os.FileMode{"missing": 0, "not executable": 0o644, "writable by group": 0o775} {
+		bin := filepath.Join(dir, "compose-"+strings.ReplaceAll(name, " ", "-"))
+		if mode != 0 {
+			write(t, bin, "#!/bin/sh\n", mode)
+		}
+		cfg.ComposeBin = bin
+		if _, _, err := buildDriver(context.Background(), cfg, log); err == nil {
+			t.Errorf("compose binary %s: accepted", name)
+		}
+	}
+	cfg.ComposeBin = filepath.Join(dir, "compose")
+	write(t, cfg.ComposeBin, "#!/bin/sh\n", 0o755)
+	d, inv, err := buildDriver(context.Background(), cfg, log)
+	if err != nil || d.Name() != "compose" || inv == nil {
+		t.Fatalf("compose: %v %v %v", d, inv, err)
+	}
+	if len(logs.lines(t, "agent_docker_unreachable")) != 1 {
+		t.Fatal("an unreachable engine at start is not logged")
+	}
 }
 
 func TestPrepareRefusals(t *testing.T) {

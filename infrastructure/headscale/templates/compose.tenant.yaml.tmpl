@@ -16,19 +16,19 @@ services:
       - /var/run/headscale:size=1m,mode=0700,uid=${run_uid},gid=${run_uid}
     volumes:
       - type: bind
-        source: /opt/meshguard/tenants/${instance_id}/config
+        source: ${tenants_dir}/${instance_id}/config
         target: /etc/headscale
         read_only: true
         bind:
           create_host_path: false
       - type: bind
-        source: /opt/meshguard/tenants/${instance_id}/records
+        source: ${tenants_dir}/${instance_id}/records
         target: /etc/headscale-records
         read_only: true
         bind:
           create_host_path: false
       - type: bind
-        source: /opt/meshguard/tenants/${instance_id}/data
+        source: ${tenants_dir}/${instance_id}/data
         target: /var/lib/headscale
         bind:
           create_host_path: false

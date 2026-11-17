@@ -38,8 +38,8 @@ type ContainerInfo struct {
 	Labels map[string]string
 }
 
-// Inventory is the read-only view of Docker the guard checks against. The compose driver (P3-T02) implements it
-// with the Docker API; tests use a fake. Every container and network of the host is listed, not only labelled
+// Inventory is the read-only view of Docker the guard checks against. The compose driver (P3-T02,
+// internal/provisioning/driver/compose: NewInventory) implements it with the Docker Engine API; tests use a fake. Every container and network of the host is listed, not only labelled
 // ones: an unlabelled object with a derived name must be refused, not missed.
 type Inventory interface {
 	Networks(ctx context.Context) ([]NetworkInfo, error)
@@ -58,7 +58,8 @@ type Meta struct {
 // names (§11.1: "FAIL, không adopt").
 type Guard struct {
 	Host *Host
-	// Inventory is the Docker view; nil in the P3-T01 agent (no driver yet): only the filesystem is checked.
+	// Inventory is the Docker view; nil only with MG_AGENT_DRIVER=none (no Docker access): then only the filesystem is
+	// checked.
 	Inventory Inventory
 	// Edge is the container name of the shared edge (mg-edge).
 	Edge string
