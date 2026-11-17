@@ -3,10 +3,10 @@ PYTHON ?= python3
 
 SQLC_VERSION ?= v1.31.1
 
-.PHONY: help docs docs-check render-test lint secret-scan api-lint api-gen authz-gen go-test go-lint go-build sqlc sqlc-diff
+.PHONY: help docs docs-check render-test lint secret-scan api-lint api-gen authz-gen go-test go-lint go-build sqlc sqlc-diff e2e-functional
 
 help: ## Liệt kê các target
-	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-12s %s\n", $$1, $$2}'
+	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-14s %s\n", $$1, $$2}'
 
 docs: ## Sinh lại docs/ từ bản master
 	$(PYTHON) tools/split_plan.py
@@ -44,6 +44,9 @@ sqlc-diff: ## Kiểm mã sinh sqlc khớp schema + queries (như CI)
 
 go-lint: ## golangci-lint (phiên bản pin trong versions.lock)
 	golangci-lint run ./...
+
+e2e-functional: ## Stack dev/CI P2-T01a (compose.yaml): tự kiểm harness, dựng, chạy E2E-01…16, gỡ — kết quả chỉ "functional" (cần Docker, openssl; DOCKER="sudo docker" nếu cần)
+	$(PYTHON) tests/e2e/harness/test_stack.py && $(PYTHON) tests/e2e/harness/e2e.py all
 
 go-build: ## Build meshguard api và worker vào bin/
 	CGO_ENABLED=0 go build -trimpath -o bin/meshguard-api ./apps/api && CGO_ENABLED=0 go build -trimpath -o bin/meshguard-worker ./apps/worker

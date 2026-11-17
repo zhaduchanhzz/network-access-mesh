@@ -1,0 +1,241 @@
+# Stack dev/CI của P2-T01a (§20, §22.1) — CHỈ cho máy dev và runner CI; KHÔNG BAO GIỜ dùng trên host staging/production.
+# Mọi kết quả từ stack này chỉ được ghi "functional": client Tailscale chạy cùng host với Headscale (HS-24), mạng là
+# bridge của Docker — không phải "network E2E verified" (§9.5, §22.1).
+#
+# Không chạy file này một mình: `make e2e-functional` (tests/e2e/harness/e2e.py) render cấu hình bằng chính các tool
+# của repo vào thư mục làm việc <work> rồi ghép các file compose theo thứ tự (file sau ghi đè file trước):
+#   <work>/render/tenant-a/compose.yaml   tools/render_instance.py  ← infrastructure/environments/ci/tenants/tenant-a.json
+#   <work>/render/tenant-b/compose.yaml   tools/render_instance.py  ← .../tenants/tenant-b.json
+#   <work>/render/edge/compose.edge.yaml  tools/render_edge.py      ← .../ci/edge.json (Caddyfile thật, chỉ khối tls đổi)
+#   <work>/render/idp/compose.idp.yaml    tools/render_idp.py       ← .../ci/ci.env (3 realm import sẵn)
+#   compose.yaml (file này)               phần khác của stack thử so với bản render + các service riêng của stack
+# Service của bản render (hs-tenant-a, hs-tenant-b, edge, idp, idp-db) giữ nguyên image, user, rootfs chỉ đọc, cap,
+# healthcheck…; file này chỉ đổi tên container, nguồn bind (thư mục <work> thay cho /opt/meshguard), file secret và bỏ
+# cổng publish của edge (stack thử không mở cổng nào trên host).
+#
+# Biến ${MGE_*} (KHÔNG có secret) do harness ghi vào <work>/stack.env, truyền bằng --env-file. Secret (mật khẩu DB,
+# admin Keycloak, token edge, pre-auth key, API key) sinh mới mỗi lượt thành file 0400 trong <work>/secrets, gắn vào
+# container dạng file — không bao giờ nằm trong biến môi trường, file compose hay log.
+#
+# TLS của edge: CA nội bộ sinh mới mỗi lượt (EC P-256, hạn 1 ngày, name constraint chỉ mesh.<domain .test của stack>);
+# khóa của CA bị xóa ngay sau khi ký chứng chỉ wildcard duy nhất của edge. Client tin CA này qua SSL_CERT_FILE/
+# SSL_CERT_DIR trỏ vào thư mục chỉ chứa ca.crt. Chỉ dùng cho CI: thiết bị thật dùng client chính thức, vốn chỉ tin
+# chứng chỉ công khai (X-8, CL-02) — triển khai thật luôn dùng ACME (§15.4).
+#
+# Network do harness tạo trước (external, giống infrastructure/host/networks.sh và Agent ở §11.3): tenant là /29
+# --internal; edge được gắn vào network tenant LÚC CHẠY (docker network connect, không reload Caddy — §14.6) sau khi
+# policy deny-all đã áp (§11.3 bước 12).
+
+x-hardening: &hardening
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+
+# Client Tailscale chính thức ([images.tailscale], pin digest), userspace networking, state trên tmpfs (mất khi xóa
+# container), không gửi log về Tailscale Inc. (HS-22), chỉ tin CA nội bộ của lượt chạy.
+x-client: &client
+  <<: *hardening
+  image: ${MGE_IMG_TAILSCALE:?chạy qua tests/e2e/harness (make e2e-functional)}
+  read_only: true
+  tmpfs:
+    - /tmp:size=16m,mode=1777
+    - /var/lib/tailscale:size=8m,mode=0700
+    - /var/run/tailscale:size=1m,mode=0755   # containerboot symlink socket vào đây (đường mặc định của CLI)
+  volumes:
+    - type: bind
+      source: ${MGE_WORK}/ca
+      target: /etc/mg-ci-ca
+      read_only: true
+      bind:
+        create_host_path: false
+  networks: [mg-edge]
+  extra_hosts:
+    - "tenant-a.${MGE_MESH_DOMAIN}:${MGE_EDGE_IP}"
+    - "tenant-b.${MGE_MESH_DOMAIN}:${MGE_EDGE_IP}"
+  mem_limit: 256m
+  pids_limit: 128
+  restart: "no"
+  labels:
+    meshguard.role: e2e-client
+
+x-client-env: &client-env
+  TS_USERSPACE: "true"
+  TS_STATE_DIR: /var/lib/tailscale
+  TS_SOCKET: /tmp/tailscaled.sock
+  TS_AUTHKEY: file:/run/secrets/authkey       # đường dẫn tới file secret, không phải giá trị key
+  TS_AUTH_ONCE: "true"
+  TS_ACCEPT_DNS: "false"
+  TS_NO_LOGS_NO_SUPPORT: "true"
+  SSL_CERT_FILE: /etc/mg-ci-ca/ca.crt
+  SSL_CERT_DIR: /etc/mg-ci-ca
+
+services:
+  # ------------------------------------------------------------ ghi đè service của bản render (chỉ phần khác)
+  hs-tenant-a:
+    container_name: ${MGE_PREFIX}-hs-tenant-a
+    volumes:
+      - &hs-bind
+        type: bind
+        source: ${MGE_WORK}/render/tenant-a/config
+        target: /etc/headscale
+        read_only: true
+        bind:
+          create_host_path: false
+      - {<<: *hs-bind, source: "${MGE_WORK}/render/tenant-a/records", target: /etc/headscale-records}
+      - {<<: *hs-bind, source: "${MGE_WORK}/data/tenant-a", target: /var/lib/headscale, read_only: false}
+      - {<<: *hs-bind, source: "${MGE_WORK}/policies", target: /etc/mg-e2e}   # fixture test-allow-intra (§22.1)
+  hs-tenant-b:
+    container_name: ${MGE_PREFIX}-hs-tenant-b
+    volumes:
+      - {<<: *hs-bind, source: "${MGE_WORK}/render/tenant-b/config"}
+      - {<<: *hs-bind, source: "${MGE_WORK}/render/tenant-b/records", target: /etc/headscale-records}
+      - {<<: *hs-bind, source: "${MGE_WORK}/data/tenant-b", target: /var/lib/headscale, read_only: false}
+      - {<<: *hs-bind, source: "${MGE_WORK}/policies", target: /etc/mg-e2e}
+
+  edge:
+    container_name: ${MGE_PREFIX}-edge
+    ports: !reset []                # client của stack nối thẳng IP của edge trên network edge
+    volumes:
+      - {<<: *hs-bind, source: "${MGE_WORK}/render/edge/caddy", target: /etc/caddy}
+      - {<<: *hs-bind, source: "${MGE_WORK}/logs/edge", target: /var/log/caddy, read_only: false}
+    secrets:
+      - source: edge_tls_cert
+        target: edge_tls_cert
+      - source: edge_tls_key
+        target: edge_tls_key
+
+  idp-db:
+    volumes:
+      - {<<: *hs-bind, source: "${MGE_WORK}/render/idp/idp/initdb", target: /docker-entrypoint-initdb.d}
+  idp:
+    volumes:
+      - {<<: *hs-bind, source: "${MGE_WORK}/render/idp/idp/realms", target: /opt/keycloak/data/import}
+
+  # ------------------------------------------------------------ service riêng của stack thử
+  # PostgreSQL của Management Plane (thiết lập như compose.core.yaml), dữ liệu trên tmpfs (chỉ sống trong lượt chạy).
+  postgres:
+    <<: *hardening
+    image: ${MGE_IMG_POSTGRES:?}
+    container_name: ${MGE_PREFIX}-postgres
+    user: "999:999"
+    read_only: true
+    tmpfs:
+      - /var/run/postgresql:size=1m,mode=0775,uid=999,gid=999
+      - /tmp:size=64m,mode=1777
+      - /var/lib/postgresql:size=512m,mode=0700,uid=999,gid=999
+    environment:
+      POSTGRES_DB: meshguard
+      POSTGRES_PASSWORD_FILE: /run/secrets/pg_superuser_password
+    secrets: [pg_superuser_password]
+    networks: [mg-data]
+    shm_size: 128m
+    mem_limit: 1g
+    pids_limit: 256
+    healthcheck:                    # qua TCP: server tạm của initdb chỉ nghe unix socket
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "meshguard"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+    labels:
+      meshguard.role: e2e
+
+  # Migration bằng đường của repo (store.Bootstrap → SetRolePassword → store.MigrateAll — database/README.md):
+  # tests/e2e/harness/dbinit, binary build trong [images.golang], chạy trên distroless nonroot. Chạy một lần (`run`).
+  db-init:
+    <<: *hardening
+    profiles: [tools]
+    image: ${MGE_IMG_DISTROLESS:?}
+    user: "65532:65532"
+    read_only: true
+    entrypoint: ["/usr/local/bin/mg-e2e-dbinit", "-secrets", "/run/mg-db"]
+    volumes:
+      - {<<: *hs-bind, source: "${MGE_WORK}/bin/mg-e2e-dbinit", target: /usr/local/bin/mg-e2e-dbinit}
+      - {<<: *hs-bind, source: "${MGE_WORK}/secrets/dbinit", target: /run/mg-db}
+    networks: [mg-data]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    labels:
+      meshguard.role: e2e
+
+  # STUN dùng chung tại "điểm vào công khai" như staging (§10.1): stund chung network namespace với edge, nghe UDP 3478
+  # trên đúng IP của edge — địa chỉ derp.server.ipv4 mà DERP map của mỗi tenant phát cho client.
+  stund:
+    <<: *hardening
+    image: ${MGE_IMG_STUND:?}
+    network_mode: "service:edge"
+    command: ["-stun=${MGE_EDGE_IP}:3478", "-http=127.0.0.1:3479"]
+    read_only: true
+    mem_limit: 128m
+    pids_limit: 64
+    depends_on: [edge]
+    labels:
+      meshguard.role: e2e
+
+  # Bốn client: a1, a2 (tenant-a) chạy TS_DEBUG_ALWAYS_USE_DERP — mọi lưu lượng đi qua DERP của tenant-a (qua edge);
+  # b1, b2 (tenant-b) để đường trực tiếp. Pre-auth key một lần, sinh lúc chạy, gắn dạng file secret.
+  ts-a1:
+    <<: *client
+    container_name: ${MGE_PREFIX}-ts-a1
+    hostname: a1
+    environment:
+      <<: *client-env
+      TS_HOSTNAME: a1
+      TS_EXTRA_ARGS: --login-server=https://tenant-a.${MGE_MESH_DOMAIN}
+      TS_DEBUG_ALWAYS_USE_DERP: "true"
+    secrets: [{source: authkey_a1, target: authkey}]
+  ts-a2:
+    <<: *client
+    container_name: ${MGE_PREFIX}-ts-a2
+    hostname: a2
+    environment:
+      <<: *client-env
+      TS_HOSTNAME: a2
+      TS_EXTRA_ARGS: --login-server=https://tenant-a.${MGE_MESH_DOMAIN}
+      TS_DEBUG_ALWAYS_USE_DERP: "true"
+    secrets: [{source: authkey_a2, target: authkey}]
+  ts-b1:
+    <<: *client
+    container_name: ${MGE_PREFIX}-ts-b1
+    hostname: b1
+    environment:
+      <<: *client-env
+      TS_HOSTNAME: b1
+      TS_EXTRA_ARGS: --login-server=https://tenant-b.${MGE_MESH_DOMAIN}
+    secrets: [{source: authkey_b1, target: authkey}]
+  ts-b2:
+    <<: *client
+    container_name: ${MGE_PREFIX}-ts-b2
+    hostname: b2
+    environment:
+      <<: *client-env
+      TS_HOSTNAME: b2
+      TS_EXTRA_ARGS: --login-server=https://tenant-b.${MGE_MESH_DOMAIN}
+    secrets: [{source: authkey_b2, target: authkey}]
+
+# Secret dạng file trong <work>/secrets (0400, chủ sở hữu = UID của consumer), sinh mới mỗi lượt.
+secrets:
+  pg_superuser_password: {file: "${MGE_WORK}/secrets/postgres/superuser_password"}
+  idp_keycloak_conf: {file: "${MGE_WORK}/secrets/idp/keycloak.conf"}
+  idp_db_password: {file: "${MGE_WORK}/secrets/idp/db_password"}
+  idp_db_superuser_password: {file: "${MGE_WORK}/secrets/idp/db_superuser_password"}
+  edge_admin_token: {file: "${MGE_WORK}/secrets/edge/admin_token"}
+  edge_metrics_token: {file: "${MGE_WORK}/secrets/edge/metrics_token"}
+  edge_bouncer_key: {file: "${MGE_WORK}/secrets/edge/bouncer_key"}
+  cloudflare_dns_token: {file: "${MGE_WORK}/secrets/edge/cloudflare_dns_token"}   # giá trị ngẫu nhiên, không dùng (không ACME)
+  edge_tls_cert: {file: "${MGE_WORK}/secrets/edge/tls_cert"}
+  edge_tls_key: {file: "${MGE_WORK}/secrets/edge/tls_key"}
+  authkey_a1: {file: "${MGE_WORK}/secrets/clients/a1.authkey"}
+  authkey_a2: {file: "${MGE_WORK}/secrets/clients/a2.authkey"}
+  authkey_b1: {file: "${MGE_WORK}/secrets/clients/b1.authkey"}
+  authkey_b2: {file: "${MGE_WORK}/secrets/clients/b2.authkey"}
+
+networks:
+  mg-edge: {name: "${MGE_PREFIX}-edge", external: true}
+  mg-data: {name: "${MGE_PREFIX}-data", external: true}
+  mg-admin: {name: "${MGE_PREFIX}-admin", external: true}
+  mg-obs: {name: "${MGE_PREFIX}-obs", external: true}
+  mg-sec: {name: "${MGE_PREFIX}-sec", external: true}
+  mg-egress: {name: "${MGE_PREFIX}-egress", external: true}
+  mg-idp-data: {name: "${MGE_PREFIX}-idp-data", external: true}
+  mg-t-tenant-a: {name: "${MGE_PREFIX}-t-tenant-a", external: true}
+  mg-t-tenant-b: {name: "${MGE_PREFIX}-t-tenant-b", external: true}
