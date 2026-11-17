@@ -20,16 +20,24 @@
           (its one trailing newline removed, RT-15) — and enforced (a1 sees a2, TCP 8000 connects); the deny-all
           baseline applied the same way ends the case (a1 has no peer); the register holds the versions, the
           applications and the audit pairs
+  E2E-52  P3-T10 API key rotation through `meshguard-worker admin apikey-rotate` in the running worker (tenant-b, its
+          key adopted with 2160h by E2E-21): without --force the key is not due (exit 0, skipped/not_due, nothing
+          changed); with --force a new key is created with the old one, verified, stored and recorded — the output holds
+          the prefix and the expiry only —, `headscale apikeys list` shows exactly one valid key, the new prefix, the old
+          one expired; the register holds the new prefix and the next secret version, the platform audit pair, no
+          security event; a fresh process (policy-apply) reaches the instance with the stored new key
 Standard library only. The pre-auth key never passes through this process: the Go helper writes it to a 0600 file
 that only the client containers mount.
 """
 from __future__ import annotations
 
+import calendar
 import hashlib
 import json
 import re
 import secrets
 import string
+import time
 
 import checks
 from stack import ENV_DIR, ROOT, SECRET_RE, TENANTS, Stack
@@ -306,9 +314,104 @@ def check_policy_apply(r, st: Stack) -> None:
           "; ".join(rows))
 
 
+# ---------------------------------------------------------------------------------------------------- E2E-52
+ROTATE_SLUG = "tenant-b"
+
+
+def apikey_rotate(st: Stack, *extra: str):
+    """`meshguard admin apikey-rotate` inside the running worker container (no stdin: nothing secret goes in)."""
+    worker = st.compose("ps", "-q", "worker").stdout.strip()
+    p = st.docker("exec", worker, "/usr/local/bin/meshguard", "admin", "apikey-rotate", "--tenant", ROTATE_SLUG, *extra,
+                  check=False, timeout=180)
+    out = {}
+    for line in p.stdout.splitlines():
+        if line.startswith("{"):
+            out = json.loads(line)
+    return p.returncode, out, p.stdout + p.stderr
+
+
+def cli_keys(st: Stack) -> tuple[dict[str, bool], str]:
+    """{prefix: valid} of the instance's API keys from the CLI (`apikeys list -o json`: display prefixes
+    hskey-api-<12>-***, expiration {seconds, nanos}; no expiration = never expires) and the raw listing."""
+    raw = st.headscale(ROTATE_SLUG, "apikeys", "list", "-o", "json").stdout
+    now = time.time()
+    keys = {}
+    for k in json.loads(raw) or []:
+        prefix = str(k.get("prefix", ""))[len("hskey-api-"):][:12]
+        exp = (k.get("expiration") or {}).get("seconds")
+        keys[prefix] = exp is None or int(exp) > now
+    return keys, raw
+
+
+def check_apikey_rotate(r, st: Stack) -> None:
+    rows, ok = [], True
+    sql_row = ("SELECT i.id, i.api_key_prefix, i.api_key_secret_ref FROM tenant_instances i JOIN tenants t ON t.id = i.tenant_id "
+               f"WHERE t.slug = '{ROTATE_SLUG}' AND i.status <> 'removed'")
+    db = lambda: st.exec("postgres", "psql", "-U", "postgres", "-d", "meshguard", "-tAF", "|", "-v", "ON_ERROR_STOP=1",  # noqa: E731
+                         "-c", sql_row).stdout.strip().split("|")
+    instance, old_prefix, old_ref = db()
+    before, _ = cli_keys(st)
+    rows.append(f"before: recorded {old_prefix} (ref …#{old_ref.rsplit('#', 1)[-1]}), valid {sorted(p for p, v in before.items() if v)}")
+    texts = []
+    code, out, text = apikey_rotate(st)
+    texts.append(text)
+    not_due = code == 0 and out.get("outcome") == "skipped" and out.get("skip_reason") == "not_due" and \
+        out.get("key_prefix") == old_prefix and db()[1] == old_prefix
+    ok &= not_due
+    rows.append(f"without --force: exit {code} {out.get('outcome')}/{out.get('skip_reason')}")
+    code, out, text = apikey_rotate(st, "--force")
+    texts.append(text)
+    new_prefix = str(out.get("key_prefix", ""))
+    exp = out.get("expires_at", "")
+    try:
+        days = (calendar.timegm(time.strptime(exp, "%Y-%m-%dT%H:%M:%SZ")) - time.time()) / 86400
+    except ValueError:
+        days = 0
+    rotated = code == 0 and out.get("outcome") == "rotated" and len(new_prefix) == 12 and new_prefix != old_prefix and \
+        89 <= days <= 91 and set(out) == {"tenant_id", "instance_id", "outcome", "key_prefix", "expires_at"}
+    ok &= rotated
+    rows.append(f"--force: exit {code} {out.get('outcome')} prefix {new_prefix} expires {exp} (≈{days:.1f} days), "
+                f"fields {sorted(out)}")
+    after, _ = cli_keys(st)
+    only_new = [p for p, v in after.items() if v] == [new_prefix] and after.get(old_prefix) is False
+    ok &= only_new
+    rows.append(f"CLI: valid {sorted(p for p, v in after.items() if v)}, old {old_prefix} valid={after.get(old_prefix)}")
+    _, prefix, ref = db()
+    version = lambda s: int(s.rsplit("#", 1)[-1])  # noqa: E731
+    recorded = prefix == new_prefix and version(ref) == version(old_ref) + 1
+    ok &= recorded
+    rows.append(f"register: prefix {prefix}, ref version {version(old_ref)} → {version(ref)}")
+    counts = st.exec("postgres", "psql", "-U", "postgres", "-d", "meshguard", "-tAF", "|", "-v", "ON_ERROR_STOP=1", "-c",
+                     "SELECT (SELECT count(*) FROM audit_events WHERE tenant_id IS NULL AND resource_id = "
+                     f"'{instance}' AND action = 'instance.apikey.rotate.requested'), "
+                     "(SELECT count(*) FROM audit_events WHERE tenant_id IS NULL AND resource_id = "
+                     f"'{instance}' AND action = 'instance.apikey.rotate.succeeded' AND details->>'key_prefix' = '{new_prefix}'), "
+                     "(SELECT count(*) FROM security_events WHERE kind LIKE 'apikey.%'), "
+                     f"(SELECT count(*) FROM secrets s JOIN tenants t ON t.id = s.tenant_id WHERE t.slug = '{ROTATE_SLUG}' "
+                     f"AND s.name = 'headscale-api-key' AND s.version = {version(old_ref)} AND s.destroyed_at IS NOT NULL)"
+                     ).stdout.strip()
+    audited = counts == "1|1|0|1"
+    ok &= audited
+    rows.append(f"audit requested|succeeded, security events apikey.*, old version destroyed = {counts}")
+    base = (ROOT / "infrastructure" / "headscale" / "templates" / "bootstrap-policy.hujson").read_text(encoding="utf-8")
+    worker = st.compose("ps", "-q", "worker").stdout.strip()
+    p = st.docker("exec", "-i", worker, "/usr/local/bin/meshguard", "admin", "policy-apply", "--tenant", ROTATE_SLUG,
+                  "--trigger", "bootstrap", "--file", "-", check=False, timeout=180, input=base)
+    applied = p.returncode == 0 and '"state":"applied"' in p.stdout
+    ok &= applied
+    rows.append(f"fresh process with the stored key (policy-apply baseline): exit {p.returncode}")
+    clean = not any(leaked(x) for x in texts) and "mgsec://" not in "".join(texts)
+    ok &= clean
+    rows.append(f"no key or reference in the command output: {clean}")
+    r.add("E2E-52", "P3-T10 xoay API key qua `meshguard admin apikey-rotate` trong worker: chưa tới hạn ⇒ bỏ qua; --force ⇒ "
+          "key mới 90 ngày, đúng 1 key còn hạn (key cũ hết hạn), registry + audit cặp + version secret kế tiếp, "
+          "tiến trình mới dùng được key mới", ok, "; ".join(rows))
+
+
 def run_all(r, st: Stack, guarded) -> None:
     guarded(r, "E2E-32", check_enroll, st)
     guarded(r, "E2E-33", check_prober_stun, st)
     guarded(r, "E2E-34", check_prober_https, st)
     guarded(r, "E2E-35", check_prober_container, st)
     guarded(r, "E2E-36", check_policy_apply, st)
+    guarded(r, "E2E-52", check_apikey_rotate, st)

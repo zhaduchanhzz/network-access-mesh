@@ -15,6 +15,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/audit"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/headscale"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/jobs"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/apikey"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store/sqlcdb"
 )
@@ -29,6 +30,9 @@ const (
 	DefaultEventWindow = 24 * time.Hour
 	// DefaultAgentTimeout bounds one call to the agent, below the 5-minute job timeout of the reconcile kinds.
 	DefaultAgentTimeout = time.Minute
+	// DefaultKeyLockWait bounds the wait of the API key check for the instance's API key lock (a rotation holds it for
+	// a few seconds); past it the check reports api_key_rotation_in_progress (unavailable, no finding).
+	DefaultKeyLockWait = 30 * time.Second
 )
 
 // SecurityRecorder writes a security event (dedupe per DedupeKey): in apps/worker a platform transaction of the
@@ -47,10 +51,11 @@ type Config struct {
 	Security SecurityRecorder
 	// AgentUID/AgentGID own the agent's paths (0 in production).
 	AgentUID, AgentGID uint32
-	// RotationGrace, EventWindow, AgentTimeout: zero = the defaults above.
+	// RotationGrace, EventWindow, AgentTimeout, KeyLockWait: zero = the defaults above.
 	RotationGrace time.Duration
 	EventWindow   time.Duration
 	AgentTimeout  time.Duration
+	KeyLockWait   time.Duration
 	Logger        *slog.Logger
 	// Registerer exports the metrics; nil keeps them unexported.
 	Registerer prometheus.Registerer
@@ -84,6 +89,11 @@ func New(st *store.Store, cfg Config) (*Service, error) {
 	if in.AgentTimeout <= 0 {
 		in.AgentTimeout = DefaultAgentTimeout
 	}
+	wait := cfg.KeyLockWait
+	if wait <= 0 {
+		wait = DefaultKeyLockWait
+	}
+	in.KeyGuard = keyGuard{st: st, wait: wait}
 	s := &Service{st: st, in: in, sec: cfg.Security, log: cfg.Logger, m: newMetrics(cfg.Registerer),
 		drift: map[string]map[string]int{}}
 	if s.log == nil {
@@ -330,6 +340,28 @@ func (s *Service) LatestHostReport(ctx context.Context) (*StoredReport, error) {
 		return nil, fmt.Errorf("reconcile: host report: %w", err)
 	}
 	return &StoredReport{Report: rep, FinishedAt: row.FinishedAt}, nil
+}
+
+// keyGuard is the KeyGuard of the worker (P3-T10): the instance's API key lock of apikey.rotate (store.WithTenantLock
+// with apikey.LockName — a dedicated connection, a rolled-back transaction: nothing is written), under which the
+// recorded prefix and the database clock are read again.
+type keyGuard struct {
+	st   *store.Store
+	wait time.Duration
+}
+
+func (g keyGuard) WithKeyLock(ctx context.Context, tenantID, instanceID uuid.UUID, fn func(context.Context, CurrentKey) error) error {
+	return g.st.WithTenantLock(ctx, tenantID, apikey.LockName, g.wait, func(ctx context.Context) error {
+		var row sqlcdb.GetInstanceForReconcileRow
+		if err := g.st.WithPlatformTx(ctx, func(q *sqlcdb.Queries) error {
+			var err error
+			row, err = q.GetInstanceForReconcile(ctx, sqlcdb.GetInstanceForReconcileParams{ID: instanceID, TenantID: tenantID})
+			return err
+		}); err != nil {
+			return err
+		}
+		return fn(ctx, CurrentKey{Prefix: deref(row.ApiKeyPrefix), Now: row.CheckedAt})
+	})
 }
 
 func deref(s *string) string {
