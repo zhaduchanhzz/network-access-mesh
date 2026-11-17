@@ -78,10 +78,11 @@ type PlatformJob struct {
 	CreatedAt   time.Time      `json:"created_at"`
 }
 
-// PlatformStep is a step with its raw detail (schema PlatformJobStep).
+// PlatformStep is a step with its raw detail (schema PlatformJobStep) and the status of its compensation.
 type PlatformStep struct {
 	Step
-	Detail map[string]any `json:"detail,omitempty"`
+	Detail             map[string]any `json:"detail,omitempty"`
+	CompensationStatus *string        `json:"compensation_status,omitempty"`
 }
 
 // PlatformError is the full error of a job (schema PlatformJobError).
@@ -330,7 +331,7 @@ func projectPlatform(r sqlcdb.ProvisioningJob, steps []sqlcdb.ProvisioningJobSte
 	j := PlatformJob{ID: r.ID, Kind: r.Kind, TenantID: r.TenantID, Status: r.Status, CurrentStep: r.CurrentStep,
 		Resource: resourceOf(r), Steps: make([]PlatformStep, 0, len(steps)), CreatedAt: r.CreatedAt}
 	for _, s := range steps {
-		ps := PlatformStep{Step: safeStep(s)}
+		ps := PlatformStep{Step: safeStep(s), CompensationStatus: s.CompensationStatus}
 		if len(s.Detail) > 0 {
 			_ = json.Unmarshal(s.Detail, &ps.Detail)
 		}
@@ -363,6 +364,7 @@ var codeText = map[string]string{
 	CodeInterrupted:        "interrupted, will resume",
 	CodeRetriesExhausted:   "no attempt left",
 	CodeCompensationFailed: "rollback failed",
+	CodeCancelled:          "cancelled by an operator",
 }
 
 // stepMessage is the tenant-safe message of a step, from the catalog only (§13.3).
@@ -388,4 +390,14 @@ func stepMessage(status string, code *string) *string {
 		return nil
 	}
 	return &m
+}
+
+// ProjectTx reads one job with its steps in the caller's transaction and returns its safe projection (the body of a
+// 202 answer that enqueued or controlled the job).
+func ProjectTx(ctx context.Context, q *sqlcdb.Queries, id uuid.UUID) (Job, error) {
+	row, steps, err := getJob(ctx, q, id)
+	if err != nil {
+		return Job{}, err
+	}
+	return project(row, steps), nil
 }

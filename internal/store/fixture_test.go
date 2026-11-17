@@ -66,12 +66,12 @@ func newFixture() *fixture {
 var fixtureSteps = map[int64]func(f *fixture, t *testing.T, c *pgx.Conn){
 	1: (*fixture).step1, 2: (*fixture).step2, 3: (*fixture).step3, 4: (*fixture).step4, 5: (*fixture).step5, 6: (*fixture).step6,
 	7: (*fixture).step7, 8: (*fixture).step8, 9: (*fixture).step9, 10: (*fixture).step10, 11: (*fixture).step11,
-	12: (*fixture).step12, 13: (*fixture).step13, 14: (*fixture).step14,
+	12: (*fixture).step12, 13: (*fixture).step13, 14: (*fixture).step14, 15: (*fixture).step15,
 }
 
 // latestMigration is the number of the last migration of database/migrations (TestMigrationsUpWithData,
 // TestMigrationsShareClusterRoles).
-const latestMigration = 14
+const latestMigration = 15
 
 func (f *fixture) insertAll(t *testing.T, c *pgx.Conn) {
 	t.Helper()
@@ -318,4 +318,9 @@ func (f *fixture) step13(t *testing.T, c *pgx.Conn) {
 func (f *fixture) step14(t *testing.T, c *pgx.Conn) {
 	exec(t, c, `UPDATE hosts SET public_entry = '{"ipv4": "192.0.2.10", "mode": "direct"}',
 		capacity = '{"max_instances": 50}' WHERE id = $1`, f.host)
+}
+
+// step15 (0015, P3-T05): a job that took a /cancel request (provisioning_jobs.cancel_requested_at).
+func (f *fixture) step15(t *testing.T, c *pgx.Conn) {
+	exec(t, c, `UPDATE provisioning_jobs SET cancel_requested_at = now() WHERE id = $1`, f.a.job)
 }
