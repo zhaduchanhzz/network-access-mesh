@@ -2,8 +2,11 @@ package runner
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
+	"fmt"
 	"log/slog"
+	"os"
 	"sync"
 
 	"github.com/google/uuid"
@@ -19,6 +22,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/idp/keycloak"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/jobs"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/monitoring"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/notifications"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/secrets"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store/sqlcdb"
@@ -35,6 +39,8 @@ const partitionRole = "mg_partition_maint"
 //	devices          inventory.sync + device.revoke handlers, the inventory.sync schedule, JobAlert (P2-T13)
 //	monitoring       health.probe handler over the Headscale registry's Probe, its schedule (P2-T13a)
 //	identity         session.gc on the worker's store, scheduled through jobs.Worker.RegisterPeriodic (P2-T06)
+//	notifications    notification.send over the SMTP relay of MG_SMTP_* (none configured ⇒ e-mail rows cancelled,
+//	                 Portal records kept — refused in production by config) — P3-T05b
 //	idp              driver registry keycloak (narrow route to auth.<domain> incl. /admin/realms, provisioning identity
 //	                 from the SecretStore — platform_ops) + external (hardened client) — P2-T05a
 //	readiness        postgres, secretstore, edge_admin (§16.2)
@@ -75,6 +81,13 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 		return nil, err
 	}
 	if err := identity.NewSessionGC(d.st, log, nil).Register(w); err != nil {
+		return nil, err
+	}
+	sender, err := newNotificationSender(cfg, d.st, log)
+	if err != nil {
+		return nil, err
+	}
+	if err := sender.Register(w); err != nil {
 		return nil, err
 	}
 	drivers, provisioned, err := idpDrivers(ctx, cfg, d)
@@ -187,4 +200,42 @@ func (p platformSecurity) RecordSecurityEvent(ctx context.Context, ev audit.Secu
 		return err
 	})
 	return recorded, err
+}
+
+// newNotificationSender builds the notification.send handler (P3-T05b): the SMTP relay of MG_SMTP_* (nil mailer when
+// MG_SMTP_ADDR is unset), the Portal and Console links of the templates from MG_BASE_DOMAIN.
+func newNotificationSender(cfg config.Config, st *store.Store, log *slog.Logger) (*notifications.Sender, error) {
+	sc := notifications.SenderConfig{Logger: log, MessageIDDomain: cfg.BaseDomain}
+	if h := cfg.AppHost(); h != "" {
+		sc.PortalURL = "https://" + h
+	}
+	if h := cfg.AdminHost(); h != "" {
+		sc.ConsoleURL = "https://" + h
+	}
+	if cfg.SMTP.Addr != "" {
+		mc := notifications.SMTPConfig{Addr: cfg.SMTP.Addr, TLS: cfg.SMTP.TLS, ServerName: cfg.SMTP.ServerName,
+			Username: cfg.SMTP.Username, PasswordFile: cfg.SMTP.PasswordFile, From: cfg.SMTP.From}
+		if cfg.SMTP.CAFile != "" {
+			pool, err := x509.SystemCertPool()
+			if err != nil {
+				pool = x509.NewCertPool()
+			}
+			pem, err := os.ReadFile(cfg.SMTP.CAFile) //nolint:gosec // G304: deployment configuration (MG_SMTP_CA_FILE)
+			if err != nil || !pool.AppendCertsFromPEM(pem) {
+				return nil, fmt.Errorf("MG_SMTP_CA_FILE: no PEM certificate could be read from %s", cfg.SMTP.CAFile)
+			}
+			mc.RootCAs = pool
+		}
+		m, err := notifications.NewSMTPMailer(mc)
+		if err != nil {
+			return nil, err
+		}
+		sc.Mailer = m
+		if d := m.FromDomain(); d != "" {
+			sc.MessageIDDomain = d
+		}
+		log.Info("notification relay configured", "smtp_addr", cfg.SMTP.Addr, "tls", cfg.SMTP.TLS,
+			"auth", cfg.SMTP.Username != "")
+	}
+	return notifications.NewSender(st, sc)
 }

@@ -32,7 +32,7 @@ var allowed = map[string][]string{
 	"config":        {"store"},
 	"audit":         {"store"},
 	"jobs":          {"store"},
-	"notifications": {"audit", "store"},
+	"notifications": {"audit", "store", "jobs"}, // jobs: notification.send enqueued in the event's transaction (P3-T05b)
 	"secrets":       {"store"},
 	"authz":         {"store"},
 	"kit":           {},

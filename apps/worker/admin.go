@@ -71,8 +71,12 @@ func (r *realmList) Set(v string) error {
 func admin(ctx context.Context, args []string, stdin stdinFile, stdout, stderr io.Writer, getenv func(string) string,
 	environ []string,
 ) int {
+	if len(args) > 0 && args[0] == "policy-apply" {
+		return policyApply(ctx, args[1:], stdin, stdout, stderr, policyApplyEnv{getenv: getenv, environ: environ,
+			open: openPolicyCore})
+	}
 	if len(args) == 0 || args[0] != "idp-bootstrap" {
-		_, _ = io.WriteString(stderr, "meshguard-worker admin: unknown command\n"+adminUsage)
+		_, _ = io.WriteString(stderr, "meshguard-worker admin: unknown command\n"+adminUsage+policyApplyUsage)
 		return 2
 	}
 	fset := flag.NewFlagSet("idp-bootstrap", flag.ContinueOnError)

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/mail"
 	"net/netip"
 	"path/filepath"
 	"regexp"
@@ -65,6 +66,21 @@ type Config struct {
 	// driver's provisioning identity; empty = the driver's default (mg-provisioner). Its secret is found in the
 	// SecretStore (platform_ops), never configured.
 	IdPProvisionerClientID string
+	// SMTP is the relay of notification e-mails (worker only — P3-T05b, §21.3 external dependency). Addr empty = no relay:
+	// e-mail notifications are cancelled and only the Portal records are delivered — refused in production.
+	SMTP SMTP
+}
+
+// SMTP is the notification relay of the worker (MG_SMTP_*). The password is a file secret (MG_SMTP_PASSWORD_FILE), never
+// a value in the environment.
+type SMTP struct {
+	Addr         string // MG_SMTP_ADDR host:port
+	TLS          string // MG_SMTP_TLS: starttls (default), implicit (port 465), none (dev/ci test sink only)
+	ServerName   string // MG_SMTP_SERVER_NAME: TLS server name; default the host of Addr
+	Username     string // MG_SMTP_USERNAME: "" = no authentication
+	PasswordFile string // MG_SMTP_PASSWORD_FILE: absolute path of the file secret; required with a username
+	From         string // MG_SMTP_FROM: RFC 5322 sender, e.g. "MeshGuard <no-reply@example.com>"
+	CAFile       string // MG_SMTP_CA_FILE: PEM bundle trusted in addition to the system roots (private relay)
 }
 
 // AppHost is the Tenant Portal origin app.<MG_BASE_DOMAIN> (§8.3, §15.4); "" without a domain.
@@ -184,6 +200,10 @@ func Load(service string, getenv func(string) string, environ []string) (Config,
 	if cfg.IdPProvisionerClientID != "" && (service != "worker" || !clientIDRE.MatchString(cfg.IdPProvisionerClientID)) {
 		errs = append(errs, errors.New("MG_IDP_PROVISIONER_CLIENT_ID: a client id ([a-z0-9-], at most 64) of the worker's IdP driver"))
 	}
+	cfg.SMTP, err = loadSMTP(service, cfg.Env, getenv)
+	if err != nil {
+		errs = append(errs, err)
+	}
 	cfg.Wired = cfg.Env != "dev" || strings.TrimSpace(getenv("MG_DB_URL")) != ""
 	if cfg.Wired && services[service] {
 		errs = append(errs, cfg.loadDependencies(getenv)...)
@@ -236,6 +256,66 @@ func (c *Config) loadDependencies(getenv func(string) string) []error {
 		}
 	}
 	return errs
+}
+
+// smtpTLS are the accepted MG_SMTP_TLS values.
+var smtpTLS = map[string]bool{"starttls": true, "implicit": true, "none": true}
+
+// loadSMTP reads MG_SMTP_* (worker only). Errors name variables, never values.
+func loadSMTP(service, env string, getenv func(string) string) (SMTP, error) {
+	c := SMTP{
+		Addr:         strings.TrimSpace(getenv("MG_SMTP_ADDR")),
+		TLS:          strings.ToLower(withDefault(getenv("MG_SMTP_TLS"), "starttls")),
+		ServerName:   strings.TrimSpace(getenv("MG_SMTP_SERVER_NAME")),
+		Username:     strings.TrimSpace(getenv("MG_SMTP_USERNAME")),
+		PasswordFile: strings.TrimSpace(getenv("MG_SMTP_PASSWORD_FILE")),
+		From:         strings.TrimSpace(getenv("MG_SMTP_FROM")),
+		CAFile:       strings.TrimSpace(getenv("MG_SMTP_CA_FILE")),
+	}
+	set := c.Addr != "" || c.ServerName != "" || c.Username != "" || c.PasswordFile != "" || c.From != "" || c.CAFile != "" ||
+		strings.TrimSpace(getenv("MG_SMTP_TLS")) != ""
+	if service != "worker" {
+		if set {
+			return SMTP{}, errors.New("MG_SMTP_*: the notification relay is configured on the worker only (notification.send)")
+		}
+		return SMTP{}, nil
+	}
+	if c.Addr == "" {
+		switch {
+		case env == "production":
+			return SMTP{}, errors.New("MG_SMTP_ADDR is required in production (notification e-mails — §21.3)")
+		case set:
+			return SMTP{}, errors.New("MG_SMTP_*: MG_SMTP_ADDR is required when another MG_SMTP_ variable is set")
+		}
+		return SMTP{}, nil
+	}
+	var errs []error
+	if err := checkAddr(c.Addr); err != nil {
+		errs = append(errs, fmt.Errorf("MG_SMTP_ADDR: %w", err))
+	} else if h, _, _ := net.SplitHostPort(c.Addr); h == "" {
+		errs = append(errs, errors.New("MG_SMTP_ADDR: a host is required"))
+	}
+	if !smtpTLS[c.TLS] {
+		errs = append(errs, errors.New("MG_SMTP_TLS must be starttls, implicit or none"))
+	}
+	if c.TLS == "none" && env != "dev" && env != "ci" {
+		errs = append(errs, errors.New("MG_SMTP_TLS=none is allowed only in dev and ci (the test mail sink)"))
+	}
+	if a, err := mail.ParseAddress(c.From); err != nil || a.Address == "" {
+		errs = append(errs, errors.New("MG_SMTP_FROM must be an RFC 5322 address (\"Name <addr@domain>\")"))
+	}
+	switch {
+	case c.Username != "" && !filepath.IsAbs(c.PasswordFile):
+		errs = append(errs, errors.New("MG_SMTP_PASSWORD_FILE must be the absolute path of the relay password (file secret)"))
+	case c.Username == "" && c.PasswordFile != "":
+		errs = append(errs, errors.New("MG_SMTP_PASSWORD_FILE is set without MG_SMTP_USERNAME"))
+	case c.Username != "" && c.TLS == "none":
+		errs = append(errs, errors.New("MG_SMTP_USERNAME: authentication requires TLS (MG_SMTP_TLS starttls or implicit)"))
+	}
+	if c.CAFile != "" && !filepath.IsAbs(c.CAFile) {
+		errs = append(errs, errors.New("MG_SMTP_CA_FILE must be an absolute path"))
+	}
+	return c, errors.Join(errs...)
 }
 
 // parsePrefixes reads a comma-separated list of IP addresses (taken as single-address prefixes) and CIDRs.
