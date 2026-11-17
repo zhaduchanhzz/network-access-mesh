@@ -318,6 +318,24 @@ func TestDevicesThroughTheComposedAPI(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+	// Every job has finished now (each closes its pair): the revocations still hold. An inventory.sync of the POST /sync
+	// rows may have listed the nodes before a device.revoke expired them and applied that snapshot after the settlement;
+	// its older expiry must not have overwritten the verified one (checked here, once no job can write any more, rather
+	// than right after the states turned applied).
+	for _, id := range []string{other, mine} {
+		if v := n(`SELECT count(*) FROM device_inventory_cache WHERE id = $1 AND revocation_state = 'applied'
+				AND expiry IS NOT NULL AND expiry <= revocation_requested_at`, id); v != 1 {
+			var row string
+			w.Scan(t, `SELECT format('state %s, expiry %s, requested %s, verified %s, synced %s', revocation_state, expiry,
+				revocation_requested_at, revocation_verified_at, last_synced_at) FROM device_inventory_cache WHERE id = $1`, []any{id}, &row)
+			t.Errorf("device %s: cached expiry later than its applied revocation (%s)", id, row)
+		}
+	}
+	for _, nodeID := range []uint64{1, 2} {
+		if nd, _ := fakes[w.A].Node(nodeID); nd.Expiry == nil || nd.Expiry.After(time.Now()) {
+			t.Errorf("node %d of A: expiry %v after its revocation", nodeID, nd.Expiry)
+		}
+	}
 	if v := n(`SELECT count(*) FROM audit_events WHERE action = 'device.delete.succeeded' AND resource_id = $1 AND actor_identity_id = $2
 			AND tenant_id = $3`, mine2, eu.IdentityID, w.A.ID); v != 1 {
 		t.Errorf("device.delete.succeeded of the End User: %d", v)

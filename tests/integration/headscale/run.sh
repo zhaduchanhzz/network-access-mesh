@@ -130,7 +130,14 @@ d run --rm -v "$ROOT:/src:ro" -v "$P-gomod:/go/pkg/mod" -v "$P-gocache:/root/.ca
 # ---------------------------------------------------------------- image Headscale được thử (bản vá P2-T10a)
 # Mặc định: [images.mg-headscale] nếu đã pin và mang đúng bộ bản vá của cây này (label patched-commit = ARG
 # HEADSCALE_PATCHED_COMMIT của Dockerfile — commit đó là hàm của tarball + các bản vá); ngược lại build từ cây.
-TREE_COMMIT=$(sed -n 's/^ARG HEADSCALE_PATCHED_COMMIT=\([0-9a-f]\{40\}\)$/\1/p' "$ROOT/infrastructure/docker/headscale/Dockerfile")
+# Dockerfile khai báo ARG này ở cả stage build (kiểm commit) lẫn stage runtime (label): hai giá trị phải trùng, lấy
+# giá trị duy nhất — trước đây sed trả hai dòng nên không bao giờ bằng label và contract luôn build từ cây.
+TREE_COMMIT=$(sed -n 's/^ARG HEADSCALE_PATCHED_COMMIT=\([0-9a-f]\{40\}\)$/\1/p' "$ROOT/infrastructure/docker/headscale/Dockerfile" | sort -u)
+if ! [[ "$TREE_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "infrastructure/docker/headscale/Dockerfile: ARG HEADSCALE_PATCHED_COMMIT phải có đúng một giá trị ở mọi stage, có: $(echo $TREE_COMMIT)"
+  exit 2
+fi
+log "bộ bản vá của cây: patched-commit $TREE_COMMIT"
 if [ -z "${HSCT_HS_IMAGE:-}" ] && [ -n "$HS_IMAGE" ]; then
   d image inspect "$HS_IMAGE" >/dev/null 2>&1 || d pull -q "$HS_IMAGE" >/dev/null
   pinned=$(d image inspect -f '{{index .Config.Labels "io.meshguard.headscale.patched-commit"}}' "$HS_IMAGE")
