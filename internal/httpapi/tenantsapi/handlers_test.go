@@ -279,6 +279,42 @@ func TestRegistryReadsThroughTheChain(t *testing.T) {
 	if ib := decode[gen.Instance](t, "GET instance B", staff.get(admin+"/platform/instances/"+instB.String())); ib.TenantId != b {
 		t.Fatalf("GET /platform/instances/B = %+v", ib)
 	}
+	// instance health: the rule of the dashboards (monitoring.HealthOf, P2-T13a) at the database clock of the read
+	if h := insts.Items[0].Health; h.CheckedAt != nil || h.Reason == nil || *h.Reason != "never_checked" {
+		t.Fatalf("never probed: %+v", h)
+	}
+	const rec1 = `{"schema":1,"status":"healthy","version":"v0.29.7","database":true,"breaker":"closed","duration_ms":4}`
+	exec(`UPDATE tenant_instances SET last_health = $2::jsonb, last_health_at = now() - $3::interval WHERE id = $1`,
+		instA, rec1, "1 second")
+	exec(`UPDATE tenant_instances SET last_health = $2::jsonb, last_health_at = now() - $3::interval WHERE id = $1`,
+		instB, rec1, "1 hour")
+	health := func(inst uuid.UUID) gen.InstanceHealth {
+		return decode[gen.Instance](t, "GET instance", staff.get(admin+"/platform/instances/"+inst.String())).Health
+	}
+	reason := func(h gen.InstanceHealth) string {
+		if h.Reason == nil {
+			return ""
+		}
+		return *h.Reason
+	}
+	if h := health(instA); h.Status != "healthy" || h.CheckedAt == nil || reason(h) != "" {
+		t.Fatalf("fresh probe: %+v", h)
+	}
+	if h := health(instB); h.Status != "unknown" || h.CheckedAt == nil || reason(h) != "stale" {
+		t.Fatalf("probe older than monitoring.DefaultStaleAfter: %+v (reason %q)", h, reason(h))
+	}
+	exec(`UPDATE tenant_instances SET status = 'stopped' WHERE id = $1`, instA)
+	if h := health(instA); h.Status != "unknown" || h.CheckedAt == nil || reason(h) != "instance_not_running" {
+		t.Fatalf("stopped instance: %+v (reason %q)", h, reason(h))
+	}
+	exec(`UPDATE tenant_instances SET status = 'running', last_health = '{"status":"healthy"}' WHERE id = $1`, instA)
+	if h := health(instA); h.Status != "unknown" || reason(h) != "invalid_record" {
+		t.Fatalf("record not written by health.probe: %+v (reason %q)", h, reason(h))
+	}
+	list := decode[gen.InstanceList](t, "GET /platform/instances", staff.get(admin+"/platform/instances"))
+	if len(list.Items) != 2 || reason(list.Items[0].Health) != "invalid_record" || reason(list.Items[1].Health) != "stale" {
+		t.Fatalf("list view: %+v", list.Items)
+	}
 	problemOf(t, "unknown instance", staff.get(admin+"/platform/instances/"+uuid.NewString()), 404, gen.ProblemCodeNotFound)
 	problemOf(t, "bad status", staff.get(admin+"/platform/instances?status=asleep"), 422, gen.ProblemCodeValidationFailed)
 	// staff are members of no tenant, and reach no tenant-internal data without a Support Access Grant (P4-T13)

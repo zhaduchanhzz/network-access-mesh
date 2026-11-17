@@ -96,8 +96,9 @@ func TestHostsAndInstances(t *testing.T) {
 		t.Fatalf("ListInstances = %+v, %v", page, err)
 	}
 	a := page.Items[0]
-	if a.Health != "healthy" || a.HealthCheckedAt == nil || *a.DerpRegionID != 901 || a.NetCIDR.String() != "10.250.0.0/29" ||
-		page.Items[1].Health != "unknown" {
+	if string(a.LastHealth) != `{"status": "healthy"}` || a.HealthCheckedAt == nil || a.HealthCheckedAt.After(a.ReadAt) ||
+		a.ReadAt.IsZero() || *a.DerpRegionID != 901 || a.NetCIDR.String() != "10.250.0.0/29" ||
+		page.Items[1].LastHealth != nil || page.Items[1].HealthCheckedAt != nil || !page.Items[1].ReadAt.Equal(a.ReadAt) {
 		t.Errorf("instance view %+v / %+v", a, page.Items[1])
 	}
 	raw, _ := json.Marshal(page)

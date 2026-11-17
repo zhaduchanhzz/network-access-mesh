@@ -27,9 +27,11 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/auditapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/authzhook"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/devicesapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/monitoringapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/tenantsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/kit/logx"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/kit/requestid"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/monitoring"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/platform"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/secrets"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store/storetest"
@@ -50,13 +52,14 @@ const unreachableEdge = "http://127.0.0.1:1"
 
 // handlerSets are the production handler sets of the composed API under test — every set that exists on main, wired
 // as the api process wires them (P2-T16): Tenants (P2-T11, tenantsapi over internal/tenants + internal/platform),
-// Devices (P2-T13, devicesapi over internal/devices) and Audit (P2-T08); the identity handlers (Auth, P2-T06) are added
-// by the fixture. The device service reaches Headscale only through the production registry — headscale.NewRegistry
-// over the real Locator of P2-T11 (tenant_instances read in the tenant's own scope, API key from the SecretStore that
-// holds the canaries) — pointed at unreachableEdge. mountedOps switches the expectations of the mounted operations from
-// 501 to real answers (own object accepted; another member's object under an own-only grant, another tenant's object
-// and a missing one ⇒ 404). Still 501: the Jobs set (HTTP handlers of the jobs API, deferred by P2-T12 to P2-T16) and
-// Monitoring (P2-T13a) — add them here when they exist.
+// Devices (P2-T13, devicesapi over internal/devices), Audit (P2-T08) and Monitoring (P2-T13a, monitoringapi over
+// internal/monitoring — the api side: reads only, no Prober; device counts through devices.Service.Summary as in
+// apps/*); the identity handlers (Auth, P2-T06) are added by the fixture. The device service reaches Headscale only
+// through the production registry — headscale.NewRegistry over the real Locator of P2-T11 (tenant_instances read in the
+// tenant's own scope, API key from the SecretStore that holds the canaries) — pointed at unreachableEdge. mountedOps
+// switches the expectations of the mounted operations from 501 to real answers (own object accepted; another member's
+// object under an own-only grant, another tenant's object and a missing one ⇒ 404). Still 501: the Jobs set (HTTP
+// handlers of the jobs API, deferred by P2-T12 to P2-T16) — add it here when it exists.
 func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi.Handlers {
 	t.Helper()
 	log := logx.New(m.svcLog, slog.LevelDebug, "matrix")
@@ -75,10 +78,19 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 	if err != nil {
 		t.Fatal(err)
 	}
+	counts := monitoring.DeviceCounterFunc(func(ctx context.Context, tenant uuid.UUID) (monitoring.DeviceCounts, error) {
+		s, err := dev.Summary(ctx, tenant)
+		return monitoring.DeviceCounts(s), err // same fields: checked by the compiler
+	})
+	mon, err := monitoring.New(w.Store, monitoring.Config{Devices: counts, Logger: log, Registerer: prometheus.NewRegistry()})
+	if err != nil {
+		t.Fatal(err)
+	}
 	return httpapi.Handlers{
-		Tenants: tenantsapi.New(dir, platform.New(w.Store)),
-		Devices: devicesapi.New(dev),
-		Audit:   auditapi.New(audit.NewReader(w.Store)),
+		Tenants:    tenantsapi.New(dir, platform.New(w.Store)),
+		Devices:    devicesapi.New(dev),
+		Audit:      auditapi.New(audit.NewReader(w.Store)),
+		Monitoring: monitoringapi.New(mon),
 	}
 }
 

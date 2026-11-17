@@ -75,9 +75,9 @@ var recipes = map[string]recipe{
 	"getTenantJob":     {},
 	"listPlatformJobs": {},
 	"getPlatformJob":   {},
-	// monitoring (P2-T13a — not mounted yet)
-	"getTenantDashboard": {},
-	"getPlatformHealth":  {},
+	// monitoring (P2-T13a, monitoringapi — mounted; reads only the database)
+	"getTenantDashboard": {ok: answer{status: http.StatusOK}},
+	"getPlatformHealth":  {ok: answer{status: http.StatusOK}},
 }
 
 // objectKind is what a path parameter (other than the {tenantId} context of a tenant route) designates.

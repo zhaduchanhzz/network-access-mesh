@@ -10,6 +10,11 @@
 // registry metadata of schema Tenant/Instance only — never memberships or any other tenant-internal data (§8.4
 // invariant 2), and never the reference of an instance API key.
 //
+// The health of an instance is derived by monitoring.HealthOf — the rule of the dashboards (P2-T13a): the verdict of
+// the last recorded probe while it is younger than monitoring.DefaultStaleAfter at the database clock of the read,
+// otherwise unknown with a stable reason (never_checked, instance_not_running, invalid_record, stale). The api's
+// monitoring.Config.StaleAfter must stay at that default while this view uses it (P2-T16).
+//
 // Wiring (P2-T16, apps/internal/runner):
 //
 //	tenantsapi.New(tenants.New(apiStore, tenants.Options{BaseDomain: cfg.BaseDomain}), platform.New(apiStore))
@@ -30,6 +35,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/gen"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/problem"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/identity"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/monitoring"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/platform"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/tenants"
 )
@@ -270,13 +276,23 @@ func toInstance(i platform.Instance) gen.Instance {
 	out := gen.Instance{
 		Id: i.ID, TenantId: i.TenantID, HostId: i.HostID, Status: gen.InstanceStatus(i.Status),
 		HeadscaleVersion: i.HeadscaleVersion, ImageDigest: i.ImageDigest, ControlHostname: i.ControlHostname,
-		ServerUrl: i.ServerURL, RunUid: int(i.RunUID), NetCidr: i.NetCIDR.String(),
-		Health:  gen.InstanceHealth{Status: gen.HealthStatus(i.Health), CheckedAt: utcPtr(i.HealthCheckedAt)},
+		ServerUrl: i.ServerURL, RunUid: int(i.RunUID), NetCidr: i.NetCIDR.String(), Health: instanceHealth(i),
 		Version: i.Version, ApiKeyExpiresAt: utcPtr(i.APIKeyExpiresAt), NoiseKeyFingerprint: i.NoiseKeyFingerprint,
 	}
 	if i.DerpRegionID != nil {
 		v := int(*i.DerpRegionID)
 		out.DerpRegionId = &v
+	}
+	return out
+}
+
+// instanceHealth applies the health rule of the dashboards (monitoring.HealthOf) to the recorded probe of i.
+func instanceHealth(i platform.Instance) gen.InstanceHealth {
+	h := monitoring.HealthOf(i.Status, i.LastHealth, i.HealthCheckedAt, i.ReadAt, monitoring.DefaultStaleAfter)
+	out := gen.InstanceHealth{Status: gen.HealthStatus(h.Status), CheckedAt: utcPtr(h.CheckedAt)}
+	if h.Reason != "" {
+		r := h.Reason
+		out.Reason = &r
 	}
 	return out
 }

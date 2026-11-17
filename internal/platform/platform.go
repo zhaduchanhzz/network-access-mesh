@@ -8,7 +8,6 @@ package platform
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/netip"
@@ -40,13 +39,6 @@ var (
 	ErrConflict = errors.New("platform: conflict with the registry")
 )
 
-// Health statuses of InstanceHealth (schema HealthStatus).
-const (
-	HealthHealthy   = "healthy"
-	HealthUnhealthy = "unhealthy"
-	HealthUnknown   = "unknown"
-)
-
 // Instance is a tenant's Headscale instance as platform staff see it (schema Instance) — no secret, no reference.
 type Instance struct {
 	ID                  uuid.UUID
@@ -62,10 +54,15 @@ type Instance struct {
 	NetCIDR             netip.Prefix
 	APIKeyExpiresAt     *time.Time
 	NoiseKeyFingerprint *string
-	Health              string     // HealthHealthy, HealthUnhealthy or HealthUnknown
-	HealthCheckedAt     *time.Time // last_health_at
-	Version             int64
-	CreatedAt           time.Time
+	// LastHealth and HealthCheckedAt are tenant_instances.last_health / last_health_at as health.probe recorded them
+	// (P2-T13a — a record of stable codes, no secret); ReadAt is the database clock of the read. The health shown is
+	// derived from them by monitoring.HealthOf in the HTTP adapter (tenantsapi) — the same rule as the dashboards
+	// (stale, instance not running, never probed); platform may not import monitoring (§13.6).
+	LastHealth      []byte
+	HealthCheckedAt *time.Time
+	ReadAt          time.Time
+	Version         int64
+	CreatedAt       time.Time
 }
 
 // InstancePage is one page of instances.
@@ -142,6 +139,10 @@ func (s *Service) ListInstances(ctx context.Context, f InstanceFilter) (Instance
 		if err != nil {
 			return err
 		}
+		now, err := q.MonitoringNow(ctx) // the database clock of this read (statement_timestamp)
+		if err != nil {
+			return err
+		}
 		out = InstancePage{Items: make([]Instance, 0, min(len(rows), limit))}
 		for i, r := range rows {
 			if i == limit {
@@ -149,7 +150,7 @@ func (s *Service) ListInstances(ctx context.Context, f InstanceFilter) (Instance
 				out.NextCursor = encodeCursor(last.CreatedAt, last.ID)
 				break
 			}
-			out.Items = append(out.Items, instance(r))
+			out.Items = append(out.Items, instance(r, now))
 		}
 		return nil
 	})
@@ -170,7 +171,11 @@ func (s *Service) GetInstance(ctx context.Context, id uuid.UUID) (Instance, erro
 		if err != nil {
 			return err
 		}
-		out = instance(r)
+		now, err := q.MonitoringNow(ctx) // the database clock of this read (statement_timestamp)
+		if err != nil {
+			return err
+		}
+		out = instance(r, now)
 		return nil
 	})
 	return out, err
@@ -295,34 +300,17 @@ func host(r sqlcdb.Host) (Host, error) {
 		TenantNetPool: r.TenantNetPool}, nil
 }
 
-func instance(r sqlcdb.TenantInstance) Instance {
+func instance(r sqlcdb.TenantInstance, now time.Time) Instance {
 	out := Instance{ID: r.ID, TenantID: r.TenantID, HostID: r.HostID, Status: r.Status,
 		HeadscaleVersion: r.HeadscaleVersion, ImageDigest: r.ImageDigest, ControlHostname: r.ControlHostname,
 		ServerURL: r.ServerUrl, DerpRegionID: r.DerpRegionID, RunUID: r.RunUid, NetCIDR: r.NetCidr,
-		APIKeyExpiresAt: r.ApiKeyExpiresAt, NoiseKeyFingerprint: r.NoiseKeyFingerprint, Health: HealthUnknown,
-		Version: r.Version, CreatedAt: r.CreatedAt.UTC()}
+		APIKeyExpiresAt: r.ApiKeyExpiresAt, NoiseKeyFingerprint: r.NoiseKeyFingerprint, LastHealth: r.LastHealth,
+		ReadAt: now.UTC(), Version: r.Version, CreatedAt: r.CreatedAt.UTC()}
 	if r.LastHealthAt != nil {
 		t := r.LastHealthAt.UTC()
 		out.HealthCheckedAt = &t
-		out.Health = healthOf(r.LastHealth)
 	}
 	return out
-}
-
-// healthOf reads the status of tenant_instances.last_health ({"status": "healthy"|"unhealthy", …} written by the
-// health.probe job — P2-T13a); anything else is unknown.
-func healthOf(raw []byte) string {
-	var h struct {
-		Status string `json:"status"`
-	}
-	if len(raw) == 0 || json.Unmarshal(raw, &h) != nil {
-		return HealthUnknown
-	}
-	switch h.Status {
-	case HealthHealthy, HealthUnhealthy:
-		return h.Status
-	}
-	return HealthUnknown
 }
 
 // The cursor is opaque to clients: base64url of "<created_at RFC 3339>|<id>" of the last item of the page.
