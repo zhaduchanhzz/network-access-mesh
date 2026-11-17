@@ -6,7 +6,9 @@ Mã Go trong `security/` dùng fixture phiên kiểm thử `security/sessionfixt
 cần trình duyệt hay IdP) và **chỉ build với tag `mgtestfixture`** — mọi file của fixture và của package import nó bắt đầu bằng
 `//go:build mgtestfixture` (`internal/archtest` kiểm, và kiểm binary `api`/`worker` không phụ thuộc fixture). Chạy:
 `go test -race -count=1 -tags mgtestfixture ./tests/...` (cần `MG_TEST_PG_ADMIN_URL` như mọi test PostgreSQL; bài đăng nhập
-Keycloak thật `security/oidclogin` tự bỏ qua khi thiếu `MG_TEST_KEYCLOAK_URL`).
+Keycloak thật `security/oidclogin` tự bỏ qua khi thiếu `MG_TEST_KEYCLOAK_URL`). `security/bootstrapseed` (P2-T11a): Super
+Admin và TO/TA tạo bằng `bootstrap-super-admin`/`seed-membership` đăng nhập và hành động qua API ghép (khớp theo
+`(idp_id, sub)`, không theo email; SA không vào dữ liệu nội bộ tenant; TO của A nhận 404 ở B).
 
 ## `e2e/harness` — stack dev/CI và kiểm thử functional (P2-T01a)
 

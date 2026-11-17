@@ -9,6 +9,11 @@
 //     through headscale.Registry.ForTenant — the production path; then expires every other API key of the instance
 //     (Phase 1 keys included) and activates tenant and instance.
 //   - RegisterPlatformIdP and SetClientSecret (`meshguard admin register-platform-idp`, `set-idp-client-secret`).
+//   - Bootstrapper (P2-T11a): BootstrapSuperAdmin (`meshguard admin bootstrap-super-admin` — the first two Super
+//     Admins by (platform IdP, sub), refused from SuperAdminThreshold active Super Admins on, under the Super Admin
+//     assignment lock) and SeedMembership (`meshguard admin seed-membership` — Tenant Owner / Tenant Admin by (the
+//     tenant's own IdP, sub), without tenant_invitations). Their audit events (actor_type system) are written with
+//     internal/audit in the transaction of the change; the issuer binding is the database's (composite foreign keys).
 //
 // Nothing here prints, logs or returns a credential: keys travel as headscale.Secret, the SecretStore keeps them
 // encrypted, the registry holds mgsec:// references and public key prefixes only. Audit events go through the Auditor
