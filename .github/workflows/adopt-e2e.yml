@@ -1,0 +1,41 @@
+# End-to-end của `meshguard admin adopt-instance` (P2-T11): Headscale v0.29.7 thật (pin digest, config + meta/instance.json
+# render bằng tools/render_instance.py) qua đúng khối listener admin của edge trong infrastructure/caddy/Caddyfile.tmpl
+# (Caddy pin digest), PostgreSQL pin digest; key mới `apikeys create -o json` được pipe thẳng vào stdin của tiến trình
+# test. Mọi credential (token edge, mật khẩu cụm thử, API key) sinh mới trong container dùng-một-lần trên runner —
+# workflow không dùng secret nào của repo. Log của test chỉ chứa reference và prefix công khai.
+name: adopt-e2e
+
+on:
+  push:
+    branches: [main]
+    paths: ["apps/api/**", "internal/headscale/**", "internal/tenants/**", "internal/platform/**",
+            "internal/provisioning/**", "internal/secrets/**", "internal/store/**", "internal/config/**", "database/**",
+            "tests/integration/adopt/**", "infrastructure/caddy/Caddyfile.tmpl", "infrastructure/headscale/templates/**",
+            "tools/render_instance.py", "tools/mgenv.py", "versions.lock", ".github/workflows/adopt-e2e.yml"]
+  pull_request:
+    paths: ["apps/api/**", "internal/headscale/**", "internal/tenants/**", "internal/platform/**",
+            "internal/provisioning/**", "internal/secrets/**", "internal/store/**", "internal/config/**", "database/**",
+            "tests/integration/adopt/**", "infrastructure/caddy/Caddyfile.tmpl", "infrastructure/headscale/templates/**",
+            "tools/render_instance.py", "tools/mgenv.py", "versions.lock", ".github/workflows/adopt-e2e.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  adopt:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - name: adopt-instance ↔ Headscale v0.29.7 qua listener admin của edge (key Phase 1 hết hạn, xoay key, canary)
+        run: ADOPT_OUT="${RUNNER_TEMP}/adopt" ADOPT_KEEP_CACHE=0 bash tests/integration/adopt/run.sh
+      - name: Lưu log (chỉ reference và prefix công khai)
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: adopt-e2e
+          path: ${{ runner.temp }}/adopt/
+          retention-days: 14
+          if-no-files-found: warn
