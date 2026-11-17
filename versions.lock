@@ -176,13 +176,13 @@ note = "meshguard-worker build từ cbb91d5 (Phase 3 đợt 1: migration 0009–
 
 [images.mg-agent]
 image = "ghcr.io/zhaduchanhzz/network-access-mesh/agent"
-tag = "cbb91d5ac4cbe304bc072feaa06888097e5795eb"
-index = "sha256:39bfb8f4a543673689137769b88ace6bee215e4333d81e8802f73ac429ead4b9"   # một manifest linux/amd64 (docker v2 schema 2)
-amd64 = "sha256:39bfb8f4a543673689137769b88ace6bee215e4333d81e8802f73ac429ead4b9"
+tag = "b6cb4308f06ca9eb3aad66f9a35021efa028a550"
+index = "sha256:a748d966164246f98b136385fd138bfef2369682b84f5bd4191dca08129f4920"   # một manifest linux/amd64 (docker v2 schema 2)
+amd64 = "sha256:a748d966164246f98b136385fd138bfef2369682b84f5bd4191dca08129f4920"
 user = "0:0"
 run_as = "root (Host Agent — thành phần DUY NHẤT có Docker socket, ADR-05); compose: network_mode none, cap_drop ALL + CHOWN/FOWNER/DAC_OVERRIDE, rootfs chỉ đọc; chỉ Unix socket 0660 nhóm mg-sec-worker (P3-T01/P3-T02)"
 released = "2026-11-18"
-note = "meshguard-agent build từ cbb91d5 (P3-T01 khung + lớp kiểm tra; driver compose ở P3-T02); workflow images run 44135009137 xanh (gồm bước kiểm image riêng); digest, user và label revision đọc từ GHCR ngày 2026-11-18"
+note = "meshguard-agent build từ b6cb430 (P3-T01 khung + lớp kiểm tra, P3-T02 driver compose + docker-compose v5.7.0 build lại từ nguồn); workflow images run 44151631931 xanh (gồm bước kiểm image riêng: sha256 + version của docker-compose, driver compose trong healthcheck); digest, user và label revision đọc từ GHCR ngày 2026-11-18"
 
 [images.mg-probe]
 image = "ghcr.io/zhaduchanhzz/network-access-mesh/probe"
