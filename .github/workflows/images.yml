@@ -1,6 +1,6 @@
-# Build image tự làm (P1-T04, P2-T01, P2-T05, P2-T10a, P2-T03a): edge (Caddy + module), stund, api, worker, idp
+# Build image tự làm (P1-T04, P2-T01, P2-T05, P2-T10a, P2-T03a, P3-T01): edge (Caddy + module), stund, api, worker, idp
 # (Keycloak), headscale (Headscale v0.29.7 + bản vá V-26 — infrastructure/docker/headscale, ADR-02 sửa đổi 2026-11-17),
-# backup (meshguard-backup + pg_dump 18.7 + age — project mg-backup), probe (meshguard-probe — P3-T03a). Mỗi image:
+# backup (meshguard-backup + pg_dump 18.7 + age — project mg-backup), probe (meshguard-probe — P3-T03a), agent (Host Agent — P3-T01). Mỗi image:
 # build từ base pin theo digest, kiểm nội dung, sinh SBOM (syft), quét lỗ hổng (grype — chặn nếu có mức Critical), rồi
 # mới push lên GHCR. Digest đưa vào versions.lock bằng commit riêng. Action và công cụ pin theo commit SHA / SHA-256,
 # chọn bản đã ≥ 14 ngày tuổi. Ngoại lệ grype chỉ qua file riêng của từng image (cột grype_config — hiện chỉ idp), bắt
@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ["infrastructure/docker/**", "apps/**", "internal/**", "go.mod", "go.sum", ".github/workflows/images.yml"]
+    paths: ["infrastructure/docker/**", "apps/**", "internal/**", "api/agent/**", "go.mod", "go.sum", ".github/workflows/images.yml"]
 
 permissions:
   contents: read
@@ -37,6 +37,8 @@ jobs:
           - {image: backup, dockerfile: infrastructure/docker/backup/Dockerfile, context: ".",                        app: backup, grype_config: ""}
           # probe: Prober (P3-T03a) — context gốc repo (apps/probe, internal/kit)
           - {image: probe,  dockerfile: infrastructure/docker/probe/Dockerfile,  context: ".",                        app: probe,  grype_config: ""}
+          # agent: Host Agent (P3-T01) — thành phần duy nhất có Docker socket; chạy root, chỉ Unix socket
+          - {image: agent,  dockerfile: infrastructure/docker/agent/Dockerfile,  context: ".",                        app: agent,  grype_config: ""}
     env:
       IMAGE: ghcr.io/${{ github.repository }}/${{ matrix.image }}
       SYFT_VERSION: "1.56.0"
@@ -204,6 +206,34 @@ jobs:
               test "$rc" = 3; grep -q target_not_allowed "${RUNNER_TEMP}/probe-call.txt"
               docker logs smoke 2>&1 | tail -3
               docker rm -f smoke >/dev/null ;;
+            agent)
+              # P3-T01: chạy root (compose của agent thả capability); chỉ Unix socket 0660 nhóm mg-sec-worker (20003) trong
+              # thư mục root 0750; healthcheck = Health với token từ chính UID của agent; UID khác bị từ chối ngay khi kết nối
+              # (SO_PEERCRED); không có socket TCP/UDP nào trong network namespace của container.
+              test "$user" = "0:0"
+              docker run --rm --network none --read-only --cap-drop ALL "${IMAGE}:${GITHUB_SHA}" version | grep '^meshguard-agent '
+              d="${RUNNER_TEMP}/agent"; mkdir -p "$d/run" "$d/tenants" "$d/cfg"
+              openssl rand -hex 32 > "$d/cfg/token"
+              python3 -c 'import tomllib; e = tomllib.load(open("versions.lock", "rb"))["images"]["mg-headscale"]; print(e["image"] + "@" + e["index"])' > "$d/cfg/allowlist"
+              sudo chown -R 0:0 "$d"; sudo chown 0:20003 "$d/run" "$d/cfg/token"
+              sudo chmod 0750 "$d/run" "$d/tenants"; sudo chmod 0440 "$d/cfg/token"; sudo chmod 0444 "$d/cfg/allowlist"
+              env=(-e MG_ENV=ci -e MG_AGENT_SOCKET_GID=20003 -e MG_AGENT_PEER_UIDS=65532 -e MG_AGENT_TOKEN_FILE=/etc/mg-agent/token
+                   -e MG_AGENT_IMAGE_ALLOWLIST_FILE=/etc/mg-agent/allowlist -e MG_AGENT_RUN_UID_RANGE=30000-39999
+                   -e MG_AGENT_TENANT_NET_POOL=10.250.0.0/16 -e MG_AGENT_PUBLIC_ENTRY_IPV4=192.0.2.10 -e MG_BASE_DOMAIN=example.test)
+              docker run -d --name smoke --network none --read-only --cap-drop ALL --cap-add CHOWN --cap-add FOWNER \
+                --cap-add DAC_OVERRIDE --security-opt no-new-privileges "${env[@]}" -v "$d/run:/run/meshguard" \
+                -v "$d/tenants:/opt/meshguard/tenants" -v "$d/cfg:/etc/mg-agent:ro" "${IMAGE}:${GITHUB_SHA}"
+              for i in $(seq 1 20); do docker exec smoke /usr/local/bin/meshguard-agent healthcheck && break; sleep 1; done
+              docker exec smoke /usr/local/bin/meshguard-agent healthcheck
+              test "$(sudo stat -c '%a %u:%g' "$d/run/agent.sock")" = "660 0:20003"
+              rc=0; docker run --rm --network none --read-only --cap-drop ALL -u 12345:20003 "${env[@]}" -v "$d/run:/run/meshguard" \
+                -v "$d/cfg:/etc/mg-agent:ro" "${IMAGE}:${GITHUB_SHA}" healthcheck || rc=$?; test "$rc" = 1
+              docker logs smoke 2>&1 | grep -q '"msg":"agent_peer_refused".*"peer_uid":12345'
+              pid=$(docker inspect -f '{{.State.Pid}}' smoke)
+              n=$(sudo cat "/proc/$pid/net/tcp" "/proc/$pid/net/tcp6" "/proc/$pid/net/udp" "/proc/$pid/net/udp6" | awk '!/local_address/ {n++} END {print n+0}')
+              test "$n" = 0
+              docker logs smoke 2>&1 | tail -3
+              docker rm -f smoke >/dev/null; sudo rm -rf "$d" ;;
           esac
           echo "user=$user OK"
 

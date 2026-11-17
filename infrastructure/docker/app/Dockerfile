@@ -11,6 +11,8 @@ COPY go.mod go.sum ./
 RUN go mod download && go mod verify
 COPY apps ./apps
 COPY internal ./internal
+# mã sinh của giao thức Host Agent (P3-T01) — worker sẽ import internal/agentclient (P3-T05)
+COPY api/agent ./api/agent
 # migration SQL nhúng (database/embed.go) — internal/store import gói này (P2-T03)
 COPY database ./database
 ARG APP

@@ -41,7 +41,7 @@ Mục tiêu ban đầu: **một** Ubuntu host (IP private trong LAN, thư mục 
 │   ├── idp/                    # 10007:mg-sec-backup 0750 — chỉ idp-backup ghi (P2-T05b)
 │   ├── edge/                   # 10001:mg-sec-backup 0750 — bản sao volume ACME của edge (đã mã hóa), chỉ edge-backup ghi
 │   └── tenants/<instance_id>/  # root 0700 — archive đã mã hóa + manifest (agent)
-└── run/agent.sock              # Unix socket worker ↔ agent (thư mục chỉ mount vào hai container này)
+└── run/agent.sock              # Unix socket worker ↔ agent, 0660 nhóm mg-sec-worker; run/ = root:mg-sec-worker 0750 (thư mục chỉ mount vào hai container này — §11.1)
 ```
 
 **Quyền đọc secret file.** Compose gắn secret dạng file bằng bind mount và **bỏ qua** `uid/gid/mode` khai báo trong compose (ST-05), nên quyền phải đặt ở host cho đúng UID/GID mà tiến trình trong container dùng. Thư mục `secrets/` giữ `root:root 0700` (chỉ Docker daemon cần đi qua, vì từng file được mount riêng vào container khai báo nó); mỗi file thuộc `root:<nhóm>` với mode `0440`, và service non-root nhận GID của nhóm qua `group_add` (ASSUMED theo tài liệu Compose — script kiểm quyền của P1-T03 là phép thử). File `root:root 0400` chỉ dành cho service chạy root. Một service chỉ khai báo đúng các secret nó dùng. Bảng khởi đầu (danh sách file chốt ở P1-T03, bổ sung khi service tương ứng được triển khai):

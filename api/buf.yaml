@@ -1,0 +1,14 @@
+# buf (P3-T01): module proto của repo = thư mục api/ (hiện chỉ agent/v1/agent.proto — giao thức worker ↔ Host Agent).
+# buf chạy bằng `go run github.com/bufbuild/buf/cmd/buf@<phiên bản>` (pin trong versions.lock [ci], kiểm qua checksum DB
+# của Go) — xem api/agent/v1/generate.go. Không dùng BSR, không plugin từ xa.
+version: v2
+modules:
+  - path: .
+lint:
+  use: [STANDARD]
+  except:
+    # package là meshguard.agent.v1 (tên đầy đủ duy nhất trong registry protobuf của binary) trong khi đường dẫn
+    # api/agent/v1/agent.proto do §4.4 của master cố định.
+    - PACKAGE_DIRECTORY_MATCH
+breaking:
+  use: [FILE]
