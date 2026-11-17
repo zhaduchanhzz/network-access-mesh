@@ -54,6 +54,7 @@ func (p problemResponse) write(w http.ResponseWriter) error {
 	}
 	h.Set("Content-Type", "application/problem+json")
 	h.Set("Cache-Control", "no-store")
+	h.Set("X-Content-Type-Options", "nosniff") // as every problem of the chain (httpapi.WriteProblem) — P2-T15 scan
 	if p.problem.RequestID != "" {
 		h.Set("X-Request-Id", p.problem.RequestID)
 	}

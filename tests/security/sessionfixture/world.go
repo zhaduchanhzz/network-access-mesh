@@ -23,6 +23,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/authz"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/authzhook"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/gen"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/identityapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/identity"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/kit/logx"
@@ -63,6 +64,9 @@ type Options struct {
 	ClientSecrets identity.ClientSecretSource
 	// Handlers mounts handler sets; a nil Auth set gets identityapi (the auth operations). Unmounted sets answer 501.
 	Handlers httpapi.Handlers
+	// Mount, when set, is called once the world's store, tenants and actors exist (handler sets need the store) and
+	// replaces Handlers with what it returns — the isolation suite of P2-T15 mounts the real handler sets this way.
+	Mount func(w *World) Mount
 	// RateLimits of the composed API; nil ⇒ limits no test reaches (rate limiting is tested by P2-T14, a matrix of
 	// hundreds of requests from one address must not trip it).
 	RateLimits httpapi.RateLimits
@@ -70,6 +74,16 @@ type Options struct {
 	Now func() time.Time
 	// MaxConns per pool of the api store; 0 ⇒ 8.
 	MaxConns int32
+}
+
+// Mount is what Options.Mount adds to the composed API, wired as the api process wires it (P2-T16).
+type Mount struct {
+	// Handlers are the handler sets; a nil Auth set gets identityapi. Unmounted sets answer 501.
+	Handlers httpapi.Handlers
+	// Audit fills httpapi.Hooks.Audit (auditapi.Middleware); nil ⇒ no audit hook.
+	Audit gen.StrictMiddlewareFunc
+	// Authorizer wraps the authorizer of the authz hook (a recorder of decisions); nil ⇒ authz.New(store) as is.
+	Authorizer func(authzhook.Authorizer) authzhook.Authorizer
 }
 
 // Tenant is one fixture tenant and its active IdP.
@@ -265,7 +279,12 @@ func (w *World) compose(t testing.TB, opts Options) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handlers := opts.Handlers
+	w.Identity = svc
+	m := Mount{Handlers: opts.Handlers}
+	if opts.Mount != nil {
+		m = opts.Mount(w)
+	}
+	handlers := m.Handlers
 	if handlers.Auth == nil {
 		handlers.Auth = identityapi.New(svc)
 	}
@@ -273,9 +292,13 @@ func (w *World) compose(t testing.TB, opts Options) {
 	if limits == nil {
 		limits = unlimited()
 	}
-	api, err := httpapi.New(httpapi.Options{
-		Logger: log, Handlers: handlers, Hooks: authzhook.Hooks(svc, authz.New(w.Store)), RateLimits: limits,
-	})
+	var authorizer authzhook.Authorizer = authz.New(w.Store)
+	if m.Authorizer != nil {
+		authorizer = m.Authorizer(authorizer)
+	}
+	hooks := authzhook.Hooks(svc, authorizer)
+	hooks.Audit = m.Audit
+	api, err := httpapi.New(httpapi.Options{Logger: log, Handlers: handlers, Hooks: hooks, RateLimits: limits})
 	if err != nil {
 		t.Fatal(err)
 	}

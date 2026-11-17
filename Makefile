@@ -3,7 +3,7 @@ PYTHON ?= python3
 
 SQLC_VERSION ?= v1.31.1
 
-.PHONY: help docs docs-check render-test lint secret-scan api-lint api-gen authz-gen go-test go-lint go-build sqlc sqlc-diff e2e-functional
+.PHONY: help docs docs-check render-test lint secret-scan api-lint api-gen authz-gen go-test go-lint go-build sqlc sqlc-diff e2e-functional isolation isolation-headscale
 
 help: ## Liệt kê các target
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-14s %s\n", $$1, $$2}'
@@ -35,6 +35,17 @@ lint: docs-check render-test api-lint secret-scan ## Mọi kiểm tra hiện có
 
 go-test: ## go vet + test có race detector; test PostgreSQL của internal/store cần MG_TEST_PG_ADMIN_URL (database/README.md)
 	go vet ./... && go test -race -count=1 ./...
+
+# Test của các task khác chứng minh một phần IT-01/01b/01c, IT-03, IT-10 (secret), IT-12a, IT-17 (P2-T15 — bảng ở
+# docs/planning/evidence/P2-T15.md); chạy cùng phần mới để `make isolation` là toàn bộ isolation suite v1.
+ISOLATION_REUSED = TestTenantIssuerIsolation|TestIdPMixUpRejectedBeforeTokenCall|TestSharedIssuerOrganisationConstraint|TestSessionOriginBinding|TestDBRejectsCrossScopeMemberships|TestDBRejectsCrossScopePlatformUsers|TestDBRejectsCrossScopeGrants|TestDBRejectsIdentityOutsideItsIdP|TestCatalogRLSOnEveryTable|TestRLSUnsetOrEmptyGUC|TestRLSTenantScope|TestRLSTenantPoolCannotBecomePlatform|TestCrossTenantWritesRejected|TestWithTxScopeAndRole|TestPartitionsDirectAccessDenied|TestPartitionMaintain|TestReaderScopes|TestFinishDenials|TestAuditThroughTheAPI|TestWrappedDEKSwapBetweenTenantsRejected|TestTenantPoolClaimingPlatformScope|TestCiphertextSwapRejected|TestAuthorizerTenantRoutes|TestAuthorizerPlatformRoutes
+
+isolation: ## Isolation suite v1 (P2-T15): ma trận authz sinh từ OpenAPI + IT-01/03/12a (tag mgtestfixture) + test IT của P2-T03/04/06/07/08; cần MG_TEST_PG_ADMIN_URL
+	go test -race -count=1 -tags mgtestfixture ./tests/security/authzmatrix/ ./tests/isolation/
+	go test -race -count=1 -run '^($(ISOLATION_REUSED))$$' ./internal/identity/ ./internal/store/ ./internal/authz/ ./internal/audit/ ./internal/httpapi/auditapi/ ./internal/secrets/
+
+isolation-headscale: ## IT-06, IT-10 (API key), IT-20 trên hai Headscale thật (cần Docker, python3 ≥ 3.11)
+	bash tests/isolation/headscale/run.sh
 
 sqlc: ## Sinh lại internal/store/sqlcdb từ database/migrations + database/queries (sqlc pin trong versions.lock; cần CGO)
 	go run github.com/sqlc-dev/sqlc/cmd/sqlc@$(SQLC_VERSION) generate -f database/sqlc.yaml
