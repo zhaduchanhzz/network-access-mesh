@@ -480,6 +480,54 @@ func (q *Queries) ListDevicesPage(ctx context.Context, arg ListDevicesPageParams
 	return items, nil
 }
 
+const listExpiringDevices = `-- name: ListExpiringDevices :many
+SELECT id, owner_membership_id, COALESCE(given_name, name, '')::text AS display_name, expiry
+FROM device_inventory_cache
+WHERE tenant_id = $1 AND instance_id = $2 AND removed_at IS NULL
+  AND revocation_state = 'none' AND expiry > now() AND expiry <= $3::timestamptz
+ORDER BY expiry, id
+LIMIT 200
+`
+
+type ListExpiringDevicesParams struct {
+	TenantID   uuid.UUID
+	InstanceID uuid.UUID
+	Before     time.Time
+}
+
+type ListExpiringDevicesRow struct {
+	ID                uuid.UUID
+	OwnerMembershipID *uuid.UUID
+	DisplayName       string
+	Expiry            *time.Time
+}
+
+// Thông báo "sắp hết hạn" (P3-T05b): thiết bị còn sống, không đang/đã thu hồi, khóa node hết hạn trong (now, before].
+func (q *Queries) ListExpiringDevices(ctx context.Context, arg ListExpiringDevicesParams) ([]ListExpiringDevicesRow, error) {
+	rows, err := q.db.Query(ctx, listExpiringDevices, arg.TenantID, arg.InstanceID, arg.Before)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListExpiringDevicesRow{}
+	for rows.Next() {
+		var i ListExpiringDevicesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.OwnerMembershipID,
+			&i.DisplayName,
+			&i.Expiry,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOrphanedRevocations = `-- name: ListOrphanedRevocations :many
 SELECT d.id, d.revocation_job_id, d.revocation_kind,
        COALESCE(j.status, '')::text           AS job_status,

@@ -69,6 +69,7 @@ type Retention struct {
 	Jobs           time.Duration // finished provisioning_jobs (+ steps by cascade): 180 days
 	SecurityEvents time.Duration // ≥ 400 days, like audit
 	RemovedDevices time.Duration // device_inventory_cache rows 90 days after removed_at
+	Notifications  time.Duration // notification_outbox rows 90 days after sent_at (failed/cancelled: after created_at)
 	// idempotency_keys: deleted once expires_at has passed (IdempotencyTTL = 24 hours after the key was taken).
 	BatchSize int32
 }
@@ -101,6 +102,7 @@ func DefaultConfig() Config {
 			Jobs:           180 * 24 * time.Hour,
 			SecurityEvents: 400 * 24 * time.Hour,
 			RemovedDevices: 90 * 24 * time.Hour,
+			Notifications:  90 * 24 * time.Hour,
 			BatchSize:      1000,
 		},
 		QueuePoolConns:     10,
@@ -120,7 +122,7 @@ func (c Config) Validate() error {
 		"ReaperInterval": c.ReaperInterval, "ReaperMinAge": c.ReaperMinAge, "SweepInterval": c.SweepInterval,
 		"PartitionInterval": c.PartitionInterval, "BookkeepingTimeout": c.BookkeepingTimeout,
 		"Retention.Jobs": c.Retention.Jobs, "Retention.SecurityEvents": c.Retention.SecurityEvents,
-		"Retention.RemovedDevices": c.Retention.RemovedDevices,
+		"Retention.RemovedDevices": c.Retention.RemovedDevices, "Retention.Notifications": c.Retention.Notifications,
 	}
 	for name, d := range positive {
 		if d <= 0 {

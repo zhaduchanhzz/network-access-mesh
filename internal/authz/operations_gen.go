@@ -23,6 +23,7 @@ var specOperations = []Operation{
 	{ID: "listAuthSessions", Method: "GET", Path: "/auth/sessions", Permission: "authenticated", AuditAction: "auth.session.list"},
 	{ID: "listDevices", Method: "GET", Path: "/tenants/{tenantId}/devices", Permission: "tenant.device:read", AuditAction: "device.list", OwnResource: true},
 	{ID: "listMyTenants", Method: "GET", Path: "/tenants", Permission: "authenticated", AuditAction: "tenant.list"},
+	{ID: "listNotifications", Method: "GET", Path: "/tenants/{tenantId}/notifications", Permission: "tenant.notification:read", AuditAction: "notification.list", OwnResource: true},
 	{ID: "listPlatformAuditEvents", Method: "GET", Path: "/platform/audit", Permission: "platform.audit:read", AuditAction: "platform.audit.list"},
 	{ID: "listPlatformInstances", Method: "GET", Path: "/platform/instances", Permission: "platform.instance:read", AuditAction: "platform.instance.list"},
 	{ID: "listPlatformJobs", Method: "GET", Path: "/platform/jobs", Permission: "platform.job:read", AuditAction: "platform.job.list"},

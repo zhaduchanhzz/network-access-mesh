@@ -202,3 +202,12 @@ WHERE tenant_id = sqlc.arg(tenant_id) AND removed_at IS NULL;
 SELECT id, tenant_id FROM tenant_instances
 WHERE status = 'running'
 ORDER BY id;
+
+-- name: ListExpiringDevices :many
+-- Thông báo "sắp hết hạn" (P3-T05b): thiết bị còn sống, không đang/đã thu hồi, khóa node hết hạn trong (now, before].
+SELECT id, owner_membership_id, COALESCE(given_name, name, '')::text AS display_name, expiry
+FROM device_inventory_cache
+WHERE tenant_id = sqlc.arg(tenant_id) AND instance_id = sqlc.arg(instance_id) AND removed_at IS NULL
+  AND revocation_state = 'none' AND expiry > now() AND expiry <= sqlc.arg(before)::timestamptz
+ORDER BY expiry, id
+LIMIT 200;

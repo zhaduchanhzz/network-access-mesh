@@ -64,6 +64,8 @@ tags:
     description: Nhật ký hành động quản trị (§6.1, §16.5) — P2-T08
   - name: jobs
     description: Job của tenant, phép chiếu an toàn (§13.3, §13.5) — P2-T12
+  - name: notifications
+    description: Thông báo trong Portal của chính người gọi (§13.2, §6.3 `notification_outbox`) — P3-T05b
   - name: platform
     description: Platform Console, chỉ phục vụ trên origin `admin.<domain>` (§12.2, §13.2) — P2-T08, P2-T11, P2-T12, P2-T13a
 paths:
@@ -870,6 +872,50 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  # ---------------------------------------------------------------- notifications (P3-T05b)
+  /tenants/{tenantId}/notifications:
+    get:
+      tags: [notifications]
+      operationId: listNotifications
+      summary: Thông báo trong Portal của chính người gọi
+      description: >-
+        Chỉ thông báo gửi cho membership của chính người gọi trong tenant này (`notification_outbox.recipient_membership_id`,
+        §6.3) — không bao giờ của thành viên khác, kể cả với Tenant Owner. Mới nhất trước. `payload` chỉ gồm các trường đã
+        khai báo cho `kind` (id, tên, thời điểm) cùng `tenant_name`, `tenant_slug`, `locale` — không chứa secret, token hay
+        đường dẫn; Portal dựng câu chữ theo `kind` và ngôn ngữ của người dùng.
+      x-permission: tenant.notification:read
+      x-own-resource: true
+      x-task: P3-T05b
+      x-audit-action: notification.list
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - name: unread
+          in: query
+          required: false
+          description: '`true`: chỉ thông báo chưa đọc; `false`: chỉ thông báo đã đọc'
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Một trang thông báo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
         '429':
           $ref: '#/components/responses/RateLimited'
         default:
@@ -2156,6 +2202,39 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Job'
+        next_cursor:
+          type: [string, 'null']
+    # ------------------------------------------------------------ notifications (§6.3, P3-T05b)
+    Notification:
+      type: object
+      required: [id, kind, payload, created_at, read_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          description: Sự kiện được thông báo (`notification_outbox.kind`), ví dụ `policy.applied`, `device.new`, `support.break_glass`
+          pattern: '^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$'
+          maxLength: 100
+        payload:
+          type: object
+          description: Trường của `kind` (id, tên, thời điểm RFC 3339) + `tenant_name`, `tenant_slug`, `locale` — không có secret
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+        read_at:
+          type: [string, 'null']
+          format: date-time
+    NotificationList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Notification'
         next_cursor:
           type: [string, 'null']
     PlatformJobStep:

@@ -65,6 +65,11 @@ type MonitoringHandlers interface {
 	GetPlatformHealth(ctx context.Context, request gen.GetPlatformHealthRequestObject) (gen.GetPlatformHealthResponseObject, error)
 }
 
+// NotificationHandlers — P3-T05b (`notifications`): the caller's own Portal notifications.
+type NotificationHandlers interface {
+	ListNotifications(ctx context.Context, request gen.ListNotificationsRequestObject) (gen.ListNotificationsResponseObject, error)
+}
+
 // Handlers is the extension point of the API: one handler set per building task. A nil set answers every operation
 // of its interface with 501 not_implemented. A set may also implement only part of its interface by embedding
 // NotImplemented. Handlers return a *problem.Error for an expected failure (not_found, conflict…); any other error
@@ -76,13 +81,16 @@ type Handlers struct {
 	Audit      AuditHandlers      // P2-T08
 	Jobs       JobHandlers        // P2-T12
 	Monitoring MonitoringHandlers // P2-T13a
+	// Notifications — P3-T05b.
+	Notifications NotificationHandlers
 }
 
 func (h Handlers) mounted() bool {
-	return h.Auth != nil || h.Tenants != nil || h.Devices != nil || h.Audit != nil || h.Jobs != nil || h.Monitoring != nil
+	return h.Auth != nil || h.Tenants != nil || h.Devices != nil || h.Audit != nil || h.Jobs != nil || h.Monitoring != nil ||
+		h.Notifications != nil
 }
 
-// dispatcher implements gen.StrictServerInterface by promotion from the six disjoint interfaces.
+// dispatcher implements gen.StrictServerInterface by promotion from the disjoint interfaces.
 type dispatcher struct {
 	AuthHandlers
 	TenantHandlers
@@ -90,12 +98,13 @@ type dispatcher struct {
 	AuditHandlers
 	JobHandlers
 	MonitoringHandlers
+	NotificationHandlers
 }
 
 var _ gen.StrictServerInterface = dispatcher{}
 
 func newDispatcher(h Handlers) dispatcher {
-	d := dispatcher{h.Auth, h.Tenants, h.Devices, h.Audit, h.Jobs, h.Monitoring}
+	d := dispatcher{h.Auth, h.Tenants, h.Devices, h.Audit, h.Jobs, h.Monitoring, h.Notifications}
 	if d.AuthHandlers == nil {
 		d.AuthHandlers = NotImplemented{}
 	}
@@ -113,6 +122,9 @@ func newDispatcher(h Handlers) dispatcher {
 	}
 	if d.MonitoringHandlers == nil {
 		d.MonitoringHandlers = NotImplemented{}
+	}
+	if d.NotificationHandlers == nil {
+		d.NotificationHandlers = NotImplemented{}
 	}
 	return d
 }
@@ -233,4 +245,8 @@ func (NotImplemented) GetTenantDashboard(context.Context, gen.GetTenantDashboard
 
 func (NotImplemented) GetPlatformHealth(context.Context, gen.GetPlatformHealthRequestObject) (gen.GetPlatformHealthResponseObject, error) {
 	return nil, problem.NotImplemented("GetPlatformHealth")
+}
+
+func (NotImplemented) ListNotifications(context.Context, gen.ListNotificationsRequestObject) (gen.ListNotificationsResponseObject, error) {
+	return nil, problem.NotImplemented("ListNotifications")
 }

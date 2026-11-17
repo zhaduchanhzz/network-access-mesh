@@ -2,7 +2,8 @@
 //
 // Without arguments it runs the worker. Subcommands run once and exit, and start no listener: kek-drill, the key
 // ceremony drill (P2-T04a); admin idp-bootstrap, the bootstrap of the keycloak IdP driver (P2-T05a/P2-T16 — admin.go);
-// healthcheck, the container healthcheck.
+// admin policy-apply, the internal command of the policy core (P3-T08a — policyapply.go); healthcheck, the container
+// healthcheck.
 package main
 
 import (
@@ -42,6 +43,7 @@ func dispatch(args []string, stdout, stderr io.Writer, run func() int) int {
 	_, _ = fmt.Fprint(stderr, "meshguard-worker: unknown subcommand\nusage: meshguard-worker            (run the worker)\n"+
 		"       meshguard-worker kek-drill --live <dir> --recovered <dir> [--keyring kek-app,kek-ops]\n"+
 		"       meshguard-worker admin idp-bootstrap --admin-username <name> [--adopt-realm <realm>]...\n"+
+		"       meshguard-worker admin policy-apply --tenant <uuid|slug> [--kind baseline|suspension] --file - < policy.hujson\n"+
 		"       meshguard-worker healthcheck   (container healthcheck: /readyz of this process)\n")
 	return 2
 }

@@ -50,6 +50,7 @@ var routes = []struct {
 	{http.MethodGet, "/api/v1/tenants/" + tenantID + "/audit?outcome=denied", "", "ListTenantAuditEvents", nil},
 	{http.MethodGet, "/api/v1/tenants/" + tenantID + "/jobs?status=running", "", "ListTenantJobs", nil},
 	{http.MethodGet, "/api/v1/tenants/" + tenantID + "/jobs/" + itemID, "", "GetTenantJob", nil},
+	{http.MethodGet, "/api/v1/tenants/" + tenantID + "/notifications?unread=true&limit=20", "", "ListNotifications", nil},
 	{http.MethodGet, "/api/v1/platform/tenants?status=active", "", "ListPlatformTenants", nil},
 	{http.MethodGet, "/api/v1/platform/tenants/" + tenantID, "", "GetPlatformTenant", nil},
 	{http.MethodGet, "/api/v1/platform/instances", "", "ListPlatformInstances", nil},

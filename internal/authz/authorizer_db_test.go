@@ -83,13 +83,15 @@ func TestAuthorizerTenantRoutes(t *testing.T) {
 	_, err = az.RequireOperation(asTenant(ctx, eu.identity), "syncDevices", a.id)
 	wantDenied(t, "end user syncDevices", err, ErrForbidden, "no_grant")
 
-	// the Owner may call every tenant operation of the spec; staff none of them (no grant yet)
+	// the Owner may call every tenant operation of the spec — with a grant on every resource, except the notifications
+	// that are own-only for every role (§8.6 ○: the Owner reads only its own); staff none of them (no grant yet)
 	owner := a.member(t, su, RoleTenantOwner, StatusActive, StatusActive)
 	for _, o := range Operations() {
 		if !o.TenantScoped() {
 			continue
 		}
-		if d, err := az.RequireOperation(asTenant(ctx, owner.identity), o.ID, a.id); err != nil || d.OwnOnly {
+		ownOnly := o.Permission == "tenant.notification:read"
+		if d, err := az.RequireOperation(asTenant(ctx, owner.identity), o.ID, a.id); err != nil || d.OwnOnly != ownOnly {
 			t.Errorf("owner %s: %+v, %v", o.ID, d, err)
 		}
 		_, err := az.RequireOperation(asStaff(ctx, staff), o.ID, a.id)

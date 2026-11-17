@@ -212,6 +212,9 @@ func TestWiredDependencies(t *testing.T) {
 		for _, e := range []string{"staging", "ci", "production"} {
 			m := wiredEnv(service)
 			m["MG_ENV"] = e
+			if service == "worker" && e == "production" { // the notification relay is required in production (P3-T05b)
+				m["MG_SMTP_ADDR"], m["MG_SMTP_FROM"] = "smtp.example.com:587", "MeshGuard <no-reply@example.com>"
+			}
 			get, list := env(m)
 			cfg, err := Load(service, get, list)
 			if err != nil || !cfg.Wired || cfg.DB.TenantUser != "mg_"+service+"_tenant" || cfg.Edge.URL == "" {
@@ -297,5 +300,53 @@ func TestWiredDependencies(t *testing.T) {
 	get, list = env(m)
 	if cfg, err := Load("api", get, list); err != nil || !cfg.Wired {
 		t.Errorf("dev wired without deny list: wired %v, %v", cfg.Wired, err)
+	}
+}
+
+// TestSMTPRelay (P3-T05b): MG_SMTP_* is a worker setting; no relay is allowed outside production (e-mails cancelled),
+// required in production; TLS none only in dev/ci; authentication needs a password FILE and TLS; From is an address.
+func TestSMTPRelay(t *testing.T) {
+	load := func(service string, extra map[string]string) (Config, error) {
+		m := wiredEnv(service)
+		for k, v := range extra {
+			m[k] = v
+		}
+		get, list := env(m)
+		return Load(service, get, list)
+	}
+	cfg, err := load("worker", nil)
+	if err != nil || cfg.SMTP.Addr != "" {
+		t.Fatalf("no relay in staging: %+v %v", cfg.SMTP, err)
+	}
+	ok := map[string]string{"MG_SMTP_ADDR": "smtp.example.com:587", "MG_SMTP_FROM": "MeshGuard <no-reply@example.com>",
+		"MG_SMTP_USERNAME": "mailer", "MG_SMTP_PASSWORD_FILE": "/run/secrets/smtp_password"}
+	cfg, err = load("worker", ok)
+	if err != nil || cfg.SMTP.TLS != "starttls" || cfg.SMTP.Username != "mailer" {
+		t.Fatalf("valid relay: %+v %v", cfg.SMTP, err)
+	}
+	if _, err := load("worker", map[string]string{"MG_ENV": "production"}); err == nil || !strings.Contains(err.Error(), "MG_SMTP_ADDR is required") {
+		t.Fatalf("production without relay: %v", err)
+	}
+	bad := []map[string]string{
+		{"MG_SMTP_ADDR": "smtp.example.com:587"}, // no From
+		{"MG_SMTP_ADDR": "smtp.example.com", "MG_SMTP_FROM": "a@example.com"},
+		{"MG_SMTP_ADDR": "smtp.example.com:25", "MG_SMTP_FROM": "a@example.com", "MG_SMTP_TLS": "none"}, // staging
+		{"MG_SMTP_ADDR": "smtp.example.com:25", "MG_SMTP_FROM": "a@example.com", "MG_SMTP_TLS": "ssl"},
+		{"MG_SMTP_ADDR": "smtp.example.com:25", "MG_SMTP_FROM": "a@example.com", "MG_SMTP_USERNAME": "u"},
+		{"MG_SMTP_ADDR": "smtp.example.com:25", "MG_SMTP_FROM": "a@example.com", "MG_SMTP_PASSWORD_FILE": "/x"},
+		{"MG_SMTP_ADDR": "smtp.example.com:25", "MG_SMTP_FROM": "a@example.com", "MG_SMTP_CA_FILE": "ca.pem"},
+		{"MG_SMTP_FROM": "a@example.com"}, // address missing
+	}
+	for _, b := range bad {
+		if _, err := load("worker", b); err == nil {
+			t.Errorf("accepted %v", b)
+		}
+	}
+	if _, err := load("api", map[string]string{"MG_SMTP_ADDR": "smtp.example.com:587", "MG_SMTP_FROM": "a@example.com"}); err == nil {
+		t.Error("api accepted MG_SMTP_*")
+	}
+	if cfg, err := load("worker", map[string]string{"MG_ENV": "ci", "MG_SMTP_ADDR": "mailpit:1025", "MG_SMTP_TLS": "none",
+		"MG_SMTP_FROM": "MeshGuard <no-reply@mesh.test>"}); err != nil || cfg.SMTP.TLS != "none" {
+		t.Fatalf("ci test sink: %+v %v", cfg.SMTP, err)
 	}
 }

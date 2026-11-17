@@ -151,7 +151,7 @@ Headscale + WireGuard + grants cho ta **kiểm soát truy cập tầng mạng th
 | Token nội bộ của listener admin / listener metrics của edge | Docker secret (file) | edge (đối chiếu); api, worker (admin); prometheus (metrics) | Theo lịch |
 | Credential SMTP; secret SSO của Grafana (nếu có); mật khẩu DB của postgres-exporter và của `pg-backup` (role `mg_backup`); URL webhook cảnh báo | Docker secret (file) | worker / grafana / postgres-exporter / pg-backup / alertmanager | Theo lịch |
 | Credential kho backup offsite (append-only) | Docker secret (file) | Chỉ backup-shipper | Theo lịch; khi có sự cố |
-| Mật khẩu SMTP (gửi thông báo) | SecretStore (DEK `platform_ops`) | worker | Theo lịch |
+| Mật khẩu SMTP (gửi thông báo) | Docker secret (file) `MG_SMTP_PASSWORD_FILE` — cùng hàng "Credential SMTP" ở trên (P3-T05b chốt dạng file secret, đọc lại ở mỗi lần gửi để xoay không cần restart) | worker | Theo lịch |
 
 Quy tắc: không secret trong biến môi trường, file compose, image, repo hay log; mọi output chứa key (bootstrap API key, pre-auth key) đi qua kênh nội bộ và chỉ hiển thị cho người dùng **một lần**.
 

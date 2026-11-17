@@ -27,7 +27,7 @@ except ImportError:            # Windows: only `render` is useful there
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import backend  # noqa: E402 — E2E-17 … E2E-25 (P2-T16)
 import checks  # noqa: E402
-import phase3  # noqa: E402 — E2E-32 … E2E-35 (P3-T14a, P3-T03a)
+import phase3  # noqa: E402 — E2E-32 … E2E-36 (P3-T14a, P3-T03a, P3-T08a)
 from stack import CLIENTS, SECRET_RE, TENANTS, Stack, StackError, log  # noqa: E402
 
 PHASES: dict[str, float] = {}
@@ -177,7 +177,7 @@ def test(st: Stack, r: checks.Results) -> None:
         guarded(r, "E2E-15", checks.check_deny, st, ips)
     with timed("ca E2E-17 … E2E-25 (backend P2-T16: api/worker, edge app./admin./auth., OIDC + TOTP, adopt, thiết bị, audit)"):
         backend.run_all(r, st, guarded)
-    with timed("ca E2E-32 … E2E-35 (Phase 3: helper enrollment P3-T14a, prober P3-T03a)"):
+    with timed("ca E2E-32 … E2E-36 (Phase 3: helper enrollment P3-T14a, prober P3-T03a, lõi policy P3-T08a)"):
         phase3.run_all(r, st, guarded)
 
 

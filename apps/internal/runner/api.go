@@ -16,11 +16,13 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/identityapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/jobsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/monitoringapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/notificationsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/tenantsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/identity"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/idp"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/jobs"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/monitoring"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/notifications"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/platform"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
 )
@@ -36,7 +38,8 @@ import (
 //	hooks            Session = identity middleware, Authz = authz.New(store) (P2-T07), Audit = auditapi.Middleware
 //	handlers         Auth (identityapi), Tenants (tenantsapi over tenants + platform), Devices (devicesapi over devices
 //	                 + the Headscale registry), Audit (auditapi over audit.Reader), Jobs (jobsapi over jobs.Service),
-//	                 Monitoring (monitoringapi over monitoring, reads only — the worker probes)
+//	                 Monitoring (monitoringapi over monitoring, reads only — the worker probes), Notifications
+//	                 (notificationsapi over notifications.Reader — the caller's own Portal notifications, P3-T05b)
 //	readiness        postgres, secretstore, edge_admin (§16.2)
 func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prometheus.Registerer) (_ *component, err error) {
 	d, err := openDeps(ctx, cfg, log, idp.PlatformOIDCPaths)
@@ -86,12 +89,13 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 		TrustedProxies: cfg.TrustedProxies,
 		Hooks:          hooks,
 		Handlers: httpapi.Handlers{
-			Auth:       identityapi.New(svc),
-			Tenants:    tenantsapi.New(d.tenants, platform.New(d.st)),
-			Devices:    devicesapi.New(dev),
-			Audit:      auditapi.New(audit.NewReader(d.st)),
-			Jobs:       jobsapi.New(jobs.NewService(d.st)),
-			Monitoring: monitoringapi.New(mon),
+			Auth:          identityapi.New(svc),
+			Tenants:       tenantsapi.New(d.tenants, platform.New(d.st)),
+			Devices:       devicesapi.New(dev),
+			Audit:         auditapi.New(audit.NewReader(d.st)),
+			Jobs:          jobsapi.New(jobs.NewService(d.st)),
+			Monitoring:    monitoringapi.New(mon),
+			Notifications: notificationsapi.New(notifications.NewReader(d.st)),
 		},
 	})
 	if err != nil {
