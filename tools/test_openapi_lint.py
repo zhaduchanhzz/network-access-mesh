@@ -365,9 +365,12 @@ with tempfile.TemporaryDirectory() as d:
     ok_file, bad_file = pathlib.Path(d) / "ok.yaml", pathlib.Path(d) / "bad.yaml"
     ok_file.write_text(MINI_OK, encoding="utf-8")
     bad_file.write_text(MINI_BAD, encoding="utf-8")
-    check(cli("--spec", str(ok_file)) == 0, "CLI: minimal valid fixture spec passes (exit 0)")
-    check(cli("--spec", str(bad_file)) == 1, "CLI: bad fixture spec fails (exit 1)")
-    bad = ol.lint(ol.load_yaml(MINI_BAD), master)
+    # a fragment is linted with --partial (no row coverage, no generated files); without it, the generated authz
+    # table of the fragment differs from the committed one
+    check(cli("--partial", "--spec", str(ok_file)) == 0, "CLI: minimal valid fixture spec passes with --partial (exit 0)")
+    check(cli("--spec", str(ok_file)) == 1, "CLI: the same fragment as a whole spec fails (generated files differ)")
+    check(cli("--partial", "--spec", str(bad_file)) == 1, "CLI: bad fixture spec fails (exit 1)")
+    bad = ol.lint(ol.load_yaml(MINI_BAD), master, coverage=False)
     for fragment in ("mixes a {param} with text", "missing x-permission", "tenant taken from the query parameter",
                      "must be application/problem+json only", "must carry Location", "Idempotency-Key", "X-CSRF-Token"):
         check(any(fragment in e for e in bad), f"bad fixture spec reports: {fragment}", str(bad))
@@ -381,6 +384,156 @@ with tempfile.TemporaryDirectory() as d:
     other.write_text(json.dumps(changed), encoding="utf-8")
     check(cli("--compare-json", str(same)) == 0, "CLI: --compare-json equal parse (exit 0)")
     check(cli("--compare-json", str(other)) == 1, "CLI: --compare-json detects a difference (exit 1)")
+
+# ====================================================================== P2-T07: rows -> operations, RBAC seed, authz table
+
+# §8.4 roles, matrix columns, done tasks
+check([a for _, _, a, _ in master.roles] == ["SA", "PO", "PS", "PV", "TO", "TA", "TP", "TV", "EU"], "§8.4: the nine roles in order",
+      str(master.roles))
+check(master.columns == {"platform": ["SA", "PO", "PS", "PV"], "tenant": ["TO", "TA", "TP", "TV", "EU", "Staff"]},
+      "§8.5/§8.6: role columns", str(master.columns))
+check({"P2-T01", "P2-T02", "P2-T03", "P2-T07", "P1-T21"} <= master.done
+      and not {"P1-T02", "P1-T12e", "P2-T08", "P4-T09"} & master.done,
+      "§20: done tasks (full marker only; 'phần 1 …' / 'một phần' are not done)", str(sorted(master.done)))
+check(master.row_tasks(P["platform.tenant:suspend"]) == {"P3-T05", "P3-T08", "P3-T09"}
+      and master.row_tasks(P["tenant.user:read"]) == {"P2-T11"} and master.row_tasks(P["tenant.tag:read"]) == {"P4-T15"},
+      "§13.2: tasks of a matrix row (tag catalog: group `tags` → P4-T15)")
+check(ol.entry_path("tenant", ()) == "/tenants/{tenantId}" and ol.entry_path("tenant", ("devices", "{}")) ==
+      "/tenants/{tenantId}/devices/{id}" and ol.entry_path("platform", ("platform", "jobs")) == "/platform/jobs",
+      "entry_path: full path of a matrix entry")
+
+# second direction of §13.1: every row has an operation once all its tasks are done
+row_errs, row_notes = ol.row_coverage(spec, master)
+check(not row_errs and any("tenant.tag:read" in n and "P4-T15 pending" in n for n in row_notes)
+      and any("tenant.membership:assign" in n and "P4-T09 pending" in n for n in row_notes),
+      "row coverage on the real spec: no error, pending rows reported", str(row_errs))
+TAGS_TRACE = "| tags (danh mục tag) | 4 | P4-T15 |\n"
+_master_text = ol.MASTER.read_text(encoding="utf-8")
+check(_master_text.count(TAGS_TRACE) == 1, "§13.2: the tag catalog group is in the traceability table")
+_errs, _notes = ol.row_coverage(spec, ol.Master(_master_text.replace(TAGS_TRACE, "")))
+check(not _errs and any("tenant.tag:read" in n and "task unknown" in n for n in _notes),
+      "row coverage: a row no traceability group covers is reported as task unknown, not as an error", str(_errs))
+
+
+def with_done(*tasks: str) -> ol.Master:
+    m = copy.copy(master)
+    m.done = set(master.done) | set(tasks)
+    return m
+
+
+no_users = copy.deepcopy(spec)
+del no_users["paths"]["/tenants/{tenantId}/users"], no_users["paths"]["/tenants/{tenantId}/users/{membershipId}"]
+check(not ol.row_coverage(no_users, master)[0], "row without operation, task P2-T11 not done: coverage only")
+errs_done = ol.row_coverage(no_users, with_done("P2-T11"))[0]
+check(len(errs_done) == 1 and "tenant.user:read" in errs_done[0] and "P2-T11" in errs_done[0],
+      "row without operation fails once its task is done", str(errs_done))
+check(any("tenant.user:read" in e for e in ol.lint(no_users, with_done("P2-T11")))
+      and not any("tenant.user:read" in e for e in ol.lint(no_users, with_done("P2-T11"), coverage=False)),
+      "lint() includes the row coverage unless coverage=False")
+check(not any("platform.tenant:suspend" in e for e in ol.row_coverage(spec, with_done("P3-T05"))[0]),
+      "row of several tasks: no error while one of them is pending")
+three = ol.row_coverage(spec, with_done("P3-T05", "P3-T08", "P3-T09"))[0]
+check(sum(any(k in e for e in three) for k in ("platform.tenant:create", "platform.tenant:suspend", "platform.tenant:delete")) == 3,
+      "row of several tasks: error once all of them are done", str(three))
+
+# the RBAC model of the real master
+model, problems = ol.rbac_model(master)
+check(not problems and not ol.lattice_problems(model), "rbac model of the master: no problem", str(problems))
+check(len(model.roles) == 11 and len(model.permissions) == len(master.perms) and len(model.grants) == 288,
+      "rbac model: 11 roles, every permission, 288 grants", f"{len(model.roles)} {len(model.permissions)} {len(model.grants)}")
+G = {(g.role, g.permission): g for g in model.grants}
+for role, perm, want in [
+    ("tenant_viewer", "tenant.audit:read", ("any", None)), ("tenant_operator", "tenant.audit:read", None),
+    ("end_user", "tenant.device:read", ("own", None)), ("end_user", "tenant.enrollment:request", ("any", "self_enroll")),
+    ("tenant_owner", "tenant.notification:read", ("own", None)), ("tenant_admin", "tenant.billing:read", None),
+    ("platform_operator", "platform.approval:decide", ("any", "restore_only")),
+    ("super_admin", "platform.user:assign", ("any", "excludes_super_admin")),
+    ("super_admin", "platform.idp:manage", ("any", "tenant_idp_dual_control")),
+    ("super_admin", "platform.tenant:delete", ("any", None)), ("platform_operator", "platform.instance:restore", ("any", None)),
+    ("support_admin", "tenant.device:tag", ("any", None)), ("support_operator", "tenant.device:tag", None),
+    ("support_operator", "tenant.device:read", ("any", None)), ("support_admin", "tenant.user:manage", None),
+]:
+    g = G.get((role, perm))
+    check((g and (g.scope, g.condition)) == want if want else g is None, f"seed cell: {role} / {perm}", str(g))
+check(not any(g.permission.startswith("tenant.") for g in model.grants if model.role(g.role).scope == "platform"),
+      "seed: platform roles hold no tenant permission (invariant 2)")
+check([(r.key, r.rank) for r in model.roles if r.scope == "tenant"] ==
+      [("tenant_owner", 5), ("tenant_admin", 4), ("tenant_operator", 3), ("tenant_viewer", 2), ("end_user", 1)],
+      "seed: tenant ranks follow §8.4")
+
+
+def master_with(old: str, new: str) -> ol.Master:
+    text = ol.MASTER.read_text(encoding="utf-8")
+    assert text.count(old) == 1, f"mutation target not unique: {old!r}"
+    return ol.Master(text.replace(old, new))
+
+
+BACKUP_ROW = "| `platform.backup:read` | `GET /platform/backups` | ✔ | ✔ | — | ✔ |"
+# §8.5 no longer repeats a permission (the duplicated support_grant row was removed at the Phase 2 integration):
+# the duplicate-row rule is exercised with a second row of the same key added by the test.
+DUP_ROW = BACKUP_ROW + "\n| `platform.backup:read` | `GET /platform/backups` | ✔ | — | — | ✔ |"
+for name, old, new, fragment in [
+    ("unknown cell", BACKUP_ROW, BACKUP_ROW.replace("| — | ✔ |", "| có thể | ✔ |"), "unknown cell 'có thể' in column PS"),
+    ("unknown Staff cell", "| — | — | — | G (Admin) |\n| `tenant.device:expire`", "| — | — | — | G (Root) |\n| `tenant.device:expire`",
+     "unknown cell 'G (Root)' in column Staff"),
+    ("duplicate rows disagree", BACKUP_ROW, DUP_ROW, "disagree in column PO"),
+    ("§8.4 role without key", "| Tenant | **End User (EU)** |", "| Tenant | **End User (EX)** |", "role EX has no roles.key"),
+    ("support role no longer named", "`support_admin` (thêm", "`support_root` (thêm", "no longer names the support role `support_admin`"),
+]:
+    try:
+        _, probs = ol.rbac_model(master_with(old, new))
+        check(any(fragment in p for p in probs), f"rbac model rejects: {name}", str(probs))
+    except ol.MasterError as e:
+        check(False, f"rbac model rejects: {name}", f"MasterError {e}")
+
+
+def model_with(*grants: ol.Grant) -> ol.RbacModel:
+    return ol.RbacModel(model.roles, model.permissions, model.grants + list(grants))
+
+
+lat = ol.lattice_problems(model_with(ol.Grant("tenant_operator", "tenant.billing:read")))
+check(any("tenant_admin may give tenant_operator" in p and "tenant.billing:read" in p for p in lat),
+      "lattice: a role below an assigner holding more than it fails (§8.4 invariant 3)", str(lat))
+check(any("invariant 2" in p for p in ol.lattice_problems(model_with(ol.Grant("platform_viewer", "tenant.device:read")))),
+      "lattice: tenant permission on a platform role fails (invariant 2)")
+check(any("○ exists only" in p for p in ol.lattice_problems(model_with(ol.Grant("support_admin", "tenant.relay:read", "own")))),
+      "lattice: own scope outside tenant roles fails")
+check(ol._covers(ol.Grant("a", "p"), ol.Grant("b", "p", "own")) and not ol._covers(ol.Grant("a", "p", "own"), ol.Grant("b", "p"))
+      and ol._covers(ol.Grant("a", "p"), ol.Grant("b", "p", "any", "c")) and not ol._covers(ol.Grant("a", "p", "any", "c"), ol.Grant("b", "p")),
+      "covers: any ⊇ own, unconditional ⊇ conditional")
+
+# generated files: seed SQL and authz table
+seed_sql, ops_go = ol.render_seed_sql(model), ol.render_operations_go(spec)
+check(seed_sql == ol.render_seed_sql(ol.rbac_model(master)[0]), "seed SQL is deterministic")
+check("('tenant', 'end_user', 'tenant.device:read', 'own', NULL)" in seed_sql
+      and "('platform', 'platform_operator', 'platform.approval:decide', 'any', 'restore_only')" in seed_sql
+      and "<> 288" in seed_sql and ol._sql("it's") == "'it''s'", "seed SQL: rows, count check, quoting")
+check(ops_go.startswith("// Code generated by tools/openapi_lint.py --write from api/openapi.yaml. DO NOT EDIT.\n")
+      and all(f'ID: "{i}"' in ops_go for i in phase2)
+      and '{ID: "getDevice", Method: "GET", Path: "/tenants/{tenantId}/devices/{deviceId}", Permission: "tenant.device:read", OwnResource: true},' in ops_go,
+      "authz table: every operation, flags")
+check(not ol.generated_problems(ol.generated_files(spec, model)), "committed generated files match the master and the spec",
+      "\n".join(ol.generated_problems(ol.generated_files(spec, model))))
+with tempfile.TemporaryDirectory() as d:
+    root = pathlib.Path(d)
+    files = ol.generated_files(spec, model)
+    check(ol.write_generated(files, root) == list(files), "write_generated writes the files")
+    check(not ol.generated_problems(files, root) and ol.write_generated(files, root) == [], "written files match; rewrite is a no-op")
+    seed_path = root / ol.SEED_FILE
+    seed_path.write_text(seed_path.read_text(encoding="utf-8").replace("'end_user', 'tenant.device:read', 'own'",
+                                                                       "'end_user', 'tenant.device:read', 'any'"), encoding="utf-8")
+    probs = ol.generated_problems(files, root)
+    check(len(probs) == 1 and ol.SEED_FILE in probs[0] and "tenant.device:read" in probs[0], "hand-edited seed is reported with its diff",
+          str(probs))
+    (root / ol.OPS_FILE).unlink()
+    check(any("missing" in p for p in ol.generated_problems(files, root)), "missing generated file is reported")
+check(cli("--write") == 0, "CLI: --write on the repository is a no-op when nothing changed (exit 0)")
+try:
+    with contextlib.redirect_stderr(io.StringIO()):
+        cli("--write", "--partial")
+    check(False, "CLI: --write with --partial is refused")
+except SystemExit as e:
+    check(e.code == 2, "CLI: --write with --partial is refused")
 
 print(f"\n{'OK' if not failures else f'{failures} FAILURE(S)'}")
 sys.exit(1 if failures else 0)

@@ -30,7 +30,7 @@ jobs:
           python3 tools/test_render_instance.py
           python3 tools/test_render_edge.py
           python3 tools/test_render_idp.py
-      - name: Spec-lint api/openapi.yaml (x-permission, x-task, tenant chỉ từ path, action path, problem+json) + test
+      - name: Spec-lint api/openapi.yaml (x-permission hai chiều với §8.5/§8.6, x-task, tenant chỉ từ path, action path, problem+json; seed RBAC + bảng authz đã sinh khớp master/spec — P2-T07) + test
         run: |
           python3 tools/openapi_lint.py
           python3 tools/test_openapi_lint.py

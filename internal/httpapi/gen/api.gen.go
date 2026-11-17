@@ -192,6 +192,30 @@ func (e JobStatus) Valid() bool {
 	}
 }
 
+// Defines values for JobStepStatus.
+const (
+	JobStepStatusFailed    JobStepStatus = "failed"
+	JobStepStatusRunning   JobStepStatus = "running"
+	JobStepStatusSkipped   JobStepStatus = "skipped"
+	JobStepStatusSucceeded JobStepStatus = "succeeded"
+)
+
+// Valid indicates whether the value is a known member of the JobStepStatus enum.
+func (e JobStepStatus) Valid() bool {
+	switch e {
+	case JobStepStatusFailed:
+		return true
+	case JobStepStatusRunning:
+		return true
+	case JobStepStatusSkipped:
+		return true
+	case JobStepStatusSucceeded:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PrincipalScope.
 const (
 	PrincipalScopePlatform PrincipalScope = "platform"
@@ -218,6 +242,7 @@ const (
 	ProblemCodeInstanceUnavailable  ProblemCode = "instance_unavailable"
 	ProblemCodeInternalError        ProblemCode = "internal_error"
 	ProblemCodeNotFound             ProblemCode = "not_found"
+	ProblemCodeNotImplemented       ProblemCode = "not_implemented"
 	ProblemCodePreconditionFailed   ProblemCode = "precondition_failed"
 	ProblemCodePreconditionRequired ProblemCode = "precondition_required"
 	ProblemCodeQuotaExceeded        ProblemCode = "quota_exceeded"
@@ -243,6 +268,8 @@ func (e ProblemCode) Valid() bool {
 	case ProblemCodeInternalError:
 		return true
 	case ProblemCodeNotFound:
+		return true
+	case ProblemCodeNotImplemented:
 		return true
 	case ProblemCodePreconditionFailed:
 		return true
@@ -611,9 +638,12 @@ type JobStep struct {
 	Name      string     `json:"name"`
 	StartedAt *time.Time `json:"started_at"`
 
-	// Status Trạng thái step (tập giá trị chốt ở P2-T12)
-	Status string `json:"status"`
+	// Status Trạng thái step (`provisioning_job_steps.status`, tập giá trị chốt ở P2-T12 — CHECK của 0006)
+	Status JobStepStatus `json:"status"`
 }
+
+// JobStepStatus Trạng thái step (`provisioning_job_steps.status`, tập giá trị chốt ở P2-T12 — CHECK của 0006)
+type JobStepStatus string
 
 // Membership Thành viên của tenant (`tenant_memberships` + `identities`)
 type Membership struct {
@@ -699,8 +729,8 @@ type PlatformJobStep struct {
 	Name      string     `json:"name"`
 	StartedAt *time.Time `json:"started_at"`
 
-	// Status Trạng thái step (tập giá trị chốt ở P2-T12)
-	Status string `json:"status"`
+	// Status Trạng thái step (`provisioning_job_steps.status`, tập giá trị chốt ở P2-T12 — CHECK của 0006)
+	Status JobStepStatus `json:"status"`
 }
 
 // Principal Danh tính đã đăng nhập (`identities`, §8.1)
@@ -726,7 +756,9 @@ type Problem struct {
 	// `unauthenticated`, `reauth_required` (401) · `forbidden`, `tenant_suspended`, `quota_exceeded` (403) ·
 	// `not_found` (404, kể cả ID chéo tenant) · `conflict` (409) · `precondition_failed` (412) ·
 	// `precondition_required` (428, thiếu `If-Match`) · `validation_failed`, `idempotency_key_reuse` (422) ·
-	// `rate_limited` (429) · `upstream_rejected` (502) · `instance_unavailable` (503) · `internal_error` (500).
+	// `rate_limited` (429) · `upstream_rejected` (502, upstream từ chối, không tới được hoặc trả lời bất thường —
+	// Headscale của tenant, IdP ở luồng đăng nhập) · `instance_unavailable` (503) · `internal_error` (500) ·
+	// `not_implemented` (501, operation chưa có handler).
 	Code ProblemCode `json:"code"`
 
 	// Detail Giải thích cho người đọc — không bao giờ chứa secret, stack trace hay thông điệp thô của upstream
@@ -755,7 +787,9 @@ type Problem struct {
 // `unauthenticated`, `reauth_required` (401) · `forbidden`, `tenant_suspended`, `quota_exceeded` (403) ·
 // `not_found` (404, kể cả ID chéo tenant) · `conflict` (409) · `precondition_failed` (412) ·
 // `precondition_required` (428, thiếu `If-Match`) · `validation_failed`, `idempotency_key_reuse` (422) ·
-// `rate_limited` (429) · `upstream_rejected` (502) · `instance_unavailable` (503) · `internal_error` (500).
+// `rate_limited` (429) · `upstream_rejected` (502, upstream từ chối, không tới được hoặc trả lời bất thường —
+// Headscale của tenant, IdP ở luồng đăng nhập) · `instance_unavailable` (503) · `internal_error` (500) ·
+// `not_implemented` (501, operation chưa có handler).
 type ProblemCode string
 
 // ResourceRef defines model for ResourceRef.
@@ -955,6 +989,15 @@ type TenantId = openapi_types.UUID
 // ToFilter defines model for ToFilter.
 type ToFilter = time.Time
 
+// AuthCallbackForbidden RFC 9457 problem details (§13.1, §13.3)
+type AuthCallbackForbidden = Problem
+
+// AuthCallbackUnauthenticated RFC 9457 problem details (§13.1, §13.3)
+type AuthCallbackUnauthenticated = Problem
+
+// AuthCallbackUnexpected RFC 9457 problem details (§13.1, §13.3)
+type AuthCallbackUnexpected = Problem
+
 // Conflict RFC 9457 problem details (§13.1, §13.3)
 type Conflict = Problem
 
@@ -1010,6 +1053,9 @@ type AuthLoginParams struct {
 
 	// ReturnTo Đường dẫn tương đối trong Portal để quay lại sau khi đăng nhập (chặn open redirect)
 	ReturnTo *string `form:"return_to,omitempty" json:"return_to,omitempty"`
+
+	// Reauth `true` ⇒ xác thực lại tường minh (step-up, §8.3 bước 7): IdP được yêu cầu `prompt=login` và `max_age=0`, kể cả khi request chưa mang session nào. Vắng hoặc `false` ⇒ step-up chỉ khi request đã mang session hợp lệ của chính origin này (suy ra, P2-T06).
+	Reauth *bool `form:"reauth,omitempty" json:"reauth,omitempty"`
 }
 
 // AuthLoginParamsScope defines parameters for AuthLogin.
@@ -1426,6 +1472,19 @@ func (siw *ServerInterfaceWrapper) AuthLogin(w http.ResponseWriter, r *http.Requ
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "return_to"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "return_to", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "reauth" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "reauth", r.URL.Query(), &params.Reauth, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "reauth"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "reauth", Err: err})
 		}
 		return
 	}
@@ -2917,6 +2976,36 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	return m
 }
 
+type AuthCallbackForbiddenResponseHeaders struct {
+	SetCookie  *string
+	XRequestId *string
+}
+type AuthCallbackForbiddenApplicationProblemPlusJSONResponse struct {
+	Body Problem
+
+	Headers AuthCallbackForbiddenResponseHeaders
+}
+
+type AuthCallbackUnauthenticatedResponseHeaders struct {
+	SetCookie  *string
+	XRequestId *string
+}
+type AuthCallbackUnauthenticatedApplicationProblemPlusJSONResponse struct {
+	Body Problem
+
+	Headers AuthCallbackUnauthenticatedResponseHeaders
+}
+
+type AuthCallbackUnexpectedResponseHeaders struct {
+	SetCookie  *string
+	XRequestId *string
+}
+type AuthCallbackUnexpectedApplicationProblemPlusJSONResponse struct {
+	Body Problem
+
+	Headers AuthCallbackUnexpectedResponseHeaders
+}
+
 type ConflictResponseHeaders struct {
 	RetryAfter *int
 	XRequestId *string
@@ -3030,7 +3119,7 @@ func (response AuthCallback302Response) VisitAuthCallbackResponse(w http.Respons
 }
 
 type AuthCallback401ApplicationProblemPlusJSONResponse struct {
-	UnauthenticatedApplicationProblemPlusJSONResponse
+	AuthCallbackUnauthenticatedApplicationProblemPlusJSONResponse
 }
 
 func (response AuthCallback401ApplicationProblemPlusJSONResponse) VisitAuthCallbackResponse(w http.ResponseWriter) error {
@@ -3040,6 +3129,9 @@ func (response AuthCallback401ApplicationProblemPlusJSONResponse) VisitAuthCallb
 		return err
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.SetCookie != nil {
+		w.Header().Set("Set-Cookie", fmt.Sprint(*response.Headers.SetCookie))
+	}
 	if response.Headers.XRequestId != nil {
 		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
 	}
@@ -3049,7 +3141,7 @@ func (response AuthCallback401ApplicationProblemPlusJSONResponse) VisitAuthCallb
 }
 
 type AuthCallback403ApplicationProblemPlusJSONResponse struct {
-	ForbiddenApplicationProblemPlusJSONResponse
+	AuthCallbackForbiddenApplicationProblemPlusJSONResponse
 }
 
 func (response AuthCallback403ApplicationProblemPlusJSONResponse) VisitAuthCallbackResponse(w http.ResponseWriter) error {
@@ -3059,6 +3151,9 @@ func (response AuthCallback403ApplicationProblemPlusJSONResponse) VisitAuthCallb
 		return err
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.SetCookie != nil {
+		w.Header().Set("Set-Cookie", fmt.Sprint(*response.Headers.SetCookie))
+	}
 	if response.Headers.XRequestId != nil {
 		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
 	}
@@ -3138,7 +3233,7 @@ func (response AuthCallback429ApplicationProblemPlusJSONResponse) VisitAuthCallb
 
 type AuthCallbackdefaultApplicationProblemPlusJSONResponse struct {
 	Body       Problem
-	Headers    UnexpectedResponseHeaders
+	Headers    AuthCallbackUnexpectedResponseHeaders
 	StatusCode int
 }
 
@@ -3149,6 +3244,9 @@ func (response AuthCallbackdefaultApplicationProblemPlusJSONResponse) VisitAuthC
 		return err
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.SetCookie != nil {
+		w.Header().Set("Set-Cookie", fmt.Sprint(*response.Headers.SetCookie))
+	}
 	if response.Headers.XRequestId != nil {
 		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
 	}

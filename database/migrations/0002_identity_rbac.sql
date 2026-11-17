@@ -1,34 +1,58 @@
 -- 0002 — Identity & RBAC (bản đồ migration §6.3): identity_providers, identities, platform_users, tenant_memberships,
 -- roles/permissions/role_permissions, sessions, auth_requests.
--- Issuer binding và scope của role dùng FK ghép, không dùng trigger (§6.3, P2-T07). Forward-only.
+-- Issuer binding và scope của role dùng FK ghép, không dùng trigger (§6.3, P2-T07): identity của tenant X chỉ có
+-- membership ở X, identity platform chỉ có role platform (§8.4 bất biến 1); role chỉ được gán đúng phạm vi của nó.
+-- Forward-only.
 
 -- +goose Up
 
 -- ---------------------------------------------------------------- RBAC (bảng tham chiếu toàn cục — RLS "—")
--- Seed role/permission từ code ở P2-T07. roles.scope ∈ {platform, tenant}; role_permissions.scope ∈ {any, own}
--- (own = ô ○ của §8.6).
+-- Nội dung do database/seeds/rbac.sql nạp — sinh từ §8.4–§8.6 bằng tools/openapi_lint.py --write, áp sau migration
+-- bởi store.Migrate (P2-T07); role ứng dụng chỉ đọc. Phạm vi của role:
+--   platform — SA, PO, PS, PV (§8.5): chỉ gán qua platform_users;
+--   tenant   — TO, TA, TP, TV, EU (§8.6): chỉ gán qua tenant_memberships;
+--   support  — support_operator / support_admin (cột Staff của §8.6): chỉ là role hiệu lực của Support Access Grant
+--              (§8.7) — FK ghép của platform_users và tenant_memberships đều từ chối role này.
+-- rank: thứ bậc trong cùng phạm vi (lớn hơn = cao hơn, theo thứ tự cột của §8.5/§8.6); quy tắc role đích 3a (§8.4)
+-- so "thấp hơn hẳn" bằng rank. Role tự tạo (is_system = false) mặc định rank 0 (thấp nhất).
 CREATE TABLE roles (
     id         uuid        PRIMARY KEY DEFAULT uuidv7(),
-    scope      text        NOT NULL CHECK (scope IN ('platform', 'tenant')),
+    scope      text        NOT NULL CHECK (scope IN ('platform', 'tenant', 'support')),
     key        text        NOT NULL CHECK (key ~ '^[a-z][a-z0-9_]{0,63}$'),
     name       text        NOT NULL,
+    rank       smallint    NOT NULL DEFAULT 0 CHECK (rank >= 0),
     is_system  boolean     NOT NULL DEFAULT false,
     created_at timestamptz NOT NULL DEFAULT now(),
     UNIQUE (scope, key),
-    UNIQUE (id, scope)  -- đích FK ghép kiểm scope của role
+    UNIQUE (id, scope)  -- đích FK ghép kiểm scope của role (platform_users, tenant_memberships, role_permissions)
 );
 
+-- Khóa = <phạm vi>.<tài nguyên>:<hành động> (§8.5/§8.6); tiền tố của khóa phải trùng phạm vi.
 CREATE TABLE permissions (
-    key         text PRIMARY KEY CHECK (key ~ '^[a-z][a-z0-9_.:-]{0,127}$'),
+    key         text PRIMARY KEY CHECK (key ~ '^(platform|tenant)\.[a-z][a-z0-9_]*:[a-z][a-z0-9_]*$'),
     scope       text NOT NULL CHECK (scope IN ('platform', 'tenant')),
-    description text NOT NULL DEFAULT ''
+    description text NOT NULL DEFAULT '',
+    CHECK (scope = split_part(key, '.', 1)),
+    UNIQUE (key, scope)  -- đích FK ghép từ role_permissions
 );
 
+-- Phạm vi của role và của permission được chép vào hàng grant và ràng buộc bằng FK ghép (không dùng trigger): role
+-- platform chỉ mang quyền platform, role tenant/support chỉ mang quyền tenant (§8.4 bất biến 2 — role platform không
+-- bao hàm quyền nội bộ tenant); scope = own (ô ○ của §8.6) chỉ có ở role tenant. condition = ô có điều kiện của ma
+-- trận (ví dụ PO "chỉ cho restore"): Authorizer từ chối grant có điều kiện khi operation chưa khai báo xử lý điều
+-- kiện đó (internal/authz).
 CREATE TABLE role_permissions (
-    role_id        uuid NOT NULL REFERENCES roles (id) ON DELETE CASCADE,
-    permission_key text NOT NULL REFERENCES permissions (key),
-    scope          text NOT NULL DEFAULT 'any' CHECK (scope IN ('any', 'own')),
-    PRIMARY KEY (role_id, permission_key)
+    role_id          uuid NOT NULL,
+    role_scope       text NOT NULL,
+    permission_key   text NOT NULL,
+    permission_scope text NOT NULL,
+    scope            text NOT NULL DEFAULT 'any' CHECK (scope IN ('any', 'own')),
+    condition        text CHECK (condition ~ '^[a-z][a-z0-9_]{0,63}$'),
+    PRIMARY KEY (role_id, permission_key),
+    FOREIGN KEY (role_id, role_scope) REFERENCES roles (id, scope) ON DELETE CASCADE,
+    FOREIGN KEY (permission_key, permission_scope) REFERENCES permissions (key, scope) ON DELETE CASCADE,
+    CHECK ((role_scope = 'platform') = (permission_scope = 'platform')),
+    CHECK (scope = 'any' OR role_scope = 'tenant')
 );
 
 -- ---------------------------------------------------------------- IdP và danh tính
@@ -186,7 +210,7 @@ CREATE POLICY tenant_memberships_tenant ON tenant_memberships TO mg_app_tenant
 REVOKE ALL ON roles, permissions, role_permissions, identity_providers, identities, platform_users,
               tenant_memberships, sessions, auth_requests FROM PUBLIC;
 
--- RBAC: chỉ đọc (seed chạy bằng mg_migrator ở P2-T07).
+-- RBAC: chỉ đọc; seed (database/seeds/rbac.sql) chạy bằng mg_migrator trong store.Migrate (P2-T07).
 GRANT SELECT ON roles, permissions, role_permissions TO mg_api_tenant, mg_worker_tenant, mg_api_platform, mg_worker_platform;
 
 -- issuer, client_id, driver, tenant_id, scope bất biến (§6.3, §13.2).
@@ -212,3 +236,8 @@ GRANT UPDATE (role_id, status, headscale_user_id, updated_at, version) ON tenant
 -- worker (session.gc) chỉ đọc và xóa.
 GRANT SELECT, INSERT, UPDATE ON sessions, auth_requests TO mg_api_platform;
 GRANT SELECT, DELETE ON sessions, auth_requests TO mg_worker_platform;
+
+-- ---------------------------------------------------------------- P2-T06 (module identity)
+-- identities.status — tập giá trị chốt ở P2-T06: 'active' | 'disabled'. Identity 'disabled' không đăng nhập được
+-- (callback từ chối, không cập nhật hồ sơ) và mọi session của nó bị từ chối ở middleware.
+ALTER TABLE identities ADD CONSTRAINT identities_status_check CHECK (status IN ('active', 'disabled'));

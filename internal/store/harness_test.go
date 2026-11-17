@@ -8,12 +8,12 @@ package store
 //
 // Each test database is created by the superuser, bootstrapped (database/bootstrap/superuser.sql) and migrated as
 // mg_migrator exactly like a deployment. Role passwords are derived from the superuser password (roles are
-// cluster-wide), set as SCRAM verifiers with SetRolePassword and handed to the code under test as password files.
+// cluster-wide — pgcluster.RolePassword, shared by every harness), set as SCRAM verifiers with SetRolePassword and
+// handed to the code under test as password files.
 
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"net/url"
 	"os"
@@ -23,6 +23,8 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/zhaduchanhzz/network-access-mesh/internal/store/storetest/pgcluster"
 )
 
 // loginRoles are every login role created by bootstrap and migrations (§6.1).
@@ -106,10 +108,7 @@ func (e *pgEnv) storeURL(db string) string {
 	return u.String()
 }
 
-func (e *pgEnv) password(role string) string {
-	sum := sha256.Sum256([]byte("meshguard-test|" + e.secret + "|" + role))
-	return hex.EncodeToString(sum[:])
-}
+func (e *pgEnv) password(role string) string { return pgcluster.RolePassword(e.secret, role) }
 
 // passwordFile writes the derived password of role to a 0600 file (with a trailing newline, like a file secret).
 func (e *pgEnv) passwordFile(t *testing.T, role string) string {
@@ -158,14 +157,27 @@ func randomHex(n int) string {
 	return hex.EncodeToString(b)
 }
 
-// newDatabase creates a bootstrapped database migrated to version (0 = latest, < 0 = bootstrap only) and returns
-// its name. Database creation is serialised: roles are cluster-wide, and two migrations creating the same role at
-// once would race.
+// lockCluster takes the cluster-wide lock of every test harness (pgcluster.Lock: database creation, bootstrap,
+// migrations and role passwords across the test packages sharing the cluster); the returned function releases it.
+// Lock order inside this package: e.mu first, then this lock.
+func (e *pgEnv) lockCluster(t *testing.T) (unlock func()) {
+	t.Helper()
+	release, err := pgcluster.Lock(ctxT(t), e.adminURL("postgres"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return release
+}
+
+// newDatabase creates a bootstrapped database migrated to version (0 = latest including River's schema, < 0 =
+// bootstrap only) and returns its name. Database creation is serialised — within the package by e.mu, across test
+// packages by the cluster lock: roles are cluster-wide, and two migrations creating the same role at once would race.
 func (e *pgEnv) newDatabase(t *testing.T, version int64) string {
 	t.Helper()
 	ctx := ctxT(t)
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	defer e.lockCluster(t)()
 	name := "mgt_" + randomHex(6)
 	admin := e.connectAdmin(t, "postgres")
 	if _, err := admin.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{name}.Sanitize()); err != nil {
@@ -195,6 +207,9 @@ func (e *pgEnv) newDatabase(t *testing.T, version int64) string {
 	defer func() { _ = db.Close() }()
 	if version == 0 {
 		err = Migrate(ctx, db)
+		if err == nil {
+			_, err = MigrateQueue(ctx, e.storeURL(name), e.creds(t, "mg_migrator"))
+		}
 	} else {
 		err = MigrateTo(ctx, db, version)
 	}

@@ -544,10 +544,12 @@ export interface components {
          *     `unauthenticated`, `reauth_required` (401) · `forbidden`, `tenant_suspended`, `quota_exceeded` (403) ·
          *     `not_found` (404, kể cả ID chéo tenant) · `conflict` (409) · `precondition_failed` (412) ·
          *     `precondition_required` (428, thiếu `If-Match`) · `validation_failed`, `idempotency_key_reuse` (422) ·
-         *     `rate_limited` (429) · `upstream_rejected` (502) · `instance_unavailable` (503) · `internal_error` (500).
+         *     `rate_limited` (429) · `upstream_rejected` (502, upstream từ chối, không tới được hoặc trả lời bất thường —
+         *     Headscale của tenant, IdP ở luồng đăng nhập) · `instance_unavailable` (503) · `internal_error` (500) ·
+         *     `not_implemented` (501, operation chưa có handler).
          * @enum {string}
          */
-        ProblemCode: "unauthenticated" | "reauth_required" | "forbidden" | "tenant_suspended" | "quota_exceeded" | "not_found" | "conflict" | "precondition_failed" | "precondition_required" | "validation_failed" | "idempotency_key_reuse" | "rate_limited" | "upstream_rejected" | "instance_unavailable" | "internal_error";
+        ProblemCode: "unauthenticated" | "reauth_required" | "forbidden" | "tenant_suspended" | "quota_exceeded" | "not_found" | "conflict" | "precondition_failed" | "precondition_required" | "validation_failed" | "idempotency_key_reuse" | "rate_limited" | "upstream_rejected" | "instance_unavailable" | "internal_error" | "not_implemented";
         FieldError: {
             /** @description Đường dẫn tới trường lỗi, ví dụ `given_name` */
             field: string;
@@ -867,10 +869,14 @@ export interface components {
          * @enum {string}
          */
         JobStatus: "queued" | "running" | "failed_resumable" | "compensating" | "rolled_back" | "succeeded" | "failed" | "cancelled";
+        /**
+         * @description Trạng thái step (`provisioning_job_steps.status`, tập giá trị chốt ở P2-T12 — CHECK của 0006)
+         * @enum {string}
+         */
+        JobStepStatus: "running" | "succeeded" | "failed" | "skipped";
         JobStep: {
             name: string;
-            /** @description Trạng thái step (tập giá trị chốt ở P2-T12) */
-            status: string;
+            status: components["schemas"]["JobStepStatus"];
             attempt: number;
             /** Format: date-time */
             started_at: string | null;
@@ -1062,10 +1068,43 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
-        /** @description Headscale của tenant từ chối — `upstream_rejected` (lý do đã lọc; thông điệp gốc chỉ ghi vào log nội bộ, §13.4) */
+        /** @description Upstream từ chối hoặc trả lời bất thường — `upstream_rejected`; ở các operation này là Headscale của tenant (lý do đã lọc; thông điệp gốc chỉ ghi vào log nội bộ, §13.4) */
         UpstreamRejected: {
             headers: {
                 "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description Đăng nhập thất bại — `unauthenticated` (state lạ, đã dùng hoặc hết hạn; IdP mix-up; cookie ràng buộc thiếu hoặc không khớp; IdP trả lỗi; token hoặc ID token không hợp lệ); xóa cookie `__Host-mg_authreq` */
+        AuthCallbackUnauthenticated: {
+            headers: {
+                "X-Request-Id": components["headers"]["RequestId"];
+                "Set-Cookie": components["headers"]["ClearAuthRequestCookie"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description IdP đã xác thực nhưng không được phép — `forbidden` (claim bắt buộc của IdP, email chưa xác minh, domain email ngoài danh sách, identity bị vô hiệu); xóa cookie `__Host-mg_authreq` */
+        AuthCallbackForbidden: {
+            headers: {
+                "X-Request-Id": components["headers"]["RequestId"];
+                "Set-Cookie": components["headers"]["ClearAuthRequestCookie"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description Lỗi khác — `upstream_rejected` (IdP không tới được hoặc trả lời bất thường), `internal_error`; xóa cookie `__Host-mg_authreq` khi lỗi xảy ra sau khi auth request đã được đọc */
+        AuthCallbackUnexpected: {
+            headers: {
+                "X-Request-Id": components["headers"]["RequestId"];
+                "Set-Cookie": components["headers"]["ClearAuthRequestCookie"];
                 [name: string]: unknown;
             };
             content: {
@@ -1132,6 +1171,8 @@ export interface components {
         RedirectLocation: string;
         /** @description Cookie `__Host-` với `Secure; HttpOnly; SameSite=Lax; Path=/` */
         SetCookie: string;
+        /** @description Xóa cookie ràng buộc `__Host-mg_authreq` (`Max-Age=0`) — có ở mọi lỗi của callback xảy ra sau khi auth request đã được đọc (auth request chỉ dùng một lần) */
+        ClearAuthRequestCookie: string;
         /** @description Phiên bản hiện tại của tài nguyên (§6.1) — giá trị cho `If-Match` */
         ETag: string;
         /** @description Số giây nên chờ trước khi thử lại */
@@ -1158,6 +1199,8 @@ export interface operations {
                 tenant?: components["schemas"]["TenantSlug"];
                 /** @description Đường dẫn tương đối trong Portal để quay lại sau khi đăng nhập (chặn open redirect) */
                 return_to?: string;
+                /** @description `true` ⇒ xác thực lại tường minh (step-up, §8.3 bước 7): IdP được yêu cầu `prompt=login` và `max_age=0`, kể cả khi request chưa mang session nào. Vắng hoặc `false` ⇒ step-up chỉ khi request đã mang session hợp lệ của chính origin này (suy ra, P2-T06). */
+                reauth?: boolean;
             };
             header?: never;
             path?: never;
@@ -1213,12 +1256,12 @@ export interface operations {
                 };
                 content?: never;
             };
-            401: components["responses"]["Unauthenticated"];
-            403: components["responses"]["Forbidden"];
+            401: components["responses"]["AuthCallbackUnauthenticated"];
+            403: components["responses"]["AuthCallbackForbidden"];
             404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationFailed"];
             429: components["responses"]["RateLimited"];
-            default: components["responses"]["Unexpected"];
+            default: components["responses"]["AuthCallbackUnexpected"];
         };
     };
     authLogout: {

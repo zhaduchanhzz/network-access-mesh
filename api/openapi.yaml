@@ -106,6 +106,16 @@ paths:
             type: string
             maxLength: 512
             pattern: '^/([^/\\\s][^\s]*)?$'
+        - name: reauth
+          in: query
+          required: false
+          description: >-
+            `true` ⇒ xác thực lại tường minh (step-up, §8.3 bước 7): IdP được yêu cầu `prompt=login` và `max_age=0`, kể
+            cả khi request chưa mang session nào. Vắng hoặc `false` ⇒ step-up chỉ khi request đã mang session hợp lệ của
+            chính origin này (suy ra, P2-T06).
+          schema:
+            type: boolean
+            default: false
       responses:
         '302':
           description: Chuyển hướng tới authorization endpoint của IdP; đặt cookie `__Host-mg_authreq`
@@ -189,9 +199,9 @@ paths:
             Set-Cookie:
               $ref: '#/components/headers/SetCookie'
         '401':
-          $ref: '#/components/responses/Unauthenticated'
+          $ref: '#/components/responses/AuthCallbackUnauthenticated'
         '403':
-          $ref: '#/components/responses/Forbidden'
+          $ref: '#/components/responses/AuthCallbackForbidden'
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -199,7 +209,7 @@ paths:
         '429':
           $ref: '#/components/responses/RateLimited'
         default:
-          $ref: '#/components/responses/Unexpected'
+          $ref: '#/components/responses/AuthCallbackUnexpected'
   /auth/logout:
     post:
       tags: [auth]
@@ -1271,6 +1281,12 @@ components:
       required: true
       schema:
         type: string
+    ClearAuthRequestCookie:
+      description: >-
+        Xóa cookie ràng buộc `__Host-mg_authreq` (`Max-Age=0`) — có ở mọi lỗi của callback xảy ra sau khi auth request
+        đã được đọc (auth request chỉ dùng một lần)
+      schema:
+        type: string
     ETag:
       description: Phiên bản hiện tại của tài nguyên (§6.1) — giá trị cho `If-Match`
       required: true
@@ -1366,10 +1382,49 @@ components:
           schema:
             $ref: '#/components/schemas/Problem'
     UpstreamRejected:
-      description: Headscale của tenant từ chối — `upstream_rejected` (lý do đã lọc; thông điệp gốc chỉ ghi vào log nội bộ, §13.4)
+      description: Upstream từ chối hoặc trả lời bất thường — `upstream_rejected`; ở các operation này là Headscale của tenant (lý do đã lọc; thông điệp gốc chỉ ghi vào log nội bộ, §13.4)
       headers:
         X-Request-Id:
           $ref: '#/components/headers/RequestId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    AuthCallbackUnauthenticated:
+      description: >-
+        Đăng nhập thất bại — `unauthenticated` (state lạ, đã dùng hoặc hết hạn; IdP mix-up; cookie ràng buộc thiếu hoặc
+        không khớp; IdP trả lỗi; token hoặc ID token không hợp lệ); xóa cookie `__Host-mg_authreq`
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+        Set-Cookie:
+          $ref: '#/components/headers/ClearAuthRequestCookie'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    AuthCallbackForbidden:
+      description: >-
+        IdP đã xác thực nhưng không được phép — `forbidden` (claim bắt buộc của IdP, email chưa xác minh, domain email
+        ngoài danh sách, identity bị vô hiệu); xóa cookie `__Host-mg_authreq`
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+        Set-Cookie:
+          $ref: '#/components/headers/ClearAuthRequestCookie'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    AuthCallbackUnexpected:
+      description: >-
+        Lỗi khác — `upstream_rejected` (IdP không tới được hoặc trả lời bất thường), `internal_error`; xóa cookie
+        `__Host-mg_authreq` khi lỗi xảy ra sau khi auth request đã được đọc
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+        Set-Cookie:
+          $ref: '#/components/headers/ClearAuthRequestCookie'
       content:
         application/problem+json:
           schema:
@@ -1437,7 +1492,9 @@ components:
         `unauthenticated`, `reauth_required` (401) · `forbidden`, `tenant_suspended`, `quota_exceeded` (403) ·
         `not_found` (404, kể cả ID chéo tenant) · `conflict` (409) · `precondition_failed` (412) ·
         `precondition_required` (428, thiếu `If-Match`) · `validation_failed`, `idempotency_key_reuse` (422) ·
-        `rate_limited` (429) · `upstream_rejected` (502) · `instance_unavailable` (503) · `internal_error` (500).
+        `rate_limited` (429) · `upstream_rejected` (502, upstream từ chối, không tới được hoặc trả lời bất thường —
+        Headscale của tenant, IdP ở luồng đăng nhập) · `instance_unavailable` (503) · `internal_error` (500) ·
+        `not_implemented` (501, operation chưa có handler).
       enum:
         - unauthenticated
         - reauth_required
@@ -1454,6 +1511,7 @@ components:
         - upstream_rejected
         - instance_unavailable
         - internal_error
+        - not_implemented
     FieldError:
       type: object
       required: [field, code, message]
@@ -1967,6 +2025,10 @@ components:
       type: string
       description: Trạng thái job (`provisioning_jobs.status`, §6.3)
       enum: [queued, running, failed_resumable, compensating, rolled_back, succeeded, failed, cancelled]
+    JobStepStatus:
+      type: string
+      description: Trạng thái step (`provisioning_job_steps.status`, tập giá trị chốt ở P2-T12 — CHECK của 0006)
+      enum: [running, succeeded, failed, skipped]
     JobStep:
       type: object
       required: [name, status, attempt, started_at, finished_at, message]
@@ -1974,8 +2036,7 @@ components:
         name:
           type: string
         status:
-          type: string
-          description: Trạng thái step (tập giá trị chốt ở P2-T12)
+          $ref: '#/components/schemas/JobStepStatus'
         attempt:
           type: integer
           minimum: 0

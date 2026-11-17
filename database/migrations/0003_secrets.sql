@@ -1,6 +1,12 @@
 -- 0003 — SecretStore mặc định (bản đồ migration §6.3, §7.6): tenant_keys (DEK của tenant và của nền tảng),
--- secrets (ciphertext; bảng nghiệp vụ chỉ giữ reference mgsec://…). Chỉ module secrets dùng (P2-T04).
--- Forward-only.
+-- secrets (ciphertext; bảng nghiệp vụ chỉ giữ reference mgsec://…). Chỉ module secrets dùng (P2-T04,
+-- internal/secrets). Forward-only.
+--
+-- Envelope encryption (§7.6, AES-256-GCM): mỗi DEK 32 byte được bọc bằng KEK của keyring theo phạm vi — kek-app cho
+-- scope tenant/platform, kek-ops cho platform_ops — với wrap_nonce riêng và AAD bọc khóa "mgdek/v1|scope|tenant_id|
+-- version" ⇒ wrapped DEK chép sang hàng/tenant khác không mở được. Mỗi phiên bản secret mã hóa bằng DEK hiện hành của
+-- phạm vi với AAD "mgsec/v1|<tenant_id|platform>|name|version" (cột aad giữ bản sao để đối chiếu; khi giải mã AAD luôn
+-- được tính lại từ reference). KEK không bao giờ nằm trong DB hay backup DB.
 --
 -- Policy theo ROLE (§6.1): các role mg_api_* không thấy DEK phạm vi platform_ops và secret dùng DEK đó — policy
 -- RESTRICTIVE trên cột scope. secrets.scope (không có trong danh sách cột của §6.3) là bản sao scope của DEK,
@@ -16,13 +22,15 @@ CREATE TABLE tenant_keys (
     version      integer     NOT NULL CHECK (version > 0),
     wrapped_dek  bytea,      -- NULL sau khi hủy (crypto-shredding)
     wrap_nonce   bytea,
-    kek_id       text        NOT NULL,
+    kek_id       text        NOT NULL CHECK (kek_id ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$' AND kek_id <> 'ACTIVE'),
     state        text        NOT NULL DEFAULT 'active' CHECK (state IN ('active', 'retired', 'destroyed')),
     created_at   timestamptz NOT NULL DEFAULT now(),
     destroyed_at timestamptz,
     CHECK ((scope = 'tenant') = (tenant_id IS NOT NULL)),
     CHECK ((state = 'destroyed') = (destroyed_at IS NOT NULL)),
-    CHECK (state = 'destroyed' OR (wrapped_dek IS NOT NULL AND wrap_nonce IS NOT NULL)),
+    -- DEK đã hủy không còn vật liệu khóa nào trong bảng; DEK chưa hủy luôn đủ wrapped_dek + wrap_nonce
+    CHECK (CASE WHEN state = 'destroyed' THEN wrapped_dek IS NULL AND wrap_nonce IS NULL
+                ELSE wrapped_dek IS NOT NULL AND wrap_nonce IS NOT NULL END),
     -- AAD khi bọc DEK = scope|tenant_id|version ⇒ không hoán đổi được wrapped DEK giữa các tenant (§7.6)
     UNIQUE NULLS NOT DISTINCT (scope, tenant_id, version),
     UNIQUE (id, scope),
@@ -39,18 +47,22 @@ CREATE TABLE secrets (
     version      integer     NOT NULL CHECK (version > 0),
     ciphertext   bytea,      -- NULL sau khi hủy
     nonce        bytea,
-    aad          bytea       NOT NULL,  -- tenant_id|name|version (§7.6)
+    aad          bytea       NOT NULL,  -- mgsec/v1|tenant_id|name|version (§7.6)
     dek_id       uuid        NOT NULL,
     created_at   timestamptz NOT NULL DEFAULT now(),
     expires_at   timestamptz,
     destroyed_at timestamptz,
     CHECK ((scope = 'tenant') = (tenant_id IS NOT NULL)),
-    CHECK (destroyed_at IS NOT NULL OR (ciphertext IS NOT NULL AND nonce IS NOT NULL)),
+    -- phiên bản đã hủy không còn ciphertext; phiên bản chưa hủy luôn đủ ciphertext + nonce
+    CHECK (CASE WHEN destroyed_at IS NOT NULL THEN ciphertext IS NULL AND nonce IS NULL
+                ELSE ciphertext IS NOT NULL AND nonce IS NOT NULL END),
     -- hàng platform có tenant_id NULL vẫn bị ràng buộc (cần PostgreSQL ≥ 15)
     UNIQUE NULLS NOT DISTINCT (tenant_id, name, version),
     FOREIGN KEY (dek_id, scope) REFERENCES tenant_keys (id, scope),
     FOREIGN KEY (tenant_id, dek_id) REFERENCES tenant_keys (tenant_id, id)  -- DEK của đúng tenant
 );
+-- Job quét secret hết hạn (TTL của secret hiển-thị-một-lần — §13.1) chỉ đọc phần còn sống có hạn.
+CREATE INDEX secrets_expiry ON secrets (expires_at) WHERE destroyed_at IS NULL AND expires_at IS NOT NULL;
 
 -- ---------------------------------------------------------------- RLS (T+P + ẩn platform_ops khỏi mg_api_*)
 ALTER TABLE tenant_keys ENABLE ROW LEVEL SECURITY;
@@ -73,9 +85,12 @@ CREATE POLICY secrets_hide_platform_ops ON secrets AS RESTRICTIVE TO mg_api_tena
 
 -- ---------------------------------------------------------------- quyền bảng
 -- id, scope, tenant_id, version, created_at bất biến. Hủy = UPDATE (xóa wrapped_dek/ciphertext), không DELETE.
+-- api chỉ tạo DEK (lần đầu một tenant cần secret) và đọc; mọi thay đổi DEK — xoay DEK, rewrap khi xoay KEK, hủy DEK
+-- (crypto-shredding khi xóa tenant) — là job của worker ⇒ chỉ role worker có UPDATE trên tenant_keys (một api bị
+-- chiếm không hủy/ghi đè được DEK của tenant nào).
 REVOKE ALL ON tenant_keys, secrets FROM PUBLIC;
 GRANT SELECT, INSERT ON tenant_keys, secrets TO mg_api_tenant, mg_worker_tenant, mg_api_platform, mg_worker_platform;
 GRANT UPDATE (wrapped_dek, wrap_nonce, kek_id, state, destroyed_at)
-    ON tenant_keys TO mg_api_tenant, mg_worker_tenant, mg_api_platform, mg_worker_platform;
+    ON tenant_keys TO mg_worker_tenant, mg_worker_platform;
 GRANT UPDATE (ciphertext, nonce, aad, dek_id, expires_at, destroyed_at)
     ON secrets TO mg_api_tenant, mg_worker_tenant, mg_api_platform, mg_worker_platform;

@@ -113,9 +113,8 @@ Hai origin tách biệt dùng chung một bản build SPA: `app.<domain>` (Tenan
 | `platform.security_event:read` | `GET /platform/security-events` | ✔ | ✔ | ✔ | ✔ |
 | `platform.support_grant:request` | `POST /platform/support-grants` | ✔ | ✔ | ✔ | — |
 | `platform.support_grant:read` | `GET /platform/support-grants` | ✔ | ✔ | ✔ | ✔ |
-| `platform.support_grant:revoke` | `POST /platform/support-grants/{id}/revoke` | ✔ | — | — | — |
+| `platform.support_grant:revoke` | `POST /platform/support-grants/{id}/revoke` (thu hồi grant bất kỳ — §8.7) | ✔ | — | — | — |
 | `platform.support_grant:breakglass` | `POST /platform/support-grants/{id}/approve-breakglass` | 2P | — | — | — |
-| `platform.support_grant:read` / `:revoke` | `GET /platform/support-grants` / `POST /platform/support-grants/{id}/revoke` (thu hồi grant bất kỳ — §8.7) | ✔ / ✔ | ✔ / — | ✔ / — | ✔ / — |
 | `platform.backup:read` | `GET /platform/backups` | ✔ | ✔ | — | ✔ |
 
 ### 8.6 Permission Matrix — phạm vi Tenant
