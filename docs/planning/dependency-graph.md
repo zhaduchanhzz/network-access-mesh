@@ -65,7 +65,7 @@ flowchart TD
   B06 --> B15[P2-T15 isolation suite]
   B07 --> B15
   B13 --> B15 --> B16[P2-T16 triển khai + rà soát G2] --> G2{{G2}}
-  B10 --> B16
+  B10 --> B10a[P2-T10a Headscale vá V-26] --> B16
   G1 --> B16
   G2 --> C01[P3-T01 agent] --> C02[P3-T02 compose driver] --> C03[P3-T03 agent ops] --> C05[P3-T05 state machine] --> C07[P3-T07 tiêm lỗi] --> C14[P3-T14 báo cáo G3] --> G3{{G3}}
   G2 --> C06[P3-T06 migrations 0007–0011] --> C05

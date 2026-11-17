@@ -1,4 +1,5 @@
-# Build image tự làm (P1-T04, P2-T01, P2-T05): edge (Caddy + module), stund, api, worker, idp (Keycloak). Mỗi image:
+# Build image tự làm (P1-T04, P2-T01, P2-T05, P2-T10a): edge (Caddy + module), stund, api, worker, idp (Keycloak),
+# headscale (Headscale v0.29.7 + bản vá V-26 — infrastructure/docker/headscale, ADR-02 sửa đổi 2026-11-17). Mỗi image:
 # build từ base pin theo digest, kiểm nội dung, sinh SBOM (syft), quét lỗ hổng (grype — chặn nếu có mức Critical), rồi
 # mới push lên GHCR. Digest đưa vào versions.lock bằng commit riêng. Action và công cụ pin theo commit SHA / SHA-256,
 # chọn bản đã ≥ 14 ngày tuổi. Ngoại lệ grype chỉ qua file riêng của từng image (cột grype_config — hiện chỉ idp), bắt
@@ -29,6 +30,8 @@ jobs:
           - {image: worker, dockerfile: infrastructure/docker/app/Dockerfile,   context: ".",                         app: worker, grype_config: ""}
           # idp: ngoại lệ CVE-2026-91403 có hạn — P2-T05 mục 7
           - {image: idp,    dockerfile: infrastructure/docker/idp/Dockerfile,   context: infrastructure/docker/idp,   app: "",     grype_config: infrastructure/docker/idp/grype.yaml}
+          # headscale: bản vá V-26 (P2-T10a); unit test của các package bị vá chạy trong Dockerfile
+          - {image: headscale, dockerfile: infrastructure/docker/headscale/Dockerfile, context: infrastructure/docker/headscale, app: "", grype_config: ""}
     env:
       IMAGE: ghcr.io/${{ github.repository }}/${{ matrix.image }}
       SYFT_VERSION: "1.56.0"
@@ -125,6 +128,10 @@ jobs:
               docker run --rm --network none --read-only --cap-drop ALL "${IMAGE}:${GITHUB_SHA}" --version > "${RUNNER_TEMP}/idp-version.txt"
               cat "${RUNNER_TEMP}/idp-version.txt"
               grep -qxF "Keycloak ${kc}" "${RUNNER_TEMP}/idp-version.txt" ;;
+            headscale)
+              # versions.lock [sources.headscale] ↔ Dockerfile + patches/series; `headscale version` = v0.29.7 + commit của
+              # bản vá (dấu bản vá); serve như compose tenant: uid riêng không phải root, rootfs chỉ đọc, health qua PATH
+              bash infrastructure/docker/headscale/check-image.sh "${IMAGE}:${GITHUB_SHA}" ;;
           esac
           echo "user=$user OK"
 

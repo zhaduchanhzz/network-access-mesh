@@ -1,9 +1,11 @@
 # Contract test của adapter Headscale (P2-T10, §13.4 quy tắc 4): internal/headscale chạy với Headscale v0.29.7 thật
-# (pin digest, config render bằng tools/render_instance.py) qua đúng khối listener admin của edge trong
+# (config render bằng tools/render_instance.py) qua đúng khối listener admin của edge trong
 # infrastructure/caddy/Caddyfile.tmpl (Caddy pin digest), cộng client Tailscale chính thức pin digest; mọi image lấy
-# từ versions.lock. API key của instance và token của listener admin sinh mới trong mỗi lần chạy, trong container
-# dùng-một-lần trên runner — workflow không dùng secret nào của repo (repo public, D-12). Kết quả quan sát từng quirk
-# (V-06, V-21, V-26, V-28) được lưu thành artifact.
+# từ versions.lock. Headscale được thử là bản vá V-26 của MeshGuard (P2-T10a): [images.mg-headscale] khi đã pin, chưa
+# pin thì run.sh build từ infrastructure/docker/headscale của chính commit; image chính thức [images.headscale] tạo DB
+# và chạy pha đối chứng âm/rollback. API key của instance và token của listener admin sinh mới trong mỗi lần chạy,
+# trong container dùng-một-lần trên runner — workflow không dùng secret nào của repo (repo public, D-12). Kết quả quan
+# sát từng quirk (V-06, V-21, V-26, V-28) được lưu thành artifact.
 name: headscale-contract
 
 on:
@@ -11,11 +13,13 @@ on:
     branches: [main]
     paths: ["internal/headscale/**", "internal/kit/logx/**", "tests/integration/headscale/**",
             "infrastructure/caddy/Caddyfile.tmpl", "infrastructure/headscale/templates/**", "tools/render_instance.py",
-            "tools/mgenv.py", "versions.lock", ".github/workflows/headscale-contract.yml"]
+            "tools/mgenv.py", "versions.lock", "infrastructure/docker/headscale/**",
+            ".github/workflows/headscale-contract.yml"]
   pull_request:
     paths: ["internal/headscale/**", "internal/kit/logx/**", "tests/integration/headscale/**",
             "infrastructure/caddy/Caddyfile.tmpl", "infrastructure/headscale/templates/**", "tools/render_instance.py",
-            "tools/mgenv.py", "versions.lock", ".github/workflows/headscale-contract.yml"]
+            "tools/mgenv.py", "versions.lock", "infrastructure/docker/headscale/**",
+            ".github/workflows/headscale-contract.yml"]
 
 permissions:
   contents: read
@@ -23,12 +27,14 @@ permissions:
 jobs:
   contract:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - name: Contract test adapter ↔ Headscale v0.29.7 (6 pha, có restart / làm đầy đĩa / crash)
+      - name: Contract test adapter ↔ Headscale v0.29.7 bản vá (7 pha, có restart / làm đầy đĩa / đổi image / đối chứng crash)
+        # run.sh dùng [images.mg-headscale] khi đã pin VÀ đúng bộ bản vá của cây (label patched-commit = ARG của
+        # Dockerfile); ngược lại build image từ cây của commit này.
         run: HSCT_OUT="${RUNNER_TEMP}/hsct" HSCT_KEEP_CACHE=0 bash tests/integration/headscale/run.sh
       - name: Lưu quan sát (observations.jsonl, log từng pha, log crash đã che credential)
         if: always()

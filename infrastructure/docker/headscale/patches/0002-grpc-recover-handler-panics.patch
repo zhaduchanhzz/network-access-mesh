@@ -1,0 +1,352 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: MeshGuard <noreply@meshguard.invalid>
+Date: Tue, 17 Nov 2026 00:01:00 +0000
+Subject: [PATCH 2/2] grpc: recover panics in handlers on both gRPC servers
+
+MeshGuard security patch 0002 (task P2-T10a, validation item V-26; see
+docs/planning/evidence/P2-T10a.md of the MeshGuard repository). Not
+reported upstream: decision of the project owner, 2026-11-17.
+
+The local unix-socket gRPC server (which also serves the REST API
+through grpc-gateway) and the optional remote gRPC server were created
+without a recovery interceptor: a panic in any handler terminated
+Headscale. V-26 was one such panic (patch 0001 removes its cause); this
+patch makes sure no other handler panic can stop the control plane.
+
+Add a unary and a stream interceptor, outermost on both servers, that
+log the panic once with the stack of the panicking goroutine and answer
+codes.Internal "internal error: request handler panicked" (the panic
+value may carry request data and stays in the server log; the REST
+gateway answers HTTP 500 {"code":13,...}). The remote server keeps its
+authentication interceptor, now wrapped by the recovery. Nothing changes
+when no handler panics.
+
+Tests: hscontrol/grpc_recovery_test.go (both interceptors; a real gRPC
+server on a unix socket built like the local and the remote server, with
+a panicking handler, a panicking interceptor and a panicking stream:
+codes.Internal, HTTP 500 through the REST gateway, the server keeps
+serving).
+
+Remove this patch when upstream recovers handler panics on its gRPC
+servers.
+---
+ hscontrol/app.go                |  21 ++--
+ hscontrol/grpc_recovery.go      |  74 +++++++++++++
+ hscontrol/grpc_recovery_test.go | 187 ++++++++++++++++++++++++++++++++
+ 3 files changed, 271 insertions(+), 11 deletions(-)
+ create mode 100644 hscontrol/grpc_recovery.go
+ create mode 100644 hscontrol/grpc_recovery_test.go
+
+diff --git a/hscontrol/app.go b/hscontrol/app.go
+index bfc9ef2..3521cdf 100644
+--- a/hscontrol/app.go
++++ b/hscontrol/app.go
+@@ -764,11 +764,12 @@ func (h *Headscale) Serve() error {
+ 		return fmt.Errorf("registering Headscale API service to gRPC: %w", err)
+ 	}
+ 
+-	// Start the local gRPC server without TLS and without authentication
+-	grpcSocket := grpc.NewServer(
++	// Start the local gRPC server without TLS and without authentication.
++	// It serves the REST gateway too, so it must survive a handler panic.
++	grpcSocketOptions := grpcServerOptions()
+ 	// Uncomment to debug grpc communication.
+-	// zerolog.UnaryInterceptor(),
+-	)
++	// grpcSocketOptions = append(grpcSocketOptions, zerolog.UnaryInterceptor())
++	grpcSocket := grpc.NewServer(grpcSocketOptions...)
+ 
+ 	v1.RegisterHeadscaleServiceServer(grpcSocket, newHeadscaleV1APIServer(h))
+ 	reflection.Register(grpcSocket)
+@@ -805,13 +806,11 @@ func (h *Headscale) Serve() error {
+ 	if tlsConfig != nil || h.cfg.GRPCAllowInsecure {
+ 		log.Info().Msgf("enabling remote gRPC at %s", h.cfg.GRPCAddr)
+ 
+-		grpcOptions := []grpc.ServerOption{
+-			grpc.ChainUnaryInterceptor(
+-				h.grpcAuthenticationInterceptor,
+-				// Uncomment to debug grpc communication.
+-				// zerolog.NewUnaryServerInterceptor(),
+-			),
+-		}
++		grpcOptions := grpcServerOptions(
++			h.grpcAuthenticationInterceptor,
++			// Uncomment to debug grpc communication.
++			// zerolog.NewUnaryServerInterceptor(),
++		)
+ 
+ 		if tlsConfig != nil {
+ 			grpcOptions = append(grpcOptions,
+diff --git a/hscontrol/grpc_recovery.go b/hscontrol/grpc_recovery.go
+new file mode 100644
+index 0000000..3bf0f10
+--- /dev/null
++++ b/hscontrol/grpc_recovery.go
+@@ -0,0 +1,74 @@
++package hscontrol
++
++// MeshGuard patch 0002 (V-26) — remove together with the patch once upstream
++// recovers panics on its gRPC servers.
++
++import (
++	"context"
++	"fmt"
++	"runtime/debug"
++
++	"github.com/rs/zerolog/log"
++	"google.golang.org/grpc"
++	"google.golang.org/grpc/codes"
++	"google.golang.org/grpc/status"
++)
++
++// grpcPanicMessage is the status message of a recovered handler panic. The
++// panic value may carry request data, so it only goes to the server log.
++const grpcPanicMessage = "internal error: request handler panicked"
++
++// grpcServerOptions returns the interceptor options of the gRPC servers:
++// panic recovery outermost (unary and stream), then the given unary
++// interceptors in order. A panic in a handler or an interceptor becomes
++// codes.Internal for that call instead of terminating the process.
++func grpcServerOptions(unary ...grpc.UnaryServerInterceptor) []grpc.ServerOption {
++	chain := append([]grpc.UnaryServerInterceptor{grpcRecoveryUnaryInterceptor}, unary...)
++
++	return []grpc.ServerOption{
++		grpc.ChainUnaryInterceptor(chain...),
++		grpc.ChainStreamInterceptor(grpcRecoveryStreamInterceptor),
++	}
++}
++
++func grpcRecoveryUnaryInterceptor(
++	ctx context.Context,
++	req any,
++	info *grpc.UnaryServerInfo,
++	handler grpc.UnaryHandler,
++) (resp any, err error) {
++	defer func() {
++		if r := recover(); r != nil {
++			resp, err = nil, grpcRecovered(info.FullMethod, r)
++		}
++	}()
++
++	return handler(ctx, req)
++}
++
++func grpcRecoveryStreamInterceptor(
++	srv any,
++	stream grpc.ServerStream,
++	info *grpc.StreamServerInfo,
++	handler grpc.StreamHandler,
++) (err error) {
++	defer func() {
++		if r := recover(); r != nil {
++			err = grpcRecovered(info.FullMethod, r)
++		}
++	}()
++
++	return handler(srv, stream)
++}
++
++// grpcRecovered logs a recovered panic once, with the stack of the panicking
++// goroutine, and returns the status sent to the client.
++func grpcRecovered(method string, r any) error {
++	log.Error().
++		Str("grpc_method", method).
++		Str("panic", fmt.Sprint(r)).
++		Str("stack", string(debug.Stack())).
++		Msg("recovered panic in gRPC handler")
++
++	return status.Error(codes.Internal, grpcPanicMessage)
++}
+diff --git a/hscontrol/grpc_recovery_test.go b/hscontrol/grpc_recovery_test.go
+new file mode 100644
+index 0000000..fe25279
+--- /dev/null
++++ b/hscontrol/grpc_recovery_test.go
+@@ -0,0 +1,187 @@
++package hscontrol
++
++// MeshGuard patch 0002 (V-26) — remove together with the patch.
++//
++// A panic in a gRPC handler must become codes.Internal for that call and leave
++// the server (and the process) serving; before, it terminated Headscale.
++
++import (
++	"context"
++	"encoding/json"
++	"errors"
++	"net"
++	"net/http"
++	"net/http/httptest"
++	"os"
++	"path/filepath"
++	"testing"
++
++	grpcRuntime "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
++	v1 "github.com/juanfont/headscale/gen/go/headscale/v1"
++	"github.com/stretchr/testify/assert"
++	"github.com/stretchr/testify/require"
++	"google.golang.org/grpc"
++	"google.golang.org/grpc/codes"
++	"google.golang.org/grpc/credentials/insecure"
++	"google.golang.org/grpc/status"
++	"google.golang.org/protobuf/types/known/emptypb"
++)
++
++func requireRecoveredStatus(t *testing.T, err error) {
++	t.Helper()
++
++	st, ok := status.FromError(err)
++	require.True(t, ok, "want a gRPC status, got %v", err)
++	assert.Equal(t, codes.Internal, st.Code())
++	assert.Equal(t, grpcPanicMessage, st.Message())
++}
++
++func TestGRPCRecoveryUnaryInterceptor(t *testing.T) {
++	info := &grpc.UnaryServerInfo{FullMethod: "/headscale.v1.HeadscaleService/Test"}
++
++	var (
++		resp any
++		err  error
++	)
++
++	require.NotPanics(t, func() {
++		resp, err = grpcRecoveryUnaryInterceptor(context.Background(), nil, info,
++			func(context.Context, any) (any, error) { panic("secret request data") })
++	})
++	assert.Nil(t, resp)
++	requireRecoveredStatus(t, err)
++	assert.NotContains(t, err.Error(), "secret request data", "the panic value stays in the server log")
++
++	// Without a panic the handler's answer passes through unchanged.
++	want := errors.New("handler error")
++	resp, err = grpcRecoveryUnaryInterceptor(context.Background(), nil, info,
++		func(context.Context, any) (any, error) { return "answer", want })
++	assert.Equal(t, "answer", resp)
++	assert.Equal(t, want, err)
++}
++
++func TestGRPCRecoveryStreamInterceptor(t *testing.T) {
++	info := &grpc.StreamServerInfo{FullMethod: "/headscale.v1.HeadscaleService/TestStream"}
++
++	var err error
++
++	require.NotPanics(t, func() {
++		err = grpcRecoveryStreamInterceptor(nil, nil, info,
++			func(any, grpc.ServerStream) error { panic("stream handler panic") })
++	})
++	requireRecoveredStatus(t, err)
++
++	want := errors.New("stream error")
++	err = grpcRecoveryStreamInterceptor(nil, nil, info, func(any, grpc.ServerStream) error { return want })
++	assert.Equal(t, want, err)
++}
++
++// panickingListUsers is the real API server with one handler that panics.
++type panickingListUsers struct {
++	v1.HeadscaleServiceServer
++}
++
++func (panickingListUsers) ListUsers(context.Context, *v1.ListUsersRequest) (*v1.ListUsersResponse, error) {
++	panic("test: ListUsers handler panic")
++}
++
++// panicStream is a streaming service whose handler panics (the Headscale
++// service has no streaming method; reflection, also served, does).
++var panicStream = grpc.ServiceDesc{
++	ServiceName: "meshguard.test.PanicStream",
++	HandlerType: (*any)(nil),
++	Streams: []grpc.StreamDesc{{
++		StreamName:    "Stream",
++		Handler:       func(any, grpc.ServerStream) error { panic("test: stream handler panic") },
++		ServerStreams: true,
++		ClientStreams: true,
++	}},
++}
++
++func TestGRPCServerSurvivesHandlerPanic(t *testing.T) {
++	app := createTestApp(t)
++	t.Cleanup(func() { _ = app.state.Close() })
++
++	// Built like the servers in [Headscale.Serve]: the local one without
++	// interceptors of its own, the remote one with an authentication
++	// interceptor — here one that panics, to show recovery wraps it.
++	panickingAuth := func(context.Context, any, *grpc.UnaryServerInfo, grpc.UnaryHandler) (any, error) {
++		panic("test: interceptor panic")
++	}
++	servers := map[string][]grpc.ServerOption{
++		"local":                      grpcServerOptions(),
++		"remote, interceptor panics": grpcServerOptions(panickingAuth),
++	}
++
++	for name, opts := range servers {
++		t.Run(name, func(t *testing.T) {
++			conn, gateway := recoveryTestServer(t, panickingListUsers{newHeadscaleV1APIServer(app)}, opts)
++			client := v1.NewHeadscaleServiceClient(conn)
++			ctx := context.Background()
++
++			_, err := client.ListUsers(ctx, &v1.ListUsersRequest{})
++			requireRecoveredStatus(t, err)
++
++			stream, err := conn.NewStream(ctx, &panicStream.Streams[0], "/meshguard.test.PanicStream/Stream")
++			require.NoError(t, err)
++			require.NoError(t, stream.CloseSend())
++			requireRecoveredStatus(t, stream.RecvMsg(&emptypb.Empty{}))
++
++			// The REST gateway answers like for any other internal error.
++			rec := httptest.NewRecorder()
++			gateway.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/user", nil))
++			require.Equal(t, http.StatusInternalServerError, rec.Code, rec.Body.String())
++
++			var answer struct {
++				Code    int    `json:"code"`
++				Message string `json:"message"`
++			}
++			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &answer))
++			assert.Equal(t, int(codes.Internal), answer.Code)
++			assert.Equal(t, grpcPanicMessage, answer.Message)
++
++			if name == "local" {
++				// The same server still serves the next call.
++				health, err := client.Health(ctx, &v1.HealthRequest{})
++				require.NoError(t, err)
++				assert.True(t, health.GetDatabaseConnectivity())
++			}
++		})
++	}
++}
++
++// recoveryTestServer serves api (and the panicking stream service) on a gRPC
++// server built with opts, listening on a unix socket like the local server, and
++// returns a client connection and the REST gateway in front of it.
++func recoveryTestServer(
++	t *testing.T,
++	api v1.HeadscaleServiceServer,
++	opts []grpc.ServerOption,
++) (*grpc.ClientConn, http.Handler) {
++	t.Helper()
++
++	dir, err := os.MkdirTemp("", "hsrec")
++	require.NoError(t, err)
++	t.Cleanup(func() { _ = os.RemoveAll(dir) })
++
++	socket := filepath.Join(dir, "grpc.sock")
++	listener, err := new(net.ListenConfig).Listen(context.Background(), "unix", socket)
++	require.NoError(t, err)
++
++	server := grpc.NewServer(opts...)
++	v1.RegisterHeadscaleServiceServer(server, api)
++	server.RegisterService(&panicStream, struct{}{})
++
++	go func() { _ = server.Serve(listener) }()
++
++	t.Cleanup(server.Stop)
++
++	conn, err := grpc.NewClient("unix://"+socket, grpc.WithTransportCredentials(insecure.NewCredentials()))
++	require.NoError(t, err)
++	t.Cleanup(func() { _ = conn.Close() })
++
++	mux := grpcRuntime.NewServeMux()
++	require.NoError(t, v1.RegisterHeadscaleServiceHandler(context.Background(), mux, conn))
++
++	return conn, mux
++}

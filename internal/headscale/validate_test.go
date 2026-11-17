@@ -102,7 +102,9 @@ func TestParseVersion(t *testing.T) {
 	if err != nil || v.Major != 0 || v.Minor != 29 || v.Patch != 7 || v.Raw != "v0.29.7" {
 		t.Fatalf("ParseVersion = %+v, %v", v, err)
 	}
-	for _, s := range []string{"0.29", "v0.29.7-rc1", "v0.29.07", "v0.29.x", "dev", "v0.29.7+meta"} {
+	// Build metadata is refused — the reason the patched build (P2-T10a) keeps "v0.29.7" as its version and carries
+	// the patch level in the /version commit field and the image labels instead of "v0.29.7+mg.1".
+	for _, s := range []string{"0.29", "v0.29.7-rc1", "v0.29.07", "v0.29.x", "dev", "v0.29.7+meta", "v0.29.7+mg.1", "v0.29.7+dirty"} {
 		if _, err := ParseVersion(s); err == nil {
 			t.Errorf("%q parsed", s)
 		}

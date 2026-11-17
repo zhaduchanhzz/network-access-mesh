@@ -9,7 +9,7 @@
   "derp_ipv4": "${MG_PUBLIC_IPV4}",
   "node_expiry": "2160h",
   "nameservers": "${MG_TENANT_NAMESERVERS:list}",
-  "image": "docker.io/headscale/headscale@sha256:11f81665e842809db9fe3006a38c56a66e968baa5abd4bac498e86445572b970",
+  "headscale_build": "official",
   "mem_limit": "512m",
   "cpus": "1.0",
   "pids_limit": 256

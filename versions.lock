@@ -14,7 +14,7 @@ platform = "linux/amd64"   # host staging, runner CI và VPS đều amd64 (Appen
 
 # ---------------------------------------------------------------- images chạy trong hệ thống
 
-[images.headscale]
+[images.headscale]   # image CHÍNH THỨC — tham chiếu và đường rollback; tenant chạy bản vá [images.mg-headscale] (P2-T10a)
 image = "docker.io/headscale/headscale"
 tag = "v0.29.7"
 index = "sha256:11f81665e842809db9fe3006a38c56a66e968baa5abd4bac498e86445572b970"
@@ -22,7 +22,7 @@ amd64 = "sha256:4f36e125a41713eedc98a7baa5ab6849fd8c4f769281d832997eb2e59d7ace37
 user = "0"
 run_as = "run_uid riêng của từng instance (§14.5; V-04)"
 released = "2026-10-30"
-note = "Cùng digest với ghcr.io/juanfont/headscale:v0.29.7. Biến thể -debug tồn tại nhưng không được phép dùng ở staging/production"
+note = "Cùng digest với ghcr.io/juanfont/headscale:v0.29.7. Biến thể -debug tồn tại nhưng không được phép dùng ở staging/production. CÒN LỖI V-26 (AuthRegister với Auth ID của phiên SSH-check ⇒ panic, tiến trình thoát): chỉ dùng để rollback, tạo DB trong contract test và làm đối chứng âm. Base (annotation của manifest amd64): gcr.io/distroless/base-debian13 sha256:0a90478350cd25cf759a18686ce8d0cb2a2b57fecd2a27ffdaa543fb403dace2; binary go1.27.3, không -trimpath"
 
 [images.caddy]
 image = "docker.io/library/caddy"
@@ -74,6 +74,15 @@ user = "haproxy"
 run_as = "99:99"     # theo Dockerfile của docker-library
 released = "2026-10-14"
 note = "Nhánh LTS 3.4"
+
+[images.distroless-base]   # runtime của image mg-headscale (P2-T10a) — cùng họ base với image Headscale chính thức (ko)
+image = "gcr.io/distroless/base-debian13"
+tag = "latest"
+index = "sha256:0e48b9bcd868bce9fa872cee10b52961d9e32677823da4bf68eefb44f38e7b9d"
+amd64 = "sha256:299d5a903815f148b59e01c138a81be6c32fb0f01d85e667f6c0abb1d042bdc9"
+user = "0"
+run_as = "65532:65532 trong image (USER của Dockerfile); compose tenant đặt run_uid riêng"
+note = "Tag di động — chỉ dùng theo digest. Digest kiểm qua Registry API v2 của gcr.io ngày 2026-11-17 (sha256 của index, manifest amd64 và config blob khớp). Mới hơn base của image Headscale chính thức (sha256:0a904783…): zlib1g 1:1.3.dfsg+really1.3.1-1+deb13u1 vá CVE-2026-76844 và CVE-2026-85091 (High), tzdata 2026f — bản vá bảo mật nên chọn dù chưa đủ 14 ngày. grype: 0 Critical, còn 3 High của libc6 2.41-12+deb13u4 (Debian: won't fix)"
 
 [images.distroless-static]   # runtime cho api, worker, stund
 image = "gcr.io/distroless/static-debian13"
@@ -136,6 +145,19 @@ run_as = "1000:1000, rootfs chỉ đọc, cap_drop ALL; project compose mg-idp (
 released = "2026-11-17"
 note = "Keycloak 26.8.2 (base quay.io c68e286c…) build tối ưu (kc.sh build: db postgres, health, metrics, tắt impersonation/kerberos/ciba/device-flow/token-exchange-standard) + kho CA của JVM đã gỡ emSign Root CA - G1 (117 CA). Workflow images run 43997562081 xanh; digest đọc từ GHCR (Docker-Content-Digest khớp sha256 của manifest). grype: 0 Critical nhờ ngoại lệ CVE-2026-91403 có hạn tới 2027-02-16 (infrastructure/docker/idp/grype.yaml; P2-T05 mục 7); 5 High chưa có bản vá trong base (sqlite-libs ×4, guava 33.6.0-jre)"
 
+# [images.mg-headscale] — Headscale v0.29.7 + bản vá V-26 (P2-T10a; nguồn: [sources.headscale]). CHƯA PIN: bỏ dấu #
+# và điền sau lần build xanh đầu tiên trên main (workflow images, matrix "headscale"; digest đọc từ GHCR). Khi đã pin,
+# tools/render_instance.py dùng image này cho tenant không ghi headscale_build (mặc định "patched") và contract test
+# dùng nó khi label patched-commit trùng cây; tenant ghi headscale_build = "official" vẫn ở [images.headscale].
+# image = "ghcr.io/zhaduchanhzz/network-access-mesh/headscale"
+# tag = "<commit SHA của main>"
+# index = "sha256:<digest>"   # một manifest linux/amd64
+# amd64 = "sha256:<digest>"
+# user = "65532:65532"
+# run_as = "run_uid riêng của từng instance (§14.5; V-04) — compose tenant đặt user; rootfs chỉ đọc, cap_drop ALL"
+# released = "<ngày build>"
+# note = "Headscale v0.29.7 (c9cf210b) + bản vá mg.1: 0001 từ chối phiên không phải đăng ký (V-26), 0002 recover panic trên hai gRPC server. GET /version: version v0.29.7, commit f9cc62be…; base [images.distroless-base]; go1.27.4, -trimpath. grype: <kết quả gate>"
+
 # ---------------------------------------------------------------- image chỉ dùng để build
 
 [images.caddy-builder]
@@ -169,6 +191,20 @@ repo = "github.com/tailscale/tailscale"
 tag = "v1.104.7"
 commit = "cbc74fe48ef1b1649f69a4d9a602319427e25102"
 purpose = "Build stund (GW-01); derper chỉ ở Phase 7"
+
+[sources.headscale]   # nguồn của image mg-headscale (P2-T10a; ADR-02 sửa đổi 2026-11-17: upstream pin commit + bản vá tối thiểu)
+repo = "github.com/juanfont/headscale"
+version = "v0.29.7"
+commit = "c9cf210b8bc84d13177e18b91f555788a44b47b6"   # tag v0.29.7 = ref lightweight trỏ thẳng commit (GitHub API)
+commit_time = "2026-10-30T09:33:17Z"                  # vcs.time của binary chính thức; ngày của commit gốc khi build lại
+tarball = "https://codeload.github.com/juanfont/headscale/tar.gz/c9cf210b8bc84d13177e18b91f555788a44b47b6"
+tarball_sha256 = "e0fd854b6cc5b94237230c4a9429fe187e3859af9449417e3152bea1648908f2"   # git get-tar-commit-id = commit; giống nhau trên 2 máy và qua github.com/…/archive/<commit>.tar.gz
+patch_level = "mg.1"
+patched_commit = "f9cc62beaa49c207839c67a75e89fb7c7c82ed97"   # HEAD của repo dựng lại trong build = "commit" của `headscale version` và GET /version
+patches = { "0001-state-refuse-non-registration-sessions.patch" = "bd467da99f141678a9e963a161ca717107beec6f4b2156deb06f1f3aa58aa017", "0002-grpc-recover-handler-panics.patch" = "6ac462512585a4027f997bffceb513ef48f88a133a52c3a31d5786d9d62eba8e" }
+upstream_report = "không báo upstream, không công bố bản vá ngoài repo này (chủ dự án quyết 2026-11-17: \"Chưa báo\")"
+remove_when = "upstream kiểm loại phiên trong HandleNodeFromAuthPath (0001) / recover panic trên gRPC server (0002) và contract test xanh trên bản đó mà không cần bản vá; mỗi lần nâng Headscale phải rebase bản vá (git apply --check trong Dockerfile dừng khi lệch)"
+purpose = "infrastructure/docker/headscale — nguồn, bản vá và lý do: docs/planning/evidence/P2-T10a.md"
 
 [sources.caddy-dns-cloudflare]
 module = "github.com/caddy-dns/cloudflare"
@@ -294,4 +330,4 @@ docker_compose = "5.7.1"    # 2026-11-11
 
 [pending]
 monitoring = "Prometheus, Alertmanager, Grafana, Loki, Alloy, exporters — pin ở P6-T01"
-own_images = "edge và stund đã pin (P1-T04), idp đã pin (P2-T05, 2026-11-17); api, worker, agent, web pin khi build ở Phase 2–4. Quy ước: tag = commit SHA, pin theo digest lấy từ GHCR sau khi workflow images xanh"
+own_images = "edge và stund đã pin (P1-T04), idp đã pin (P2-T05, 2026-11-17); headscale (bản vá V-26, P2-T10a) pin sau lần build xanh đầu tiên trên main — mẫu [images.mg-headscale] ở trên; api, worker, agent, web pin khi build ở Phase 2–4. Quy ước: tag = commit SHA, pin theo digest lấy từ GHCR sau khi workflow images xanh"

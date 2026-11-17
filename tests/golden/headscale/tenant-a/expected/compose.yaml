@@ -2,6 +2,7 @@
 # KHÔNG sửa tay — render lại. Tenant: tenant-a (instance aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa) — §14.5.
 # Network mg-t-tenant-a do Agent tạo (--internal, --subnet 10.250.0.0/29); compose không tạo và không xóa network.
 # Không publish cổng nào; không khai báo biến môi trường TS_* nào (PL-15).
+# Headscale: image chính thức — versions.lock [images.headscale] (rollback hoặc chưa rollout: còn lỗi V-26).
 name: mg-t-tenant-a
 
 services:

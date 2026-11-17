@@ -1,0 +1,70 @@
+
+===== render (official) + bản cho bản vá (thay image bằng tag cục bộ) (04:15:07)
+headscale image: docker.io/headscale/headscale@sha256:11f81665e842809db9fe3006a38c56a66e968baa5abd4bac498e86445572b970 — image chính thức — versions.lock [images.headscale] (rollback hoặc chưa rollout: còn lỗi V-26)
+rendered 5 files into ~/p2t10a/rehearsal/official
+~/p2t10a/rehearsal/official/compose.yaml:10:    image: docker.io/headscale/headscale@sha256:11f81665e842809db9fe3006a38c56a66e968baa5abd4bac498e86445572b970
+~/p2t10a/rehearsal/patched/compose.yaml:10:    image: p2t10a-headscale:dev
+
+===== deploy bằng image chính thức (tenant-deploy.sh) (04:15:08)
+1. thư mục: /opt/meshguard/tenants/7a10a000-0000-4000-8000-0000000000ab
+2. network mg-t-p2t10a-rh (10.250.253.240/29, internal)
+ Container mg-hs-p2t10a-rh Started 
+3. container mg-hs-p2t10a-rh started
+4. healthy sau ~6 s
+5. policy deny-all đã áp và đọc lại khớp
+headscale version v0.29.7
+commit: c9cf210b8bc84d13177e18b91f555788a44b47b6
+
+===== đổi sang bản vá (tenant-upgrade.sh) (04:15:15)
+p2t10a-rh: docker.io/headscale/headscale@sha256:11f81665e842809db9fe3006a38c56a66e968baa5abd4bac498e86445572b970 → p2t10a-headscale:dev
+1. image đích: có
+2. trước: policy b0f1a62b0a5c69f7, 0 node, 2 user — headscale version v0.29.7 commit: c9cf210b8bc84d13177e18b91f555788a44b47b6 
+ Container mg-hs-p2t10a-rh Stopped 
+3. đã dừng; cold backup: meta/backup-20261117T041516Z/data
+4. configtest (image đích, bản sao dữ liệu, không network): ok
+ Container mg-hs-p2t10a-rh Started 
+5. compose.yaml mới đã cài (bản cũ: meta/compose.yaml.bak-20261117T041516Z), container tạo lại
+6. healthy sau 5220 ms
+7. sau: image p2t10a-headscale:dev; policy b0f1a62b0a5c69f7, 0 node, 2 user — headscale version v0.29.7 commit: f9cc62beaa49c207839c67a75e89fb7c7c82ed97 
+7. ok: image đích đang chạy; policy, node, user giữ nguyên
+rc=0
+
+===== chạy lại cùng thư mục (phải: không làm gì) (04:15:23)
+p2t10a-rh: đang chạy đúng p2t10a-headscale:dev — không làm gì
+rc=0
+
+===== config khác (phải từ chối, không đổi gì) (04:15:23)
+1
+config.yaml khác bản đang chạy — đổi config bằng tenant-reconfigure.sh trước (mỗi lần một thay đổi)
+rc=1
+p2t10a-headscale:dev healthy
+
+===== hoàn tác về image chính thức (tenant-upgrade.sh) (04:15:24)
+p2t10a-rh: p2t10a-headscale:dev → docker.io/headscale/headscale@sha256:11f81665e842809db9fe3006a38c56a66e968baa5abd4bac498e86445572b970
+1. image đích: có
+2. trước: policy b0f1a62b0a5c69f7, 0 node, 2 user — headscale version v0.29.7 commit: f9cc62beaa49c207839c67a75e89fb7c7c82ed97 
+ Container mg-hs-p2t10a-rh Stopped 
+3. đã dừng; cold backup: meta/backup-20261117T041525Z/data
+4. configtest (image đích, bản sao dữ liệu, không network): ok
+ Container mg-hs-p2t10a-rh Started 
+5. compose.yaml mới đã cài (bản cũ: meta/compose.yaml.bak-20261117T041525Z), container tạo lại
+6. healthy sau 5404 ms
+7. sau: image docker.io/headscale/headscale@sha256:11f81665e842809db9fe3006a38c56a66e968baa5abd4bac498e86445572b970; policy b0f1a62b0a5c69f7, 0 node, 2 user — headscale version v0.29.7 commit: c9cf210b8bc84d13177e18b91f555788a44b47b6 
+7. ok: image đích đang chạy; policy, node, user giữ nguyên
+rc=0
+['rh-alice', 'rh-bob']
+backup-20261117T041516Z
+backup-20261117T041525Z
+compose.yaml.bak-20261117T041516Z
+compose.yaml.bak-20261117T041525Z
+instance.json
+instance.json.bak-20261117T041516Z
+instance.json.bak-20261117T041525Z
+policy-bootstrap.ok
+
+===== gỡ tenant thử (04:15:33)
+ Container mg-hs-p2t10a-rh Removed 
+đã gỡ p2t10a-rh (instance 7a10a000-0000-4000-8000-0000000000ab)
+đã xóa /opt/meshguard (do diễn tập tạo)
+dọn xong
+exit 0

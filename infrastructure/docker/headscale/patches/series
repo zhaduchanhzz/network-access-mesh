@@ -1,0 +1,2 @@
+bd467da99f141678a9e963a161ca717107beec6f4b2156deb06f1f3aa58aa017  0001-state-refuse-non-registration-sessions.patch
+6ac462512585a4027f997bffceb513ef48f88a133a52c3a31d5786d9d62eba8e  0002-grpc-recover-handler-panics.patch

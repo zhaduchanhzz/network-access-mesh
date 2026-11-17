@@ -16,6 +16,7 @@ const (
 	userAlice    = "ct-alice"
 	userBob      = "ct-bob"
 	userOfficial = "ct-official"
+	userBoot     = "ct-boot" // created by run.sh with the official image's CLI before phase 1 (P2-T10a)
 )
 
 const tagOwners = `"tagOwners":{"tag:ct-tagged":["ct-alice@"],"tag:ct-ssh":["ct-alice@"],"tag:ct-ci":["ct-alice@"]}`
@@ -26,7 +27,8 @@ func portPolicy(port int) string {
 	return fmt.Sprintf(`{%s,"grants":[{"src":["*"],"dst":["*"],"ip":["tcp:%d"]}],"ssh":[]}`, tagOwners, port)
 }
 
-// sshCheckPolicy has an SSH rule with action "check" (forbidden on tenants by lint L10 until V-26 is settled).
+// sshCheckPolicy has an SSH rule with action "check" (forbidden on tenants by lint L10; the patched build of P2-T10a
+// fixes the crash of V-26, but check mode stays Post-MVP and L10 stays).
 const sshCheckPolicy = `{` + tagOwners + `,"grants":[{"src":["*"],"dst":["*"],"ip":["*"]}],` +
 	`"ssh":[{"action":"check","src":["ct-alice@"],"dst":["tag:ct-ssh"],"users":["root"]}]}`
 

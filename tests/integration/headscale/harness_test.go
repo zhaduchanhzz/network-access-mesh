@@ -39,6 +39,10 @@ type env struct {
 	stateDir   string
 	obsFile    string
 	reg        *headscale.CachingRegistry
+	// GET /version "commit" of the patched build under test (its patch marker — P2-T10a) and of the official image
+	// (versions.lock [sources.headscale] commit), which runs the negative control and the rollback phase.
+	expectCommit   string
+	officialCommit string
 }
 
 var (
@@ -61,7 +65,8 @@ func setup(t *testing.T) *env {
 
 func loadEnv() (*env, error) {
 	e := &env{adminURL: os.Getenv("HSCT_ADMIN_URL"), slug: os.Getenv("HSCT_SLUG"), controlURL: os.Getenv("HSCT_CONTROL_URL"),
-		stateDir: os.Getenv("HSCT_STATE_DIR"), obsFile: os.Getenv("HSCT_OBS_FILE")}
+		stateDir: os.Getenv("HSCT_STATE_DIR"), obsFile: os.Getenv("HSCT_OBS_FILE"),
+		expectCommit: os.Getenv("HSCT_EXPECT_COMMIT"), officialCommit: os.Getenv("HSCT_OFFICIAL_COMMIT")}
 	secrets := os.Getenv("HSCT_SECRETS_DIR")
 	for name, dst := range map[string]*string{"api_key": &e.apiKey, "edge_token": &e.edgeToken} {
 		b, err := os.ReadFile(filepath.Join(secrets, name)) //nolint:gosec // G304: directory set by run.sh (test harness)
@@ -77,6 +82,14 @@ func loadEnv() (*env, error) {
 	e.nodeExpiry = d
 	if e.slug == "" || e.controlURL == "" || e.stateDir == "" || e.obsFile == "" {
 		return nil, fmt.Errorf("HSCT_SLUG, HSCT_CONTROL_URL, HSCT_STATE_DIR and HSCT_OBS_FILE are required")
+	}
+	for name, v := range map[string]string{"HSCT_EXPECT_COMMIT": e.expectCommit, "HSCT_OFFICIAL_COMMIT": e.officialCommit} {
+		if len(v) != 40 {
+			return nil, fmt.Errorf("%s must be a 40-character commit", name)
+		}
+	}
+	if e.expectCommit == e.officialCommit {
+		return nil, fmt.Errorf("the image under test reports the official commit: the suite expects the patched build (P2-T10a)")
 	}
 	// Adapter logs go through logx at debug level into the state directory; TestP6_AdapterLogsHaveNoCredentials
 	// checks the file (the canary test of §25.1 rule 9, on a real run).
@@ -282,6 +295,32 @@ func describe(err error) string {
 	}
 	return fmt.Sprintf("kind=%s problem=%s outcome=%s http=%d code=%d msg=%q", he.Kind, he.ProblemCode(), he.Outcome,
 		he.Status, he.Code, he.Upstream)
+}
+
+// gatewayErr is the error body of the REST gateway: {"code":3,"message":"…","details":[]}.
+type gatewayErr struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+func gatewayAnswer(body string) (gatewayErr, bool) {
+	var g gatewayErr
+	return g, json.Unmarshal([]byte(body), &g) == nil && strings.HasPrefix(body, "{")
+}
+
+// versionInfo reads GET /version through the edge (no API key needed): the version and the commit the binary reports.
+// The patched build reports "v0.29.7" with its own commit (the patch marker of P2-T10a); the official image its tag commit.
+func (e *env) versionInfo(t *testing.T) (version, commit string) {
+	t.Helper()
+	status, body := e.raw(t, rawReq{method: "GET", path: "/version"})
+	var v struct {
+		Version string `json:"version"`
+		Commit  string `json:"commit"`
+	}
+	if status != 200 || json.Unmarshal([]byte(body), &v) != nil {
+		t.Fatalf("GET /version: %s", gatewayBody(status, body))
+	}
+	return v.Version, v.Commit
 }
 
 // gatewayBody returns "http <status> code <c>: <message>" for a gateway error body, or the raw text.
