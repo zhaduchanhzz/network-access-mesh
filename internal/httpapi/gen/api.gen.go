@@ -169,6 +169,33 @@ func (e HealthStatus) Valid() bool {
 	}
 }
 
+// Defines values for IdpConsoleSessionStatus.
+const (
+	IdpConsoleSessionStatusActive   IdpConsoleSessionStatus = "active"
+	IdpConsoleSessionStatusEnded    IdpConsoleSessionStatus = "ended"
+	IdpConsoleSessionStatusExpired  IdpConsoleSessionStatus = "expired"
+	IdpConsoleSessionStatusPending  IdpConsoleSessionStatus = "pending"
+	IdpConsoleSessionStatusRejected IdpConsoleSessionStatus = "rejected"
+)
+
+// Valid indicates whether the value is a known member of the IdpConsoleSessionStatus enum.
+func (e IdpConsoleSessionStatus) Valid() bool {
+	switch e {
+	case IdpConsoleSessionStatusActive:
+		return true
+	case IdpConsoleSessionStatusEnded:
+		return true
+	case IdpConsoleSessionStatusExpired:
+		return true
+	case IdpConsoleSessionStatusPending:
+		return true
+	case IdpConsoleSessionStatusRejected:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for InstanceStatus.
 const (
 	InstanceStatusAllocated   InstanceStatus = "allocated"
@@ -709,6 +736,52 @@ type IdentityRef struct {
 	DisplayName string             `json:"display_name"`
 	IdentityId  openapi_types.UUID `json:"identity_id"`
 }
+
+// IdpConsoleSession Một phiên console quản trị Keycloak = một yêu cầu dual control `platform.idp.console_session`
+type IdpConsoleSession struct {
+	// ApprovedBy Một danh tính kèm tên hiển thị đọc lúc trả lời
+	ApprovedBy      *IdentityRef `json:"approved_by,omitempty"`
+	CreatedAt       time.Time    `json:"created_at"`
+	DurationMinutes int          `json:"duration_minutes"`
+	EndsAt          *time.Time   `json:"ends_at,omitempty"`
+
+	// Id ID của yêu cầu phê duyệt (`/platform/approvals/{id}`)
+	Id     openapi_types.UUID `json:"id"`
+	Reason *string            `json:"reason,omitempty"`
+
+	// RequestedBy Một danh tính kèm tên hiển thị đọc lúc trả lời
+	RequestedBy IdentityRef `json:"requested_by"`
+	SourceCidr  string      `json:"source_cidr"`
+
+	// StartsAt Lúc được duyệt (phiên bắt đầu)
+	StartsAt *time.Time `json:"starts_at,omitempty"`
+
+	// Status `pending` (chờ người thứ hai) → `active` (đã duyệt, trong thời hạn) → `ended` (hết hạn) | `rejected` | `expired` (yêu cầu hết hạn khi chưa ai duyệt)
+	Status IdpConsoleSessionStatus `json:"status"`
+}
+
+// IdpConsoleSessionCreate Xin một phiên console quản trị Keycloak (luôn cần người thứ hai duyệt)
+type IdpConsoleSessionCreate struct {
+	// DurationMinutes Thời hạn của phiên, tính từ lúc được duyệt
+	DurationMinutes *int `json:"duration_minutes,omitempty"`
+
+	// Reason Lý do (ticket, sự cố) — người duyệt đọc trước khi duyệt
+	Reason string `json:"reason"`
+
+	// SourceCidr Mạng nguồn được mở console, dạng chuẩn (`203.0.113.7/32`); IPv4 /24–/32, IPv6 /56–/128. Mặc định: đúng địa chỉ của người xin (/32 hoặc /128)
+	//
+	// Examples: 203.0.113.7/32
+	SourceCidr *string `json:"source_cidr,omitempty"`
+}
+
+// IdpConsoleSessionList defines model for IdpConsoleSessionList.
+type IdpConsoleSessionList struct {
+	Items      []IdpConsoleSession `json:"items"`
+	NextCursor *string             `json:"next_cursor"`
+}
+
+// IdpConsoleSessionStatus `pending` (chờ người thứ hai) → `active` (đã duyệt, trong thời hạn) → `ended` (hết hạn) | `rejected` | `expired` (yêu cầu hết hạn khi chưa ai duyệt)
+type IdpConsoleSessionStatus string
 
 // Instance Headscale instance của một tenant (`tenant_instances`, §6.3) — không chứa secret
 type Instance struct {
@@ -1419,6 +1492,21 @@ type ListPlatformAuditEventsParams struct {
 	To *ToFilter `form:"to,omitempty" json:"to,omitempty"`
 }
 
+// ListIdpConsoleSessionsParams defines parameters for ListIdpConsoleSessions.
+type ListIdpConsoleSessionsParams struct {
+	// Limit Số phần tử tối đa của trang
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Con trỏ mờ lấy từ `next_cursor` của trang trước
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
+// RequestIdpConsoleSessionParams defines parameters for RequestIdpConsoleSession.
+type RequestIdpConsoleSessionParams struct {
+	// IdempotencyKey Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
 // ListPlatformInstancesParams defines parameters for ListPlatformInstances.
 type ListPlatformInstancesParams struct {
 	// Limit Số phần tử tối đa của trang
@@ -1594,6 +1682,9 @@ type ListTenantUsersParams struct {
 // ApprovePlatformApprovalJSONRequestBody defines body for ApprovePlatformApproval for application/json ContentType.
 type ApprovePlatformApprovalJSONRequestBody = ApprovalDecision
 
+// RequestIdpConsoleSessionJSONRequestBody defines body for RequestIdpConsoleSession for application/json ContentType.
+type RequestIdpConsoleSessionJSONRequestBody = IdpConsoleSessionCreate
+
 // ApproveTenantApprovalJSONRequestBody defines body for ApproveTenantApproval for application/json ContentType.
 type ApproveTenantApprovalJSONRequestBody = ApprovalDecision
 
@@ -1644,6 +1735,12 @@ type ServerInterface interface {
 	// GetPlatformHealth Health tổng hợp của nền tảng
 	// (GET /platform/health)
 	GetPlatformHealth(w http.ResponseWriter, r *http.Request)
+	// ListIdpConsoleSessions Phiên console quản trị Keycloak — đang chờ duyệt, đang mở, đã kết thúc
+	// (GET /platform/idp-console/sessions)
+	ListIdpConsoleSessions(w http.ResponseWriter, r *http.Request, params ListIdpConsoleSessionsParams)
+	// RequestIdpConsoleSession Xin một phiên console quản trị Keycloak — luôn 2P; 202 + Location của yêu cầu phê duyệt
+	// (POST /platform/idp-console/sessions)
+	RequestIdpConsoleSession(w http.ResponseWriter, r *http.Request, params RequestIdpConsoleSessionParams)
 	// ListPlatformInstances Headscale instance của mọi tenant
 	// (GET /platform/instances)
 	ListPlatformInstances(w http.ResponseWriter, r *http.Request, params ListPlatformInstancesParams)
@@ -2289,6 +2386,97 @@ func (siw *ServerInterfaceWrapper) GetPlatformHealth(w http.ResponseWriter, r *h
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetPlatformHealth(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListIdpConsoleSessions operation middleware
+func (siw *ServerInterfaceWrapper) ListIdpConsoleSessions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListIdpConsoleSessionsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListIdpConsoleSessions(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RequestIdpConsoleSession operation middleware
+func (siw *ServerInterfaceWrapper) RequestIdpConsoleSession(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RequestIdpConsoleSessionParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RequestIdpConsoleSession(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4000,6 +4188,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/platform/approvals/{approvalId}", wrapper.GetPlatformApproval)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/platform/approvals/{approvalId}/approve", wrapper.ApprovePlatformApproval)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/platform/approvals/{approvalId}/reject", wrapper.RejectPlatformApproval)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/platform/idp-console/sessions", wrapper.ListIdpConsoleSessions)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/platform/idp-console/sessions", wrapper.RequestIdpConsoleSession)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tenants/{tenantId}/invitations", wrapper.ListTenantInvitations)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants/{tenantId}/invitations", wrapper.CreateTenantInvitation)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/tenants/{tenantId}/invitations/{invitationId}", wrapper.RevokeTenantInvitation)
@@ -5693,6 +5883,299 @@ type GetPlatformHealthdefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response GetPlatformHealthdefaultApplicationProblemPlusJSONResponse) VisitGetPlatformHealthResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIdpConsoleSessionsRequestObject struct {
+	Params ListIdpConsoleSessionsParams
+}
+
+type ListIdpConsoleSessionsResponseObject interface {
+	VisitListIdpConsoleSessionsResponse(w http.ResponseWriter) error
+}
+
+type ListIdpConsoleSessions200JSONResponse IdpConsoleSessionList
+
+func (response ListIdpConsoleSessions200JSONResponse) VisitListIdpConsoleSessionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIdpConsoleSessions401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response ListIdpConsoleSessions401ApplicationProblemPlusJSONResponse) VisitListIdpConsoleSessionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIdpConsoleSessions403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response ListIdpConsoleSessions403ApplicationProblemPlusJSONResponse) VisitListIdpConsoleSessionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIdpConsoleSessions422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response ListIdpConsoleSessions422ApplicationProblemPlusJSONResponse) VisitListIdpConsoleSessionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIdpConsoleSessions429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response ListIdpConsoleSessions429ApplicationProblemPlusJSONResponse) VisitListIdpConsoleSessionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIdpConsoleSessionsdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response ListIdpConsoleSessionsdefaultApplicationProblemPlusJSONResponse) VisitListIdpConsoleSessionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RequestIdpConsoleSessionRequestObject struct {
+	Params RequestIdpConsoleSessionParams
+	Body   *RequestIdpConsoleSessionJSONRequestBody
+}
+
+type RequestIdpConsoleSessionResponseObject interface {
+	VisitRequestIdpConsoleSessionResponse(w http.ResponseWriter) error
+}
+
+type RequestIdpConsoleSession202ResponseHeaders struct {
+	Location string
+}
+
+type RequestIdpConsoleSession202JSONResponse struct {
+	Body    ApprovalRequest
+	Headers RequestIdpConsoleSession202ResponseHeaders
+}
+
+func (response RequestIdpConsoleSession202JSONResponse) VisitRequestIdpConsoleSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Location", fmt.Sprint(response.Headers.Location))
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RequestIdpConsoleSession401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response RequestIdpConsoleSession401ApplicationProblemPlusJSONResponse) VisitRequestIdpConsoleSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RequestIdpConsoleSession403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response RequestIdpConsoleSession403ApplicationProblemPlusJSONResponse) VisitRequestIdpConsoleSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RequestIdpConsoleSession409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response RequestIdpConsoleSession409ApplicationProblemPlusJSONResponse) VisitRequestIdpConsoleSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RequestIdpConsoleSession422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response RequestIdpConsoleSession422ApplicationProblemPlusJSONResponse) VisitRequestIdpConsoleSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RequestIdpConsoleSession429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response RequestIdpConsoleSession429ApplicationProblemPlusJSONResponse) VisitRequestIdpConsoleSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RequestIdpConsoleSessiondefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response RequestIdpConsoleSessiondefaultApplicationProblemPlusJSONResponse) VisitRequestIdpConsoleSessionResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -10097,6 +10580,12 @@ type StrictServerInterface interface {
 	// GetPlatformHealth Health tổng hợp của nền tảng
 	// (GET /platform/health)
 	GetPlatformHealth(ctx context.Context, request GetPlatformHealthRequestObject) (GetPlatformHealthResponseObject, error)
+	// ListIdpConsoleSessions Phiên console quản trị Keycloak — đang chờ duyệt, đang mở, đã kết thúc
+	// (GET /platform/idp-console/sessions)
+	ListIdpConsoleSessions(ctx context.Context, request ListIdpConsoleSessionsRequestObject) (ListIdpConsoleSessionsResponseObject, error)
+	// RequestIdpConsoleSession Xin một phiên console quản trị Keycloak — luôn 2P; 202 + Location của yêu cầu phê duyệt
+	// (POST /platform/idp-console/sessions)
+	RequestIdpConsoleSession(ctx context.Context, request RequestIdpConsoleSessionRequestObject) (RequestIdpConsoleSessionResponseObject, error)
 	// ListPlatformInstances Headscale instance của mọi tenant
 	// (GET /platform/instances)
 	ListPlatformInstances(ctx context.Context, request ListPlatformInstancesRequestObject) (ListPlatformInstancesResponseObject, error)
@@ -10532,6 +11021,65 @@ func (sh *strictHandler) GetPlatformHealth(w http.ResponseWriter, r *http.Reques
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetPlatformHealthResponseObject); ok {
 		if err := validResponse.VisitGetPlatformHealthResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListIdpConsoleSessions operation middleware
+func (sh *strictHandler) ListIdpConsoleSessions(w http.ResponseWriter, r *http.Request, params ListIdpConsoleSessionsParams) {
+	var request ListIdpConsoleSessionsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListIdpConsoleSessions(ctx, request.(ListIdpConsoleSessionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListIdpConsoleSessions")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListIdpConsoleSessionsResponseObject); ok {
+		if err := validResponse.VisitListIdpConsoleSessionsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RequestIdpConsoleSession operation middleware
+func (sh *strictHandler) RequestIdpConsoleSession(w http.ResponseWriter, r *http.Request, params RequestIdpConsoleSessionParams) {
+	var request RequestIdpConsoleSessionRequestObject
+
+	request.Params = params
+
+	var body RequestIdpConsoleSessionJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RequestIdpConsoleSession(ctx, request.(RequestIdpConsoleSessionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RequestIdpConsoleSession")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RequestIdpConsoleSessionResponseObject); ok {
+		if err := validResponse.VisitRequestIdpConsoleSessionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

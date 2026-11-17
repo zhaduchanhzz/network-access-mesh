@@ -298,19 +298,26 @@ def check_idp_network(r, st: Stack) -> None:
     chk = subprocess.run(["bash", script, "--check"], capture_output=True, text=True, env=env, timeout=600, encoding="utf-8")
     master = kc_call(kc, "GET", "/admin/realms/master")
     first, second = runs
+    # P3-T15: master also gets frontendUrl https://admin.<domain> (8th change); the provisioning identity already holds
+    # view-events of master-realm and platform-realm (idp-bootstrap --audit-realm platform, E2E-20) ⇒ 0 changes
+    admin_url = f"https://admin.{st.domain}"
     ok = (lines == ["refused", "refused"] and on_edge in ("", "<no value>", "<nil>") and first[0] == 0
-          and "realm platform: 0 thay đổi" in first[1] and "realm master: 7 thay đổi" in first[1]
+          and "realm platform: 0 thay đổi" in first[1] and "realm master: 8 thay đổi" in first[1]
+          and "danh tính provisioning mg-provisioner: 0 thay đổi" in first[1]
           and first[1].count("check_realm trên bản export của Keycloak — đạt") == 3 and second[0] == 0
           and "realm master: 0 thay đổi" in second[1] and chk.returncode == 0
-          and master.get("bruteForceProtected") is True and master.get("permanentLockout") is False)
+          and master.get("bruteForceProtected") is True and master.get("permanentLockout") is False
+          and (master.get("attributes") or {}).get("frontendUrl") == admin_url)
     if not ok and (first[0] != 0 or second[0] != 0):
         raise StackError(f"realm-update.sh: {first[1][-600:]} | {second[1][-300:]}")
     r.add("E2E-31", "A-8: chỉ edge tới được idp:8080 (container khác trên mạng edge: theo tên và theo IP đều không); "
-          "realm-update.sh: realm mới 0 thay đổi, realm master được gia cố (brute force, event, policy), chạy lại 0 thay "
-          "đổi, --check sạch, check_realm đạt trên bản export của Keycloak", ok,
+          "realm-update.sh: realm mới 0 thay đổi, realm master được gia cố (brute force, event, policy, frontendUrl = "
+          "origin admin — P3-T15), danh tính provisioning đã đọc được event, chạy lại 0 thay đổi, --check sạch, "
+          "check_realm đạt trên bản export của Keycloak", ok,
           f"từ mạng edge: {lines}; idp trên mạng edge: {on_edge or 'không'}; lần 1 exit {first[0]} "
           f"({[x for x in first[1].splitlines() if x.startswith('realm ')][:4]}); lần 2 exit {second[0]}; --check exit "
-          f"{chk.returncode}; master bruteForceProtected {master.get('bruteForceProtected')}")
+          f"{chk.returncode}; master bruteForceProtected {master.get('bruteForceProtected')}, frontendUrl "
+          f"{(master.get('attributes') or {}).get('frontendUrl')}")
 
 
 def run_all(r, st: Stack, guarded) -> None:

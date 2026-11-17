@@ -1,4 +1,4 @@
-# Sinh bởi tools/render_edge.py từ infrastructure/caddy/Caddyfile.tmpl (template_version 7).
+# Sinh bởi tools/render_edge.py từ infrastructure/caddy/Caddyfile.tmpl (template_version 8).
 # KHÔNG sửa tay — render lại. Edge của MeshGuard (§14.6): mesh domain mesh.example.com, CA staging.
 # - Site public chỉ bind IP tĩnh của edge trên mg-edge (10.249.0.2); cổng publish của host DNAT tới IP này (V-30).
 # - Listener nội bộ: admin trên mg-admin (10.249.2.2:8081), metrics trên mg-obs (10.249.3.2:9091).
@@ -8,6 +8,9 @@
 #   và chỉ từ 192.0.2.0/24. Admin REST API và realm master của Keycloak chỉ từ worker (10.249.0.4) trên
 #   listener LAN-direct. idp chỉ ở network mg-idp cùng edge (10.249.7.2): ngoài edge, không container nào tới thẳng
 #   được idp:8080 (G2 vòng 2, A-8) — mọi lối vào Keycloak đi qua các route dưới đây.
+# - Console quản trị Keycloak (§8.2 (3), P3-T15 — từ template v8): CHỈ trên admin.example.com, sau forward_auth tới
+#   api (GET /internal/edge/idp-console) — phiên Platform Console + phiên console đã duyệt 2P còn hạn + CIDR nguồn đã
+#   duyệt; impersonation bị chặn ở cả admin. và auth.
 # - Không có giá trị secret nào trong file: token DNS, khóa bouncer, token admin/metrics chỉ được tham chiếu bằng
 #   placeholder {file.*}, Caddy đọc file lúc provision hoặc lúc so khớp (secret dạng file — §14.2).
 # - CrowdSec ở chế độ chỉ-quan-sát (app crowdsec kết nối LAPI, chưa route nào dùng handler crowdsec; mọi site public
@@ -90,9 +93,10 @@
 	}
 }
 
-# Portal/Console (app., admin.): trang và API cùng origin, không nhúng frame, không referrer.
+# Portal/Console (app., admin.): trang và API cùng origin, không nhúng frame, không referrer. Đối số: matcher của các
+# phản hồi nhận header (`*` = mọi phản hồi; admin. trừ console Keycloak — giữ CSP/frame của chính Keycloak, P3-T15).
 (portal_headers) {
-	header {
+	header {args[0]} {
 		Content-Security-Policy "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'"
 		X-Frame-Options DENY
 		Referrer-Policy no-referrer
@@ -168,7 +172,7 @@ app.example.com {
 	import access_log
 	import tls_acme
 	import platform_site
-	import portal_headers
+	import portal_headers *
 	route {
 		abort @from_tenant_pool
 		respond @unsafe_path 404
@@ -182,16 +186,37 @@ app.example.com {
 # Platform Console (§8.3, §15.1): admin.example.com — CHỈ listener LAN-direct (site này không có địa chỉ
 # tunnel-facing nên không tồn tại trên server của listener đó) và chỉ từ 192.0.2.0/24; nguồn khác ⇒ đóng kết nối.
 # DNS công khai không có bản ghi admin (§15.4).
+# Console quản trị Keycloak (§8.2 (3), P3-T15): /admin/*, realm master (/realms/master/*) và /resources/* của idp:8080
+# chỉ phục vụ ở đây, mỗi request qua forward_auth tới api (GET /internal/edge/idp-console — ngoài /api/v1, không site
+# public nào định tuyến tới): api trả 204 khi người gọi có phiên Platform Console của origin admin, còn giữ
+# platform.idp:console và có phiên console đã được người thứ hai duyệt (2P, step-up) còn trong thời hạn, từ CIDR nguồn
+# đã duyệt; 401/403 của api đi thẳng về trình duyệt. Body của request vẫn tới Keycloak nguyên vẹn; Authorization (token
+# quản trị của console) không gửi sang api. Impersonation bị chặn hai lớp (gate + respond 403). Realm master phát URL
+# theo frontendUrl https://admin.example.com (infrastructure/idp/realm-update.sh) nên console chỉ gọi origin này.
 admin.example.com {
 	import access_log
 	import tls_acme
 	import platform_site
-	import portal_headers
+	@portal not path /admin /admin/* /realms/master /realms/master/* /resources/*
+	import portal_headers @portal
 	@outside_admin not remote_ip 192.0.2.0/24
+	@idp_console path /admin /admin/* /realms/master /realms/master/* /resources/*
+	@idp_impersonation path_regexp impersonation (?i)^/admin/realms/[^/]+/users/[^/]+/impersonation/?$
 	route {
 		abort @from_tenant_pool
 		abort @outside_admin
 		respond @unsafe_path 404
+		route @idp_console {
+			forward_auth api.:8080 {
+				uri /internal/edge/idp-console
+				import upstream_headers
+				header_up -Authorization
+			}
+			respond @idp_impersonation 403
+			reverse_proxy idp.:8080 {
+				import upstream_headers
+			}
+		}
 		reverse_proxy /api/* api.:8080 {
 			import upstream_headers
 		}
@@ -202,8 +227,9 @@ admin.example.com {
 # IdP của nền tảng (§8.2): auth.example.com → idp:8080 (Keycloak; cổng quản trị 9000 không bao giờ được định tuyến).
 # Công khai chỉ endpoint OIDC + trang đăng nhập của các realm (/realms/*, /resources/*), TRỪ realm master. Admin REST
 # API (/admin/realms/*) và realm master (token của danh tính provisioning, break-glass) CHỈ từ worker
-# (10.249.0.4 — IdP driver, P2-T05a) và chỉ trên listener LAN-direct này; console /admin/ không bao giờ. Điều đó
-# đúng cả ở tầng mạng: idp:8080 chỉ nằm trên mg-idp (edge + idp, G2 vòng 2 A-8); kcadm break-glass chạy TRONG container idp.
+# (10.249.0.4 — IdP driver, P2-T05a) và chỉ trên listener LAN-direct này; console /admin/ không bao giờ (console
+# chỉ ở admin.example.com — P3-T15), impersonation không bao giờ, kể cả từ worker. Điều đó đúng cả ở tầng mạng:
+# idp:8080 chỉ nằm trên mg-idp (edge + idp, G2 vòng 2 A-8); kcadm break-glass chạy TRONG container idp.
 auth.example.com {
 	import access_log
 	import tls_acme
@@ -216,9 +242,11 @@ auth.example.com {
 		path /realms/* /resources/*
 		not path /realms/master /realms/master/*
 	}
+	@idp_impersonation path_regexp impersonation (?i)^/admin/realms/[^/]+/users/[^/]+/impersonation/?$
 	route {
 		abort @from_tenant_pool
 		respond @unsafe_path 404
+		respond @idp_impersonation 403
 		reverse_proxy @idp_worker idp.:8080 {
 			import upstream_headers
 		}

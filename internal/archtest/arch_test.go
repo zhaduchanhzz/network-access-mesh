@@ -34,7 +34,7 @@ var allowed = map[string][]string{
 	"jobs":          {"store"},
 	"notifications": {"audit", "store", "jobs"}, // jobs: notification.send enqueued in the event's transaction (P3-T05b)
 	"secrets":       {"store"},
-	"authz":         {"store", "audit"}, // §13.6 "— (chỉ module nền)": approvals (P3-T04a) audits its decisions
+	"authz":         {"store", "audit", "jobs"}, // §13.6 "— (chỉ module nền)": approvals (P3-T04a) audits its decisions; the Idempotency-Key of a 2P request (P3-T15) is jobs.BeginIdempotent
 	"kit":           {},
 	// business modules: what is listed + base modules
 	"identity":     {"audit", "config", "idp"},

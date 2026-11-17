@@ -1,4 +1,4 @@
-# Sinh bởi tools/render_edge.py từ infrastructure/compose/compose.edge.yaml.tmpl (template_version 7).
+# Sinh bởi tools/render_edge.py từ infrastructure/compose/compose.edge.yaml.tmpl (template_version 8).
 # KHÔNG sửa tay — render lại. Project mg-edge (§14.4): chỉ edge, tách khỏi mg-core để việc deploy mg-core không bao
 # giờ recreate edge. Đặt tại /opt/meshguard/core/compose.edge.yaml; Caddyfile render ra /opt/meshguard/core/caddy/.
 # Network do infrastructure/host/networks.sh tạo trước (external); network của tenant được gắn lúc chạy

@@ -147,7 +147,9 @@ func DefaultKinds() map[string]Kind {
 		other("instance.oidc_check", "instance:{instance}:oidc:{slot}", ScopeInstance, QueueDefault, 3, 2*time.Minute),
 		other("partition.maintain", "partition.maintain:{slot}", ScopePlatform, QueueMaintenance, 3, 5*time.Minute),
 		other("notification.send", "notification:{object}", ScopeAny, QueueDefault, 8, 2*time.Minute),
-		other("idp.audit_sync", "idp:{object}:audit:{slot}", ScopeTenant, QueueDefault, 3, 5*time.Minute),
+		// P3-T15: one platform run every minute over every realm of the platform-hosted IdP (master included); each event
+		// is imported once whatever the overlap (internal/idp/auditsync), so a failed run is simply the next one
+		other("idp.audit_sync", "idp.audit_sync:{slot}", ScopePlatform, QueueDefault, 1, 5*time.Minute),
 		other("enrollment.reconcile", "tenant:{tenant}:enroll:{slot}", ScopeTenant, QueueDefault, 3, 2*time.Minute),
 		other("usage.collect", "tenant:{tenant}:usage:{slot}", ScopeTenant, QueueDefault, 3, 5*time.Minute),
 		other("health.probe", "instance:{instance}:health:{slot}", ScopeInstance, QueueDefault, 1, time.Minute),

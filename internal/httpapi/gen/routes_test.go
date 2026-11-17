@@ -72,6 +72,9 @@ var routes = []struct {
 	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/invitations", `{"email":"a@example.test","role":"end_user"}`, "CreateTenantInvitation", idempotency},
 	{http.MethodDelete, "/api/v1/tenants/" + tenantID + "/invitations/" + itemID, "", "RevokeTenantInvitation", nil},
 	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/invitations/" + itemID + "/resend", `{"expires_in_hours":24}`, "ResendTenantInvitation", nil},
+	// Keycloak console session (P3-T15)
+	{http.MethodGet, "/api/v1/platform/idp-console/sessions?limit=5", "", "ListIdpConsoleSessions", nil},
+	{http.MethodPost, "/api/v1/platform/idp-console/sessions", `{"reason":"ticket 1","source_cidr":"203.0.113.7/32"}`, "RequestIdpConsoleSession", idempotency},
 }
 
 // recorder mounts the generated routes on a plain net/http ServeMux (§4.3) under /api/v1. A strict middleware records

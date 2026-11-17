@@ -84,6 +84,8 @@ type Mount struct {
 	Audit gen.StrictMiddlewareFunc
 	// Authorizer wraps the authorizer of the authz hook (a recorder of decisions); nil ⇒ authz.New(store) as is.
 	Authorizer func(authzhook.Authorizer) authzhook.Authorizer
+	// Internal are the edge-only routes outside /api/v1 (httpapi.Options.Internal — the console gate of P3-T15).
+	Internal map[string]http.Handler
 }
 
 // Tenant is one fixture tenant and its active IdP.
@@ -301,7 +303,8 @@ func (w *World) compose(t testing.TB, opts Options) {
 	if hooks.Audit == nil { // httpapi.New requires one (P2-T16): nil Mount.Audit keeps the fixture's API unaudited
 		hooks.Audit = func(f gen.StrictHandlerFunc, _ string) gen.StrictHandlerFunc { return f }
 	}
-	api, err := httpapi.New(httpapi.Options{Logger: log, Handlers: handlers, Hooks: hooks, RateLimits: limits})
+	api, err := httpapi.New(httpapi.Options{Logger: log, Handlers: handlers, Hooks: hooks, RateLimits: limits,
+		Internal: m.Internal})
 	if err != nil {
 		t.Fatal(err)
 	}

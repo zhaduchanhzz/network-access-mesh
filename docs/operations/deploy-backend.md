@@ -19,6 +19,7 @@
 | i | DNS công khai `app.`/`auth.` + CAA, mở qua VPS | **[CHỦ DỰ ÁN DUYỆT] riêng** | `app.`/`auth.` public |
 | j | Thu thập bằng chứng G2 | — | Không |
 | k | Cập nhật sau G2 vòng 2 (OWASP ASVS): network `mg-idp`, image idp mới, `realm-update.sh`, migration `0008`, api/worker mới | **[CHỦ DỰ ÁN DUYỆT]** từng bước | Xem bảng của mục k |
+| l | P3-T15 — kiểm soát quản trị IdP: api/worker mới (job `idp.audit_sync`, cổng console), `realm-update.sh` (`frontendUrl` của master, `view-events` của danh tính provisioning), Caddyfile **v8** | Ủy quyền Phase 3 (người điều phối) + **thông báo trước reload edge** | Xem bảng của mục l |
 
 Lệch thứ tự so với danh sách của brief: **idp-bootstrap và đăng nhập thử nằm sau (h)** — worker chỉ tới được Admin API của Keycloak qua site `auth.` mới của edge, đăng nhập cần site `app.`/`admin.`. Adopt, client secret, bootstrap SA/seed (e, f) không cần edge mới.
 
@@ -248,3 +249,56 @@ Mong đợi `"schema_version":8,"latest_migration":8`, `OK: backup pre-migration
 6. **A-8** — `sudo bash infrastructure/idp/realm-update.sh --check` ⇒ exit 0; `master`: `bruteForceProtected=true` (dòng `realm master: 0 thay đổi (đã gia cố)`).
 
 Ghi kết quả vào bằng chứng G2 (mục "Sửa sau vòng 2" — phần staging) và `current.md` (image đã pin, network `mg-idp`, id bộ pre-migration, log `realm-update`).
+
+## l. P3-T15 — kiểm soát quản trị IdP (console Keycloak sau 2P, `idp.audit_sync`)
+
+Không migration (bảng/quyền của 0001/0002/0004/0009 đủ), không đổi image idp hay edge (chỉ Caddyfile). **Thứ tự bắt buộc**: api mới (có cổng `GET /internal/edge/idp-console`) trước Caddyfile v8 (v8 gửi mọi request console tới cổng đó — api cũ trả 404 ⇒ console đóng, đúng chiều an toàn nhưng không dùng được); `realm-update.sh` trước khi dùng console (console của realm master chỉ chạy được ở `admin.` khi `frontendUrl` = `https://admin.<domain>`). Bằng chứng: [P3-T15](../planning/evidence/P3-T15.md).
+
+| # | Bước | Ảnh hưởng tới đang chạy |
+|---|---|---|
+| l1 | Pin `[images.mg-api]`/`[images.mg-worker]` của commit gộp (workflow `images` xanh), đồng bộ `~/mg` | Không |
+| l2 | api, worker image mới | Không (worker chạy thêm job `idp.audit_sync` mỗi phút; lần đầu đọc 30 ngày event của Keycloak) |
+| l3 | `realm-update.sh` (`--check` trước): realm `master` `attributes.frontendUrl`, `view-events` của `mg-provisioner` trên `master-realm` + `platform-realm` | Token master phát trước đó bị Admin API từ chối một lần (driver tự lấy token mới); console chỉ còn hợp lệ ở `admin.` |
+| l4 | Caddyfile **v7 → v8** (`caddy validate` rồi reload) | **Reload** — báo trước: stream upgrade đóng sau `stream_close_delay` (5 phút), client tự nối lại |
+| l5 | Kiểm | Không — lưu ý: mọi đăng nhập realm master (kể cả kcadm của `realm-update.sh`) sinh `security_event` + email cảnh báo, đúng thiết kế |
+
+**l1–l2.** Như mục k6: `python3 tools/render_app.py infrastructure/environments/staging/staging.env /tmp/mg-app` → cài `compose.app.yaml` (lưu bản cũ vào `/root/compose.app.yaml.<ts>`) → `$APP up -d --wait --wait-timeout 180 api worker`. Kiểm: `$APP logs --since 5m worker | grep -c '"job":"idp.audit_sync"'` > 0 sau tối đa 11 phút (lần chạy đầu trễ ngẫu nhiên ≤ 10 phút, sau đó mỗi phút); chạy một lượt ngay: `$APP exec -T worker /usr/local/bin/meshguard admin idp-audit-sync` ⇒ `realms <1 + số IdP keycloak>, imported N` + `OK` (exit 0; exit 3 + dòng `NOT READ` trước l3 là bình thường cho `master`/`platform` — chưa có `view-events`). Hoàn tác: pin lại digest trước đó, render, `$APP up -d api worker` (job cũ không có; con trỏ `idp.audit_sync.*` trong `system_settings` vô hại).
+
+**l3.**
+
+```bash
+sudo bash infrastructure/idp/realm-update.sh --check     # mong đợi: realm platform/tenant-* 0 thay đổi; master 1 (attributes.frontendUrl);
+                                                         # danh tính provisioning mg-provisioner: 2 thay đổi (master-realm, platform-realm)
+sudo bash infrastructure/idp/realm-update.sh 2>&1 | sudo tee /root/realm-update.$(date -u +%Y%m%dT%H%M%SZ).log
+sudo bash infrastructure/idp/realm-update.sh --check     # exit 0
+$APP exec -T worker /usr/local/bin/meshguard admin idp-audit-sync   # exit 0: mọi realm đọc được
+```
+
+Không cần chạy lại `idp-bootstrap` (Bootstrap mới giữ đúng các role này nếu chạy lại; với `--audit-realm platform` thì tự cấp). Hoàn tác (giá trị cũ trong log): kcadm **trong** container như mục k4 — `update realms/master -s 'attributes.frontendUrl='` và `remove-roles -r master --uusername service-account-mg-provisioner --cclientid master-realm --rolename view-events` (tương tự `platform-realm`); để nguyên cũng không hại gì khi hoàn tác api/worker.
+
+**l4.** Như mục k2 (không đổi network):
+
+```bash
+python3 tools/render_edge.py infrastructure/environments/staging/edge.json /tmp/edge
+sudo cp -a /opt/meshguard/core/caddy/Caddyfile /root/Caddyfile.v7.$(date -u +%Y%m%dT%H%M%SZ)
+sudo cp -a /opt/meshguard/core/compose.edge.yaml /root/compose.edge.yaml.v7.$(date -u +%Y%m%dT%H%M%SZ)
+diff /opt/meshguard/core/caddy/Caddyfile /tmp/edge/caddy/Caddyfile   # chỉ: template_version 8, chú thích, (portal_headers) có đối số,
+                                                                    # app.: import portal_headers *, admin.: @portal/@idp_console/
+                                                                    # @idp_impersonation + route @idp_console {forward_auth…}, auth.: @idp_impersonation
+sudo install -o root -g root -m 0644 /tmp/edge/compose.edge.yaml /opt/meshguard/core/compose.edge.yaml
+sudo install -o root -g root -m 0644 /tmp/edge/caddy/Caddyfile /opt/meshguard/core/caddy/Caddyfile
+sudo docker exec mg-edge caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+sudo docker exec mg-edge caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile --address unix//run/caddy/admin.sock
+```
+
+Hoàn tác: cài lại `/root/Caddyfile.v7.*` (+ compose) rồi `validate` + `reload` — console trở về trạng thái "không phục vụ ở đâu" của v7.
+
+**l5. Kiểm** (từ máy trong `admin_allow`, không dùng tài khoản thật của người khác):
+
+1. Không phiên: `curl -s -o /dev/null -w '%{http_code}' --resolve admin.$MG_BASE_DOMAIN:443:$MG_LAN_IPV4 https://admin.$MG_BASE_DOMAIN/admin/master/console/` ⇒ `401`; cùng lệnh với `auth.` ⇒ `404`; `https://auth.$MG_BASE_DOMAIN/realms/master/.well-known/openid-configuration` ⇒ `404`.
+2. Super Admin có phiên Platform Console nhưng chưa có phiên console ⇒ `403`; `psql … -c "SELECT details->>'reason', count(*) FROM audit_events WHERE action='idp.console.access' GROUP BY 1"`.
+3. (Tùy chủ dự án — cần hai Super Admin và tài khoản break-glass của master) quy trình "Console quản trị Keycloak" của RUNBOOK; mong đợi console tải được, `security_event` `idp.console_login` + email.
+4. `/key?v=113` của A/B/C qua VPS và LAN-direct ⇒ 200 (edge không đổi gì phía tenant); conformance của P1-T17 (admin. không có qua VPS) ⇒ PASS.
+5. `psql … -c "SELECT action, count(*) FROM audit_events WHERE action LIKE 'idp.%' GROUP BY 1 ORDER BY 1"` — các sự kiện quản trị IdP từ lúc dựng (tạo user mẫu, đặt mật khẩu, client secret…) đã vào audit của tenant A/B và của nền tảng; Owner A/B nhận email `idp.admin_change` tương ứng (đúng: mọi thao tác quản trị trực tiếp trước đây giờ hiện cho tenant).
+
+Ghi vào `current.md` (digest api/worker, log `realm-update`, giờ reload edge v8) và bằng chứng P3-T15 (mục staging).

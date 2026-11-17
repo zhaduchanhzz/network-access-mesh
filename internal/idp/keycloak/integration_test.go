@@ -302,19 +302,25 @@ func TestKeycloakDriver(t *testing.T) {
 	t.Run("bootstrap: provisioning identity with create-realm only", func(t *testing.T) {
 		var err error
 		e.boot, err = keycloak.Bootstrap(ctx, e.route, e.st, keycloak.BootstrapConfig{AdminUsername: e.conf["bootstrap-admin-username"],
-			AdminPassword: e.adminRef, AdoptRealms: []string{"tenant-a"}})
+			AdminPassword: e.adminRef, AdoptRealms: []string{"tenant-a"}, AuditRealms: []string{"platform"}})
 		if err != nil {
 			t.Fatal(err)
 		}
-		t.Logf("bootstrap: created=%v rotated=%v adopted=%v changes=%d secret=%s", e.boot.Created, e.boot.Rotated,
-			e.boot.Adopted, len(e.boot.Changes), e.boot.Provisioner.Secret)
+		t.Logf("bootstrap: created=%v rotated=%v adopted=%v audited=%v changes=%d secret=%s", e.boot.Created,
+			e.boot.Rotated, e.boot.Adopted, e.boot.Audited, len(e.boot.Changes), e.boot.Provisioner.Secret)
 		realmRoles, clientRoles := e.saRoles(t, "master", e.boot.Provisioner.ClientID)
 		if !slices.Equal(realmRoles, []string{"create-realm"}) {
 			t.Fatalf("master realm roles of the provisioning identity: %v", realmRoles)
 		}
 		for c, roles := range clientRoles {
-			if c == "master-realm" || !strings.HasSuffix(c, "-realm") || slices.Contains(roles, "impersonation") {
+			if !strings.HasSuffix(c, "-realm") || slices.Contains(roles, "impersonation") {
 				t.Fatalf("client roles of the provisioning identity: %s %v", c, roles)
+			}
+		}
+		// P3-T15: exactly view-events of master-realm (console logins) and of the audited platform realm
+		for _, c := range []string{"master-realm", "platform-realm"} {
+			if !slices.Equal(clientRoles[c], []string{keycloak.ViewEventsRole}) {
+				t.Fatalf("%s roles of the provisioning identity: %v (want exactly view-events)", c, clientRoles[c])
 			}
 		}
 		if !slices.Contains(clientRoles["tenant-a-realm"], "manage-realm") {
@@ -331,6 +337,7 @@ func TestKeycloakDriver(t *testing.T) {
 		if _, err := e.apiStore.Get(ctx, e.boot.Provisioner.Secret); err == nil {
 			t.Fatal("the api can read the provisioning identity's secret")
 		}
+		// again — the platform realm stays audit-only even when it is not named any more (never promoted to managed)
 		again, err := keycloak.Bootstrap(ctx, e.route, e.st, keycloak.BootstrapConfig{AdminUsername: e.conf["bootstrap-admin-username"],
 			AdminPassword: e.adminRef, Provisioner: e.boot.Provisioner, AdoptRealms: []string{"tenant-a"}})
 		if err != nil || again.Created || again.Rotated || len(again.Changes) != 0 || again.Provisioner != e.boot.Provisioner {

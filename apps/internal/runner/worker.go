@@ -18,6 +18,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/headscale"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/identity"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/idp"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/idp/auditsync"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/idp/external"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/idp/keycloak"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/jobs"
@@ -42,7 +43,9 @@ const partitionRole = "mg_partition_maint"
 //	notifications    notification.send over the SMTP relay of MG_SMTP_* (none configured ⇒ e-mail rows cancelled,
 //	                 Portal records kept — refused in production by config) — P3-T05b
 //	idp              driver registry keycloak (narrow route to auth.<domain> incl. /admin/realms, provisioning identity
-//	                 from the SecretStore — platform_ops) + external (hardened client) — P2-T05a
+//	                 from the SecretStore — platform_ops) + external (hardened client) — P2-T05a; idp.audit_sync every
+//	                 minute over the keycloak driver (admin + login events of every realm → audit_events, security
+//	                 events, notifications — P3-T15, internal/idp/auditsync)
 //	readiness        postgres, secretstore, edge_admin (§16.2)
 func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg prometheus.Registerer) (_ *component, err error) {
 	d, err := openDeps(ctx, cfg, log, nil) // nil: idp.PlatformDriverPaths (public OIDC + Admin REST API)
@@ -90,8 +93,15 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 	if err := sender.Register(w); err != nil {
 		return nil, err
 	}
-	drivers, provisioned, err := idpDrivers(ctx, cfg, d)
+	drivers, kc, provisioned, err := idpDrivers(ctx, cfg, d)
 	if err != nil {
+		return nil, err
+	}
+	audits, err := auditsync.New(d.st, auditsync.Config{Source: kc, Logger: log, Registerer: reg})
+	if err != nil {
+		return nil, err
+	}
+	if err := w.RegisterPeriodic(auditsync.JobKind, auditsync.Interval, audits.Run); err != nil {
 		return nil, err
 	}
 	log.Info("worker wired", "idp_drivers", drivers.Names(), "keycloak_provisioner_bootstrapped", provisioned)
@@ -156,7 +166,7 @@ func prober(reg *headscale.CachingRegistry) monitoring.Prober {
 // platform_ops — never in the configuration) and external over the hardened client. provisioned is false while the
 // provisioning identity has not been bootstrapped: the driver then points at version 1 of its reference and its calls
 // fail until the bootstrap ran and the worker restarted.
-func idpDrivers(ctx context.Context, cfg config.Config, d *deps) (_ *idp.Registry, provisioned bool, err error) {
+func idpDrivers(ctx context.Context, cfg config.Config, d *deps) (_ *idp.Registry, _ *keycloak.Driver, provisioned bool, err error) {
 	clientID := cfg.IdPProvisionerClientID
 	if clientID == "" {
 		clientID = keycloak.DefaultProvisionerClientID
@@ -166,7 +176,7 @@ func idpDrivers(ctx context.Context, cfg config.Config, d *deps) (_ *idp.Registr
 	case errors.Is(err, secrets.ErrNotFound):
 		ref = secrets.PlatformRef(keycloak.ProvisionerRefName, 1)
 	case err != nil:
-		return nil, false, err
+		return nil, nil, false, err
 	default:
 		provisioned = true
 	}
@@ -175,14 +185,14 @@ func idpDrivers(ctx context.Context, cfg config.Config, d *deps) (_ *idp.Registr
 		Provisioner: keycloak.Credentials{ClientID: clientID, Secret: ref},
 		AppHost:     cfg.AppHost(), AdminHost: cfg.AdminHost(), Logger: d.log, Security: sec})
 	if err != nil {
-		return nil, false, err
+		return nil, nil, false, err
 	}
 	ext, err := external.New(external.Config{Client: d.hardened, Secrets: d.secrets, Security: sec})
 	if err != nil {
-		return nil, false, err
+		return nil, nil, false, err
 	}
 	r, err := idp.NewRegistry(kc, ext)
-	return r, provisioned, err
+	return r, kc, provisioned, err
 }
 
 // platformSecurity records the security events of the IdP drivers (idp.SecurityRecorder — G2 F3) in a platform

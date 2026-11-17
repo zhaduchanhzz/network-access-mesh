@@ -95,6 +95,10 @@ var recipes = map[string]recipe{
 	"createTenantInvitation": {idempotent: true, body: `{"email":"matrix-invitee@example.test","role":"tenant_viewer"}`},
 	"revokeTenantInvitation": {},
 	"resendTenantInvitation": {},
+	// Keycloak console session (P3-T15, idpconsoleapi — mounted with the console action, world_test.go): the request is
+	// always 2P (Super Admin only); granted callers race on one open request per person (202, then 409)
+	"listIdpConsoleSessions":   {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
+	"requestIdpConsoleSession": {idempotent: true, body: `{"reason":"matrix","duration_minutes":10,"source_cidr":"192.0.2.0/24"}`},
 }
 
 // objectKind is what a path parameter (other than the {tenantId} context of a tenant route) designates.

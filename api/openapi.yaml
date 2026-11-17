@@ -1472,6 +1472,91 @@ paths:
           $ref: '#/components/responses/RateLimited'
         default:
           $ref: '#/components/responses/Unexpected'
+  # ------------------------------------------------------------ console quản trị Keycloak (§8.2 (3) — P3-T15)
+  /platform/idp-console/sessions:
+    get:
+      tags: [platform]
+      operationId: listIdpConsoleSessions
+      summary: Phiên console quản trị Keycloak — đang chờ duyệt, đang mở, đã kết thúc
+      description: |-
+        Mỗi phiên là một yêu cầu dual control `platform.idp.console_session` (§8.6), mới nhất trước. `status`:
+        `pending` (chờ người thứ hai), `active` (đã duyệt, trong thời hạn — console mở được cho đúng người yêu cầu, từ
+        đúng `source_cidr`), `ended` (hết thời hạn), `rejected`, `expired` (không ai duyệt kịp). Console chỉ phục vụ ở
+        origin admin, sau cổng `forward_auth` của edge (`GET /internal/edge/idp-console`, không thuộc hợp đồng public).
+      x-permission: platform.idp:read
+      x-task: P3-T15
+      x-audit-action: platform.idp.console_session.list
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Một trang phiên console
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdpConsoleSessionList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+    post:
+      tags: [platform]
+      operationId: requestIdpConsoleSession
+      summary: Xin một phiên console quản trị Keycloak — luôn 2P; 202 + Location của yêu cầu phê duyệt
+      description: |-
+        Console quản trị của Keycloak do nền tảng host (realm master) chỉ mở theo phiên có thời hạn đã được người thứ
+        hai duyệt (§8.2 (3), như break-glass): người xin phải step-up (đăng nhập trong 15 phút); payload ghi người xin
+        (`identity_id`), `source_cidr` (mặc định đúng địa chỉ của người xin, /32 hoặc /128; IPv4 tối đa /24, IPv6 tối
+        đa /56) và `duration_minutes` (5–60, mặc định 30). Người duyệt (`POST /platform/approvals/{id}/approve`) phải
+        khác người xin, step-up, và cũng giữ `platform.idp:console` — tức một Super Admin thứ hai. Phiên chạy từ lúc
+        duyệt tới hết thời hạn; trong phiên, cổng `forward_auth` của edge trên `admin.<domain>` chỉ cho đúng người xin,
+        còn phiên Platform Console, từ địa chỉ thuộc `source_cidr`. Mỗi lần đăng nhập console sinh security event
+        `idp.console_login` và thông báo cho Super Admin/Platform Operator (job `idp.audit_sync`). Đang có yêu cầu mở
+        của chính người xin ⇒ `409`.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: platform.idp:console
+      x-dual-control: true
+      x-task: P3-T15
+      x-audit-action: platform.idp.console_session.request
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IdpConsoleSessionCreate'
+      responses:
+        '202':
+          description: Yêu cầu phê duyệt đã tạo — người thứ hai duyệt ở `Location`
+          headers:
+            Location:
+              $ref: '#/components/headers/ApprovalLocation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
   /tenants/{tenantId}/invitations:
     get:
       tags: [invitations]
@@ -1813,6 +1898,12 @@ components:
   headers:
     JobLocation:
       description: Job theo dõi thao tác — `/api/v1/tenants/{tenantId}/jobs/{jobId}` (phạm vi tenant) hoặc `/api/v1/platform/jobs/{jobId}` (phạm vi platform)
+      required: true
+      schema:
+        type: string
+        format: uri-reference
+    ApprovalLocation:
+      description: Yêu cầu phê duyệt của thao tác 2P — `/api/v1/platform/approvals/{approvalId}` (§8.6)
       required: true
       schema:
         type: string
@@ -3023,6 +3114,78 @@ components:
         payload_sha256:
           type: string
           pattern: '^[0-9a-f]{64}$'
+    # ------------------------------------------------------------ phiên console quản trị Keycloak (§8.2 (3) — P3-T15)
+    IdpConsoleSessionCreate:
+      type: object
+      description: Xin một phiên console quản trị Keycloak (luôn cần người thứ hai duyệt)
+      required: [reason]
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 1000
+          description: Lý do (ticket, sự cố) — người duyệt đọc trước khi duyệt
+        duration_minutes:
+          type: integer
+          minimum: 5
+          maximum: 60
+          default: 30
+          description: Thời hạn của phiên, tính từ lúc được duyệt
+        source_cidr:
+          type: string
+          maxLength: 64
+          description: >-
+            Mạng nguồn được mở console, dạng chuẩn (`203.0.113.7/32`); IPv4 /24–/32, IPv6 /56–/128. Mặc định: đúng
+            địa chỉ của người xin (/32 hoặc /128)
+          examples: [203.0.113.7/32]
+    IdpConsoleSessionStatus:
+      type: string
+      description: >-
+        `pending` (chờ người thứ hai) → `active` (đã duyệt, trong thời hạn) → `ended` (hết hạn) | `rejected` |
+        `expired` (yêu cầu hết hạn khi chưa ai duyệt)
+      enum: [pending, active, ended, rejected, expired]
+    IdpConsoleSession:
+      type: object
+      description: Một phiên console quản trị Keycloak = một yêu cầu dual control `platform.idp.console_session`
+      required: [id, status, requested_by, source_cidr, duration_minutes, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: ID của yêu cầu phê duyệt (`/platform/approvals/{id}`)
+        status:
+          $ref: '#/components/schemas/IdpConsoleSessionStatus'
+        requested_by:
+          $ref: '#/components/schemas/IdentityRef'
+        approved_by:
+          $ref: '#/components/schemas/IdentityRef'
+        reason:
+          type: string
+        source_cidr:
+          type: string
+        duration_minutes:
+          type: integer
+        starts_at:
+          type: string
+          format: date-time
+          description: Lúc được duyệt (phiên bắt đầu)
+        ends_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+    IdpConsoleSessionList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/IdpConsoleSession'
+        next_cursor:
+          type: [string, 'null']
     # ------------------------------------------------------------ lời mời (§6.3 tenant_invitations, §8.2 — P3-T05a)
     InvitationStatus:
       type: string

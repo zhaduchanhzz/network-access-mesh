@@ -136,6 +136,19 @@ sudo rm -rf /opt/meshguard/core/idp /opt/meshguard/core/compose.idp.yaml
 sudo rm -rf /opt/meshguard/secrets/idp /opt/meshguard/secrets/backup/idp_backup_password   # chỉ sau down -v
 ```
 
+## Console quản trị Keycloak — phiên 2P có thời hạn (P3-T15, §8.2 (3))
+
+Console của Keycloak (realm `master`) **chỉ** mở ở `https://admin.<domain>/admin/master/console/` (listener LAN-direct, nguồn trong `admin_allow`), sau `forward_auth` của edge tới api: không có phiên đã duyệt ⇒ 401/403; qua `auth.<domain>` ⇒ 404; qua VPS không có `admin.`. Thiết kế và phép thử: [P3-T15](../../docs/planning/evidence/P3-T15.md).
+
+1. **Super Admin A** đăng nhập Platform Console (mật khẩu + OTP, trong 15 phút) rồi xin phiên — từ đúng máy sẽ mở console (mặc định CIDR = địa chỉ của chính request, /32):
+   `POST /api/v1/platform/idp-console/sessions` body `{"reason":"<ticket/sự cố>","duration_minutes":30}` (CSRF + `Idempotency-Key`; `source_cidr` tùy chọn, tối đa /24) ⇒ `202` + `Location: /api/v1/platform/approvals/<id>`.
+2. **Super Admin B** (người khác, đăng nhập trong 15 phút) đọc `GET /api/v1/platform/approvals/<id>` (người xin, CIDR, thời hạn, lý do) và duyệt bằng đúng `payload_sha256`: `POST …/approvals/<id>/approve` ⇒ `executed`. Platform Operator không duyệt được (chỉ restore).
+3. A mở `https://admin.<domain>/admin/master/console/` trong thời hạn, đăng nhập bằng tài khoản quản trị của realm master (break-glass: `bootstrap-admin-*` của `keycloak.conf`, đi từ kho secret của chủ dự án — không ghi ra đâu). Phiên kết thúc khi hết hạn hoặc khi A đăng xuất Platform Console (cổng đòi phiên đó ở mỗi request).
+4. **Mỗi lần đăng nhập** realm master ⇒ `security_event` `idp.console_login` (high) + email `idp.console_login` tới SA/PO (trong ≤ 1 phút — job `idp.audit_sync`; chạy ngay: `docker compose -p mg-app exec -T worker /usr/local/bin/meshguard admin idp-audit-sync`). Thay đổi trong console lên realm của tenant ⇒ audit của tenant + email `idp.admin_change` cho Tenant Owner. Impersonation luôn bị chặn (403 + security event critical).
+5. Kiểm sau phiên: `GET /api/v1/platform/idp-console/sessions` (trạng thái `ended`), `psql … -c "SELECT kind, severity, occurred_at FROM security_events WHERE kind LIKE 'idp.%' ORDER BY occurred_at DESC LIMIT 20"`.
+
+Đăng nhập realm master **ngoài** quy trình này (kcadm trong container — `realm-update.sh`, `user-id.sh`, `idp-client-secret.sh`, bootstrap) cũng là một lần đăng nhập quản trị và cũng cảnh báo (client `admin-cli`): ghi lý do vào nhật ký vận hành trước khi chạy.
+
 ## Đưa tenant A/B vào registry — `meshguard admin adopt-instance` (P2-T11, chạy ở P2-T16)
 
 Chuyển quyền quản lý hai instance dựng tay ở Phase 1 sang nền tảng: đăng ký tenant, host, instance (từ `meta/instance.json`) và IdP của tenant; giao cho nền tảng một API key **mới**; expire **mọi** key khác của instance (gồm key hạn ngắn của Phase 1). Chỉ adopt đúng instance được chỉ định — **không** adopt `tenant-c` (tenant demo; `staging.env` không có `MG_IDP_ID_TENANT_C` nên lệnh cũng tự từ chối). Thiết kế và phép thử: [P2-T11](../../docs/planning/evidence/P2-T11.md).

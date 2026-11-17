@@ -22,9 +22,11 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/netip"
+	"strings"
 	"time"
 
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/gen"
@@ -66,6 +68,12 @@ type Options struct {
 	RateLimitKeys  int              // cap of tracked keys per bucket; 0 ⇒ ratelimit.DefaultMaxKeys
 	MaxBodyBytes   int64            // 0 ⇒ DefaultMaxBodyBytes
 	Now            func() time.Time // clock of the rate limiter; nil ⇒ time.Now (tests inject a fake clock)
+	// Internal are routes outside BaseURL that only the edge calls (x-permission internal of §13.1, never in the public
+	// contract): pattern ("GET /internal/edge/idp-console" — P3-T15, the forward_auth of the Keycloak console) →
+	// handler. They run behind the same chain (request id, access log, rate limits, the Session hook: the session and
+	// the client address are in the context) but never behind Authz or Audit — the handler decides and audits itself.
+	// The edge never routes them on a public site (only /api/* reaches the api) and the listener answers the edge only.
+	Internal map[string]http.Handler
 }
 
 type server struct {
@@ -128,6 +136,12 @@ func New(opts Options) (http.Handler, error) {
 			WriteProblem(w, r, problem.FromBindError(err))
 		},
 	})
+	for pattern, h := range opts.Internal {
+		if !strings.HasPrefix(pattern, "GET /internal/") || h == nil {
+			return nil, fmt.Errorf("httpapi: internal route %q: GET /internal/… with a handler only", pattern)
+		}
+		mux.Handle(pattern, h)
+	}
 	// A pattern without method or host matches what no generated route does — unknown paths and methods a path does
 	// not declare (no 405 with a non-problem body) — and answers 404 not_found, the only §13.1 code for it.
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

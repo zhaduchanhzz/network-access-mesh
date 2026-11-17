@@ -8,7 +8,7 @@
 -- support_admin / chỉ support_admin (§8.6); ô có điều kiện = grant kèm condition, internal/authz từ chối grant đó
 -- cho tới khi operation khai báo xử lý điều kiện (fail-closed).
 
--- permissions (87): mọi khóa của §8.5/§8.6; khóa đã rời ma trận bị xóa cùng grant của nó
+-- permissions (88): mọi khóa của §8.5/§8.6; khóa đã rời ma trận bị xóa cùng grant của nó
 WITH seed (key, scope, description) AS (VALUES
     ('platform.approval:decide', 'platform', 'POST /platform/approvals/{id}/approve, POST /platform/approvals/{id}/reject'),
     ('platform.approval:read', 'platform', 'GET /platform/approvals, GET /platform/approvals/{id}'),
@@ -17,8 +17,9 @@ WITH seed (key, scope, description) AS (VALUES
     ('platform.health:read', 'platform', 'GET /platform/health'),
     ('platform.host:manage', 'platform', 'PATCH /platform/hosts, POST /platform/hosts'),
     ('platform.host:read', 'platform', 'GET /platform/hosts'),
+    ('platform.idp:console', 'platform', 'POST /platform/idp-console/sessions'),
     ('platform.idp:manage', 'platform', 'PATCH /platform/identity-providers, POST /platform/identity-providers'),
-    ('platform.idp:read', 'platform', 'GET /platform/identity-providers'),
+    ('platform.idp:read', 'platform', 'GET /platform/identity-providers, GET /platform/idp-console/sessions'),
     ('platform.instance:operate', 'platform', 'POST /platform/instances/{id}/backup, POST /platform/instances/{id}/reconfigure, POST /platform/instances/{id}/restart'),
     ('platform.instance:quarantine', 'platform', 'POST /platform/instances/{id}/quarantine'),
     ('platform.instance:read', 'platform', 'GET /platform/instances, GET /platform/instances/{id}'),
@@ -139,7 +140,7 @@ BEGIN
 END
 $$;
 
--- role_permissions (288): grant của mỗi role hệ thống đúng bằng bảng này (grant thừa bị xóa)
+-- role_permissions (289): grant của mỗi role hệ thống đúng bằng bảng này (grant thừa bị xóa)
 WITH seed (role_scope, role_key, permission_key, scope, condition) AS (VALUES
     ('platform', 'super_admin', 'platform.approval:decide', 'any', NULL),
     ('platform', 'super_admin', 'platform.approval:read', 'any', NULL),
@@ -148,6 +149,7 @@ WITH seed (role_scope, role_key, permission_key, scope, condition) AS (VALUES
     ('platform', 'super_admin', 'platform.health:read', 'any', NULL),
     ('platform', 'super_admin', 'platform.host:manage', 'any', NULL),
     ('platform', 'super_admin', 'platform.host:read', 'any', NULL),
+    ('platform', 'super_admin', 'platform.idp:console', 'any', NULL),
     ('platform', 'super_admin', 'platform.idp:manage', 'any', 'tenant_idp_dual_control'),
     ('platform', 'super_admin', 'platform.idp:read', 'any', NULL),
     ('platform', 'super_admin', 'platform.instance:operate', 'any', NULL),
@@ -446,8 +448,8 @@ ON CONFLICT (role_id, permission_key) DO UPDATE SET scope = EXCLUDED.scope, cond
 
 DO $$
 BEGIN
-  IF (SELECT count(*) FROM role_permissions rp JOIN roles r ON r.id = rp.role_id WHERE r.is_system) <> 288
-     OR (SELECT count(*) FROM permissions) <> 87 THEN
+  IF (SELECT count(*) FROM role_permissions rp JOIN roles r ON r.id = rp.role_id WHERE r.is_system) <> 289
+     OR (SELECT count(*) FROM permissions) <> 88 THEN
     RAISE EXCEPTION 'seed RBAC: grant hoặc permission trong database khác bảng seed';
   END IF;
 END

@@ -72,18 +72,26 @@ func tenantRef(tenantID, id uuid.UUID) approvals.Ref {
 
 // details are the client-facing texts of the refusals of the service — written here, never the reason.
 var details = map[string]string{
-	approvals.ReasonExpired:           "The approval request has expired; nothing was executed.",
-	approvals.ReasonNotPending:        "The approval request is no longer pending.",
-	approvals.ReasonExecuted:          "The approval request was already executed; it cannot be used again.",
-	approvals.ReasonOtherApprover:     "The approval request was approved by another person.",
-	approvals.ReasonActionUnavailable: "This action cannot be executed by this version of the platform.",
-	approvals.ReasonPayloadIntegrity:  "The stored parameters no longer match their hash; nothing was executed.",
-	approvals.ReasonOpenRequest:       "An open approval request already exists for this action and resource.",
-	approvals.ReasonInvalidPayload:    "The parameters of the request are not valid for its action.",
-	approvals.ReasonPayloadChanged:    "The parameters differ from the ones you reviewed (payload_sha256); review the request again.",
-	approvals.ReasonSelfDecision:      "A request cannot be decided by the person who made it.",
-	approvals.ReasonDecideCondition:   "Your role cannot decide this kind of request.",
+	approvals.ReasonExpired:               "The approval request has expired; nothing was executed.",
+	approvals.ReasonNotPending:            "The approval request is no longer pending.",
+	approvals.ReasonExecuted:              "The approval request was already executed; it cannot be used again.",
+	approvals.ReasonOtherApprover:         "The approval request was approved by another person.",
+	approvals.ReasonActionUnavailable:     "This action cannot be executed by this version of the platform.",
+	approvals.ReasonPayloadIntegrity:      "The stored parameters no longer match their hash; nothing was executed.",
+	approvals.ReasonOpenRequest:           "An open approval request already exists for this action and resource.",
+	approvals.ReasonInvalidPayload:        "The parameters of the request are not valid for its action.",
+	approvals.ReasonPayloadChanged:        "The parameters differ from the ones you reviewed (payload_sha256); review the request again.",
+	approvals.ReasonSelfDecision:          "A request cannot be decided by the person who made it.",
+	approvals.ReasonDecideCondition:       "Your role cannot decide this kind of request.",
+	approvals.ReasonIdempotencyInProgress: "A request with this Idempotency-Key is still in progress.",
 }
+
+// Failure maps an error of the approvals service to its problem — for the handler sets of the 2P operations that
+// create requests (P3-T15 requestIdpConsoleSession…), with the same codes and texts as the approvals operations.
+func Failure(err error) error { return failure(err) }
+
+// View is schema ApprovalRequest of a request (the body of the 202 of a 2P operation).
+func View(r approvals.Request) gen.ApprovalRequest { return toAPI(r) }
 
 // failure maps an error of the service to its problem: the kind fixes the code, the reason picks a fixed detail and
 // travels as an authz.Denial cause — the audit middleware records it as the reason, the client never sees it.
@@ -110,6 +118,9 @@ func failure(err error) error {
 		code = gen.ProblemCodePreconditionFailed
 	case errors.Is(e.Kind, approvals.ErrConflict), errors.Is(e.Kind, approvals.ErrUnavailable):
 		code = gen.ProblemCodeConflict
+	case errors.Is(e.Kind, approvals.ErrInvalid) && e.Reason == approvals.ReasonIdempotencyKeyReuse:
+		return &problem.Error{Code: gen.ProblemCodeIdempotencyKeyReuse, Cause: cause,
+			Detail: "The Idempotency-Key was used for another request."}
 	case errors.Is(e.Kind, approvals.ErrInvalid):
 		return &problem.Error{Code: gen.ProblemCodeValidationFailed, Cause: cause, Detail: "The request is invalid.",
 			Fields: []gen.FieldError{problem.Field("request", e.Reason, "the request parameters are invalid")}}
@@ -121,7 +132,7 @@ func failure(err error) error {
 		detail = map[gen.ProblemCode]string{gen.ProblemCodeNotFound: "The resource does not exist.",
 			gen.ProblemCodeForbidden: "The request is not allowed."}[code]
 	}
-	return &problem.Error{Code: code, Detail: detail, Cause: cause}
+	return &problem.Error{Code: code, Detail: detail, Cause: cause, RetryAfter: e.RetryAfter}
 }
 
 func filterOf(limit *gen.Limit, cursor *gen.Cursor, status *gen.ApprovalStatusFilter, action *gen.ApprovalActionFilter) approvals.Filter {
