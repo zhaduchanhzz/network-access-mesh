@@ -81,6 +81,13 @@ type Config struct {
 	// (the request-id middleware runs first and sets it on the request).
 	RequestID func(*http.Request) string
 
+	// ProblemWriter answers the requests the middleware refuses itself — unknown host (404), Origin/Sec-Fetch-Site
+	// or X-CSRF-Token (403), session lookup failure (500) — with the problem of err (an *Error). Behind the httpapi
+	// chain (P2-T14) set authzhook.WriteProblem, so that these problems are rendered like every other one of the API
+	// (X-Content-Type-Options: nosniff, the code on the access-log line). nil writes WriteProblem (problem+json,
+	// nosniff) — this module may not import httpapi (§13.6).
+	ProblemWriter func(w http.ResponseWriter, r *http.Request, err error)
+
 	// Zero values take the defaults above.
 	TenantTimeouts   Timeouts
 	PlatformTimeouts Timeouts

@@ -5,7 +5,8 @@
 //
 // Wiring (P2-T16, apps/internal/runner):
 //
-//	svc, _ := identity.New(apiStore, identity.Config{…, RequestID: authzhook.RequestID, ClientIP: authzhook.ClientIP})
+//	svc, _ := identity.New(apiStore, identity.Config{…, RequestID: authzhook.RequestID, ClientIP: authzhook.ClientIP,
+//		ProblemWriter: authzhook.WriteProblem})
 //	api, _ := httpapi.New(httpapi.Options{
 //		Logger:   log,
 //		Handlers: httpapi.Handlers{Auth: identityapi.New(svc) /* , … */},
@@ -121,6 +122,20 @@ func Problem(err error) *problem.Error {
 		return &problem.Error{Code: c, Detail: detail, Cause: err}
 	}
 	return problem.Internal(err)
+}
+
+// WriteProblem gives identity.Config the problem writer of the httpapi chain: what the session middleware refuses
+// itself (unknown host ⇒ 404, Origin/Sec-Fetch-Site or X-CSRF-Token ⇒ 403, session lookup failure ⇒ 500) is answered
+// by httpapi.WriteProblem like every other problem — the code, status, generic detail and field errors of the
+// identity module's own problem, plus X-Content-Type-Options: nosniff and the code on the access-log line. The
+// identity error stays the internal cause (logged for a 5xx only, never sent).
+func WriteProblem(w http.ResponseWriter, r *http.Request, err error) {
+	p := identity.NewProblem(err, "", "")
+	e := &problem.Error{Code: gen.ProblemCode(p.Code), Detail: p.Detail, Cause: err}
+	for _, f := range p.Errors {
+		e.Fields = append(e.Fields, problem.Field(f.Field, f.Code, f.Message))
+	}
+	httpapi.WriteProblem(w, r, e)
 }
 
 // RequestID gives identity.Config the request id of the httpapi chain (generated when the client sent none), so the

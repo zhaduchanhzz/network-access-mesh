@@ -185,11 +185,13 @@ func NewProblem(err error, requestID, instance string) Problem {
 	return p
 }
 
-// WriteProblem writes the problem for err as application/problem+json.
+// WriteProblem writes the problem for err as application/problem+json, with the headers every problem of the API
+// carries (X-Content-Type-Options: nosniff, Cache-Control: no-store).
 func WriteProblem(w http.ResponseWriter, err error, requestID, instance string) {
 	p := NewProblem(err, requestID, instance)
 	h := w.Header()
 	h.Set("Content-Type", "application/problem+json")
+	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("Cache-Control", "no-store")
 	if requestID != "" {
 		h.Set("X-Request-Id", requestID)

@@ -40,6 +40,8 @@
 //	handler := requestID(recoverer(svc.Middleware(authz(apiRouter))))
 //
 // Middleware must run after the request-id middleware (it copies X-Request-Id into problems) and before
-// authorization (which reads SessionFromContext). The strict-server handlers of the auth operations are in
-// internal/httpapi/identityapi; the session.gc job is SessionGC (worker).
+// authorization (which reads SessionFromContext). Behind internal/httpapi, Config takes RequestID, ClientIP and
+// ProblemWriter from internal/httpapi/authzhook, so that the middleware's own refusals are rendered by the chain. The
+// strict-server handlers of the auth operations are in internal/httpapi/identityapi; the session.gc job is SessionGC
+// (worker).
 package identity

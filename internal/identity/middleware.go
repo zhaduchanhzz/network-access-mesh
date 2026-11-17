@@ -71,13 +71,14 @@ func safeMethod(m string) bool {
 //  5. stores RequestInfo and the session in the context (RequestInfoFromContext, SessionFromContext) and sets
 //     Cache-Control: no-store.
 //
-// It must run after the request-id middleware and before authorization.
+// Its own refusals are answered through Config.ProblemWriter. It must run after the request-id middleware and before
+// authorization.
 func (s *Service) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		reqID := truncateUTF8(s.cfg.RequestID(r), 128)
 		origin, ok := s.hosts.origin(r.Host)
 		if !ok {
-			WriteProblem(w, newErr(KindNotFound, "unknown_host", nil), reqID, r.URL.Path)
+			s.writeProblem(w, r, reqID, newErr(KindNotFound, "unknown_host", nil))
 			return
 		}
 		info := RequestInfo{
@@ -91,7 +92,7 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 			if reason := s.checkFetchOrigin(r, origin); reason != "" {
 				s.audit.Record(ctx, AuditEvent{Action: ActionSessionCheck, Outcome: OutcomeDenied, Reason: reason,
 					Origin: origin, ClientIP: info.ClientIP, RequestID: reqID})
-				WriteProblem(w, forbidden(reason), reqID, r.URL.Path)
+				s.writeProblem(w, r, reqID, forbidden(reason))
 				return
 			}
 		}
@@ -102,7 +103,7 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 				e := AsError(err)
 				if e.Kind != KindUnauthenticated {
 					s.log.ErrorContext(ctx, "session lookup failed", "reason", e.Reason, "error", errString(e))
-					WriteProblem(w, e, reqID, r.URL.Path)
+					s.writeProblem(w, r, reqID, e)
 					return
 				}
 				if e.Reason == "session_origin_mismatch" || e.Reason == "session_scope_origin_mismatch" {
@@ -116,7 +117,7 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 			s.audit.Record(ctx, AuditEvent{Action: ActionSessionCheck, Outcome: OutcomeDenied, Reason: "csrf_token_invalid",
 				IdentityID: sess.IdentityID, TenantID: sess.TenantID, IdPID: sess.IdPID, SessionID: sess.PublicID,
 				Origin: origin, ClientIP: info.ClientIP, RequestID: reqID})
-			WriteProblem(w, forbidden("csrf_token_invalid"), reqID, r.URL.Path)
+			s.writeProblem(w, r, reqID, forbidden("csrf_token_invalid"))
 			return
 		}
 		if sess != nil {
@@ -124,6 +125,15 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// writeProblem answers a request the middleware refuses itself: Config.ProblemWriter when set, else WriteProblem.
+func (s *Service) writeProblem(w http.ResponseWriter, r *http.Request, reqID string, err error) {
+	if s.cfg.ProblemWriter != nil {
+		s.cfg.ProblemWriter(w, r, err)
+		return
+	}
+	WriteProblem(w, err, reqID, r.URL.Path)
 }
 
 // checkFetchOrigin returns "" when a state-changing request comes from this origin's own pages.
