@@ -279,6 +279,10 @@ def readme(front: list[str], sections: dict[str, Section]) -> list[str]:
         "874 nhận định kèm trích dẫn và nguồn đã pin (không sinh từ master; P0-T08) |"
     )
     out.append(
+        "| [operations/key-ceremony.md](operations/key-ceremony.md) | Runbook nghi thức khóa: KEK, khóa khôi phục backup, "
+        "khóa ký manifest, 2 bản offline, diễn tập nạp lại KEK (không sinh từ master; P2-T04a) |"
+    )
+    out.append(
         "| [planning/evidence/](planning/evidence/README.md) | Bằng chứng thực hiện: quy ước, biên bản phê duyệt kiến trúc, "
         "task bị chặn, sổ kết quả kiểm chứng, báo cáo gate (không sinh từ master) |"
     )

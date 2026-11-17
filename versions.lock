@@ -184,6 +184,17 @@ purpose = "Rate limit ở edge (§14.4). Bản phát hành duy nhất; review m�
 "golang.org/x/net" = "v0.62.0"                      # GO-2026-6860
 "github.com/klauspost/compress" = "v1.20.2"         # GO-2026-6865
 
+[sources.age]   # P2-T04a: age/age-keygen cho nghi thức khóa trên host (sinh/kiểm khóa khôi phục backup — §17.1)
+module = "filippo.io/age"
+version = "v1.3.2"
+commit = "b74dce4cdbe35b5e5f66c06d9612b72f89028758"   # Origin của module trên proxy.golang.org (tag v1.3.2)
+date = "2026-08-29"
+h1 = "h1:r6RSZLFSMm6rzKepZ7ZAYkKCu14f3/Me8c7uKYh7C8c="   # hash module trong checksum DB của Go (sum.golang.org)
+build = "infrastructure/host/key-ceremony/build-age.sh: go install filippo.io/age/cmd/{age,age-keygen}@v1.3.2 trong images.golang, CGO_ENABLED=0, -trimpath — tái lập (2 lần build cache trống cùng sha256)"
+age_linux_amd64_sha256 = "e442c7bc47bb52e08ccb02dfa5fc09ecf58ce6bce5de0cdda8443b918ae7055e"
+age_keygen_linux_amd64_sha256 = "580c1a61d19c129cbdfa1c97689a061a91d27f22371eee9b30123afcde0a71a4"
+note = "Bản mới nhất, đã 80 ngày tuổi lúc pin (2026-11-17). Host không có age; không dùng gói age của Ubuntu 24.04 (1.1.1-1ubuntu0.24.04.3, Built-Using golang-1.22.2 + x/crypto 0.19.0; cài gói lên host là loại thay đổi cần duyệt riêng) — chọn build từ mã nguồn bằng toolchain Go 1.27.4 đã pin, binary tĩnh chép sang host và kiểm sha256 trước mỗi lần dùng. Image pg-backup/agent (P2-T03a, P3) nên dùng cùng phiên bản"
+
 [sources.gitleaks]
 repo = "github.com/gitleaks/gitleaks"
 version = "v8.30.1"

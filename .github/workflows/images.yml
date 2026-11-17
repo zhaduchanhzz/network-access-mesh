@@ -87,7 +87,21 @@ jobs:
               curl -fsS http://127.0.0.1:19090/readyz
               curl -fsS http://127.0.0.1:19090/metrics | grep -q '^meshguard_build_info{'
               docker logs smoke 2>&1 | tail -3
-              docker rm -f smoke >/dev/null ;;
+              docker rm -f smoke >/dev/null
+              if [ "${{ matrix.image }}" = worker ]; then
+                # P2-T04a: lệnh kek-drill của nghi thức khóa trên keyring thử sinh tại chỗ (không in khóa; chỉ dòng kết quả)
+                k="${RUNNER_TEMP}/kek"
+                for r in kek-app kek-ops; do
+                  mkdir -p "$k/live/$r"
+                  (umask 077; openssl rand -hex 32 > "$k/live/$r/smoke"; echo smoke > "$k/live/$r/ACTIVE")
+                done
+                cp -a "$k/live" "$k/recovered"
+                out=$(docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+                  -u "$(id -u):$(id -g)" -v "$k:/k:ro" "${IMAGE}:${GITHUB_SHA}" kek-drill --live /k/live --recovered /k/recovered)
+                rm -rf "$k"
+                echo "$out" | tail -1
+                test "$(echo "$out" | tail -1)" = "kek-drill: PASS (2 keyrings, 2 kek_ids)"
+              fi ;;
             idp)
               test "$user" = "1000"
               # CVE-2026-91403 (P2-T05 mục 7): TrustManager mặc định của JVM không được tin root nào trong 4 root OpenJDK yêu

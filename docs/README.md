@@ -51,6 +51,7 @@ Bộ tài liệu kiến trúc và kế hoạch triển khai của MeshGuard ZTNA
 | [adr/architecture-decision-records.md](adr/architecture-decision-records.md) | Architecture Decision Records — §24 |
 | [planning/review-findings.md](planning/review-findings.md) | Bản ghi nguyên văn các phát hiện của vòng phản biện (không sinh từ master; tổng hợp và cách xử lý ở Appendix D) |
 | [architecture/research-evidence.md](architecture/research-evidence.md) | Nhật ký bằng chứng nghiên cứu: 874 nhận định kèm trích dẫn và nguồn đã pin (không sinh từ master; P0-T08) |
+| [operations/key-ceremony.md](operations/key-ceremony.md) | Runbook nghi thức khóa: KEK, khóa khôi phục backup, khóa ký manifest, 2 bản offline, diễn tập nạp lại KEK (không sinh từ master; P2-T04a) |
 | [planning/evidence/](planning/evidence/README.md) | Bằng chứng thực hiện: quy ước, biên bản phê duyệt kiến trúc, task bị chặn, sổ kết quả kiểm chứng, báo cáo gate (không sinh từ master) |
 
 ## Quy ước đọc tài liệu
