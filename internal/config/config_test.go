@@ -51,6 +51,37 @@ func TestSecretValuesInEnvironmentRejected(t *testing.T) {
 	}
 }
 
+func TestTrustedProxies(t *testing.T) {
+	get, list := env(map[string]string{"MG_TRUSTED_PROXIES": " 10.249.0.2, 10.249.2.0/24 ,::ffff:10.0.0.9,fd00::/8"})
+	cfg, err := Load("api", get, list)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	want := []string{"10.249.0.2/32", "10.249.2.0/24", "10.0.0.9/32", "fd00::/8"}
+	if len(cfg.TrustedProxies) != len(want) {
+		t.Fatalf("TrustedProxies = %v, want %v", cfg.TrustedProxies, want)
+	}
+	for i, p := range cfg.TrustedProxies {
+		if p.String() != want[i] {
+			t.Errorf("TrustedProxies[%d] = %s, want %s", i, p, want[i])
+		}
+	}
+	for _, bad := range []string{"edge", "10.249.0.0/33", "10.249.0.300"} {
+		get, list := env(map[string]string{"MG_TRUSTED_PROXIES": bad})
+		if _, err := Load("api", get, list); err == nil || !strings.Contains(err.Error(), "MG_TRUSTED_PROXIES") {
+			t.Errorf("%q: expected an error, got %v", bad, err)
+		}
+	}
+	// Required for api outside dev; the worker has no public listener.
+	get, list = env(map[string]string{"MG_ENV": "staging", "MG_BASE_DOMAIN": "example.com"})
+	if _, err := Load("api", get, list); err == nil || !strings.Contains(err.Error(), "MG_TRUSTED_PROXIES is required") {
+		t.Errorf("api in staging without MG_TRUSTED_PROXIES: got %v", err)
+	}
+	if _, err := Load("worker", get, list); err != nil {
+		t.Errorf("worker in staging: %v", err)
+	}
+}
+
 func TestInvalidValues(t *testing.T) {
 	cases := map[string]map[string]string{
 		"bad env":        {"MG_ENV": "prod"},

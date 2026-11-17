@@ -6,6 +6,7 @@ package runner
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
@@ -15,6 +16,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors"
 
 	"github.com/zhaduchanhzz/network-access-mesh/internal/config"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/kit/buildinfo"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/kit/httpx"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/kit/logx"
@@ -22,12 +24,19 @@ import (
 
 // Main runs one service and returns the process exit code.
 func Main(service string) int {
-	cfg, err := config.Load(service, os.Getenv, os.Environ())
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	return run(ctx, service, os.Getenv, os.Environ(), os.Stdout, os.Stderr)
+}
+
+// run is Main with the process inputs passed in; it serves until ctx is cancelled.
+func run(ctx context.Context, service string, getenv func(string) string, environ []string, stdout, stderr io.Writer) int {
+	cfg, err := config.Load(service, getenv, environ)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "meshguard %s: invalid configuration:\n%v\n", service, err)
+		_, _ = fmt.Fprintf(stderr, "meshguard %s: invalid configuration:\n%v\n", service, err)
 		return 2
 	}
-	log := logx.New(os.Stdout, cfg.LogLevel, service)
+	log := logx.New(stdout, cfg.LogLevel, service)
 	log.Info("starting", "version", buildinfo.Version, "commit", buildinfo.Commit, "env", cfg.Env)
 
 	reg := prometheus.NewRegistry()
@@ -46,14 +55,18 @@ func Main(service string) int {
 
 	servers := []*http.Server{httpx.NewServer(cfg.InternalAddr, httpx.InternalMux(probes, reg, log), log)}
 	if service == "api" {
-		// The public REST API (/api/v1) is generated from api/openapi.yaml into internal/httpapi/gen (P2-T02) and is
-		// mounted here (gen.HandlerWithOptions with BaseURL "/api/v1") once the first handlers and the middleware chain
-		// exist (P2-T06, P2-T07, P2-T14); until then the listener answers 404.
-		servers = append(servers, httpx.NewServer(cfg.HTTPAddr, http.NotFoundHandler(), log))
+		// The public REST API (/api/v1, §13): the strict server generated from api/openapi.yaml behind the middleware
+		// chain of P2-T14 (internal/httpapi). Handler sets (httpapi.Handlers) and the session/CSRF/authz hooks
+		// (httpapi.Hooks) are wired here as P2-T06, P2-T07 and the domain tasks land; until then every operation
+		// answers 501 not_implemented.
+		api, err := httpapi.New(httpapi.Options{Logger: log, TrustedProxies: cfg.TrustedProxies})
+		if err != nil {
+			log.Error("cannot build the public API", "error", err.Error())
+			return 1
+		}
+		servers = append(servers, httpx.NewServer(cfg.HTTPAddr, api, log))
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 	if err := httpx.Serve(ctx, log, servers...); err != nil {
 		return 1
 	}
