@@ -293,6 +293,10 @@ func TestProvisionTransientRetry(t *testing.T) {
 		if err := g.run(t); !jobs.IsResumable(err) || jobs.CodeOf(err) != "prober_not_configured" || g.r.step(StepRelay).attempt != 1 {
 			t.Fatalf("no prober: %v", err)
 		}
+		// The relay is never declared verified without a prober: the job stops AT step 17, step 18 never runs.
+		if s := g.r.step(StepRelay); s.status == jobs.StepSucceeded || g.r.step(StepEdgeVerify) != nil {
+			t.Fatalf("no prober: relay.assign %s, edge.verify ran %v", s.status, g.r.step(StepEdgeVerify) != nil)
+		}
 		g = newRig(t)
 		g.prober.relay = ProbeResult{OK: false, Checks: []ProbeCheck{{Name: "stun", Code: "timeout"}}}
 		if err := g.run(t); !jobs.IsResumable(err) || jobs.CodeOf(err) != "relay_probe_failed" {
