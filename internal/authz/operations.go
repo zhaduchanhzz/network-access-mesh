@@ -15,6 +15,9 @@ type Operation struct {
 	Secondary   Permission // x-permission-secondary (§8.4 invariant 4): checked by the service when it applies
 	OwnResource bool       // x-own-resource: a grant of scope own may call it, on the caller's own resources
 	DualControl bool       // x-dual-control: every caller needs a second approver (2P)
+	// Conditions (x-conditions) are the conditions of conditional grants (§8.5/§8.6 cells such as "chỉ cho restore")
+	// the operation enforces itself; Authorizer refuses a grant whose condition is not listed.
+	Conditions []string
 }
 
 // TenantScoped reports whether the operation runs in the tenant of its path /tenants/{tenantId}/… (§13.1 "Tenant
@@ -31,6 +34,7 @@ func (o Operation) Requirement() Requirement {
 		ReadOnly:    o.Method == "GET" || o.Method == "HEAD",
 		OwnResource: o.OwnResource,
 		DualControl: o.DualControl,
+		Conditions:  o.Conditions,
 	}
 }
 

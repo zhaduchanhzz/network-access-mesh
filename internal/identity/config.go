@@ -67,6 +67,11 @@ type Config struct {
 	// Auditor receives the audit events of the module (P2-T08 wires audit_events); nil logs them.
 	Auditor Auditor
 
+	// Invitations binds the first login of a tenant identity to the pending invitation of its tenant (P3-T05a —
+	// internal/tenants); a first login it cannot bind is refused. nil: no binding (identities log in without
+	// membership, as before P3-T05a — tests of this module only).
+	Invitations InvitationBinder
+
 	// Logger; nil uses slog.Default().
 	Logger *slog.Logger
 

@@ -78,7 +78,8 @@ type expectation struct {
 	denyKind error
 	reason   string // authz.Denial.Reason
 	ownOnly  bool
-	pending  bool // 501: the handler set of the operation is not mounted yet
+	pending  bool   // 501: the handler set of the operation is not mounted yet
+	cond     string // condition of the granted conditional cell (x-conditions of the operation)
 }
 
 // call is one request of the matrix and, once sent, its answer.
@@ -229,7 +230,7 @@ func (m *matrix) objectCases(op authz.Operation, a *actor, tenantCase string) []
 	switch kind {
 	case objDevice:
 		return []string{"eu-own", "eu-tagged", "other-member", "other-tenant", "missing"}
-	case objMembership, objJob:
+	case objMembership, objJob, objApproval, objInvitation:
 		if op.TenantScoped() {
 			return []string{"own", "other-tenant", "missing"}
 		}
@@ -317,6 +318,12 @@ func (m *matrix) place(t *testing.T, c *call) {
 		}[c.objectCase][owner.Name]
 	case kind == objMembership:
 		c.objectID = m.Actor(t, authz.RoleTenantViewer, owner).MembershipID
+	case kind == objApproval && c.op.TenantScoped():
+		c.objectID = m.obj.approval[owner.Name]
+	case kind == objApproval:
+		c.objectID = m.obj.platformApproval
+	case kind == objInvitation:
+		c.objectID = m.obj.invitation[owner.Name]
 	case kind == objJob && c.op.TenantScoped():
 		c.objectID = m.obj.job[owner.Name]
 	case kind == objJob:
@@ -424,7 +431,12 @@ func (m *matrix) expect(c *call) expectation {
 	case N:
 		return refused(http.StatusForbidden, gen.ProblemCodeForbidden, authz.ErrForbidden, "no_grant")
 	}
-	if cond, ok := conditions[cell]; ok { // no operation declares it enforces a condition yet (Requirement.Conditions)
+	if cond, ok := conditions[cell]; ok {
+		if slices.Contains(op.Conditions, cond) { // x-conditions: the operation enforces it (P3-T04a: restore_only)
+			e := m.handlerAnswer(c, false)
+			e.cond = cond
+			return e
+		}
 		return refused(http.StatusForbidden, gen.ProblemCodeForbidden, authz.ErrForbidden, "condition_not_enforced:"+cond)
 	}
 	panic("matrix: no expectation for cell " + cell + " of " + string(op.Permission)) // TestHandTablesMatchTheMaster
@@ -564,6 +576,9 @@ func (m *matrix) checkGrant(c *call, d decisionRecord) []string {
 	}
 	if op.Permission == authz.Authenticated {
 		return bad
+	}
+	if dec.Condition != c.exp.cond {
+		add("decision condition %q, want %q", dec.Condition, c.exp.cond)
 	}
 	if dec.RoleKey != c.actor.role || dec.OwnOnly != c.exp.ownOnly || dec.DualControl != op.DualControl {
 		add("decision role %s ownOnly %v dualControl %v, want %s %v %v", dec.RoleKey, dec.OwnOnly, dec.DualControl,

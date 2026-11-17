@@ -65,24 +65,47 @@ type MonitoringHandlers interface {
 	GetPlatformHealth(ctx context.Context, request gen.GetPlatformHealthRequestObject) (gen.GetPlatformHealthResponseObject, error)
 }
 
+// ApprovalHandlers — P3-T04a (`authz` approvals): dual control of the platform and of a tenant (§8.5/§8.6 2P rule).
+type ApprovalHandlers interface {
+	ListPlatformApprovals(ctx context.Context, request gen.ListPlatformApprovalsRequestObject) (gen.ListPlatformApprovalsResponseObject, error)
+	GetPlatformApproval(ctx context.Context, request gen.GetPlatformApprovalRequestObject) (gen.GetPlatformApprovalResponseObject, error)
+	ApprovePlatformApproval(ctx context.Context, request gen.ApprovePlatformApprovalRequestObject) (gen.ApprovePlatformApprovalResponseObject, error)
+	RejectPlatformApproval(ctx context.Context, request gen.RejectPlatformApprovalRequestObject) (gen.RejectPlatformApprovalResponseObject, error)
+	ListTenantApprovals(ctx context.Context, request gen.ListTenantApprovalsRequestObject) (gen.ListTenantApprovalsResponseObject, error)
+	GetTenantApproval(ctx context.Context, request gen.GetTenantApprovalRequestObject) (gen.GetTenantApprovalResponseObject, error)
+	ApproveTenantApproval(ctx context.Context, request gen.ApproveTenantApprovalRequestObject) (gen.ApproveTenantApprovalResponseObject, error)
+	RejectTenantApproval(ctx context.Context, request gen.RejectTenantApprovalRequestObject) (gen.RejectTenantApprovalResponseObject, error)
+}
+
+// InvitationHandlers — P3-T05a (`tenants`): invitations of a tenant (§6.3 tenant_invitations).
+type InvitationHandlers interface {
+	ListTenantInvitations(ctx context.Context, request gen.ListTenantInvitationsRequestObject) (gen.ListTenantInvitationsResponseObject, error)
+	CreateTenantInvitation(ctx context.Context, request gen.CreateTenantInvitationRequestObject) (gen.CreateTenantInvitationResponseObject, error)
+	RevokeTenantInvitation(ctx context.Context, request gen.RevokeTenantInvitationRequestObject) (gen.RevokeTenantInvitationResponseObject, error)
+	ResendTenantInvitation(ctx context.Context, request gen.ResendTenantInvitationRequestObject) (gen.ResendTenantInvitationResponseObject, error)
+}
+
 // Handlers is the extension point of the API: one handler set per building task. A nil set answers every operation
 // of its interface with 501 not_implemented. A set may also implement only part of its interface by embedding
 // NotImplemented. Handlers return a *problem.Error for an expected failure (not_found, conflict…); any other error
 // becomes 500 internal_error and its text goes to the internal log only.
 type Handlers struct {
-	Auth       AuthHandlers       // P2-T06
-	Tenants    TenantHandlers     // P2-T11
-	Devices    DeviceHandlers     // P2-T13
-	Audit      AuditHandlers      // P2-T08
-	Jobs       JobHandlers        // P2-T12
-	Monitoring MonitoringHandlers // P2-T13a
+	Auth        AuthHandlers       // P2-T06
+	Tenants     TenantHandlers     // P2-T11
+	Devices     DeviceHandlers     // P2-T13
+	Audit       AuditHandlers      // P2-T08
+	Jobs        JobHandlers        // P2-T12
+	Monitoring  MonitoringHandlers // P2-T13a
+	Approvals   ApprovalHandlers   // P3-T04a
+	Invitations InvitationHandlers // P3-T05a
 }
 
 func (h Handlers) mounted() bool {
-	return h.Auth != nil || h.Tenants != nil || h.Devices != nil || h.Audit != nil || h.Jobs != nil || h.Monitoring != nil
+	return h.Auth != nil || h.Tenants != nil || h.Devices != nil || h.Audit != nil || h.Jobs != nil || h.Monitoring != nil ||
+		h.Approvals != nil || h.Invitations != nil
 }
 
-// dispatcher implements gen.StrictServerInterface by promotion from the six disjoint interfaces.
+// dispatcher implements gen.StrictServerInterface by promotion from the disjoint interfaces.
 type dispatcher struct {
 	AuthHandlers
 	TenantHandlers
@@ -90,12 +113,20 @@ type dispatcher struct {
 	AuditHandlers
 	JobHandlers
 	MonitoringHandlers
+	ApprovalHandlers
+	InvitationHandlers
 }
 
 var _ gen.StrictServerInterface = dispatcher{}
 
 func newDispatcher(h Handlers) dispatcher {
-	d := dispatcher{h.Auth, h.Tenants, h.Devices, h.Audit, h.Jobs, h.Monitoring}
+	d := dispatcher{h.Auth, h.Tenants, h.Devices, h.Audit, h.Jobs, h.Monitoring, h.Approvals, h.Invitations}
+	if d.ApprovalHandlers == nil {
+		d.ApprovalHandlers = NotImplemented{}
+	}
+	if d.InvitationHandlers == nil {
+		d.InvitationHandlers = NotImplemented{}
+	}
 	if d.AuthHandlers == nil {
 		d.AuthHandlers = NotImplemented{}
 	}
@@ -233,4 +264,52 @@ func (NotImplemented) GetTenantDashboard(context.Context, gen.GetTenantDashboard
 
 func (NotImplemented) GetPlatformHealth(context.Context, gen.GetPlatformHealthRequestObject) (gen.GetPlatformHealthResponseObject, error) {
 	return nil, problem.NotImplemented("GetPlatformHealth")
+}
+
+func (NotImplemented) ListPlatformApprovals(context.Context, gen.ListPlatformApprovalsRequestObject) (gen.ListPlatformApprovalsResponseObject, error) {
+	return nil, problem.NotImplemented("ListPlatformApprovals")
+}
+
+func (NotImplemented) GetPlatformApproval(context.Context, gen.GetPlatformApprovalRequestObject) (gen.GetPlatformApprovalResponseObject, error) {
+	return nil, problem.NotImplemented("GetPlatformApproval")
+}
+
+func (NotImplemented) ApprovePlatformApproval(context.Context, gen.ApprovePlatformApprovalRequestObject) (gen.ApprovePlatformApprovalResponseObject, error) {
+	return nil, problem.NotImplemented("ApprovePlatformApproval")
+}
+
+func (NotImplemented) RejectPlatformApproval(context.Context, gen.RejectPlatformApprovalRequestObject) (gen.RejectPlatformApprovalResponseObject, error) {
+	return nil, problem.NotImplemented("RejectPlatformApproval")
+}
+
+func (NotImplemented) ListTenantApprovals(context.Context, gen.ListTenantApprovalsRequestObject) (gen.ListTenantApprovalsResponseObject, error) {
+	return nil, problem.NotImplemented("ListTenantApprovals")
+}
+
+func (NotImplemented) GetTenantApproval(context.Context, gen.GetTenantApprovalRequestObject) (gen.GetTenantApprovalResponseObject, error) {
+	return nil, problem.NotImplemented("GetTenantApproval")
+}
+
+func (NotImplemented) ApproveTenantApproval(context.Context, gen.ApproveTenantApprovalRequestObject) (gen.ApproveTenantApprovalResponseObject, error) {
+	return nil, problem.NotImplemented("ApproveTenantApproval")
+}
+
+func (NotImplemented) RejectTenantApproval(context.Context, gen.RejectTenantApprovalRequestObject) (gen.RejectTenantApprovalResponseObject, error) {
+	return nil, problem.NotImplemented("RejectTenantApproval")
+}
+
+func (NotImplemented) ListTenantInvitations(context.Context, gen.ListTenantInvitationsRequestObject) (gen.ListTenantInvitationsResponseObject, error) {
+	return nil, problem.NotImplemented("ListTenantInvitations")
+}
+
+func (NotImplemented) CreateTenantInvitation(context.Context, gen.CreateTenantInvitationRequestObject) (gen.CreateTenantInvitationResponseObject, error) {
+	return nil, problem.NotImplemented("CreateTenantInvitation")
+}
+
+func (NotImplemented) RevokeTenantInvitation(context.Context, gen.RevokeTenantInvitationRequestObject) (gen.RevokeTenantInvitationResponseObject, error) {
+	return nil, problem.NotImplemented("RevokeTenantInvitation")
+}
+
+func (NotImplemented) ResendTenantInvitation(context.Context, gen.ResendTenantInvitationRequestObject) (gen.ResendTenantInvitationResponseObject, error) {
+	return nil, problem.NotImplemented("ResendTenantInvitation")
 }

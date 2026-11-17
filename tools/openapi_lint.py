@@ -21,6 +21,8 @@ Rules, with their source in docs/planning/implementation-master-plan.md:
     traceability table assigns to its API actions is done in §20 ("**đã thực hiện…**"); before that it is reported
     by --list as coverage
   - x-own-resource: true <=> the permission row has a ○ cell; x-dual-control: true <=> 2P cells (§13.1)
+  - x-conditions: a non-empty list of grant conditions the operation enforces itself, each one the condition of a
+    conditional cell of its permission's row (CELL_GRANTS); internal/authz refuses any other conditional grant (§13.1)
   - x-permission-secondary on at most one operation (§13.1, §8.4 invariant 4)
   - the RBAC seed: every cell of §8.5/§8.6 is a known grant (✔, ○, 2P, G, G (Admin), —, or a listed conditional
     cell), the role columns are the roles of §8.4, platform roles hold only platform permissions (§8.4 invariant 2),
@@ -996,6 +998,20 @@ def lint(spec: dict, master: Master, coverage: bool = True) -> list[str]:
                 err(where, f"x-dual-control: true required — {perm} is 2P (§13.1)")
             if dual is True and not p.dual_any:
                 err(where, f"x-dual-control set but {perm} has no 2P cell (§13.1)")
+        conds = op.get("x-conditions")
+        if conds is not None:
+            if not (isinstance(conds, list) and conds and all(isinstance(c, str) for c in conds)
+                    and len(set(conds)) == len(conds)):
+                err(where, "x-conditions must be a non-empty list of distinct grant conditions")
+            elif perm not in master.perms:
+                err(where, "x-conditions only apply to permissions of §8.5/§8.6")
+            else:
+                allowed = {CELL_GRANTS[c.strip()][1] for c in master.perms[perm].cells
+                           if c.strip() in CELL_GRANTS and CELL_GRANTS[c.strip()][1]}
+                for c in conds:
+                    if c not in allowed:
+                        err(where, f"x-conditions {c!r} is not the condition of a conditional cell of {perm} "
+                                   f"(conditions of the row: {sorted(allowed) or 'none'})")
         if op.get("x-permission-secondary") is not None:
             secondary.append(where)
             if op["x-permission-secondary"] not in master.perms:
@@ -1380,7 +1396,7 @@ $$;
 
 
 def render_operations_go(spec: dict) -> str:
-    """internal/authz/operations_gen.go: x-permission, x-audit-action, x-own-resource, x-dual-control and
+    """internal/authz/operations_gen.go: x-permission, x-audit-action, x-own-resource, x-dual-control, x-conditions and
     x-permission-secondary of every operation, sorted by operationId (gofmt-clean: one composite literal per line,
     nothing to align)."""
     rows = []
@@ -1394,6 +1410,8 @@ def render_operations_go(spec: dict) -> str:
             fields.append("OwnResource: true")
         if op.get("x-dual-control") is True:
             fields.append("DualControl: true")
+        if isinstance(op.get("x-conditions"), list) and op["x-conditions"]:
+            fields.append("Conditions: []string{" + ", ".join(json.dumps(str(c)) for c in op["x-conditions"]) + "}")
         rows.append("\t{" + ", ".join(fields) + "},")
     body = "\n".join(rows)
     return f"""\
@@ -1402,7 +1420,7 @@ def render_operations_go(spec: dict) -> str:
 package authz
 
 // specOperations is the authorization contract of every operation of api/openapi.yaml (§13.1): x-permission,
-// x-audit-action, x-own-resource, x-dual-control and x-permission-secondary, sorted by operationId.
+// x-audit-action, x-own-resource, x-dual-control, x-conditions and x-permission-secondary, sorted by operationId.
 var specOperations = []Operation{{
 {body}
 }}

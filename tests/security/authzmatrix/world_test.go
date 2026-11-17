@@ -20,13 +20,16 @@ import (
 
 	"github.com/zhaduchanhzz/network-access-mesh/internal/audit"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/authz"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/authz/approvals"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/devices"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/headscale"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/headscale/locator"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/approvalsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/auditapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/authzhook"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/devicesapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/invitationsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/jobsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/monitoringapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/tenantsapi"
@@ -36,6 +39,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/monitoring"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/platform"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/secrets"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store/storetest"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/tenants"
 	"github.com/zhaduchanhzz/network-access-mesh/tests/security/sessionfixture"
@@ -89,13 +93,60 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 	if err != nil {
 		t.Fatal(err)
 	}
-	return httpapi.Handlers{
-		Tenants:    tenantsapi.New(dir, platform.New(w.Store)),
-		Devices:    devicesapi.New(dev),
-		Audit:      auditapi.New(audit.NewReader(w.Store)),
-		Jobs:       jobsapi.New(jobs.NewService(w.Store)),
-		Monitoring: monitoringapi.New(mon),
+	actions, err := approvals.NewRegistry(
+		approvals.Typed(approvals.Spec{Name: matrixPlatformAction, Scope: authz.ScopePlatform, ResourceType: "instance",
+			Permission: "platform.instance:restore", DecideConditions: []string{authz.CondRestoreOnly}},
+			func(context.Context, *store.Tx, approvals.Execution, matrixRestore) (*uuid.UUID, error) {
+				return nil, nil
+			}),
+		approvals.Typed(approvals.Spec{Name: matrixTenantAction, Scope: authz.ScopeTenant, ResourceType: "device",
+			Permission: "tenant.route:approve"},
+			func(context.Context, *store.Tx, approvals.Execution, matrixRoute) (*uuid.UUID, error) {
+				return nil, nil
+			}),
+	)
+	if err != nil {
+		t.Fatal(err)
 	}
+	appr, err := approvals.New(w.Store, approvals.Config{Approvers: authz.New(w.Store), Registry: actions, Logger: log})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return httpapi.Handlers{
+		Tenants:     tenantsapi.New(dir, platform.New(w.Store)),
+		Devices:     devicesapi.New(dev),
+		Audit:       auditapi.New(audit.NewReader(w.Store)),
+		Jobs:        jobsapi.New(jobs.NewService(w.Store)),
+		Monitoring:  monitoringapi.New(mon),
+		Approvals:   approvalsapi.New(appr),
+		Invitations: invitationsapi.New(dir, authz.GuardInvitationRole),
+	}
+}
+
+// The approval objects of the matrix (P3-T04a): a restore-like request of the platform — Super Admins and Platform
+// Operators (restore_only) decide it — and a route-approval request per tenant (tenant.route:approve: TO and TA),
+// each made by an identity that is not an actor of the matrix (no caller is its requester). The payloads are stored in
+// canonical form, so the recipes approve with their constant hash.
+const (
+	matrixPlatformAction  = "platform.matrix_restore"
+	matrixTenantAction    = "tenant.matrix_route_approval"
+	matrixPlatformPayload = `{"backup_id":"0190a000-0000-7000-8000-000000000001","instance_id":"0190a000-0000-7000-8000-000000000002"}`
+	matrixTenantPayload   = `{"device_id":"0190a000-0000-7000-8000-000000000003","prefixes":["10.0.0.0/24"]}`
+)
+
+var (
+	matrixPlatformHash = approvals.Hash([]byte(matrixPlatformPayload))
+	matrixTenantHash   = approvals.Hash([]byte(matrixTenantPayload))
+)
+
+type matrixRestore struct {
+	BackupID   string `json:"backup_id"`
+	InstanceID string `json:"instance_id"`
+}
+
+type matrixRoute struct {
+	DeviceID string   `json:"device_id"`
+	Prefixes []string `json:"prefixes"`
 }
 
 // mountedOps lists the Go names of the operations whose handler set is mounted (Auth always is: the fixture mounts
@@ -152,6 +203,8 @@ type objects struct {
 	devEU, devEUTagged, devOther map[string]uuid.UUID // EU's untagged device, EU's tagged device, TA's device
 	job                          map[string]uuid.UUID // a job of the tenant
 	platformJob                  uuid.UUID            // a job of scope platform
+	approval, invitation         map[string]uuid.UUID // a pending approval request and invitation of the tenant
+	platformApproval             uuid.UUID            // a pending approval request of scope platform
 	canaries                     []string             // secret values planted in the SecretStore (never in a response)
 }
 
@@ -244,6 +297,7 @@ func (m *matrixWorld) createObjects(t *testing.T) objects {
 	o := objects{
 		instance: map[string]uuid.UUID{}, devEU: map[string]uuid.UUID{}, devEUTagged: map[string]uuid.UUID{},
 		devOther: map[string]uuid.UUID{}, job: map[string]uuid.UUID{}, platformJob: uuid.Must(uuid.NewV7()),
+		approval: map[string]uuid.UUID{}, invitation: map[string]uuid.UUID{}, platformApproval: uuid.Must(uuid.NewV7()),
 		canaries: []string{m.edgeToken},
 	}
 	sec := m.sec
@@ -294,7 +348,23 @@ func (m *matrixWorld) createObjects(t *testing.T) objects {
 		o.job[ten.Name] = job
 		m.Exec(t, `INSERT INTO provisioning_jobs (id, tenant_id, instance_id, kind, status, created_at, finished_at)
 			VALUES ($1, $2, $3, 'inventory.sync', 'succeeded', now(), now())`, job, ten.ID, inst)
+		appr := uuid.Must(uuid.NewV7())
+		o.approval[ten.Name] = appr
+		m.Exec(t, `INSERT INTO approval_requests (id, scope, tenant_id, action, resource_type, resource_id, payload,
+				payload_sha256, requested_by_identity_id, expires_at)
+			VALUES ($1, 'tenant', $2, $3, 'device', 'matrix', $4::jsonb, $5, $6, now() + interval '1 day')`,
+			appr, ten.ID, matrixTenantAction, matrixTenantPayload, matrixTenantHash, m.NewActor(t, authz.RoleTenantOwner, ten).IdentityID)
+		inv := uuid.Must(uuid.NewV7())
+		o.invitation[ten.Name] = inv
+		m.Exec(t, `INSERT INTO tenant_invitations (id, tenant_id, idp_id, email, role_id, token_hash, expires_at)
+			SELECT $1::uuid, $2, $3, $4, id, sha256(uuid_send($1::uuid)), now() + interval '1 day'
+			FROM roles WHERE scope = 'tenant' AND key = 'tenant_viewer'`, inv, ten.ID, ten.IdP, "matrix-object-"+ten.Name+"@example.test")
 	}
+	m.Exec(t, `INSERT INTO approval_requests (id, scope, action, resource_type, resource_id, payload, payload_sha256,
+			requested_by_identity_id, expires_at)
+		VALUES ($1, 'platform', $2, 'instance', 'matrix', $3::jsonb, $4, $5, now() + interval '1 day')`,
+		o.platformApproval, matrixPlatformAction, matrixPlatformPayload, matrixPlatformHash,
+		m.NewActor(t, authz.RoleSuperAdmin, nil).IdentityID)
 	m.Exec(t, `INSERT INTO provisioning_jobs (id, kind, status, created_at, finished_at)
 		VALUES ($1, 'partition.maintain', 'succeeded', now(), now())`, o.platformJob)
 	return o

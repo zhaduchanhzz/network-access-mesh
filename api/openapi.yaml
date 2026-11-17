@@ -43,6 +43,8 @@ info:
       `<action>.succeeded` / `<action>.failed` (§6.1).
     - `x-own-resource: true` — ô ○ của §8.6: role có scope `own` chỉ gọi được operation này, trên tài nguyên của chính mình.
     - `x-dual-control: true` — ô 2P của §8.5/§8.6.
+    - `x-conditions: [<điều kiện>]` — ô có điều kiện của §8.5/§8.6 mà operation tự kiểm (ví dụ `restore_only` — Platform
+      Operator chỉ duyệt yêu cầu restore); grant có điều kiện không khai báo ở đây bị từ chối.
     - `x-secret-once: true` — trường secret chỉ hiển thị một lần.
 servers:
   - url: /api/v1
@@ -66,6 +68,10 @@ tags:
     description: Job của tenant, phép chiếu an toàn (§13.3, §13.5) — P2-T12
   - name: platform
     description: Platform Console, chỉ phục vụ trên origin `admin.<domain>` (§12.2, §13.2) — P2-T08, P2-T11, P2-T12, P2-T13a
+  - name: approvals
+    description: Dual control trong tenant — yêu cầu phê duyệt phạm vi tenant (§8.6) — P3-T04a
+  - name: invitations
+    description: Lời mời người chưa từng đăng nhập (§6.3, §8.2) — P3-T05a
 paths:
   # ---------------------------------------------------------------- auth (P2-T06)
   /auth/login:
@@ -1131,6 +1137,448 @@ paths:
           $ref: '#/components/responses/RateLimited'
         default:
           $ref: '#/components/responses/Unexpected'
+  # ---------------------------------------------------------------- dual control (P3-T04a) + lời mời (P3-T05a)
+  /tenants/{tenantId}/approvals:
+    get:
+      tags: [approvals]
+      operationId: listTenantApprovals
+      summary: Yêu cầu phê duyệt phạm vi tenant (dual control trong tenant)
+      description: >-
+        Chỉ yêu cầu `scope = tenant` của tenant trong path (§8.6) — yêu cầu 2P của nền tảng về tenant này (xóa,
+        restore) không hiện ở đây. Mới nhất trước; `status` là trạng thái hiệu lực (`pending`/`approved` đã quá
+        `expires_at` là `expired`).
+      x-permission: tenant.approval:read
+      x-task: P3-T04a
+      x-audit-action: approval.list
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/ApprovalStatusFilter'
+        - $ref: '#/components/parameters/ApprovalActionFilter'
+      responses:
+        '200':
+          description: Một trang yêu cầu phê duyệt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/approvals/{approvalId}:
+    get:
+      tags: [approvals]
+      operationId: getTenantApproval
+      summary: Một yêu cầu phê duyệt phạm vi tenant — kèm đúng `payload` sẽ thực thi
+      x-permission: tenant.approval:read
+      x-task: P3-T04a
+      x-audit-action: approval.read
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/ApprovalId'
+      responses:
+        '200':
+          description: Yêu cầu phê duyệt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/approvals/{approvalId}/approve:
+    post:
+      tags: [approvals]
+      operationId: approveTenantApproval
+      summary: Duyệt một yêu cầu phạm vi tenant (người thứ hai) — thao tác chạy ngay sau khi duyệt
+      description: |-
+        Người duyệt phải step-up (`auth_time` ≤ 15 phút, nếu không ⇒ `401 reauth_required`), khác người yêu cầu (tự
+        duyệt ⇒ `403`) và giữ cả `tenant.approval:decide` lẫn permission của chính thao tác (§8.6). Body mang
+        `payload_sha256` người duyệt đã xem: khác hash hiện tại ⇒ `412 precondition_failed`. Payload lưu trữ không còn
+        khớp hash ⇒ `409` (không thực thi). Hết hạn, đã quyết định hoặc đã `executed` ⇒ `409`; thao tác mà bản này
+        không thực thi được ⇒ `409`. Thành công: yêu cầu ở trạng thái `executed` (kèm `job_id` khi thao tác chạy bằng
+        job); thực thi lỗi thì yêu cầu ở `approved` và chính người duyệt gọi lại để thử thực thi lại.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.approval:decide
+      x-task: P3-T04a
+      x-audit-action: approval.approve
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/ApprovalId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApprovalDecision'
+      responses:
+        '200':
+          description: Yêu cầu sau khi duyệt và thực thi
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/approvals/{approvalId}/reject:
+    post:
+      tags: [approvals]
+      operationId: rejectTenantApproval
+      summary: Từ chối một yêu cầu phạm vi tenant (người thứ hai, step-up) — không gì được thực thi
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.approval:decide
+      x-task: P3-T04a
+      x-audit-action: approval.reject
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/ApprovalId'
+      responses:
+        '200':
+          description: Yêu cầu đã bị từ chối
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /platform/approvals:
+    get:
+      tags: [platform]
+      operationId: listPlatformApprovals
+      summary: Yêu cầu phê duyệt phạm vi platform (xóa tenant, restore, release, gán Super Admin…)
+      description: >-
+        Chỉ yêu cầu `scope = platform` — yêu cầu nội bộ của tenant không bao giờ hiện cho nhân sự nền tảng. Mới nhất
+        trước; `status` là trạng thái hiệu lực.
+      x-permission: platform.approval:read
+      x-task: P3-T04a
+      x-audit-action: platform.approval.list
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/ApprovalStatusFilter'
+        - $ref: '#/components/parameters/ApprovalActionFilter'
+      responses:
+        '200':
+          description: Một trang yêu cầu phê duyệt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /platform/approvals/{approvalId}:
+    get:
+      tags: [platform]
+      operationId: getPlatformApproval
+      summary: Một yêu cầu phê duyệt phạm vi platform — kèm đúng `payload` sẽ thực thi (ví dụ `backup_id` của restore)
+      x-permission: platform.approval:read
+      x-task: P3-T04a
+      x-audit-action: platform.approval.read
+      parameters:
+        - $ref: '#/components/parameters/ApprovalId'
+      responses:
+        '200':
+          description: Yêu cầu phê duyệt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /platform/approvals/{approvalId}/approve:
+    post:
+      tags: [platform]
+      operationId: approvePlatformApproval
+      summary: Duyệt một yêu cầu phạm vi platform (người thứ hai) — thao tác chạy ngay sau khi duyệt
+      description: |-
+        Như `approveTenantApproval`: step-up, khác người yêu cầu, giữ permission của chính thao tác (ví dụ
+        `platform.instance:restore`), `payload_sha256` đã xem. Platform Operator chỉ duyệt được yêu cầu restore (ô "chỉ
+        cho restore" của §8.5 — `x-conditions: [restore_only]`): yêu cầu khác ⇒ `403`.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: platform.approval:decide
+      x-conditions: [restore_only]
+      x-task: P3-T04a
+      x-audit-action: platform.approval.approve
+      parameters:
+        - $ref: '#/components/parameters/ApprovalId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApprovalDecision'
+      responses:
+        '200':
+          description: Yêu cầu sau khi duyệt và thực thi
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /platform/approvals/{approvalId}/reject:
+    post:
+      tags: [platform]
+      operationId: rejectPlatformApproval
+      summary: Từ chối một yêu cầu phạm vi platform (người thứ hai, step-up)
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: platform.approval:decide
+      x-conditions: [restore_only]
+      x-task: P3-T04a
+      x-audit-action: platform.approval.reject
+      parameters:
+        - $ref: '#/components/parameters/ApprovalId'
+      responses:
+        '200':
+          description: Yêu cầu đã bị từ chối
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/invitations:
+    get:
+      tags: [invitations]
+      operationId: listTenantInvitations
+      summary: Lời mời của tenant
+      description: Mới nhất trước; `status` là trạng thái hiệu lực (`pending` đã quá `expires_at` là `expired`).
+      x-permission: tenant.invitation:manage
+      x-task: P3-T05a
+      x-audit-action: invitation.list
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/InvitationStatusFilter'
+      responses:
+        '200':
+          description: Một trang lời mời
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvitationList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+    post:
+      tags: [invitations]
+      operationId: createTenantInvitation
+      summary: Mời một người chưa từng đăng nhập vào tenant
+      description: |-
+        Lời mời ghi IdP đang `active` của tenant, email và role; role theo quy tắc role đích 3a (§8.4: thấp hơn hẳn role
+        của người mời trừ Owner; không bao giờ là Owner). Lần đăng nhập đầu tiên qua đúng IdP đó, với email đã xác minh
+        trùng email mời (không phân biệt hoa thường) và còn hạn, tạo membership với role này — một lần. Email đã có
+        lời mời đang chờ hoặc đã là thành viên ⇒ `409`. Không trả token: thư mời đi qua outbox (`tenant.invitation`,
+        P3-T05b).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.invitation:manage
+      x-task: P3-T05a
+      x-audit-action: invitation.create
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvitationCreate'
+      responses:
+        '201':
+          description: Lời mời đã tạo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Invitation'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/invitations/{invitationId}:
+    delete:
+      tags: [invitations]
+      operationId: revokeTenantInvitation
+      summary: Thu hồi một lời mời đang chờ
+      description: Role ghi trong lời mời theo quy tắc role đích 3a; lời mời không còn `pending` ⇒ `409`.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.invitation:manage
+      x-task: P3-T05a
+      x-audit-action: invitation.revoke
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/InvitationId'
+      responses:
+        '204':
+          description: Đã thu hồi
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/invitations/{invitationId}/resend:
+    post:
+      tags: [invitations]
+      operationId: resendTenantInvitation
+      summary: Gửi lại một lời mời (token và hạn mới)
+      description: >-
+        Lời mời `pending` hoặc `expired` nhận token mới (link cũ mất hiệu lực) và hạn mới, trở lại `pending`, và một thư
+        mời mới vào outbox. Đã `accepted`/`revoked` ⇒ `409`.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.invitation:manage
+      x-task: P3-T05a
+      x-audit-action: invitation.resend
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/InvitationId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvitationResend'
+      responses:
+        '200':
+          description: Lời mời sau khi gửi lại
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Invitation'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
 components:
   securitySchemes:
     sessionCookie:
@@ -1276,6 +1724,46 @@ components:
       required: false
       schema:
         $ref: '#/components/schemas/JobKind'
+    # dual control (P3-T04a) + lời mời (P3-T05a)
+    ApprovalId:
+      name: approvalId
+      in: path
+      required: true
+      description: ID yêu cầu phê duyệt (`approval_requests.id`)
+      schema:
+        type: string
+        format: uuid
+    ApprovalStatusFilter:
+      name: status
+      in: query
+      required: false
+      description: Lọc theo trạng thái hiệu lực
+      schema:
+        $ref: '#/components/schemas/ApprovalStatus'
+    ApprovalActionFilter:
+      name: action
+      in: query
+      required: false
+      description: Lọc theo thao tác (khớp chính xác)
+      schema:
+        type: string
+        maxLength: 100
+        pattern: '^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$'
+    InvitationId:
+      name: invitationId
+      in: path
+      required: true
+      description: ID lời mời (`tenant_invitations.id`)
+      schema:
+        type: string
+        format: uuid
+    InvitationStatusFilter:
+      name: status
+      in: query
+      required: false
+      description: Lọc theo trạng thái hiệu lực
+      schema:
+        $ref: '#/components/schemas/InvitationStatus'
   headers:
     JobLocation:
       description: Job theo dõi thao tác — `/api/v1/tenants/{tenantId}/jobs/{jobId}` (phạm vi tenant) hoặc `/api/v1/platform/jobs/{jobId}` (phạm vi platform)
@@ -1457,6 +1945,15 @@ components:
             $ref: '#/components/schemas/Problem'
     Unexpected:
       description: Lỗi khác — mã ổn định theo bảng `ProblemCode`, `internal_error` cho lỗi không lường trước
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    PreconditionFailed:
+      description: Điều kiện trước không còn đúng — `precondition_failed` (ví dụ `payload_sha256` người duyệt đã xem khác payload hiện tại)
       headers:
         X-Request-Id:
           $ref: '#/components/headers/RequestId'
@@ -2358,3 +2855,174 @@ components:
           $ref: '#/components/schemas/InstanceCounts'
         jobs:
           $ref: '#/components/schemas/JobQueueHealth'
+    # ------------------------------------------------------------ dual control (§8.5/§8.6 2P, §6.3 — P3-T04a)
+    ApprovalStatus:
+      type: string
+      description: >-
+        `pending` → `approved` (người thứ hai) → `executed` (thực thi một lần, cùng transaction với job — trạng thái
+        cuối); `pending` → `rejected`; `pending`/`approved` quá `expires_at` → `expired`
+      enum: [pending, approved, rejected, expired, executed]
+    IdentityRef:
+      type: object
+      description: Một danh tính kèm tên hiển thị đọc lúc trả lời
+      required: [identity_id, display_name]
+      properties:
+        identity_id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+    ApprovalRequest:
+      type: object
+      description: >-
+        Yêu cầu dual control (`approval_requests`). `payload` là tham số đã chuẩn hóa của thao tác — đúng thứ sẽ được
+        thực thi, không chứa secret; `payload_sha256` = SHA-256 (hex) của JSON chuẩn hóa của nó (khóa sắp xếp theo byte,
+        không khoảng trắng, không escape HTML, chỉ số nguyên). Người duyệt gửi lại đúng hash này khi duyệt.
+      required: [id, scope, action, resource_type, payload, payload_sha256, status, requested_by, expires_at, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        scope:
+          type: string
+          enum: [platform, tenant]
+        action:
+          type: string
+          description: Thao tác cần phê duyệt (ví dụ `platform.instance.restore`)
+          examples: [platform.instance.restore]
+        resource_type:
+          type: string
+          examples: [instance]
+        resource_id:
+          type: string
+        payload:
+          type: object
+          additionalProperties: true
+          description: Tham số sẽ thực thi, nguyên văn (ví dụ `backup_id` và `instance_id` của restore)
+          x-go-type: json.RawMessage
+        payload_sha256:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        status:
+          $ref: '#/components/schemas/ApprovalStatus'
+        reason:
+          type: string
+          description: Lý do của người yêu cầu
+        requested_by:
+          $ref: '#/components/schemas/IdentityRef'
+        decided_by:
+          $ref: '#/components/schemas/IdentityRef'
+        decided_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        job_id:
+          type: string
+          format: uuid
+          description: Job do thao tác enqueue khi thực thi (chỉ ở `executed`)
+        created_at:
+          type: string
+          format: date-time
+    ApprovalList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApprovalRequest'
+        next_cursor:
+          type: [string, 'null']
+    ApprovalDecision:
+      type: object
+      description: Quyết định duyệt — mang hash của đúng payload người duyệt đã xem
+      required: [payload_sha256]
+      additionalProperties: false
+      properties:
+        payload_sha256:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+    # ------------------------------------------------------------ lời mời (§6.3 tenant_invitations, §8.2 — P3-T05a)
+    InvitationStatus:
+      type: string
+      description: >-
+        `pending` → `accepted` (lần đăng nhập đầu qua đúng IdP, email đã xác minh trùng, còn hạn — một lần) |
+        `revoked` | `expired` (gửi lại đưa lời mời hết hạn về `pending`)
+      enum: [pending, accepted, revoked, expired]
+    InvitationRole:
+      type: string
+      description: >-
+        Role một Tenant Owner/Admin ghi được vào lời mời (quy tắc role đích 3a của §8.4 quyết định role nào người gọi
+        được mời); Tenant Owner không bao giờ được mời qua API (chỉ lời mời Owner đầu tiên do orchestrator tạo)
+      enum: [tenant_admin, tenant_operator, tenant_viewer, end_user]
+    Invitation:
+      type: object
+      description: Lời mời người chưa từng đăng nhập (`tenant_invitations`) — không bao giờ chứa token
+      required: [id, email, role, status, expires_at, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+        role:
+          type: string
+          description: Khóa role phạm vi tenant (`roles.key`)
+        status:
+          $ref: '#/components/schemas/InvitationStatus'
+        expires_at:
+          type: string
+          format: date-time
+        invited_by:
+          $ref: '#/components/schemas/IdentityRef'
+        accepted_identity_id:
+          type: string
+          format: uuid
+        accepted_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    InvitationList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Invitation'
+        next_cursor:
+          type: [string, 'null']
+    InvitationCreate:
+      type: object
+      required: [email, role]
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+          minLength: 3
+          maxLength: 320
+          description: Email người được mời — phải là email đã xác minh của họ ở IdP của tenant
+        role:
+          $ref: '#/components/schemas/InvitationRole'
+        expires_in_hours:
+          type: integer
+          minimum: 1
+          maximum: 720
+          default: 168
+          description: Hạn của lời mời (mặc định 7 ngày, tối đa 30 ngày)
+    InvitationResend:
+      type: object
+      additionalProperties: false
+      properties:
+        expires_in_hours:
+          type: integer
+          minimum: 1
+          maximum: 720
+          default: 168

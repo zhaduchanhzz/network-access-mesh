@@ -26,6 +26,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/gen"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/identityapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/identity"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
 )
 
 const (
@@ -99,18 +100,24 @@ type env struct {
 	secrets map[string]string
 }
 
-func newEnv(t *testing.T) *env {
+// newEnv builds the environment; each option may change the configuration of the service (it gets the api store).
+func newEnv(t *testing.T, opts ...func(e *env, st *store.Store, cfg *identity.Config)) *env {
 	t.Helper()
 	pg := identity.RequirePG(t)
 	e := &env{t: t, pg: pg, db: pg.Admin(t), clock: newClock(), audit: &auditLog{}, secrets: map[string]string{}}
-	svc, err := identity.New(pg.Store(t), identity.Config{
+	st := pg.Store(t)
+	cfg := identity.Config{
 		AppHost: appHost, AdminHost: adminHost,
 		HTTPClient:    &http.Client{Timeout: 5 * time.Second},
 		ClientSecrets: identity.ClientSecretFunc(e.secret),
 		Auditor:       e.audit,
 		Logger:        slog.New(slog.DiscardHandler),
 		Now:           e.clock.Now,
-	})
+	}
+	for _, o := range opts {
+		o(e, st, &cfg)
+	}
+	svc, err := identity.New(st, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

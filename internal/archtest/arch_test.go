@@ -34,7 +34,7 @@ var allowed = map[string][]string{
 	"jobs":          {"store"},
 	"notifications": {"audit", "store"},
 	"secrets":       {"store"},
-	"authz":         {"store"},
+	"authz":         {"store", "audit"}, // §13.6 "— (chỉ module nền)": approvals (P3-T04a) audits its decisions
 	"kit":           {},
 	// business modules: what is listed + base modules
 	"identity":     {"audit", "config", "idp"},

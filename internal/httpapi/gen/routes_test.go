@@ -58,6 +58,19 @@ var routes = []struct {
 	{http.MethodGet, "/api/v1/platform/audit", "", "ListPlatformAuditEvents", nil},
 	{http.MethodGet, "/api/v1/platform/jobs?kind=inventory.sync", "", "ListPlatformJobs", nil},
 	{http.MethodGet, "/api/v1/platform/jobs/" + itemID, "", "GetPlatformJob", nil},
+	// dual control (P3-T04a) and invitations (P3-T05a)
+	{http.MethodGet, "/api/v1/platform/approvals?status=pending", "", "ListPlatformApprovals", nil},
+	{http.MethodGet, "/api/v1/platform/approvals/" + itemID, "", "GetPlatformApproval", nil},
+	{http.MethodPost, "/api/v1/platform/approvals/" + itemID + "/approve", `{"payload_sha256":"` + strings.Repeat("a", 64) + `"}`, "ApprovePlatformApproval", nil},
+	{http.MethodPost, "/api/v1/platform/approvals/" + itemID + "/reject", "", "RejectPlatformApproval", nil},
+	{http.MethodGet, "/api/v1/tenants/" + tenantID + "/approvals?status=approved", "", "ListTenantApprovals", nil},
+	{http.MethodGet, "/api/v1/tenants/" + tenantID + "/approvals/" + itemID, "", "GetTenantApproval", nil},
+	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/approvals/" + itemID + "/approve", `{"payload_sha256":"` + strings.Repeat("b", 64) + `"}`, "ApproveTenantApproval", nil},
+	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/approvals/" + itemID + "/reject", "", "RejectTenantApproval", nil},
+	{http.MethodGet, "/api/v1/tenants/" + tenantID + "/invitations", "", "ListTenantInvitations", nil},
+	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/invitations", `{"email":"a@example.test","role":"end_user"}`, "CreateTenantInvitation", idempotency},
+	{http.MethodDelete, "/api/v1/tenants/" + tenantID + "/invitations/" + itemID, "", "RevokeTenantInvitation", nil},
+	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/invitations/" + itemID + "/resend", `{"expires_in_hours":24}`, "ResendTenantInvitation", nil},
 }
 
 // recorder mounts the generated routes on a plain net/http ServeMux (§4.3) under /api/v1. A strict middleware records
