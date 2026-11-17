@@ -198,8 +198,7 @@ func TestSecurityEventDedupeIsSerialised(t *testing.T) {
 	select {
 	case r := <-second:
 		close(release)
-		<-first
-		t.Fatalf("the second writer did not wait for the open transaction of the first: %+v", r)
+		t.Fatalf("the second writer did not wait for the open transaction of the first: %+v (first: %v)", r, <-first)
 	case <-time.After(500 * time.Millisecond):
 	}
 	close(release)
