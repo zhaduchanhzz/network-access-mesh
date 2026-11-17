@@ -144,10 +144,10 @@ Mọi VM dùng cloud image Ubuntu 24.04 (noble): `SHA256SUMS` được kiểm ch
 | 12 | 4 VM Linux + máy Windows 11 (G0(4)); thiết bị di động cho Phase 5: chưa biết — chủ dự án |
 | 13 | SSH key trên VPS (user `mgdeploy`) và Proxmox (root); chủ dự án quyết định không đổi mật khẩu root của VPS và Proxmox (D-10, chấp nhận rủi ro); bản sao trên máy vận hành đã xóa |
 | 14 | VPS không có IPv6; LAN có IPv6 công khai (V-35) |
-| 15 | GitHub (repo public) + GitHub Actions trên runner của GitHub + GHCR (D-12, quyết định lại 2026-11-16) |
+| 15 | GitHub (repo public 2026-11-16, **private từ 2026-11-17**) + GitHub Actions trên runner của GitHub + GHCR (D-12) |
 | 16 | Quy mô kỳ vọng cho MVP và 12 tháng: chưa biết — chủ dự án; cần trước P6-T08 |
 | 17 | `sudo` NOPASSWD toàn quyền, tạm thời (D-13) |
 | 18 | Từ 2 người trở lên (D-11) |
 | 19 | Host staging 192.168.1.8/24, gateway 192.168.1.1; LAN 192.168.1.0/24; segment `lan10` 192.168.10.0/24 sau OPNsense; Proxmox và máy Windows thuộc tailnet riêng của chủ dự án (dải `100.64.0.0/10`, `fd7a:115c:a1e0::/48`), máy Windows tới LAN qua subnet route của tailnet đó. Pool Docker không được chồng các dải này (§14.1) |
 | 20 | Resolver của LAN không chặn tên công khai trỏ về IP private |
-| 21 | VM 105 `mg-ci-runner` — không dùng làm runner của GitHub vì repo public (D-12); máy build/thử cục bộ |
+| 21 | VM 105 `mg-ci-runner` — chưa gắn làm runner của GitHub (repo public tới 2026-11-17; nay private — chỉ cân nhắc lại theo điều kiện R-28 nếu phút Actions không đủ); máy build/thử cục bộ |
