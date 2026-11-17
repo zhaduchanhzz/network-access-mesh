@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/zhaduchanhzz/network-access-mesh/internal/audit"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/config"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/devices"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/headscale"
@@ -20,6 +21,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/monitoring"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/secrets"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/store/sqlcdb"
 )
 
 // partitionRole is the owner of the partitioned tables, used only by partition.maintain (§6.1).
@@ -155,16 +157,34 @@ func idpDrivers(ctx context.Context, cfg config.Config, d *deps) (_ *idp.Registr
 	default:
 		provisioned = true
 	}
+	sec := platformSecurity{st: d.st} // G2 F3: a client_secret_ref that is not the IdP's own ⇒ security event
 	kc, err := keycloak.New(keycloak.Config{Route: d.route, Secrets: d.secrets,
 		Provisioner: keycloak.Credentials{ClientID: clientID, Secret: ref},
-		AppHost:     cfg.AppHost(), AdminHost: cfg.AdminHost(), Logger: d.log})
+		AppHost:     cfg.AppHost(), AdminHost: cfg.AdminHost(), Logger: d.log, Security: sec})
 	if err != nil {
 		return nil, false, err
 	}
-	ext, err := external.New(external.Config{Client: d.hardened, Secrets: d.secrets})
+	ext, err := external.New(external.Config{Client: d.hardened, Secrets: d.secrets, Security: sec})
 	if err != nil {
 		return nil, false, err
 	}
 	r, err := idp.NewRegistry(kc, ext)
 	return r, provisioned, err
+}
+
+// platformSecurity records the security events of the IdP drivers (idp.SecurityRecorder — G2 F3) in a platform
+// transaction of the worker's own store, like integrityReporter: the worker has no audit.Logger (no audit writer pool
+// — P2-T16 decision 8), and a security event is a plain row of security_events, written with dedupe.
+type platformSecurity struct{ st *store.Store }
+
+var _ idp.SecurityRecorder = platformSecurity{}
+
+func (p platformSecurity) RecordSecurityEvent(ctx context.Context, ev audit.SecurityEvent) (bool, error) {
+	var recorded bool
+	err := p.st.WithPlatformTx(ctx, func(q *sqlcdb.Queries) error {
+		var err error
+		recorded, err = audit.RecordSecurityEvent(ctx, q, ev)
+		return err
+	})
+	return recorded, err
 }
