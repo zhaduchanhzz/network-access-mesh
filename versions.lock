@@ -154,15 +154,35 @@ run_as = "65532:65532, host network, UDP 3478; HTTP debug 127.0.0.1:3479"
 released = "2026-11-16"
 note = "tailscale.com/cmd/stund tại tag v1.104.7 (commit cbc74fe…), Go 1.27.4, distroless static-debian13. grype: 0 Critical (gate CI)"
 
+[images.mg-api]
+image = "ghcr.io/zhaduchanhzz/network-access-mesh/api"
+tag = "03509d3fd3aad032de49eb11ea54db0f6d02b6b7"
+index = "sha256:9f14df3f5384a8c17f5e43e64dd0ca9d90403ba6745b59fbdcaf97b1a0ea95ab"   # một manifest linux/amd64 (docker v2 schema 2)
+amd64 = "sha256:9f14df3f5384a8c17f5e43e64dd0ca9d90403ba6745b59fbdcaf97b1a0ea95ab"
+user = "65532:65532"
+run_as = "65532:65532 + nhóm mg-sec-app (20001) / mg-sec-api (20002); job migrate 20004; rootfs chỉ đọc, cap_drop ALL; project mg-app (P2-T16)"
+released = "2026-11-17"
+note = "meshguard-api build từ 03509d3 (main sau đợt gộp P2-T16 + sửa G2 vòng 1 + sửa T-17); workflow images run 44063142251 xanh; digest, user và label org.opencontainers.image.revision đọc từ GHCR (package công khai) ngày 2026-11-17. CÙNG commit với [images.mg-worker] (tools/render_app.py từ chối nếu khác)"
+
 [images.mg-worker]
 image = "ghcr.io/zhaduchanhzz/network-access-mesh/worker"
-tag = "82cf216a8ed5a174fa9596f202d64d0c61647f79"
-index = "sha256:0d8550fcd9bbd5740735646e36fc667c79af9acbaa4944ab97447e83c91beb7e"   # một manifest linux/amd64 (docker v2 schema 2)
-amd64 = "sha256:0d8550fcd9bbd5740735646e36fc667c79af9acbaa4944ab97447e83c91beb7e"
+tag = "03509d3fd3aad032de49eb11ea54db0f6d02b6b7"
+index = "sha256:84bc5b7d40c6d6179aa797d742dda94673861cfce637b796f3c0280bedfacc27"   # một manifest linux/amd64 (docker v2 schema 2)
+amd64 = "sha256:84bc5b7d40c6d6179aa797d742dda94673861cfce637b796f3c0280bedfacc27"
 user = "65532:65532"
-run_as = "65532:65532 + nhóm mg-sec-app (20001) / mg-sec-worker (20003); rootfs chỉ đọc, cap_drop ALL"
+run_as = "65532:65532 + nhóm mg-sec-app (20001) / mg-sec-worker (20003); rootfs chỉ đọc, cap_drop ALL; project mg-app (P2-T16)"
 released = "2026-11-17"
-note = "meshguard-worker (apps/worker) build từ 82cf216 (đợt gộp 3) — có lệnh kek-drill cho nghi thức khóa P2-T04a (infrastructure/host/key-ceremony/ceremony.sh đọc mục này). Workflow images run 44023754630 xanh (gồm smoke kek-drill); digest đọc từ GHCR (package công khai). Chưa dùng làm worker chạy thật — image worker cho P2-T16 sẽ pin lại khi triển khai"
+note = "meshguard-worker build từ 03509d3 (main sau đợt gộp P2-T16 + sửa G2 vòng 1 + sửa T-17); workflow images run 44063142251 xanh; digest, user và label org.opencontainers.image.revision đọc từ GHCR (package công khai) ngày 2026-11-17. Bản trước (82cf216, chỉ dùng cho kek-drill của nghi thức P2-T04a) được thay"
+
+[images.mg-backup]
+image = "ghcr.io/zhaduchanhzz/network-access-mesh/backup"
+tag = "03509d3fd3aad032de49eb11ea54db0f6d02b6b7"
+index = "sha256:cf61adcde7d43d06cdc7a1e862868dcca9a0de1a9aa86e06b38b04919240769e"   # một manifest linux/amd64 (docker v2 schema 2)
+amd64 = "sha256:cf61adcde7d43d06cdc7a1e862868dcca9a0de1a9aa86e06b38b04919240769e"
+user = "10007:20007"
+run_as = "10007:20007 (mg-sec-backup); edge-backup chạy 10001:20007; rootfs chỉ đọc, cap_drop ALL; project mg-backup (P2-T03a/T05b)"
+released = "2026-11-17"
+note = "meshguard-backup + pg_dump 18.7 + age v1.3.2 build từ 03509d3 (main sau đợt gộp P2-T16 + sửa G2 vòng 1 + sửa T-17); workflow images run 44063142251 xanh; digest, user và label org.opencontainers.image.revision đọc từ GHCR (package công khai) ngày 2026-11-17"
 
 [images.mg-idp]
 image = "ghcr.io/zhaduchanhzz/network-access-mesh/idp"
@@ -361,4 +381,4 @@ docker_compose = "5.7.1"    # 2026-11-11
 
 [pending]
 monitoring = "Prometheus, Alertmanager, Grafana, Loki, Alloy, exporters — pin ở P6-T01"
-own_images = "edge và stund đã pin (P1-T04), idp đã pin (P2-T05, 2026-11-17); headscale (bản vá V-26, P2-T10a) đã pin — [images.mg-headscale] ở trên (2026-11-17, workflow images run 44023754630); api, worker, backup (P2-T03a — [images.mg-backup], cần trước khi render compose mg-backup), agent, web pin khi build ở Phase 2–4. Quy ước: tag = commit SHA, pin theo digest lấy từ GHCR sau khi workflow images xanh"
+own_images = "edge và stund đã pin (P1-T04), idp đã pin (P2-T05, 2026-11-17); headscale (bản vá V-26, P2-T10a) đã pin — [images.mg-headscale] ở trên (2026-11-17, workflow images run 44023754630); api, worker, backup đã pin cùng commit 03509d3 ([images.mg-api], [images.mg-worker], [images.mg-backup] — 2026-11-17, workflow images run 44063142251, P2-T16); agent, web pin khi build ở Phase 3–4. Quy ước: tag = commit SHA, pin theo digest lấy từ GHCR sau khi workflow images xanh"
