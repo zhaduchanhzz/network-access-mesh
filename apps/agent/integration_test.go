@@ -75,11 +75,15 @@ func observe(t *testing.T, c *client.Client, root string) world {
 	t.Helper()
 	ctx := context.Background()
 	w := world{ctrs: map[string]string{}, nets: map[string]string{}, paths: map[string]string{}}
+	self, _ := os.Hostname() // Docker sets the hostname of a container to its short ID
 	cl, err := c.ContainerList(ctx, client.ContainerListOptions{All: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, s := range cl.Items {
+		if self != "" && strings.HasPrefix(s.ID, self) {
+			continue // the container this test runs in (its own state is not part of the host it observes)
+		}
 		w.ctrs[strings.TrimPrefix(s.Names[0], "/")] = fmt.Sprintf("%s %s %s %d", s.ID, s.State, s.Image, s.Created)
 	}
 	nl, err := c.NetworkList(ctx, client.NetworkListOptions{})
@@ -123,7 +127,7 @@ func diff(a, b world) []string {
 			if w, ok := y[k]; !ok {
 				out = append(out, "- "+kind+" "+k)
 			} else if w != v {
-				out = append(out, "~ "+kind+" "+k)
+				out = append(out, "~ "+kind+" "+k+": "+v+" → "+w)
 			}
 		}
 		for k := range y {
