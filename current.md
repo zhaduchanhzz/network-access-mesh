@@ -120,6 +120,16 @@ Chỉ sửa `staging.env`, rồi thực hiện:
 
 1. ~~Ký G1~~ — **Go** 2026-11-16.
 2. ~~Phase 2~~ — **xong, G2 đạt 2026-11-17** ([G2](docs/planning/evidence/G2.md)). **Phase 3 (Tenant Orchestrator) bắt đầu**: P3-T01 (Host Agent + `agent.proto`), P3-T02 (compose driver), P3-T04 (placement), P3-T06 (migration từ `0009`) … theo §20; mọi thay đổi trên host staging vẫn duyệt theo từng loại thao tác.
+   - **Tiến độ dự kiến Phase 3** (lập 2026-11-17 15:20 UTC; giờ Việt Nam = UTC+7; cơ sở: thời gian đo của các agent hôm nay — task vừa 84–90 phút, task lớn 2–2 giờ 10, gộp + `images` + triển khai 40–60 phút mỗi đợt; tối đa ~4 agent cùng lúc trên 2 VM build):
+     | Đợt | Task | Xong dự kiến (giờ VN) |
+     |---|---|---|
+     | 1 (đang chạy) | P3-T01 Agent, P3-T06 migration 0009–0013, P3-T03a Prober + P3-T14a helper enrollment | 17/11 ~23:30–00:30 |
+     | 2 | P3-T02 compose driver; P3-T04 placement + P3-T06a quota; P3-T04a dual control + P3-T05a lời mời; P3-T08a lõi policy + P3-T05b thông báo | 18/11 ~03:00 |
+     | 3 | P3-T03 thao tác Agent; P3-T12 reconcile; P3-T10 xoay API key; P3-T15 kiểm soát quản trị IdP | 18/11 ~05:30 |
+     | 4 | P3-T05 máy trạng thái provisioning 19 bước (lớn nhất) | 18/11 ~09:00 |
+     | 5 | P3-T07 tiêm lỗi; P3-T08 suspend/resume; P3-T05c relay; P3-T13 reconfigure; P3-T11 backup/restore v1 | 18/11 ~12:30 |
+     | 6 | P3-T09 deprovision; P3-T18 quarantine; P3-T13a restart/upgrade; P3-T16 cảnh báo; P3-T17 đối soát sau restore | 18/11 ~16:00 |
+     | 7 | Triển khai Agent + orchestrator lên staging **(cần duyệt)**; P3-T14b tạo lại A/B qua orchestrator **(cần duyệt)**; P3-T14 G3 (20 lần provision, tenant C với client thật, diễn tập edge) → báo cáo G3 | 18/11 tối – 19/11, phụ thuộc thời điểm duyệt |
 3. Việc của chủ dự án:
    - ~~Ý kiến pháp lý sơ bộ R-01~~ — xong 2026-11-16 (thông qua).
    - Token Cloudflare hẹp.
