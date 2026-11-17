@@ -199,6 +199,34 @@ services:
     labels:
       meshguard.role: e2e
 
+  # Prober (P3-T03a — apps/probe; image build từ cây bằng infrastructure/docker/probe/Dockerfile): chỉ trên network edge
+  # (listener public của edge + stund tại IP điểm vào) và admin (RPC cho worker — caller chỉ từ subnet admin); không
+  # secret, không publish cổng; đích chỉ là IP của edge; tin đúng CA dùng-một-lần của lượt chạy (trên host là chứng chỉ
+  # ACME công khai nên không đặt MG_PROBE_CA_FILE). Trên host, service thuộc project monitoring của P3-T16 (§14.3: thêm
+  # mg-obs, mg-egress). Ca E2E-33 … E2E-35.
+  prober:
+    <<: *hardening
+    image: ${MGE_IMG_PROBE:?}
+    container_name: ${MGE_PREFIX}-prober
+    user: "65532:65532"
+    read_only: true
+    environment:
+      MG_PROBE_ALLOW_CALLERS: ${MGE_ADMIN_SUBNET:?}
+      MG_PROBE_ALLOW_TARGETS: ${MGE_EDGE_IP}
+      MG_PROBE_CA_FILE: /etc/mg-ci-ca/ca.crt
+    volumes:
+      - {<<: *hs-bind, source: "${MGE_WORK}/ca", target: /etc/mg-ci-ca}
+    networks: [mg-edge, mg-admin]
+    mem_limit: 128m
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/meshguard-probe", "healthcheck"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    labels:
+      meshguard.role: e2e
+
   # Bốn client: a1, a2 (tenant-a) chạy TS_DEBUG_ALWAYS_USE_DERP — mọi lưu lượng đi qua DERP của tenant-a (qua edge);
   # b1, b2 (tenant-b) để đường trực tiếp. Pre-auth key một lần, sinh lúc chạy, gắn dạng file secret.
   ts-a1:

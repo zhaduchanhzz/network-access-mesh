@@ -175,4 +175,11 @@ check("@sha256:" not in compose, "compose.yaml: no literal digest (images come f
 env_values = re.findall(r"^\s+(TS_AUTHKEY|POSTGRES_PASSWORD\w*|KC_\w*PASSWORD\w*):\s*(\S+)", compose, re.M)
 check(all(v.startswith(("file:", "/run/secrets/")) for _, v in env_values) and env_values,
       "compose.yaml: credential variables hold file paths only", str(env_values))
+# ---- prober (P3-T03a): hardened, no published port, only the edge + admin networks, callers only from admin
+prober = re.search(r"^  prober:\n((?:    .*\n|\n)*)", compose, re.M)
+block = prober.group(1) if prober else ""
+check(bool(prober) and "<<: *hardening" in block and 'user: "65532:65532"' in block and "read_only: true" in block
+      and "ports:" not in block and "networks: [mg-edge, mg-admin]" in block
+      and "MG_PROBE_ALLOW_CALLERS: ${MGE_ADMIN_SUBNET:?}" in block and "image: ${MGE_IMG_PROBE:?}" in block,
+      "compose.yaml: prober hardened, no port, edge + admin only, RPC callers from the admin subnet")
 sys.exit(1 if failures else 0)

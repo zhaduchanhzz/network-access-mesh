@@ -122,7 +122,8 @@ class Stack:
         self.headscale_lock_key = hs_key
         self.images = {"headscale": img(hs_key), "edge": img("mg-edge"), "stund": img("mg-stund"),
                        "idp": img("mg-idp"), "postgres": img("postgres"), "tailscale": img("tailscale"),
-                       "alpine": img("alpine"), "golang": img("golang"), "distroless": img("distroless-static")}
+                       "alpine": img("alpine"), "golang": img("golang"), "distroless": img("distroless-static"),
+                       "probe": f"{self.prefix}-probe:e2e"}   # P3-T03a: built from the tree (build_probe_image)
         env.update(MG_E2E_EDGE_IPV4=self.edge_ip, MG_E2E_TENANT_A_CIDR=net_a, MG_E2E_TENANT_B_CIDR=net_b,
                    MG_E2E_HEADSCALE_IMAGE=self.images["headscale"], MG_E2E_EDGE_IMAGE=self.images["edge"],
                    MG_E2E_ADMIN_ALLOW=f"{self.host_ip}/32")
@@ -230,6 +231,16 @@ class Stack:
             log(f"build {app} (infrastructure/docker/app/Dockerfile): {ids[-1][:19]}… trong {time.time() - t0:.0f} s")
         self.app_images = (ids[0], ids[1])
 
+    def build_probe_image(self) -> None:
+        """The prober image built from the tree with its production Dockerfile (infrastructure/docker/probe, P3-T03a)."""
+        t0 = time.time()
+        tag = f"{self.prefix}-probe:e2e"
+        self.docker("build", "-q", "-f", str(ROOT / "infrastructure" / "docker" / "probe" / "Dockerfile"),
+                    "--build-arg", "APP=probe", "--build-arg", "VERSION=e2e", "--build-arg", "COMMIT=e2e",
+                    "--label", "meshguard.role=e2e", "-t", tag, str(ROOT), timeout=1800)
+        self.images["probe"] = self.docker("image", "inspect", "-f", "{{.Id}}", tag).stdout.strip()
+        log(f"build probe (infrastructure/docker/probe/Dockerfile): {self.images['probe'][:19]}… trong {time.time() - t0:.0f} s")
+
     def build_idp_image(self) -> None:
         """The idp image built from the tree (infrastructure/docker/idp) — the realms rendered from the tree need what the
         tree's image holds (password blocklist of G2 round 2 A-3; the pinned [images.mg-idp] may predate it)."""
@@ -245,7 +256,8 @@ class Stack:
         values = {"MGE_PREFIX": self.prefix, "MGE_WORK": str(self.work), "MGE_MESH_DOMAIN": self.mesh,
                   "MGE_EDGE_IP": self.edge_ip, "MGE_IMG_POSTGRES": self.images["postgres"],
                   "MGE_IMG_TAILSCALE": self.images["tailscale"], "MGE_IMG_STUND": self.images["stund"],
-                  "MGE_IMG_DISTROLESS": self.images["distroless"]}
+                  "MGE_IMG_DISTROLESS": self.images["distroless"], "MGE_IMG_PROBE": self.images["probe"],
+                  "MGE_ADMIN_SUBNET": self.networks["admin"][0]}
         text = "# Sinh bởi tests/e2e/harness/stack.py — tham số KHÔNG bí mật của stack dev/CI (compose.yaml).\n"
         (self.work / "stack.env").write_text(text + "".join(f"{k}={v}\n" for k, v in values.items()), encoding="utf-8")
 
@@ -395,13 +407,23 @@ class Stack:
                     "-o", "/out/mg-e2e-dbinit", "./tests/e2e/harness/dbinit", timeout=900)
         log(f"build tests/e2e/harness/dbinit trong {self.images['golang'].split('@')[0]}: {time.time() - t0:.0f} s")
 
+    def build_enroll(self) -> None:
+        """The enrollment test helper of P3-T14a as a static test binary (go test -c -tags mgtestfixture) — E2E-32."""
+        t0 = time.time()
+        self.docker("run", "--rm", "-v", f"{ROOT}:/src:ro", "-v", f"{self.name('gomod')}:/go/pkg/mod",
+                    "-v", f"{self.name('gocache')}:/root/.cache/go-build", "-v", f"{self.work / 'bin'}:/out",
+                    "-e", "GOTOOLCHAIN=local", "-e", "GOFLAGS=-mod=readonly", "-e", "CGO_ENABLED=0", "-w", "/src",
+                    self.images["golang"], "go", "test", "-c", "-buildvcs=false", "-trimpath", "-tags", "mgtestfixture",
+                    "-o", "/out/mg-e2e-enroll", "./tests/e2e/helpers", timeout=900)
+        log(f"build tests/e2e/helpers (go test -c -tags mgtestfixture): {time.time() - t0:.0f} s")
+
     def teardown(self, *, quiet: bool = False) -> None:
         """Remove every object of this prefix (and only those). Safe to run when nothing exists."""
         if (self.work / "stack.env").exists() and (self.work / "render" / "app" / "compose.app.yaml").exists():
             self.compose("--profile", "tools", "--profile", "migrate", "--profile", "bootstrap", "down", "-v",
                          "--remove-orphans", "--timeout", "10", check=False, timeout=180)
         ids = self.docker("ps", "-aq", "--filter", f"label=com.docker.compose.project={self.prefix}", check=False).stdout.split()
-        for extra in ("probe", "caller", "direct"):
+        for extra in ("probe", "caller", "direct", "enroll"):
             ids += self.docker("ps", "-aq", "--filter", f"name=^{self.name(extra)}", check=False).stdout.split()
         if ids:
             self.docker("rm", "-f", *ids, check=False)
@@ -411,7 +433,7 @@ class Stack:
             self.docker("volume", "rm", "-f", f"{self.prefix}_{v}", check=False)
         if not self.keep_cache:
             self.docker("volume", "rm", "-f", self.name("gomod"), self.name("gocache"), check=False)
-        for app in ("api", "worker", "idp"):                 # images built from the tree (build cache is kept)
+        for app in ("api", "worker", "idp", "probe"):        # images built from the tree (build cache is kept)
             self.docker("image", "rm", "-f", f"{self.prefix}-{app}:e2e", check=False)
         if self.work.exists():
             self.helper("rm -rf /w/* /w/.[!.]* 2>/dev/null || true", f"{self.work}:/w")

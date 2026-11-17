@@ -60,5 +60,5 @@ go-lint: ## golangci-lint (phiên bản pin trong versions.lock)
 e2e-functional: ## Stack dev/CI P2-T01a (compose.yaml): tự kiểm harness, dựng, chạy E2E-01…16, gỡ — kết quả chỉ "functional" (cần Docker, openssl; DOCKER="sudo docker" nếu cần)
 	$(PYTHON) tests/e2e/harness/test_stack.py && $(PYTHON) tests/e2e/harness/e2e.py all
 
-go-build: ## Build meshguard api và worker vào bin/
-	CGO_ENABLED=0 go build -trimpath -o bin/meshguard-api ./apps/api && CGO_ENABLED=0 go build -trimpath -o bin/meshguard-worker ./apps/worker
+go-build: ## Build meshguard api, worker và probe (P3-T03a) vào bin/
+	CGO_ENABLED=0 go build -trimpath -o bin/meshguard-api ./apps/api && CGO_ENABLED=0 go build -trimpath -o bin/meshguard-worker ./apps/worker && CGO_ENABLED=0 go build -trimpath -o bin/meshguard-probe ./apps/probe

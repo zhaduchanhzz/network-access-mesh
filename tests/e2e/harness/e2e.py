@@ -2,8 +2,8 @@
 """Stack dev/CI của P2-T01a + kiểm thử functional (`make e2e-functional` = `all`).
 
   python3 tests/e2e/harness/e2e.py all      up → test → down (down chạy cả khi lỗi); exit 0 ⇔ mọi ca PASS
-  python3 tests/e2e/harness/e2e.py up       build api/worker từ cây, render, secret, CA, network, khởi động stack (gồm
-                                            backend mg-app: db-bootstrap, migrate, api, worker), enroll 4 client
+  python3 tests/e2e/harness/e2e.py up       build api/worker/probe từ cây, render, secret, CA, network, khởi động stack
+                                            (gồm backend mg-app: db-bootstrap, migrate, api, worker; prober), enroll 4 client
   python3 tests/e2e/harness/e2e.py test     chạy các ca trên stack đang chạy (chạy lại được)
   python3 tests/e2e/harness/e2e.py down     lưu log (đã che secret) rồi gỡ mọi đối tượng mang tiền tố
   python3 tests/e2e/harness/e2e.py render   chỉ render (không cần Docker) vào <work>/render để xem
@@ -27,6 +27,7 @@ except ImportError:            # Windows: only `render` is useful there
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import backend  # noqa: E402 — E2E-17 … E2E-25 (P2-T16)
 import checks  # noqa: E402
+import phase3  # noqa: E402 — E2E-32 … E2E-35 (P3-T14a, P3-T03a)
 from stack import CLIENTS, SECRET_RE, TENANTS, Stack, StackError, log  # noqa: E402
 
 PHASES: dict[str, float] = {}
@@ -61,10 +62,11 @@ def ensure_users(st: Stack) -> None:
 
 
 def up(st: Stack) -> None:
-    with timed("build image api/worker/idp từ cây (infrastructure/docker/app, infrastructure/docker/idp)"):
+    with timed("build image api/worker/idp/probe từ cây (infrastructure/docker/app, idp, probe)"):
         st.teardown(quiet=True)
         st.build_app_images()
         st.build_idp_image()
+        st.build_probe_image()
     with timed("chuẩn bị (render, secret, CA nội bộ, network)"):
         shutil.rmtree(st.out, ignore_errors=True)       # kết quả của lượt trước
         st.work.mkdir(parents=True, exist_ok=True)
@@ -78,9 +80,10 @@ def up(st: Stack) -> None:
         log(f"Headscale: [images.{st.headscale_lock_key}] {st.images['headscale']}")
     with timed("image (pull nếu thiếu)"):
         ensure_images(st)
-    with timed("IdP (khởi động nền) + build dbinit"):
+    with timed("IdP (khởi động nền) + build dbinit, helper enrollment (P3-T14a)"):
         st.compose("up", "-d", "idp-db", "idp")
         st.build_dbinit()
+        st.build_enroll()
     with timed("PostgreSQL + migration"):
         st.compose("up", "-d", "--wait", "--wait-timeout", "120", "postgres")
         p = st.compose("run", "--rm", "--no-TTY", "db-init", check=False, timeout=300)
@@ -94,8 +97,8 @@ def up(st: Stack) -> None:
         for slug in TENANTS:       # §11.3 bước 12: deny-all TRƯỚC khi instance có đường mạng nào (edge chưa gắn)
             st.headscale(slug, "policy", "set", "-f", "/etc/headscale/bootstrap-policy.hujson")
         log("bootstrap-policy (deny-all) đã áp cho cả hai tenant")
-    with timed("edge + stund, gắn edge vào network tenant lúc chạy"):
-        st.compose("up", "-d", "--wait", "--wait-timeout", "120", "edge", "stund")
+    with timed("edge + stund + prober, gắn edge vào network tenant lúc chạy"):
+        st.compose("up", "-d", "--wait", "--wait-timeout", "120", "edge", "stund", "prober")
         for slug in TENANTS:
             st.docker("network", "connect", st.name(f"t-{slug}"), st.name("edge"))
         log("edge gắn vào " + ", ".join(st.name(f"t-{s}") for s in TENANTS) + " (không reload Caddy)")
@@ -174,6 +177,8 @@ def test(st: Stack, r: checks.Results) -> None:
         guarded(r, "E2E-15", checks.check_deny, st, ips)
     with timed("ca E2E-17 … E2E-25 (backend P2-T16: api/worker, edge app./admin./auth., OIDC + TOTP, adopt, thiết bị, audit)"):
         backend.run_all(r, st, guarded)
+    with timed("ca E2E-32 … E2E-35 (Phase 3: helper enrollment P3-T14a, prober P3-T03a)"):
+        phase3.run_all(r, st, guarded)
 
 
 def versions(st: Stack) -> dict[str, str]:
@@ -183,7 +188,7 @@ def versions(st: Stack) -> dict[str, str]:
     return {"headscale": first("exec", st.name("hs-tenant-a"), "headscale", "version"),
             "tailscale": first("exec", st.name("ts-b1"), "tailscale", "version"),
             "caddy (edge)": first("exec", st.name("edge"), "caddy", "version"),
-            "api": st.app_images[0][:19], "worker": st.app_images[1][:19],
+            "api": st.app_images[0][:19], "worker": st.app_images[1][:19], "probe": st.images["probe"][:19],
             "postgres": first("exec", st.name("postgres"), "postgres", "--version"),
             "docker": first("version", "--format", "{{.Server.Version}}"),
             "compose": first("compose", "version", "--short")}
