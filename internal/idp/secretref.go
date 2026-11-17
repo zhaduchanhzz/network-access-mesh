@@ -46,7 +46,7 @@ func (r Registration) OwnClientSecretRef(op string) (secrets.Ref, error) {
 // KindClientSecretRefNotOwned is the security event (security_events.kind) of a refused client_secret_ref: the
 // registry holds a reference the IdP does not own — a corrupted row, an operator mistake or an attempt to reach
 // another owner's secret. Raised by the callback of internal/identity and by the drivers.
-const KindClientSecretRefNotOwned = "idp.client_secret_ref_not_owned"
+const KindClientSecretRefNotOwned = "idp.client_secret_ref_not_owned" //nolint:gosec // G101: a security event kind, not a credential
 
 // SecretRefEventWindow deduplicates KindClientSecretRefNotOwned per IdP: one event per IdP and hour, however many
 // logins or driver runs hit the broken row.
