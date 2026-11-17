@@ -639,7 +639,7 @@ func TestP3CheckConstraints(t *testing.T) {
 		{"backup: instance archive without key", bkp.with("key_ref", "-").insert("backups"), "23514"},
 		{"backup: key of tenant B", bkp.with("key_ref", "'mgsec://"+f.b.id.String()+"/backup-key#1'").insert("backups"), "23514"},
 		{"backup: platform key on a tenant archive", bkp.with("key_ref", "'mgsec://platform/backup-key#1'").insert("backups"), "23514"},
-		{"backup: credentials in storage_uri", bkp.with("storage_uri", "'sftp://backup:hunter2@store.example/x.age'").insert("backups"), "23514"},
+		{"backup: credentials in storage_uri", bkp.with("storage_uri", "'sftp://backup:pw@store.example/x.age'").insert("backups"), "23514"},
 		{"backup: storage_uri without scheme", bkp.with("storage_uri", "'/opt/meshguard/backups/c.age'").insert("backups"), "23514"},
 		{"backup: succeeded without sha256", done.with("sha256", "-").insert("backups"), "23514"},
 		{"backup: succeeded without finished_at", done.with("finished_at", "-").insert("backups"), "23514"},
