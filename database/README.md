@@ -132,7 +132,7 @@ Không có `MG_TEST_PG_ADMIN_URL` thì test tích hợp được bỏ qua — tr
 nên thiếu PostgreSQL là FAIL). CI (`.github/workflows/go.yml`) chạy PostgreSQL bằng service container pin theo digest.
 Cùng cách đó cho test tích hợp của `internal/secrets` (P2-T04), `internal/authz` (P2-T07) và `internal/identity`
 (P2-T06). Package khác cần PostgreSQL thật dùng harness chung `internal/store/storetest` (mỗi lần gọi một database mới
-đã bootstrap + `MigrateAll`) — như `internal/jobs` (P2-T12).
+đã bootstrap + `MigrateAll`) — như `internal/jobs` (P2-T12) và test lắp API `internal/httpapi/authzhook`.
 
 **Nhiều package test dùng chung một cụm:** `go test ./...` chạy các package song song, mà role là đối tượng của cả
 cụm — hai package cùng bootstrap/migrate (`CREATE ROLE`, `GRANT` role) hoặc đặt mật khẩu role (`ALTER ROLE`) một lúc
