@@ -47,6 +47,13 @@ def audit_sync(st: Stack) -> tuple[int, str]:
     return p.returncode, st.redact(p.stdout + p.stderr)
 
 
+def summary(out: str) -> str:
+    """The result line of idp-audit-sync ("realms N, imported M"), not its JSON log — the detail of a case is 400
+    characters."""
+    lines = [ln for ln in out.splitlines() if ln.startswith("idp-audit-sync:")]
+    return lines[-1].removeprefix("idp-audit-sync:").strip() if lines else "?"
+
+
 def admin_unsafe(st: Stack, sess: dict, **extra) -> dict:
     return {"Origin": f"https://admin.{st.domain}", "X-CSRF-Token": sess["csrf_token"], "Content-Type": "application/json",
             **extra}
@@ -56,9 +63,10 @@ def admin_unsafe(st: Stack, sess: dict, **extra) -> dict:
 def check_credential_reset(r, st: Stack, state: dict) -> None:
     ob, osess, _ = owner_session(st, "tenant-a")
     a_id = tenant_id(st, "tenant-a")
-    # the member whose credential is reset has signed in once (an identity of tenant-a exists for it)
+    # the member whose credential is reset has signed in once (an identity of tenant-a exists for it); seed-membership
+    # only seeds tenant_owner/tenant_admin — an admin, not an Owner (the Owners are who must be notified)
     target = new_user(st, "tenant-a", "e2e-reset")
-    p = admin_cmd(st, ["seed-membership", "--tenant", "tenant-a", "--role", "tenant_viewer", "--subject", target["sub"],
+    p = admin_cmd(st, ["seed-membership", "--tenant", "tenant-a", "--role", "tenant_admin", "--subject", target["sub"],
                        "--display-name", "E2E Reset Target"])
     if p.returncode != 0:
         raise StackError(f"seed-membership: {st.redact(p.stdout + p.stderr)[-300:]}")
@@ -111,9 +119,9 @@ def check_credential_reset(r, st: Stack, state: dict) -> None:
           "(actor system, idp_actor_kind idp_admin, gắn identity), 1 thông báo idp.admin_change cho Owner, security "
           "event idp.credential_reset (high); chạy lại không nhập trùng; đổi client chỉ ghi trường trong allow-list — "
           "secret của client và mật khẩu mới không có trong audit/security event/thông báo", ok,
-          f"sync {rc1}/{rc2} ({out1.strip().splitlines()[-2:] if out1 else ''}); hàng {rows}; API thấy {len(mine)} "
-          f"({ev.get('actor')}, {ev.get('outcome')}); thông báo {len(notes)} (outbox {again_notes}); security {sec}; "
-          f"sau lần 2: {again} hàng; client {[x[:2] for x in client]}; lộ secret {leaked}")
+          f"sync {rc1} ({summary(out1)})/{rc2} ({summary(out2)}); hàng {[x[1:] for x in rows]}; API thấy {len(mine)} "
+          f"({(ev.get('actor') or {}).get('type')}, {ev.get('outcome')}); thông báo {len(notes)} (outbox {again_notes}); "
+          f"security {sec}; sau lần 2: {again} hàng; client {[x[:2] for x in client]}; lộ secret {leaked}")
     state.update(owner_browser=ob, owner_session=osess, a_id=a_id)
 
 
@@ -277,11 +285,11 @@ def check_console_session(r, st: Stack, state: dict) -> None:
           "của console (security-admin-console, PKCE) qua cổng ⇒ token dùng được với Admin API trên admin.; "
           "impersonation qua console ⇒ 403 + security event critical; phiên duyệt cho CIDR khác ⇒ 403 "
           "source_ip_not_allowed; danh sách phiên: cả hai active", ok,
-          f"xin {req.status} {req.header('Location')}, lặp {replay.status} cùng id {replay.json().get('id') == appr.get('id')}, "
-          f"payload {payload}; tự duyệt {self_.status}; SA2 bootstrap {p.returncode}, duyệt {ok_approve.status} "
-          f"{executed}; console {page.status} authUrl {envj.get('authUrl')}, tài nguyên {asset}; đăng nhập sai {failed}, "
-          f"đăng nhập {steps} token {tok_status}, serverinfo {serverinfo}; impersonation {imp.status} ({imp_sec}); "
-          f"CIDR khác {wrong_net} ({wrong_reason}); danh sách {list(statuses.values())}; mở phiên {opened}")
+          f"xin {req.status} lặp {replay.status} cùng id {replay.json().get('id') == appr.get('id')}; CIDR "
+          f"{payload.get('source_cidr')} {payload.get('duration_minutes')} phút; tự duyệt {self_.status}; SA2 duyệt "
+          f"{ok_approve.status} {executed}; console {page.status} ({envj.get('authUrl')}), tài nguyên {asset}; đăng nhập "
+          f"sai {failed}, đăng nhập {steps} token {tok_status}, serverinfo {serverinfo}; impersonation {imp.status} "
+          f"({imp_sec}); CIDR khác {wrong_net} ({wrong_reason}); danh sách {list(statuses.values())}; mở phiên {opened}")
 
 
 # ---------------------------------------------------------------------------------------------------- E2E-43
@@ -311,8 +319,8 @@ def check_console_alert(r, st: Stack, state: dict) -> None:
           "là security event idp.console_login (high, client security-admin-console, tài khoản), hàng audit platform "
           "idp.console.login, thông báo platform idp.console_login tới Super Admin/Platform Operator (email đã xác "
           "minh); lần đăng nhập sai là idp.console_login_failed (medium); chạy lại không trùng", ok,
-          f"sync {rc}/{rc2} ({out.strip().splitlines()[-2:] if out else ''}); security {logins}, sai {failed}; audit "
-          f"{audit}; thông báo {notes}; sau lần 2 {again}")
+          f"sync {rc} ({summary(out)})/{rc2}; security {logins}, sai {failed}; audit {audit}; thông báo "
+          f"{len(notes)} {notes[:1]}; sau lần 2 {again}")
 
 
 def run_all(r, st: Stack, guarded) -> None:
