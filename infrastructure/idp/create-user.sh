@@ -33,6 +33,7 @@ mapfile -t KC < <(docker ps -q -f "label=com.docker.compose.project=$PROJECT" -f
 read -r -d '' IN <<'IN' || true
 set -euo pipefail
 IFS= read -r pw || true
+pw=${pw%$'\r'}   # pipe từ Windows (text mode) có thể kèm CR cuối dòng
 [[ $pw =~ ^[A-Za-z0-9]{16,128}$ ]] || { echo "mật khẩu trên stdin phải là 16–128 ký tự [A-Za-z0-9]" >&2; exit 2; }
 cfg=$(mktemp /tmp/kcadm.XXXXXX)
 trap 'rm -f "$cfg"' EXIT
