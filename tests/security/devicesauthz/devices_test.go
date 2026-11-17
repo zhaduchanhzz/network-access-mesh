@@ -303,9 +303,20 @@ func TestDevicesThroughTheComposedAPI(t *testing.T) {
 		w.Scan(t, sql, args, &v)
 		return v
 	}
-	if open := n(`SELECT count(*) FROM audit_events r WHERE r.action LIKE '%.requested' AND NOT EXISTS
-			(SELECT 1 FROM audit_events o WHERE o.operation_id = r.operation_id AND (o.action LIKE '%.succeeded' OR o.action LIKE '%.failed'))`); open != 0 {
-		t.Errorf("%d audit operations left open", open)
+	// Operations closed by a background job (inventory.sync enqueued by the POST /sync rows of the matrix above) may still
+	// be running when the revocations are applied: the property is "every pair is eventually closed", so wait (bounded) —
+	// an operation that never closes still fails the test. (CI run 44031823265 hit this race on a slower runner.)
+	openOps := func() int {
+		return n(`SELECT count(*) FROM audit_events r WHERE r.action LIKE '%.requested' AND NOT EXISTS
+			(SELECT 1 FROM audit_events o WHERE o.operation_id = r.operation_id AND (o.action LIKE '%.succeeded' OR o.action LIKE '%.failed'))`)
+	}
+	deadline = time.Now().Add(30 * time.Second)
+	for open := openOps(); open != 0; open = openOps() {
+		if time.Now().After(deadline) {
+			t.Errorf("%d audit operations left open after 30 s", open)
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 	if v := n(`SELECT count(*) FROM audit_events WHERE action = 'device.delete.succeeded' AND resource_id = $1 AND actor_identity_id = $2
 			AND tenant_id = $3`, mine2, eu.IdentityID, w.A.ID); v != 1 {
