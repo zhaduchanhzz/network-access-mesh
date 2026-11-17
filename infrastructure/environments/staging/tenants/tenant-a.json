@@ -9,7 +9,7 @@
   "derp_ipv4": "${MG_PUBLIC_IPV4}",
   "node_expiry": "2160h",
   "nameservers": "${MG_TENANT_NAMESERVERS:list}",
-  "headscale_build": "official",
+  "headscale_build": "patched",
   "mem_limit": "512m",
   "cpus": "1.0",
   "pids_limit": 256

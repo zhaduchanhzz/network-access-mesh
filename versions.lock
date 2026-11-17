@@ -155,18 +155,19 @@ run_as = "1000:1000, rootfs chỉ đọc, cap_drop ALL; project compose mg-idp (
 released = "2026-11-17"
 note = "Keycloak 26.8.2 (base quay.io c68e286c…) build tối ưu (kc.sh build: db postgres, health, metrics, tắt impersonation/kerberos/ciba/device-flow/token-exchange-standard) + kho CA của JVM đã gỡ emSign Root CA - G1 (117 CA). Workflow images run 43997562081 xanh; digest đọc từ GHCR (Docker-Content-Digest khớp sha256 của manifest). grype: 0 Critical nhờ ngoại lệ CVE-2026-91403 có hạn tới 2027-02-16 (infrastructure/docker/idp/grype.yaml; P2-T05 mục 7); 5 High chưa có bản vá trong base (sqlite-libs ×4, guava 33.6.0-jre)"
 
-# [images.mg-headscale] — Headscale v0.29.7 + bản vá V-26 (P2-T10a; nguồn: [sources.headscale]). CHƯA PIN: bỏ dấu #
-# và điền sau lần build xanh đầu tiên trên main (workflow images, matrix "headscale"; digest đọc từ GHCR). Khi đã pin,
-# tools/render_instance.py dùng image này cho tenant không ghi headscale_build (mặc định "patched") và contract test
-# dùng nó khi label patched-commit trùng cây; tenant ghi headscale_build = "official" vẫn ở [images.headscale].
-# image = "ghcr.io/zhaduchanhzz/network-access-mesh/headscale"
-# tag = "<commit SHA của main>"
-# index = "sha256:<digest>"   # một manifest linux/amd64
-# amd64 = "sha256:<digest>"
-# user = "65532:65532"
-# run_as = "run_uid riêng của từng instance (§14.5; V-04) — compose tenant đặt user; rootfs chỉ đọc, cap_drop ALL"
-# released = "<ngày build>"
-# note = "Headscale v0.29.7 (c9cf210b) + bản vá mg.1: 0001 từ chối phiên không phải đăng ký (V-26), 0002 recover panic trên hai gRPC server. GET /version: version v0.29.7, commit f9cc62be…; base [images.distroless-base]; go1.27.4, -trimpath. grype: <kết quả gate>"
+# [images.mg-headscale] — Headscale v0.29.7 + bản vá V-26 (P2-T10a; nguồn: [sources.headscale]). tools/render_instance.py
+# dùng image này cho tenant không ghi headscale_build (mặc định "patched"); contract test dùng nó khi label
+# patched-commit trùng cây; tenant ghi headscale_build = "official" vẫn ở [images.headscale] (staging: cả 3 tenant
+# đang "official" cho tới khi chủ dự án duyệt rollout).
+[images.mg-headscale]
+image = "ghcr.io/zhaduchanhzz/network-access-mesh/headscale"
+tag = "82cf216a8ed5a174fa9596f202d64d0c61647f79"
+index = "sha256:d95ff9df3e1621f6cb265db081fe2d9be22ed60fcfff4140d0864cbca41ca20b"   # một manifest linux/amd64 (docker v2 schema 2)
+amd64 = "sha256:d95ff9df3e1621f6cb265db081fe2d9be22ed60fcfff4140d0864cbca41ca20b"
+user = "65532:65532"
+run_as = "run_uid riêng của từng instance (§14.5; V-04) — compose tenant đặt user; rootfs chỉ đọc, cap_drop ALL"
+released = "2026-11-17"
+note = "Headscale v0.29.7 (c9cf210b) + bản vá mg.1: 0001 từ chối phiên không phải đăng ký (V-26), 0002 recover panic trên hai gRPC server. GET /version: version v0.29.7, commit f9cc62be…; base [images.distroless-base]; go1.27.4, -trimpath. Workflow images run 44023754630 xanh (gate grype: 0 Critical); package GHCR chuyển public theo quyết định chủ dự án 2026-11-17; label của image kiểm 2026-11-17: io.meshguard.headscale.patch-level = mg.1, patched-commit = f9cc62beaa49c207839c67a75e89fb7c7c82ed97, org.opencontainers.image.revision = 82cf216"
 
 # ---------------------------------------------------------------- image chỉ dùng để build
 
