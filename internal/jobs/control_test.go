@@ -125,7 +125,7 @@ func (s *scripted) Compensate(ctx context.Context, run *Run, _ error) error {
 		fns[name] = func(ctx context.Context, cs CompensationStep) error {
 			var res map[string]string
 			if found, err := cs.Decode(&res); err != nil || !found || res["step"] != name {
-				return fmt.Errorf("compensation of %s: resources %v %v", name, res, err)
+				return fmt.Errorf("compensation of %s: resources %v: %w", name, res, err)
 			}
 			if p.compWait != nil {
 				p.compSeen <- name
@@ -288,7 +288,7 @@ func TestLifecycleTransitions(t *testing.T) {
 		}
 		log.saw(t, StatusFailedResumable, EventRetry, c.Record.Status)
 		j = f.waitStatus(t, wst, id, StatusSucceeded, 15*time.Second)
-		if p.runs("a") != 1 || p.runs("b") != 2 || p.runs("c") != 1 || j.MaxAttempts != 1+int32(cfg.Kinds["tenant.provision"].MaxAttempts) {
+		if p.runs("a") != 1 || p.runs("b") != 2 || p.runs("c") != 1 || int(j.MaxAttempts) != 1+cfg.Kinds["tenant.provision"].MaxAttempts {
 			t.Fatalf("after /retry: runs a=%d b=%d c=%d, max_attempts %d", p.runs("a"), p.runs("b"), p.runs("c"), j.MaxAttempts)
 		}
 	})

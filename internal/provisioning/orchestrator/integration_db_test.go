@@ -86,8 +86,8 @@ func (a *edgeAgent) BootstrapApiKey(ctx context.Context, in *agentv1.BootstrapAp
 		}
 	}
 	full, prefix := inst.NewKey(in.GetTtl().AsDuration())
-	a.fakeAgent.mu.Lock()
-	a.fakeAgent.lastKey = full
+	a.fakeAgent.mu.Lock() // edgeAgent has its own mu: the key is the fake agent's
+	a.lastKey = full
 	a.fakeAgent.mu.Unlock()
 	return &agentv1.BootstrapApiKeyResponse{ApiKey: full, Prefix: prefix, Created: true,
 		ExpiresAt: timestamppb.New(time.Now().Add(in.GetTtl().AsDuration()))}, nil

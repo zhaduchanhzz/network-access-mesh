@@ -564,16 +564,6 @@ func (s *memSecrets) live() []string {
 	return out
 }
 
-func (s *memSecrets) values() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	var b strings.Builder
-	for _, v := range s.versions {
-		b.Write(v)
-	}
-	return b.String()
-}
-
 // ---------------------------------------------------------------------------------------------------- IdP
 
 type fakeIdP struct {

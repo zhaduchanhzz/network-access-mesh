@@ -478,7 +478,6 @@ func (p *Provisioner) stepAPIKeyLocked(ctx context.Context, a *attempt, s stepCt
 	}
 	prefix := headscale.APIKeyPrefix(headscale.NewSecret(key))
 	ref, err := p.storeKey(ctx, a.in.TenantID, key)
-	key = ""
 	if err != nil {
 		return jobs.Transient("secret_store_unavailable", fmt.Errorf("store the API key: %w", err))
 	}
