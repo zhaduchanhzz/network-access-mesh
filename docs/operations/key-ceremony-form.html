@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phiếu chép khóa offline — MeshGuard</title>
+<!--
+  Mẫu giấy TRỐNG cho nghi thức khóa P2-T04a (docs/operations/key-ceremony.md mục 5).
+  Không chứa vật liệu khóa nào — in được. Sau khi đã viết tay khóa lên giấy: KHÔNG chụp, scan, photocopy hay in lại.
+  Bố cục khớp màn hình của ceremony.sh show-offline: KEK = 4 dòng × 4 nhóm × 4 ký tự hex; khóa khôi phục (age) =
+  58 ký tự sau "AGE-SECRET-KEY-1" = 3 dòng (5 + 5 + 4 nhóm và 2 ký tự). kek_id = <env>-app|ops-YYYYMMDD-HHMM.
+  In: Ctrl+P → khổ A4, tỉ lệ 100 %, bỏ header/footer của trình duyệt. Trang 1 = bản 1, trang 2 = bản 2, trang 3 = nhãn phong bì.
+-->
+<style>
+  :root { --ink: #000; --line: #222; --soft: #666; --box: 6.4mm; --boxh: 7.6mm; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: #fff; color: var(--ink); }
+  body { font: 10.5pt/1.35 "Segoe UI", Arial, sans-serif; }
+  @page { size: A4; margin: 11mm 12mm; }
+  .sheet { width: 186mm; margin: 0 auto; padding: 4mm 0; page-break-after: always; break-after: page; }
+  .sheet:last-child { page-break-after: auto; break-after: auto; }
+  h1 { font-size: 13pt; margin: 0 0 1.5mm; letter-spacing: .2px; }
+  .meta { display: flex; gap: 6mm; flex-wrap: wrap; font-size: 10pt; margin-bottom: 3mm; }
+  .fill { display: inline-block; border-bottom: 1px solid var(--line); min-width: 30mm; height: 5mm; vertical-align: bottom; }
+  .fill.w20 { min-width: 20mm; } .fill.w50 { min-width: 50mm; }
+  .copy { font-weight: 700; border: 1.5px solid var(--line); padding: .3mm 2.5mm; }
+  section { border: 1.5px solid var(--line); padding: 2.5mm 3mm 3mm; margin-bottom: 3.2mm; break-inside: avoid; }
+  section h2 { font-size: 11pt; margin: 0 0 1.5mm; display: flex; justify-content: space-between; align-items: baseline; }
+  section h2 small { font-weight: 400; color: var(--soft); font-size: 8.5pt; }
+  .row { display: flex; align-items: center; gap: 2.2mm; margin: 1.3mm 0; }
+  .lbl { width: 15mm; font-size: 9pt; color: var(--soft); flex: none; }
+  .grp { display: flex; }
+  .grp + .grp { margin-left: 2.6mm; }
+  .b { width: var(--box); height: var(--boxh); border: 1px solid var(--line); margin-right: -1px; background: #fff; }
+  .b.half { border-style: dashed; }
+  .fixed { font: 700 10pt/var(--boxh) Consolas, "Courier New", monospace; letter-spacing: .5px; }
+  .idrow { display: flex; align-items: center; gap: 1.6mm; margin-bottom: 1.2mm; }
+  .hint { font-size: 8.3pt; color: var(--soft); margin-top: 1.2mm; }
+  .alpha { font: 8.3pt Consolas, "Courier New", monospace; }
+  .check { margin-top: 3.5mm; font-size: 10pt; display: flex; gap: 6mm; flex-wrap: wrap; align-items: center; }
+  .tick { display: inline-block; width: 4.2mm; height: 4.2mm; border: 1px solid var(--line); vertical-align: -0.8mm; }
+  .rules { font-size: 8.6pt; color: #222; border-top: 1px solid var(--soft); margin-top: 3mm; padding-top: 1.8mm; }
+  .rules b { font-weight: 700; }
+  .labels { display: grid; grid-template-columns: 1fr 1fr; gap: 8mm; margin-top: 6mm; }
+  .label { border: 2px dashed var(--line); padding: 8mm 6mm; text-align: center; font-size: 12pt; font-weight: 700; line-height: 1.6; }
+  .label small { display: block; font-weight: 400; font-size: 9pt; color: var(--soft); margin-top: 2mm; }
+  .checklist { margin-top: 8mm; font-size: 10pt; }
+  .checklist li { margin: 1.4mm 0; }
+  @media screen {
+    body { background: #e9e9e9; padding: 6mm 0; }
+    .sheet { background: #fff; box-shadow: 0 1px 6px rgba(0,0,0,.25); margin-bottom: 8mm; padding: 10mm 12mm; width: 210mm; }
+    .screen-note { width: 210mm; margin: 0 auto 6mm; font-size: 10pt; background: #fffbe6; border: 1px solid #c9a400; padding: 3mm 4mm; }
+  }
+  @media print { .screen-note { display: none; } }
+</style>
+</head>
+<body>
+
+<div class="screen-note">
+  <b>In mẫu trống này:</b> Ctrl+P → khổ <b>A4</b>, tỉ lệ <b>100 %</b>, tắt <i>Headers and footers</i>. Trang 1–2 là hai bản chép khóa,
+  trang 3 là nhãn phong bì và danh sách chuẩn bị. Mẫu không chứa khóa nào. <b>Sau khi đã viết khóa lên giấy: không chụp, scan,
+  photocopy hay in lại.</b>
+</div>
+
+<!-- BẢN 1 -->
+<div class="sheet">
+  <h1>MeshGuard — khóa offline — môi trường staging</h1>
+  <div class="meta">
+    <span class="copy">BẢN 1/2</span>
+    <span>Ngày (UTC): <span class="fill w50"></span></span>
+    <span>Người chép: <span class="fill w50"></span></span>
+  </div>
+
+  <section>
+    <h2>KEK <code>kek-app</code> (ACTIVE) <small>64 ký tự hex: 0–9 a–f</small></h2>
+    <div class="idrow"><span class="lbl">kek_id</span><span class="fixed">staging-app-</span>
+      <span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span>
+      <span class="fixed">-</span>
+      <span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span>
+    </div>
+    <div class="row"><span class="lbl">dòng 1</span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span></div>
+    <div class="row"><span class="lbl">dòng 2</span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span></div>
+    <div class="row"><span class="lbl">dòng 3</span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span></div>
+    <div class="row"><span class="lbl">dòng 4</span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span></div>
+    <div class="row"><span class="lbl">KCV</span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span></div>
+  </section>
+
+  <section>
+    <h2>KEK <code>kek-ops</code> (ACTIVE) <small>64 ký tự hex: 0–9 a–f</small></h2>
+    <div class="idrow"><span class="lbl">kek_id</span><span class="fixed">staging-ops-</span>
+      <span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span>
+      <span class="fixed">-</span>
+      <span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span>
+    </div>
+    <div class="row"><span class="lbl">dòng 1</span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span></div>
+    <div class="row"><span class="lbl">dòng 2</span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span></div>
+    <div class="row"><span class="lbl">dòng 3</span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span></div>
+    <div class="row"><span class="lbl">dòng 4</span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span></div>
+    <div class="row"><span class="lbl">KCV</span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span></div>
+  </section>
+
+  <section>
+    <h2>Khóa khôi phục backup (age) <small>58 ký tự sau tiền tố — không có 1 B I O</small></h2>
+    <div class="idrow"><span class="lbl">tiền tố</span><span class="fixed">AGE-SECRET-KEY-1</span><span class="hint">(đã in sẵn — không cần chép, không gõ khi verify)</span></div>
+    <div class="row"><span class="lbl">dòng 1</span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span></div>
+    <div class="row"><span class="lbl">dòng 2</span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span></div>
+    <div class="row"><span class="lbl">dòng 3</span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span></span></div>
+    <div class="hint">Bảng chữ hợp lệ (bech32, chữ hoa): <span class="alpha">0 2 3 4 5 6 7 8 9 A C D E F G H J K L M N P Q R S T U V W X Y Z</span>.
+      Viết rõ <b>0/Q/D</b>, <b>5/S</b>, <b>2/Z</b>, <b>6/G</b>, <b>U/V</b>. Recipient <code>age1…</code> không cần chép (nằm trong repo).</div>
+  </section>
+
+  <div class="check">
+    <span>Đã kiểm bằng <code>verify-offline --copy 1</code>: ngày <span class="fill w20"></span></span>
+    <span><span class="tick"></span> PASS</span>
+    <span>Ký: <span class="fill w50"></span></span>
+  </div>
+  <div class="rules">Viết bằng <b>bút mực</b> (không bút chì), mỗi ô một ký tự; KEK viết rõ <b>b/6</b>, <b>a/d</b>, <b>0</b>. Chép xong mỗi mục,
+    đọc lại <b>từng nhóm</b> trên màn hình so với giấy rồi mới Enter. <b>Không</b> chụp ảnh, scan, photocopy, gõ vào máy/điện thoại
+    khác, lưu cloud hay đọc thành tiếng.</div>
+</div>
+
+<!-- BẢN 2 -->
+<div class="sheet">
+  <h1>MeshGuard — khóa offline — môi trường staging</h1>
+  <div class="meta">
+    <span class="copy">BẢN 2/2</span>
+    <span>Ngày (UTC): <span class="fill w50"></span></span>
+    <span>Người chép: <span class="fill w50"></span></span>
+  </div>
+
+  <section>
+    <h2>KEK <code>kek-app</code> (ACTIVE) <small>64 ký tự hex: 0–9 a–f</small></h2>
+    <div class="idrow"><span class="lbl">kek_id</span><span class="fixed">staging-app-</span>
+      <span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span>
+      <span class="fixed">-</span>
+      <span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span>
+    </div>
+    <div class="row"><span class="lbl">dòng 1</span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span></div>
+    <div class="row"><span class="lbl">dòng 2</span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span></div>
+    <div class="row"><span class="lbl">dòng 3</span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span></div>
+    <div class="row"><span class="lbl">dòng 4</span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span></div>
+    <div class="row"><span class="lbl">KCV</span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span></div>
+  </section>
+
+  <section>
+    <h2>KEK <code>kek-ops</code> (ACTIVE) <small>64 ký tự hex: 0–9 a–f</small></h2>
+    <div class="idrow"><span class="lbl">kek_id</span><span class="fixed">staging-ops-</span>
+      <span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span>
+      <span class="fixed">-</span>
+      <span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span>
+    </div>
+    <div class="row"><span class="lbl">dòng 1</span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span></div>
+    <div class="row"><span class="lbl">dòng 2</span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span></div>
+    <div class="row"><span class="lbl">dòng 3</span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span></div>
+    <div class="row"><span class="lbl">dòng 4</span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span></div>
+    <div class="row"><span class="lbl">KCV</span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span></div>
+  </section>
+
+  <section>
+    <h2>Khóa khôi phục backup (age) <small>58 ký tự sau tiền tố — không có 1 B I O</small></h2>
+    <div class="idrow"><span class="lbl">tiền tố</span><span class="fixed">AGE-SECRET-KEY-1</span><span class="hint">(đã in sẵn — không cần chép, không gõ khi verify)</span></div>
+    <div class="row"><span class="lbl">dòng 1</span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span></div>
+    <div class="row"><span class="lbl">dòng 2</span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span></div>
+    <div class="row"><span class="lbl">dòng 3</span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span></span><span class="grp"><span class="b"></span><span class="b"></span></span></div>
+    <div class="hint">Bảng chữ hợp lệ (bech32, chữ hoa): <span class="alpha">0 2 3 4 5 6 7 8 9 A C D E F G H J K L M N P Q R S T U V W X Y Z</span>.
+      Viết rõ <b>0/Q/D</b>, <b>5/S</b>, <b>2/Z</b>, <b>6/G</b>, <b>U/V</b>. Recipient <code>age1…</code> không cần chép (nằm trong repo).</div>
+  </section>
+
+  <div class="check">
+    <span>Đã kiểm bằng <code>verify-offline --copy 2</code>: ngày <span class="fill w20"></span></span>
+    <span><span class="tick"></span> PASS</span>
+    <span>Ký: <span class="fill w50"></span></span>
+  </div>
+  <div class="rules">Viết bằng <b>bút mực</b> (không bút chì), mỗi ô một ký tự; KEK viết rõ <b>b/6</b>, <b>a/d</b>, <b>0</b>. Chép xong mỗi mục,
+    đọc lại <b>từng nhóm</b> trên màn hình so với giấy rồi mới Enter. <b>Không</b> chụp ảnh, scan, photocopy, gõ vào máy/điện thoại
+    khác, lưu cloud hay đọc thành tiếng.</div>
+</div>
+
+<!-- TRANG 3: nhãn phong bì + chuẩn bị -->
+<div class="sheet">
+  <h1>Nhãn phong bì và chuẩn bị</h1>
+  <p class="hint">Cắt theo nét đứt, dán lên mặt ngoài phong bì. Nhãn chỉ ghi như dưới — không ghi nội dung hay nơi cất.</p>
+  <div class="labels">
+    <div class="label">MeshGuard staging<br>khóa offline — bản 1/2<small>niêm phong ngày ____/____/______ · ký ngang mép dán</small></div>
+    <div class="label">MeshGuard staging<br>khóa offline — bản 2/2<small>niêm phong ngày ____/____/______ · ký ngang mép dán</small></div>
+  </div>
+  <ol class="checklist">
+    <li>2 bản in trang 1–2 (mẫu trống), 1 bút mực (nên 2 cây dự phòng), 2 phong bì <b>không nhìn xuyên</b> (hoặc gấp phiếu vào giữa một tờ giấy dày rồi cho vào phong bì thường).</li>
+    <li>Chỗ ngồi không có camera/người nhìn thấy màn hình; điện thoại úp hoặc để ngoài phòng trong lúc chép.</li>
+    <li>Một cửa sổ PowerShell / Windows Terminal để chạy <code>show-offline</code> và <code>verify-offline</code> (lệnh trong <code>docs/operations/key-ceremony.md</code> mục 4).</li>
+    <li>Sau <code>verify-offline</code> PASS cả 2 bản: đánh dấu ☐ PASS, ký, cho mỗi bản vào một phong bì, dán nhãn, niêm phong, ký ngang mép dán.</li>
+    <li>Cất ở <b>2 nơi khác nhau về vật lý</b> (ví dụ két ở nhà và két ở nơi khác); chỉ chủ dự án (và người được ủy thác) biết nơi cất.</li>
+    <li>Bỏ các bản in hỏng hoặc chép sai: xé nhỏ hoặc hủy bằng máy hủy giấy — không vứt nguyên tờ.</li>
+  </ol>
+</div>
+
+</body>
+</html>

@@ -3,6 +3,9 @@
 .env.*
 !.env.example
 secrets/
+# Khóa của nghi thức P2-T04a lưu ở máy vận hành (bản rõ, theo lựa chọn của chủ dự án 2026-11-17) — tường minh, kể cả khi
+# quy tắc secrets/ ở trên đổi; config/README.md (không có secret) vẫn được commit
+/config/secrets/
 # ngoại lệ: mã Go của module SecretStore (P2-T04) — chỉ có code và test, không có giá trị secret
 !/internal/secrets/
 *.pem
