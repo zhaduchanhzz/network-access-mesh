@@ -78,6 +78,8 @@ var recipes = map[string]recipe{
 	// monitoring (P2-T13a, monitoringapi — mounted; reads only the database)
 	"getTenantDashboard": {ok: answer{status: http.StatusOK}},
 	"getPlatformHealth":  {ok: answer{status: http.StatusOK}},
+	// notifications (P3-T05b, notificationsapi — mounted; own-only for every role, the list is the caller's own rows)
+	"listNotifications": {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
 }
 
 // objectKind is what a path parameter (other than the {tenantId} context of a tenant route) designates.

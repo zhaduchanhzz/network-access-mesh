@@ -371,6 +371,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tenants/{tenantId}/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Thông báo trong Portal của chính người gọi
+         * @description Chỉ thông báo gửi cho membership của chính người gọi trong tenant này (`notification_outbox.recipient_membership_id`, §6.3) — không bao giờ của thành viên khác, kể cả với Tenant Owner. Mới nhất trước. `payload` chỉ gồm các trường đã khai báo cho `kind` (id, tên, thời điểm) cùng `tenant_name`, `tenant_slug`, `locale` — không chứa secret, token hay đường dẫn; Portal dựng câu chữ theo `kind` và ngôn ngữ của người dùng.
+         */
+        get: operations["listNotifications"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/platform/tenants": {
         parameters: {
             query?: never;
@@ -940,6 +960,24 @@ export interface components {
         };
         JobList: {
             items: components["schemas"]["Job"][];
+            next_cursor: string | null;
+        };
+        Notification: {
+            /** Format: uuid */
+            id: string;
+            /** @description Sự kiện được thông báo (`notification_outbox.kind`), ví dụ `policy.applied`, `device.new`, `support.break_glass` */
+            kind: string;
+            /** @description Trường của `kind` (id, tên, thời điểm RFC 3339) + `tenant_name`, `tenant_slug`, `locale` — không có secret */
+            payload: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            read_at: string | null;
+        };
+        NotificationList: {
+            items: components["schemas"]["Notification"][];
             next_cursor: string | null;
         };
         /** @description Step kèm chi tiết thô (đã redaction) — chỉ ở `GET /platform/jobs/{jobId}` */
@@ -1886,6 +1924,42 @@ export interface operations {
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    listNotifications: {
+        parameters: {
+            query?: {
+                /** @description Số phần tử tối đa của trang */
+                limit?: components["parameters"]["Limit"];
+                /** @description Con trỏ mờ lấy từ `next_cursor` của trang trước */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description `true`: chỉ thông báo chưa đọc; `false`: chỉ thông báo đã đọc */
+                unread?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Một trang thông báo */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationList"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationFailed"];
             429: components["responses"]["RateLimited"];
             default: components["responses"]["Unexpected"];
         };

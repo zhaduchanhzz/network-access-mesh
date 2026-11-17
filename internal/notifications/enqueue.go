@@ -50,7 +50,9 @@ type Enqueuer interface {
 type EnqueuerFunc func(ctx context.Context, tx *store.Tx, ev Event) (Result, error)
 
 // Enqueue calls f.
-func (f EnqueuerFunc) Enqueue(ctx context.Context, tx *store.Tx, ev Event) (Result, error) { return f(ctx, tx, ev) }
+func (f EnqueuerFunc) Enqueue(ctx context.Context, tx *store.Tx, ev Event) (Result, error) {
+	return f(ctx, tx, ev)
+}
 
 // Default is the production Enqueuer (the package function Enqueue).
 var Default Enqueuer = EnqueuerFunc(Enqueue)

@@ -39,12 +39,12 @@ type fakeHS struct {
 	inflight  int
 	max       int
 	delay     time.Duration
-	checkErr  error                 // CheckPolicy answers this (persistent)
-	setErrs   []error               // next SetPolicy answers (consumed); nil entry = success
-	swapOnErr bool                  // a failing SetPolicy still swaps the policy (V-26: in memory before the DB write)
-	getErr    error                 // GetPolicy answers this (persistent)
-	mangle    func(string) string   // read-back alteration
-	global    *concurrency          // cross-tenant concurrency observer
+	checkErr  error               // CheckPolicy answers this (persistent)
+	setErrs   []error             // next SetPolicy answers (consumed); nil entry = success
+	swapOnErr bool                // a failing SetPolicy still swaps the policy (V-26: in memory before the DB write)
+	getErr    error               // GetPolicy answers this (persistent)
+	mangle    func(string) string // read-back alteration
+	global    *concurrency        // cross-tenant concurrency observer
 }
 
 type concurrency struct {

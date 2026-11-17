@@ -339,4 +339,3 @@ func TestListMinePaging(t *testing.T) {
 		t.Fatalf("unread %d read %d", len(u.Items), len(rd.Items))
 	}
 }
-

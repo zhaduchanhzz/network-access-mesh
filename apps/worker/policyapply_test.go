@@ -122,11 +122,11 @@ func TestPolicyApplyCommand(t *testing.T) {
 
 	for _, args := range [][]string{
 		{"--tenant", "tenant-a"},                                  // no --file -
-		{"--tenant", "tenant-a", "--file", "/etc/passwd"},          // only stdin
-		{"--tenant", "Bad Slug!", "--file", "-"},                   // tenant format
-		{"--tenant", "tenant-a", "--kind", "user", "--file", "-"},  // kind
-		{"--tenant", "tenant-a", "--file", "-", "extra"},           // stray argument
-		{"--tenant", "unknown-tenant", "--file", "-"},              // resolve fails
+		{"--tenant", "tenant-a", "--file", "/etc/passwd"},         // only stdin
+		{"--tenant", "Bad Slug!", "--file", "-"},                  // tenant format
+		{"--tenant", "tenant-a", "--kind", "user", "--file", "-"}, // kind
+		{"--tenant", "tenant-a", "--file", "-", "extra"},          // stray argument
+		{"--tenant", "unknown-tenant", "--file", "-"},             // resolve fails
 	} {
 		if code, _, _ := run(args, pipeWith(t, string(allow))); code != 2 {
 			t.Errorf("%q: exit %d, want 2", args, code)

@@ -30,10 +30,10 @@ func TestMain(m *testing.M) {
 }
 
 type tenantFx struct {
-	id, idp                                  uuid.UUID
-	slug, name                               string
+	id, idp                                   uuid.UUID
+	slug, name                                string
 	owner, admin, viewer, endUser, unverified uuid.UUID
-	email                                    map[uuid.UUID]string
+	email                                     map[uuid.UUID]string
 }
 
 type fixture struct {

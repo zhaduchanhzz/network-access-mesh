@@ -20,18 +20,18 @@ type Kind string
 // Kinds of P3-T05b (§20). The kinds of Phase 4 (policy 4-eyes approval, security settings, IdP configuration, group
 // membership, route approval) are added by the task that builds their producer.
 const (
-	KindTenantActivated       Kind = "tenant.activated"        // §11.3 step 19 (P3-T05)
-	KindInvitation            Kind = "tenant.invitation"       // Owner invitation (§11.3 step 16), invitations (P3-T05a)
-	KindTenantSuspended       Kind = "tenant.suspended"        // P3-T08
-	KindTenantResumed         Kind = "tenant.resumed"          // P3-T08
-	KindDeviceNew             Kind = "device.new"              // a device joined the tailnet (enrollment — P4-T06)
-	KindDeviceExpiring        Kind = "device.expiring"         // node key expires soon (inventory.sync — P2-T13)
+	KindTenantActivated       Kind = "tenant.activated"         // §11.3 step 19 (P3-T05)
+	KindInvitation            Kind = "tenant.invitation"        // Owner invitation (§11.3 step 16), invitations (P3-T05a)
+	KindTenantSuspended       Kind = "tenant.suspended"         // P3-T08
+	KindTenantResumed         Kind = "tenant.resumed"           // P3-T08
+	KindDeviceNew             Kind = "device.new"               // a device joined the tailnet (enrollment — P4-T06)
+	KindDeviceExpiring        Kind = "device.expiring"          // node key expires soon (inventory.sync — P2-T13)
 	KindAPIKeyExpiring        Kind = "instance.apikey_expiring" // platform: instance API key expires soon (P3-T10)
-	KindPolicyApplied         Kind = "policy.applied"          // policy core (P3-T08a), policy.apply (P4-T10)
-	KindSupportGrantRequested Kind = "support.grant_requested" // a Support Access Grant waits for the tenant's decision (§8.7)
-	KindBreakGlass            Kind = "support.break_glass"     // a grant approved by break-glass (§8.7)
-	KindSupportGrantUsed      Kind = "support.grant_used"      // platform staff acted inside the tenant (§8.7)
-	KindApprovalRequested     Kind = "approval.requested"      // a tenant approval request waits for a decision (P3-T04a)
+	KindPolicyApplied         Kind = "policy.applied"           // policy core (P3-T08a), policy.apply (P4-T10)
+	KindSupportGrantRequested Kind = "support.grant_requested"  // a Support Access Grant waits for the tenant's decision (§8.7)
+	KindBreakGlass            Kind = "support.break_glass"      // a grant approved by break-glass (§8.7)
+	KindSupportGrantUsed      Kind = "support.grant_used"       // platform staff acted inside the tenant (§8.7)
+	KindApprovalRequested     Kind = "approval.requested"       // a tenant approval request waits for a decision (P3-T04a)
 )
 
 // Tenant and platform role keys of the default recipient rules (§6.3, roles of §8.4).

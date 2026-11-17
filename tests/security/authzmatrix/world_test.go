@@ -29,11 +29,13 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/devicesapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/jobsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/monitoringapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/notificationsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/tenantsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/jobs"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/kit/logx"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/kit/requestid"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/monitoring"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/notifications"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/platform"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/secrets"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store/storetest"
@@ -95,6 +97,8 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 		Audit:      auditapi.New(audit.NewReader(w.Store)),
 		Jobs:       jobsapi.New(jobs.NewService(w.Store)),
 		Monitoring: monitoringapi.New(mon),
+		// Notifications (P3-T05b, notificationsapi over notifications.Reader — reads the caller's own rows only).
+		Notifications: notificationsapi.New(notifications.NewReader(w.Store)),
 	}
 }
 
