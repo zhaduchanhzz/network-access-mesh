@@ -65,6 +65,8 @@ type Config struct {
 	// driver's provisioning identity; empty = the driver's default (mg-provisioner). Its secret is found in the
 	// SecretStore (platform_ops), never configured.
 	IdPProvisionerClientID string
+	// Agent (MG_AGENT_SOCKET, MG_AGENT_TOKEN_FILE, worker, optional): the Host Agent — LoadAgentClient.
+	Agent AgentClient
 }
 
 // AppHost is the Tenant Portal origin app.<MG_BASE_DOMAIN> (§8.3, §15.4); "" without a domain.
@@ -184,6 +186,9 @@ func Load(service string, getenv func(string) string, environ []string) (Config,
 	if cfg.IdPProvisionerClientID != "" && (service != "worker" || !clientIDRE.MatchString(cfg.IdPProvisionerClientID)) {
 		errs = append(errs, errors.New("MG_IDP_PROVISIONER_CLIENT_ID: a client id ([a-z0-9-], at most 64) of the worker's IdP driver"))
 	}
+	var agentErrs []error
+	cfg.Agent, agentErrs = LoadAgentClient(service, getenv)
+	errs = append(errs, agentErrs...)
 	cfg.Wired = cfg.Env != "dev" || strings.TrimSpace(getenv("MG_DB_URL")) != ""
 	if cfg.Wired && services[service] {
 		errs = append(errs, cfg.loadDependencies(getenv)...)

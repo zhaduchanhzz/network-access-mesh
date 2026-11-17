@@ -381,6 +381,16 @@ message InventoryEntry {
 
 message ListInstancesResponse {
   repeated InventoryEntry instances = 1;
+  // Reconcile (P3-T12, read-only): every hs-<slug> name on the networks the edge is attached to — the name the edge
+  // routes a tenant to must exist once, on that tenant's own network (§11.4). Empty without Docker access.
+  repeated EdgeAlias edge_aliases = 2;
+}
+
+// EdgeAlias is one container on a network of the edge whose name or network-scoped alias has the form hs-<slug>.
+message EdgeAlias {
+  string network = 1;
+  string container = 2;
+  string alias = 3;
 }
 
 message StartInstanceRequest {

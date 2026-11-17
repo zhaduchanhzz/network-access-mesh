@@ -19,6 +19,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/idp/keycloak"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/jobs"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/monitoring"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/reconcile"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/secrets"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store/sqlcdb"
@@ -35,6 +36,7 @@ const partitionRole = "mg_partition_maint"
 //	devices          inventory.sync + device.revoke handlers, the inventory.sync schedule, JobAlert (P2-T13)
 //	monitoring       health.probe handler over the Headscale registry's Probe, its schedule (P2-T13a)
 //	identity         session.gc on the worker's store, scheduled through jobs.Worker.RegisterPeriodic (P2-T06)
+//	reconcile        instance.reconcile + host.reconcile, report only, and their schedule (P3-T12; agent: MG_AGENT_*)
 //	idp              driver registry keycloak (narrow route to auth.<domain> incl. /admin/realms, provisioning identity
 //	                 from the SecretStore — platform_ops) + external (hardened client) — P2-T05a
 //	readiness        postgres, secretstore, edge_admin (§16.2)
@@ -77,6 +79,13 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 	if err := identity.NewSessionGC(d.st, log, nil).Register(w); err != nil {
 		return nil, err
 	}
+	rec, err := newReconcile(cfg, d, reg) // P3-T12: instance.reconcile + host.reconcile, report only
+	if err != nil {
+		return nil, err
+	}
+	if err := rec.Register(w); err != nil {
+		return nil, err
+	}
 	drivers, provisioned, err := idpDrivers(ctx, cfg, d)
 	if err != nil {
 		return nil, err
@@ -98,6 +107,7 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 		for name, run := range map[string]func(context.Context) error{
 			"inventory.sync": dev.NewScheduler(devices.SchedulerConfig{}).Run,
 			"health.probe":   mon.NewScheduler(monitoring.SchedulerConfig{}).Run,
+			"reconcile":      rec.NewScheduler(reconcile.SchedulerConfig{}).Run,
 		} {
 			wg.Add(1)
 			go func() {
