@@ -118,7 +118,9 @@ Chỉ sửa `staging.env`, rồi thực hiện:
 ## 7. Việc tiếp theo
 
 1. ~~Ký G1~~ — **Go** 2026-11-16.
-2. Phase 2 (không đụng host, chạy song song): đã xong P2-T01, T02, T03, T04, T05, T06, T07, T09, T10, T12, T14 (11/24); đang làm P2-T05a, P2-T08, P2-T15a, bộ công cụ P2-T04a; kế tiếp P2-T11, P2-T13. Nghi thức khóa P2-T04a cần chủ dự án có mặt (chặn P2-T03a và P2-T16). Triển khai backend lên host ở P2-T16 (cần duyệt).
+2. Phase 2 (không đụng host, chạy song song): đã xong P2-T01, T02, T03, T04, T05, T05a, T06, T07, T09, T10, T12, T14 (12/24); đang làm P2-T08, P2-T10a (vá Headscale V-26 — chủ dự án quyết 2026-11-17), P2-T11, P2-T15a, bộ công cụ P2-T04a; kế tiếp P2-T13. Nghi thức khóa P2-T04a cần chủ dự án có mặt (chặn P2-T03a và P2-T16). Triển khai backend lên host ở P2-T16 (cần duyệt).
+   - Việc nối dây đã gom cho P2-T16 (từ bằng chứng của từng task): runner lắp `identity` + `authzhook` + handler (`httpapi.New`, `identity.Config{RequestID, ClientIP}` từ `authzhook`); `identity.Config.HTTPClient = idp.NewIssuerClient(idp.NewHardened(…), idp.NewPlatformRoute(…))` và đặt `MG_EGRESS_DENY_CIDRS` (pool Docker, LAN, tunnel, IP công khai — P2-T05a mục 5); worker dùng `idp.NewRegistry(keycloak…, external…)` với SecretStore có `kek-ops`; edge cho `/admin/realms/*` của `auth.<domain>` **chỉ** từ địa chỉ worker trên `mg-edge`, không bao giờ trên listener tunnel-facing; mount keyring `kek-app` (api, worker) và `kek-ops` (worker) sau nghi thức P2-T04a; job `session.gc` dùng store của worker; pin digest image `api`/`worker`; adopt tenant A/B theo runbook của P2-T11; đề xuất nhỏ: `identity` chọn HTTP client theo `identity_providers.driver` (P2-T05a, rủi ro còn lại).
+   - Đổi image Headscale của các tenant staging sang bản vá (P2-T10a) là thay đổi host riêng — cần chủ dự án duyệt.
 3. Việc của chủ dự án:
    - ~~Ý kiến pháp lý sơ bộ R-01~~ — xong 2026-11-16 (thông qua).
    - Token Cloudflare hẹp.
@@ -144,3 +146,5 @@ Chỉ sửa `staging.env`, rồi thực hiện:
 | 2026-11-17 | Pin image `idp` trong `versions.lock` (GHCR `sha256:a0191d54…`) — `render_idp.py` dùng mặc định, không cần `--image` | `versions.lock` `[images.mg-idp]` |
 | 2026-11-17 | Hợp nhất P2-T04/T06/T07/T12/T14 vào main (SecretStore, đăng nhập/session, phân quyền, khung job, middleware) + lắp đăng nhập/phân quyền vào API; CI thêm kiểm `go mod tidy -diff` — chưa triển khai lên host | [P2-T04](docs/planning/evidence/P2-T04.md), [P2-T06](docs/planning/evidence/P2-T06.md), [P2-T07](docs/planning/evidence/P2-T07.md), [P2-T12](docs/planning/evidence/P2-T12.md), [P2-T14](docs/planning/evidence/P2-T14.md) |
 | 2026-11-17 | P2-T09/T10: adapter Headscale (`internal/headscale`) + contract test với Headscale 0.29.7 thật (26/26; workflow CI `headscale-contract`); V-06/V-28 đạt, V-21 phần adapter đạt, V-26 phát hiện Headscale panic với Auth ID của phiên SSH-check — vẫn chặn rule SSH `check` — chưa triển khai lên host | [P2-T09](docs/planning/evidence/P2-T09.md), [P2-T10](docs/planning/evidence/P2-T10.md) |
+| 2026-11-17 | Chủ dự án quyết: **vá Headscale** cho V-26 (sửa ADR-02/§25.1 mục 7 ở P2-T10a) và **chưa báo upstream** | P2-T10a (đang làm) |
+| 2026-11-17 | P2-T05a: driver IdP (`internal/idp`) + client chống SSRF + đường hẹp cho Keycloak của nền tảng; §8.2 thêm câu về đường hẹp này — chưa triển khai lên host | [P2-T05a](docs/planning/evidence/P2-T05a.md) |
