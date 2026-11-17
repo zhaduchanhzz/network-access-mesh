@@ -135,6 +135,16 @@ run_as = "65532:65532, host network, UDP 3478; HTTP debug 127.0.0.1:3479"
 released = "2026-11-16"
 note = "tailscale.com/cmd/stund tại tag v1.104.7 (commit cbc74fe…), Go 1.27.4, distroless static-debian13. grype: 0 Critical (gate CI)"
 
+[images.mg-worker]
+image = "ghcr.io/zhaduchanhzz/network-access-mesh/worker"
+tag = "82cf216a8ed5a174fa9596f202d64d0c61647f79"
+index = "sha256:0d8550fcd9bbd5740735646e36fc667c79af9acbaa4944ab97447e83c91beb7e"   # một manifest linux/amd64 (docker v2 schema 2)
+amd64 = "sha256:0d8550fcd9bbd5740735646e36fc667c79af9acbaa4944ab97447e83c91beb7e"
+user = "65532:65532"
+run_as = "65532:65532 + nhóm mg-sec-app (20001) / mg-sec-worker (20003); rootfs chỉ đọc, cap_drop ALL"
+released = "2026-11-17"
+note = "meshguard-worker (apps/worker) build từ 82cf216 (đợt gộp 3) — có lệnh kek-drill cho nghi thức khóa P2-T04a (infrastructure/host/key-ceremony/ceremony.sh đọc mục này). Workflow images run 44023754630 xanh (gồm smoke kek-drill); digest đọc từ GHCR (package công khai). Chưa dùng làm worker chạy thật — image worker cho P2-T16 sẽ pin lại khi triển khai"
+
 [images.mg-idp]
 image = "ghcr.io/zhaduchanhzz/network-access-mesh/idp"
 tag = "c983f67822596d0f62e6d53d6c0e95dc3ee68516"

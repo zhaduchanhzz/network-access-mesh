@@ -2,8 +2,8 @@
 # Keycloak với 3 realm, edge render từ Caddyfile thật (TLS từ CA nội bộ sinh mới mỗi lượt — CHỈ cho CI), 2 Headscale
 # (render bằng tools/render_instance.py), stund, 4 client Tailscale chính thức pin digest; chạy E2E-01…E2E-16. Mọi kết
 # quả chỉ là "functional" (client và Headscale cùng một host — HS-24, §22.1), không bao giờ "network E2E verified".
-# Image pin theo digest trong versions.lock, action pin theo commit SHA; không dùng secret nào của repo (repo public,
-# D-12): mọi credential (mật khẩu DB, admin Keycloak, token edge, pre-auth key, API key, khóa CA) sinh trong lượt chạy,
+# Image pin theo digest trong versions.lock, action pin theo commit SHA; không dùng secret nào của repo (D-12; repo
+# private từ 2026-11-17 nhưng workflow vẫn không cần secret): mọi credential (mật khẩu DB, admin Keycloak, token edge, pre-auth key, API key, khóa CA) sinh trong lượt chạy,
 # chỉ tồn tại trên runner và bị xóa khi gỡ stack. Artifact chỉ gồm log đã che secret + kết quả (harness dò lại mọi giá
 # trị secret của lượt chạy trong artifact — ca E2E-16).
 name: e2e-functional
@@ -33,8 +33,6 @@ jobs:
     timeout-minutes: 30
     env:
       E2E_PREFIX: mge2e
-      E2E_WORK: ${{ runner.temp }}/e2e-work
-      E2E_OUT: ${{ runner.temp }}/e2e-out
       E2E_KEEP_CACHE: "0"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -47,6 +45,10 @@ jobs:
           openssl version
           python3 --version
       - name: make e2e-functional (dựng → E2E-01…E2E-16 → gỡ; kết quả chỉ "functional")
+        # context `runner` chỉ dùng được ở cấp step — đặt ở `env` của job làm GitHub từ chối cả file workflow
+        env:
+          E2E_WORK: ${{ runner.temp }}/e2e-work
+          E2E_OUT: ${{ runner.temp }}/e2e-out
         run: make e2e-functional
       - name: Lưu kết quả (summary, results.json, log đã che secret, cấu hình compose đã ghép, Caddyfile của CI)
         if: always()
