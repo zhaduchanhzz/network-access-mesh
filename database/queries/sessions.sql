@@ -50,12 +50,14 @@ WHERE identities.status = 'active'
 RETURNING *;
 
 -- name: InsertSession :one
--- §8.3 bước 4: chỉ lưu hash của session id; session chỉ mang danh tính (không role).
+-- §8.3 bước 4: chỉ lưu hash của session id; session chỉ mang danh tính (không role). id_token_hint_enc (0008, G2 vòng 2
+-- A-1): ID token của lần đăng nhập đã mã hóa bằng khóa dẫn xuất từ session id thô — NULL khi IdP không có
+-- end_session_endpoint.
 INSERT INTO sessions (id_hash, identity_id, idp_id, origin, created_at, last_seen_at, auth_time, idle_expires_at,
-                      absolute_expires_at, ip, user_agent, acr, amr)
+                      absolute_expires_at, ip, user_agent, acr, amr, id_token_hint_enc)
 VALUES (sqlc.arg(id_hash), sqlc.arg(identity_id), sqlc.arg(idp_id), sqlc.arg(origin), sqlc.arg(now), sqlc.arg(now),
         sqlc.arg(auth_time), sqlc.arg(idle_expires_at), sqlc.arg(absolute_expires_at), sqlc.narg(ip),
-        sqlc.narg(user_agent), sqlc.narg(acr), sqlc.arg(amr))
+        sqlc.narg(user_agent), sqlc.narg(acr), sqlc.arg(amr), sqlc.narg(id_token_hint_enc))
 RETURNING *;
 
 -- name: GetSessionForRequest :one
@@ -73,20 +75,28 @@ WHERE s.id_hash = sqlc.arg(id_hash);
 UPDATE sessions SET last_seen_at = sqlc.arg(now), idle_expires_at = sqlc.arg(idle_expires_at)
 WHERE id_hash = sqlc.arg(id_hash) AND revoked_at IS NULL;
 
+-- name: GetSessionLogoutHint :one
+-- POST /auth/logout (G2 vòng 2 A-1): id_token_hint đã mã hóa của session còn chưa thu hồi, khóa hàng tới khi
+-- RevokeSessionByHash trong cùng transaction xóa nó. Không có hàng ⇒ session đã bị thu hồi giữa chừng.
+SELECT id_token_hint_enc FROM sessions
+WHERE id_hash = sqlc.arg(id_hash) AND revoked_at IS NULL
+FOR UPDATE;
+
 -- name: RevokeSessionByHash :execrows
--- Đăng xuất / xoay session khi đăng nhập lại: thu hồi có hiệu lực ngay (§8.3 bước 6).
-UPDATE sessions SET revoked_at = sqlc.arg(now)::timestamptz
+-- Đăng xuất / xoay session khi đăng nhập lại: thu hồi có hiệu lực ngay (§8.3 bước 6); hint đăng xuất bị xóa cùng lúc.
+UPDATE sessions SET revoked_at = sqlc.arg(now)::timestamptz, id_token_hint_enc = NULL
 WHERE id_hash = sqlc.arg(id_hash) AND revoked_at IS NULL;
 
 -- name: RevokeOwnSession :execrows
 -- DELETE /auth/sessions/{id}: chỉ session còn hiệu lực của chính identity; session của identity khác ⇒ 0 hàng (404).
-UPDATE sessions SET revoked_at = sqlc.arg(now)::timestamptz
+UPDATE sessions SET revoked_at = sqlc.arg(now)::timestamptz, id_token_hint_enc = NULL
 WHERE public_id = sqlc.arg(public_id) AND identity_id = sqlc.arg(identity_id) AND revoked_at IS NULL
   AND idle_expires_at > sqlc.arg(now)::timestamptz AND absolute_expires_at > sqlc.arg(now)::timestamptz;
 
 -- name: RevokeIdentitySessions :execrows
--- Khóa / offboard / đổi role: thu hồi mọi session của một identity (§8.3 bước 8).
-UPDATE sessions SET revoked_at = sqlc.arg(now)::timestamptz
+-- Khóa / offboard / đổi role: thu hồi mọi session của một identity (§8.3 bước 8; `meshguard admin revoke-sessions` —
+-- G2 vòng 2 A-2). Đếm mọi session chưa thu hồi (kể cả đã hết hạn idle — vô hại) và xóa hint đăng xuất của chúng.
+UPDATE sessions SET revoked_at = sqlc.arg(now)::timestamptz, id_token_hint_enc = NULL
 WHERE identity_id = sqlc.arg(identity_id) AND revoked_at IS NULL;
 
 -- name: ListLiveSessionsForIdentity :many

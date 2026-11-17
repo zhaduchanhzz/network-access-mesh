@@ -124,7 +124,7 @@ def check_db(r: Results, st: Stack, res: dict) -> None:
 
 
 def check_idp(r: Results, st: Stack) -> None:
-    ip = st.docker("inspect", "-f", f'{{{{(index .NetworkSettings.Networks "{st.name("edge")}").IPAddress}}}}',
+    ip = st.docker("inspect", "-f", f'{{{{(index .NetworkSettings.Networks "{st.name("idp")}").IPAddress}}}}',
                    st.compose("ps", "-q", "idp").stdout.strip()).stdout.strip()
     issuers, kids, problems = {}, {}, []
     for realm in ("platform", "tenant-a", "tenant-b"):

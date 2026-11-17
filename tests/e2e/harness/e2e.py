@@ -61,9 +61,10 @@ def ensure_users(st: Stack) -> None:
 
 
 def up(st: Stack) -> None:
-    with timed("build image api/worker từ cây (infrastructure/docker/app/Dockerfile)"):
+    with timed("build image api/worker/idp từ cây (infrastructure/docker/app, infrastructure/docker/idp)"):
         st.teardown(quiet=True)
         st.build_app_images()
+        st.build_idp_image()
     with timed("chuẩn bị (render, secret, CA nội bộ, network)"):
         shutil.rmtree(st.out, ignore_errors=True)       # kết quả của lượt trước
         st.work.mkdir(parents=True, exist_ok=True)

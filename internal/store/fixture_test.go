@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// fixture holds one row per scope (tenant A, tenant B, platform) in every table of migrations 0001–0007, inserted
+// fixture holds one row per scope (tenant A, tenant B, platform) in every table of migrations 0001–0008, inserted
 // by the superuser (bypassing RLS) so the tests can check what each role and scope sees. Every identifier is random,
 // so fixtures of parallel tests share a database without colliding.
 type fixture struct {
@@ -56,12 +56,12 @@ func newFixture() *fixture {
 // migrations; insertAll runs them all on a fully migrated database).
 var fixtureSteps = map[int64]func(f *fixture, t *testing.T, c *pgx.Conn){
 	1: (*fixture).step1, 2: (*fixture).step2, 3: (*fixture).step3, 4: (*fixture).step4, 5: (*fixture).step5, 6: (*fixture).step6,
-	7: (*fixture).step7,
+	7: (*fixture).step7, 8: (*fixture).step8,
 }
 
 // latestMigration is the number of the last migration of database/migrations (TestMigrationsUpWithData,
 // TestMigrationsShareClusterRoles).
-const latestMigration = 7
+const latestMigration = 8
 
 func (f *fixture) insertAll(t *testing.T, c *pgx.Conn) {
 	t.Helper()
@@ -183,6 +183,15 @@ func (f *fixture) step5(t *testing.T, c *pgx.Conn) {
 
 // 0007: no table — the owner CHECK of identity_providers.client_secret_ref; the references written by step2 must pass.
 func (f *fixture) step7(*testing.T, *pgx.Conn) {}
+
+// 0008: no table — sessions.id_token_hint_enc (G2 round 2, A-1): a session of tenant A's identity carrying a sealed
+// hint (opaque bytes for the database), next to the 0002 session without one.
+func (f *fixture) step8(t *testing.T, c *pgx.Conn) {
+	exec(t, c, `INSERT INTO sessions (id_hash, identity_id, idp_id, origin, auth_time, idle_expires_at, absolute_expires_at,
+			id_token_hint_enc)
+		VALUES (sha256(convert_to($1, 'UTF8')), $2, $3, 'app', now(), now() + interval '30 minutes', now() + interval '12 hours',
+			sha256(convert_to($1, 'UTF8')) || sha256(convert_to($1 || '-x', 'UTF8')))`, "session-hint-"+f.sfx, f.a.identity, f.a.idp)
+}
 
 // 0006: provisioning_jobs (+steps), idempotency_keys; links device A to its revocation job (FK added by 0006).
 func (f *fixture) step6(t *testing.T, c *pgx.Conn) {

@@ -186,14 +186,23 @@ def keycloak_login(st: Stack, b: Browser, auth_url: str, user: dict, otp: TOTP, 
     raise StackError(f"too many Keycloak steps: {steps}")
 
 
-def portal_login(st: Stack, b: Browser, host: str, query: str, user: dict) -> tuple[dict, list[str]]:
-    """GET /auth/login on the Portal host → Keycloak (password + TOTP) → callback → GET /auth/session."""
+def portal_login(st: Stack, b: Browser, host: str, query: str, user: dict, otp: TOTP | None = None) -> tuple[dict, list[str]]:
+    """GET /auth/login on the Portal host → Keycloak (password + TOTP) → callback → GET /auth/session. Pass the user's
+    TOTP to log in again later (its key is learnt at the first login). A platform login that enrolled the TOTP carries
+    no `otp` in amr and is answered 401 reauth_required (G2 round 2, A-6): the Portal signs in again with reauth=true —
+    password + OTP — as done here (the steps then show both passes)."""
     api = f"https://{host}/api/v1"
+    otp = otp or TOTP()
     r = b.get(f"{api}/auth/login?{query}")
     if r.status != 302:
         raise StackError(f"GET /auth/login on {host}: HTTP {r.status} {r.body[:200]!r}")
-    cb, steps = keycloak_login(st, b, r.header("Location"), user, TOTP(), host)
+    cb, steps = keycloak_login(st, b, r.header("Location"), user, otp, host)
     r = b.get(cb)
+    if r.status == 401 and r.json().get("code") == "reauth_required" and "configure_totp" in steps:
+        r = b.get(f"{api}/auth/login?{query}&reauth=true")
+        cb, again = keycloak_login(st, b, r.header("Location"), user, otp, host)
+        steps += again
+        r = b.get(cb)
     if r.status != 302 or not any(k == "__Host-mg_session" for k in b.jar.get(host, {})):
         raise StackError(f"callback on {host}: HTTP {r.status} {r.body[:200]!r}")
     s = b.get(f"{api}/auth/session")
@@ -211,7 +220,7 @@ class KeycloakAdmin:
 
     def __init__(self, st: Stack):
         cid = st.compose("ps", "-q", "idp").stdout.strip()
-        ip = st.docker("inspect", "-f", f'{{{{(index .NetworkSettings.Networks "{st.name("edge")}").IPAddress}}}}',
+        ip = st.docker("inspect", "-f", f'{{{{(index .NetworkSettings.Networks "{st.name("idp")}").IPAddress}}}}',
                        cid).stdout.strip()
         self.base = f"http://{ip}:8080"
         pw = (st.work / "secrets" / "harness" / "kc_admin_password").read_text(encoding="utf-8")
@@ -541,7 +550,8 @@ def check_audit(r, st: Stack) -> None:
 
 
 def run_all(r, st: Stack, guarded) -> None:
-    """Run E2E-17 … E2E-25 in order (each later check builds on the state of the earlier ones)."""
+    """Run E2E-17 … E2E-31 in order (each later check builds on the state of the earlier ones)."""
+    import asvs2  # noqa: PLC0415 — imports this module
     state = json.loads((st.work / "state" / "backend.json").read_text(encoding="utf-8")) \
         if (st.work / "state" / "backend.json").exists() else {}
     guarded(r, "E2E-17", check_ready, st, state)
@@ -552,5 +562,6 @@ def run_all(r, st: Stack, guarded) -> None:
         if guarded(r, "E2E-22", check_tenant_login, st, state) is None and "browser" in state:
             guarded(r, "E2E-23", check_devices, st, state)
         guarded(r, "E2E-24", check_platform, st, state)
+        asvs2.run_all(r, st, guarded)        # E2E-26 … E2E-31: fixes of the G2 review, round 2 (OWASP ASVS)
     guarded(r, "E2E-25", check_audit, st)
 

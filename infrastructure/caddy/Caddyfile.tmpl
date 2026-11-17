@@ -6,7 +6,8 @@
 # - Site của nền tảng (P2-T16, §8.3, §15.4): app.${base_domain} (LAN-direct + tunnel-facing) → api, auth.${base_domain}
 #   (LAN-direct + tunnel-facing) → idp, admin.${base_domain} CHỈ LAN-direct (không bao giờ trên listener tunnel-facing)
 #   và chỉ từ ${admin_allow}. Admin REST API và realm master của Keycloak chỉ từ worker (${worker_edge_ip}) trên
-#   listener LAN-direct.
+#   listener LAN-direct. idp chỉ ở network mg-idp cùng edge (${edge_idp_ip}): ngoài edge, không container nào tới thẳng
+#   được idp:8080 (G2 vòng 2, A-8) — mọi lối vào Keycloak đi qua các route dưới đây.
 # - Không có giá trị secret nào trong file: token DNS, khóa bouncer, token admin/metrics chỉ được tham chiếu bằng
 #   placeholder {file.*}, Caddy đọc file lúc provision hoặc lúc so khớp (secret dạng file — §14.2).
 # - CrowdSec ở chế độ chỉ-quan-sát (app crowdsec kết nối LAPI, chưa route nào dùng handler crowdsec; mọi site public
@@ -33,6 +34,8 @@ ${tunnel_servers}	servers {
 	}
 }
 
+# id_token_hint (đăng xuất RP-Initiated Logout tới end_session_endpoint của auth. — G2 vòng 2, A-1) là ID token của
+# người dùng: xóa khỏi URI trong access log (CrowdSec đọc JSON như cũ — filter bọc đúng encoder json).
 (access_log) {
 	log {
 		output file /var/log/caddy/access.log {
@@ -40,7 +43,12 @@ ${tunnel_servers}	servers {
 			roll_size 50MiB
 			roll_keep 5
 		}
-		format json
+		format filter {
+			wrap json
+			request>uri query {
+				delete id_token_hint
+			}
+		}
 	}
 }
 
@@ -194,7 +202,8 @@ admin.${base_domain} {
 # IdP của nền tảng (§8.2): auth.${base_domain} → idp:8080 (Keycloak; cổng quản trị 9000 không bao giờ được định tuyến).
 # Công khai chỉ endpoint OIDC + trang đăng nhập của các realm (/realms/*, /resources/*), TRỪ realm master. Admin REST
 # API (/admin/realms/*) và realm master (token của danh tính provisioning, break-glass) CHỈ từ worker
-# (${worker_edge_ip} — IdP driver, P2-T05a) và chỉ trên listener LAN-direct này; console /admin/ không bao giờ.
+# (${worker_edge_ip} — IdP driver, P2-T05a) và chỉ trên listener LAN-direct này; console /admin/ không bao giờ. Điều đó
+# đúng cả ở tầng mạng: idp:8080 chỉ nằm trên mg-idp (edge + idp, G2 vòng 2 A-8); kcadm break-glass chạy TRONG container idp.
 auth.${base_domain} {
 	import access_log
 	import tls_acme

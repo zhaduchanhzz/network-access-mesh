@@ -1,4 +1,4 @@
-# Sinh bởi tools/render_edge.py từ infrastructure/compose/compose.edge.yaml.tmpl (template_version 6).
+# Sinh bởi tools/render_edge.py từ infrastructure/compose/compose.edge.yaml.tmpl (template_version 7).
 # KHÔNG sửa tay — render lại. Project mg-edge (§14.4): chỉ edge, tách khỏi mg-core để việc deploy mg-core không bao
 # giờ recreate edge. Đặt tại /opt/meshguard/core/compose.edge.yaml; Caddyfile render ra /opt/meshguard/core/caddy/.
 # Network do infrastructure/host/networks.sh tạo trước (external); network của tenant được gắn lúc chạy
@@ -49,6 +49,8 @@ services:
         ipv4_address: 10.249.2.2
       mg-obs:
         ipv4_address: 10.249.3.2
+      mg-idp:                       # → idp:8080 (auth.<domain>); chỉ edge + idp trên network này (G2 vòng 2, A-8)
+        ipv4_address: 10.249.7.2
     dns_search: ["."]               # xóa search domain kế thừa; tên upstream rooted (hs-<slug>.) — §14.6
     dns_opt: ["ndots:1"]
     sysctls:                        # edge không được làm router giữa các network (IT-14)
@@ -99,4 +101,6 @@ networks:
   mg-admin:
     external: true
   mg-obs:
+    external: true
+  mg-idp:
     external: true

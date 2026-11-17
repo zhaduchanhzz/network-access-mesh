@@ -169,6 +169,60 @@ func TestMigration0007ClientSecretRefOwner(t *testing.T) {
 	}
 }
 
+// TestMigration0008SessionLogoutHint — G2 round 2, A-1, migration 0008 (expand-only: one nullable column, no row
+// rewritten): up on a database with live sessions keeps every row and leaves them without a hint (NULL); the size
+// CHECK refuses a value shorter than an AES-GCM nonce + tag + one byte and one longer than 16 KiB of token; the api's
+// platform role writes and clears the column through its table-level grant of 0002, the worker's (session.gc: SELECT,
+// DELETE) cannot write it.
+func TestMigration0008SessionLogoutHint(t *testing.T) {
+	e := requireDB(t)
+	ctx := ctxT(t)
+	db := e.newDatabase(t, 7)
+	su := e.connectAdmin(t, db)
+	mig, err := OpenMigrator(e.storeURL(db), e.creds(t, "mg_migrator"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = mig.Close() }()
+	f := newFixture()
+	for v := int64(1); v <= 7; v++ {
+		fixtureSteps[v](f, t, su)
+	}
+	var before int64
+	if err := su.QueryRow(ctx, `SELECT count(*) FROM sessions`).Scan(&before); err != nil || before == 0 {
+		t.Fatalf("sessions before 0008: %d (%v)", before, err)
+	}
+	if err := MigrateTo(ctx, mig, 8); err != nil {
+		t.Fatalf("0008 on a database with sessions: %v", err)
+	}
+	var after, withHint int64
+	if err := su.QueryRow(ctx, `SELECT count(*), count(id_token_hint_enc) FROM sessions`).Scan(&after, &withHint); err != nil ||
+		after != before || withHint != 0 {
+		t.Fatalf("after 0008: %d sessions (%d before), %d with a hint (%v)", after, before, withHint, err)
+	}
+	hash := "session-" + f.sfx // the 0002 fixture session
+	for name, n := range map[string]int{"28 bytes (nonce + tag, empty token)": 28, "16413 bytes": 16413} {
+		_, err := su.Exec(ctx, `UPDATE sessions SET id_token_hint_enc = repeat('x', $1)::bytea WHERE id_hash = sha256(convert_to($2, 'UTF8'))`,
+			n, hash)
+		wantSQLState(t, name, err, "23514")
+	}
+	app := e.connectAs(t, db, "mg_api_platform")
+	for _, sql := range []string{
+		`UPDATE sessions SET id_token_hint_enc = repeat('x', 512)::bytea WHERE id_hash = sha256(convert_to($1, 'UTF8'))`,
+		`UPDATE sessions SET id_token_hint_enc = NULL WHERE id_hash = sha256(convert_to($1, 'UTF8'))`,
+	} {
+		if tag, err := app.Exec(ctx, sql, hash); err != nil || tag.RowsAffected() != 1 {
+			t.Errorf("mg_api_platform: %s: %v (%d rows)", sql, err, tag.RowsAffected())
+		}
+	}
+	worker := e.connectAs(t, db, "mg_worker_platform")
+	_, err = worker.Exec(ctx, `UPDATE sessions SET id_token_hint_enc = NULL WHERE id_hash = sha256(convert_to($1, 'UTF8'))`, hash)
+	wantSQLState(t, "mg_worker_platform writes the hint", err, "42501")
+	if v, err := SchemaVersion(ctx, mig); err != nil || v != 8 {
+		t.Fatalf("schema version = %d (%v), want 8", v, err)
+	}
+}
+
 // TestMigrationsShareClusterRoles: a second database in the same cluster migrates while the cluster-wide roles
 // already exist (idempotent role creation), and ends at the same version.
 func TestMigrationsShareClusterRoles(t *testing.T) {

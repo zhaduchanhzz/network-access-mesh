@@ -2,8 +2,8 @@
 # "Running Keycloak in a container" của Keycloak). Tùy chọn build-time được nướng sẵn để container chạy
 # `start --optimized` với rootfs CHỈ ĐỌC: image gốc thấy tùy chọn build khác mặc định (db=postgres, health, metrics,
 # feature) thì tự build lại lúc khởi động và ghi vào /opt/keycloak/lib/quarkus — cần rootfs ghi được.
-# Không thêm gói, provider hay theme nào: so với base chỉ khác thư mục `kc.sh build` sinh ra và kho CA của JVM đã gỡ
-# một root (stage truststore — CVE-2026-91403).
+# Không thêm gói, provider hay theme nào: so với base chỉ khác thư mục `kc.sh build` sinh ra, kho CA của JVM đã gỡ
+# một root (stage truststore — CVE-2026-91403) và danh sách mật khẩu cấm (stage blocklist — G2 vòng 2, A-3).
 # Base pin theo digest (versions.lock [images.keycloak]); tag 26.8.2 trên quay.io đã bị push lại khi rebuild base.
 ARG KEYCLOAK=quay.io/keycloak/keycloak:26.8.2@sha256:c68e286cacd87b942ac1939a0a1481461109d6acd3a57dc496969a319a76bbf0
 
@@ -49,9 +49,49 @@ RUN set -eu; export LC_ALL=C; \
     test -z "$(comm -13 <(echo "$before") <(echo "$after"))"; \
     echo "kho CA của JVM ($store): $(echo "$before" | wc -l) -> $(echo "$after" | wc -l) mục, đã gỡ emsignrootca-g1 $fp"
 
+# Danh sách mật khẩu cấm (G2 vòng 2, A-3 — ASVS 6.2.4, 6.2.11, 6.2.12; versions.lock [sources.password-blocklist]):
+# passwordBlacklist(mg-passwords-v1.txt) của mọi realm (infrastructure/idp/realms, tools/render_idp.py check_realm) =
+#   (1) 1 000 000 mật khẩu phổ biến nhất của bộ "Ten Million Passwords" (Mark Burnett, 2015) bản của SecLists
+#       (MIT — LICENSE chép vào image), tải theo commit pin, kiểm sha256 ngay trong build (ADD --checksum), chỉ giữ mục
+#       12–128 ký tự ASCII in được (policy length(12) maxLength(128) đã chặn phần còn lại) — ~46 000 mục;
+#   (2) từ ngữ cảnh × hậu tố (password-blocklist/context-*.txt — danh sách có tài liệu của 6.1.2, 6.2.11).
+# Chữ thường, sắp xếp, không trùng: Keycloak so khớp nguyên mật khẩu, không phân biệt hoa/thường (bloom filter, xác suất
+# dương tính giả mặc định 0,01 %). File đặt NGOÀI /opt/keycloak/data (tmpfs lúc chạy — compose.idp.yaml) và Keycloak tìm
+# nó qua tùy chọn SPI blacklists-path của provider password-blacklist (ENV ở stage cuối, tùy chọn runtime). Build fail
+# nếu tải lệch sha256, số mục quá ít hoặc thiếu mục mẫu. Đổi nội dung ⇒ đổi tên file (v2) ở đây, render_idp.BLOCKLIST_FILE
+# và realm template.
+FROM ${KEYCLOAK} AS blocklist
+USER 0
+ADD --checksum=sha256:424a3e03a17df0a2bc2b3ca749d81b04e79d59cb7aeec8876a5a3f308d0caf51 \
+    https://raw.githubusercontent.com/danielmiessler/SecLists/0008f4343439b48257c0815fc797955d0ab1e755/Passwords/Common-Credentials/xato-net-10-million-passwords-1000000.txt \
+    /tmp/blocklist/common.txt
+ADD --checksum=sha256:3dbdc93d5f8829de0941744841730a09c106d0732e5ae0e98ca1d77be7ded66c \
+    https://raw.githubusercontent.com/danielmiessler/SecLists/0008f4343439b48257c0815fc797955d0ab1e755/LICENSE \
+    /tmp/blocklist/SecLists-LICENSE
+COPY password-blocklist/context-words.txt password-blocklist/context-suffixes.txt /tmp/blocklist/
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+RUN set -eu; export LC_ALL=C; cd /tmp/blocklist; mkdir -p /out; \
+    words=$(grep -v -e '^#' -e '^$' context-words.txt); \
+    sufs=$(grep -v -e '^#' -e '^$' context-suffixes.txt | sed 's/^<empty>$//'); \
+    { grep -E '^[ -~]{12,128}$' common.txt; \
+      while IFS= read -r w; do while IFS= read -r s; do printf '%s%s\n' "$w" "$s"; done <<< "$sufs"; done <<< "$words" \
+        | grep -E '^[ -~]{12,128}$'; } \
+      | tr 'A-Z' 'a-z' | sort -u > /out/mg-passwords-v1.txt; \
+    n=$(wc -l < /out/mg-passwords-v1.txt); test "$n" -ge 45000; \
+    for p in password1234 qwertyuiop123 'password1234!' meshguard2026 tenant-a12345 'meshguard@2026!'; do \
+      grep -qxF -- "$p" /out/mg-passwords-v1.txt; done; \
+    echo "mg-passwords-v1.txt: $n mục, sha256 $(sha256sum < /out/mg-passwords-v1.txt | cut -c1-64)"; \
+    install -d -m 0755 /out/mg/password-blacklists /out/mg/licenses; \
+    install -m 0444 /out/mg-passwords-v1.txt /out/mg/password-blacklists/mg-passwords-v1.txt; \
+    install -m 0444 SecLists-LICENSE /out/mg/licenses/SecLists-LICENSE
+
 FROM ${KEYCLOAK}
 COPY --from=build /opt/keycloak/lib/quarkus/ /opt/keycloak/lib/quarkus/
 COPY --from=truststore /etc/pki/ca-trust/extracted/java/cacerts /etc/pki/ca-trust/extracted/java/cacerts
+# root:root, thư mục 0755, file 0444 — Keycloak (UID 1000) chỉ đọc. Tên biến có chữ PASSWORD nên BuildKit cảnh báo
+# SecretsUsedInArgOrEnv: dương tính giả — giá trị là một đường dẫn, không phải secret.
+COPY --from=blocklist /out/mg/ /opt/keycloak/mg/
+ENV KC_SPI_PASSWORD_POLICY__PASSWORD_BLACKLIST__BLACKLISTS_PATH=/opt/keycloak/mg/password-blacklists
 USER 1000
 ENTRYPOINT ["/opt/keycloak/bin/kc.sh"]
 CMD ["start", "--optimized"]

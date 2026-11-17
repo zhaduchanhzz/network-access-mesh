@@ -36,7 +36,7 @@ import sys
 import mgenv  # noqa: E402 — tools/mgenv.py: env file of the environment (no secrets)
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-TEMPLATE_VERSION = "6"
+TEMPLATE_VERSION = "7"
 CADDYFILE_TMPL = ROOT / "infrastructure" / "caddy" / "Caddyfile.tmpl"
 COMPOSE_TMPL = ROOT / "infrastructure" / "compose" / "compose.edge.yaml.tmpl"
 
@@ -48,7 +48,9 @@ ACME = {
 }
 # Static IPs of the edge on the shared platform networks (infrastructure/host/networks.sh: lower half of each /24,
 # dynamic allocation is limited to the upper half with --ip-range).
-EDGE_IPS = {"edge_ip": "10.249.0.2", "edge_admin_ip": "10.249.2.2", "edge_obs_ip": "10.249.3.2"}
+EDGE_IPS = {"edge_ip": "10.249.0.2", "edge_admin_ip": "10.249.2.2", "edge_obs_ip": "10.249.3.2",
+            # mg-idp (G2 vòng 2, A-8): edge là thành viên duy nhất cùng idp — nguồn duy nhất tới idp:8080
+            "edge_idp_ip": "10.249.7.2"}
 # Internal listeners (§14.6): only callers inside the matching subnet are served, everything else is aborted.
 INTERNAL = {"admin_subnet": "10.249.2.0/24", "admin_port": "8081", "obs_subnet": "10.249.3.0/24", "metrics_port": "9091"}
 # Static IP of the worker on mg-edge (compose project mg-app, tools/render_app.py — lower half of the /24 like the

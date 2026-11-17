@@ -64,7 +64,7 @@ services:
     environment:                    # chỉ giá trị KHÔNG bí mật
       KC_HOSTNAME: https://${auth_host}   # issuer = https://${auth_host}/realms/<realm>
       KC_PROXY_HEADERS: xforwarded    # TLS kết thúc ở edge (§14.6)
-      KC_PROXY_TRUSTED_ADDRESSES: ${edge_ip}   # chỉ tin X-Forwarded-* từ IP tĩnh của edge trên mg-edge
+      KC_PROXY_TRUSTED_ADDRESSES: ${edge_idp_ip}   # chỉ tin X-Forwarded-* từ IP tĩnh của edge trên mg-idp
       KC_HTTP_ENABLED: "true"         # HTTP thuần chỉ trong network Docker; không publish cổng nào
       KC_HTTP_PORT: "8080"
       KC_HTTP_MANAGEMENT_PORT: "9000" # /health, /metrics: cổng quản trị nội bộ, edge KHÔNG định tuyến tới
@@ -86,8 +86,8 @@ services:
         bind:
           create_host_path: false
     networks:
-      mg-edge:                      # edge → idp:8080 (auth.<domain>)
-        aliases: [idp]
+      mg-idp:                       # edge → idp:8080 (auth.<domain>). KHÔNG trên mg-edge (G2 vòng 2, A-8): api, worker và
+        aliases: [idp]              # mọi thành viên khác của mg-edge không tới được Keycloak trực tiếp — chỉ qua edge
       mg-idp-data: {}               # → idp-db
       mg-egress:                    # đường ra có kiểm soát (SMTP, IdP doanh nghiệp — §14.3)
         gw_priority: 1
@@ -124,7 +124,7 @@ volumes:
   idp-db-data:
 
 networks:
-  mg-edge:
+  mg-idp:
     external: true
   mg-idp-data:
     external: true

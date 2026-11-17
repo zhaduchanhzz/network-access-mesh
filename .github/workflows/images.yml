@@ -132,7 +132,13 @@ jobs:
               test -n "$kc"
               docker run --rm --network none --read-only --cap-drop ALL "${IMAGE}:${GITHUB_SHA}" --version > "${RUNNER_TEMP}/idp-version.txt"
               cat "${RUNNER_TEMP}/idp-version.txt"
-              grep -qxF "Keycloak ${kc}" "${RUNNER_TEMP}/idp-version.txt" ;;
+              grep -qxF "Keycloak ${kc}" "${RUNNER_TEMP}/idp-version.txt"
+              # G2 vòng 2 (A-3): danh sách mật khẩu cấm — UID của Keycloak đọc được, đủ mục, đúng đường dẫn SPI; nguồn tải về
+              # đúng sha256 của versions.lock [sources.password-blocklist]
+              docker run --rm --network none --read-only --cap-drop ALL --entrypoint bash "${IMAGE}:${GITHUB_SHA}" -c \
+                'f=$KC_SPI_PASSWORD_POLICY__PASSWORD_BLACKLIST__BLACKLISTS_PATH/mg-passwords-v1.txt; test -r "$f"; n=$(wc -l < "$f"); echo "blocklist $n mục"; test "$n" -ge 45000; grep -qxF meshguard2026 "$f"; test -r /opt/keycloak/mg/licenses/SecLists-LICENSE'
+              sha=$(python3 -c 'import tomllib; print(tomllib.load(open("versions.lock", "rb"))["sources"]["password-blocklist"]["sha256"])')
+              grep -q "ADD --checksum=sha256:${sha}" "${{ matrix.dockerfile }}" ;;
             headscale)
               # versions.lock [sources.headscale] ↔ Dockerfile + patches/series; `headscale version` = v0.29.7 + commit của
               # bản vá (dấu bản vá); serve như compose tenant: uid riêng không phải root, rootfs chỉ đọc, health qua PATH

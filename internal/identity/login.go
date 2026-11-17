@@ -149,6 +149,12 @@ func (s *Service) beginLogin(ctx context.Context, in LoginRequest, ev *AuditEven
 	opts := []oauth2.AuthCodeOption{oauth2.S256ChallengeOption(verifier), oidc.Nonce(encodeSecret(nonce))}
 	if stepUp {
 		maxAge = 0
+	}
+	// prompt=login on every platform login (G2 round 2, A-1, defence in depth): a staff session never starts from an
+	// IdP session left in the browser — e.g. after a logout whose redirect to the IdP never happened (tab closed, IdP
+	// unreachable). The platform realm serves only this client, so SSO buys staff nothing. Tenant logins keep the SSO
+	// session (external IdPs, other apps of a tenant's realm); the logout ends it (Logout → end_session_endpoint).
+	if stepUp || p.Scope == ScopePlatform {
 		opts = append(opts, oauth2.SetAuthURLParam("prompt", "login"))
 	}
 	opts = append(opts, oauth2.SetAuthURLParam("max_age", strconv.Itoa(maxAge)))

@@ -17,6 +17,21 @@ const (
 	maxAMRLen         = 64
 )
 
+// mfaAMR are the amr values (RFC 8176) accepted as evidence of a second factor: a one-time password, an explicit
+// multi-factor statement, a hardware or software proof-of-possession key (WebAuthn). The Keycloak realms of the
+// platform emit ["pwd", "otp"] (an amr mapper on mg-portal + authenticator references — infrastructure/idp/realms).
+var mfaAMR = map[string]bool{"otp": true, "mfa": true, "hwk": true, "swk": true}
+
+// hasMFAEvidence reports whether amr shows a second factor.
+func hasMFAEvidence(amr []string) bool {
+	for _, v := range amr {
+		if mfaAMR[v] {
+			return true
+		}
+	}
+	return false
+}
+
 // tokenProfile is what a login keeps from a verified ID token.
 type tokenProfile struct {
 	Subject       string

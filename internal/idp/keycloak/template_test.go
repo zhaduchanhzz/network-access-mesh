@@ -155,6 +155,35 @@ func TestTemplateSecuritySettings(t *testing.T) {
 		if clients["admin-cli"]["enabled"] != false {
 			t.Error("admin-cli enabled")
 		}
+		// G2 round 2: post-logout redirect (A-1), amr in the ID token (A-6), password blocklist (A-3), re-authentication
+		// before changing a credential from the account console (A-4).
+		if asMap(p["attributes"])["post.logout.redirect.uris"] != "https://app.example.test/" {
+			t.Errorf("%s: post.logout.redirect.uris %v", sc, asMap(p["attributes"])["post.logout.redirect.uris"])
+		}
+		mappers, _ := p["protocolMappers"].([]any)
+		if len(mappers) != 1 || asMap(mappers[0])["protocolMapper"] != "oidc-amr-mapper" ||
+			asMap(asMap(mappers[0])["config"])["id.token.claim"] != "true" {
+			t.Errorf("%s: Portal protocol mappers %v", sc, mappers)
+		}
+		if !strings.HasSuffix(str(rep["passwordPolicy"]), " and passwordBlacklist(mg-passwords-v1.txt)") {
+			t.Errorf("%s: password policy %v", sc, rep["passwordPolicy"])
+		}
+		refs := map[string]string{}
+		for _, c := range rep["authenticatorConfig"].([]any) {
+			refs[str(asMap(c)["alias"])] = str(asMap(asMap(c)["config"])["default.reference.value"])
+		}
+		if !reflect.DeepEqual(refs, map[string]string{"mg-amr-pwd": "pwd", "mg-amr-otp": "otp"}) {
+			t.Errorf("%s: authenticator references %v", sc, refs)
+		}
+		for _, ra := range rep["requiredActions"].([]any) {
+			m := asMap(ra)
+			switch str(m["alias"]) {
+			case "UPDATE_PASSWORD", "CONFIGURE_TOTP", "delete_credential", "webauthn-register", "webauthn-register-passwordless":
+				if asMap(m["config"])["max_auth_age"] != "0" {
+					t.Errorf("%s: %s max_auth_age %v", sc, m["alias"], asMap(m["config"])["max_auth_age"])
+				}
+			}
+		}
 		realmRoles, clientRoles := serviceAccountRoles(rep, DriverClientID)
 		if len(realmRoles) != 0 || !sameSet(clientRoles[realmManagement], []string{"manage-users", "view-users", "query-users"}) ||
 			len(clientRoles) != 1 {

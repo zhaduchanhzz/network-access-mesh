@@ -692,6 +692,12 @@ type JobStep struct {
 // JobStepStatus Trạng thái step (`provisioning_job_steps.status`, tập giá trị chốt ở P2-T12 — CHECK của 0006)
 type JobStepStatus string
 
+// LogoutResult Kết quả của `POST /auth/logout` (G2 vòng 2, A-1)
+type LogoutResult struct {
+	// RedirectTo URL tuyệt đối (https) trình duyệt phải tới: `end_session_endpoint` của IdP với `client_id`, `post_logout_redirect_uri` và `id_token_hint` (nếu session giữ được), hoặc chính `post_logout_redirect_uri` khi IdP không hỗ trợ đăng xuất. Không lưu, không ghi log giá trị này (chứa ID token).
+	RedirectTo string `json:"redirect_to"`
+}
+
 // Membership Thành viên của tenant (`tenant_memberships` + `identities`)
 type Membership struct {
 	DisplayName string  `json:"display_name"`
@@ -1297,7 +1303,7 @@ type ServerInterface interface {
 	// AuthLogin Bắt đầu đăng nhập OIDC — chuyển hướng tới IdP
 	// (GET /auth/login)
 	AuthLogin(w http.ResponseWriter, r *http.Request, params AuthLoginParams)
-	// AuthLogout Đăng xuất — thu hồi session hiện tại
+	// AuthLogout Đăng xuất — thu hồi session hiện tại và kết thúc phiên SSO của IdP
 	// (POST /auth/logout)
 	AuthLogout(w http.ResponseWriter, r *http.Request)
 	// GetAuthSession Principal, membership, grant đang hiệu lực và CSRF token của session hiện tại
@@ -3443,18 +3449,26 @@ type AuthLogoutResponseObject interface {
 	VisitAuthLogoutResponse(w http.ResponseWriter) error
 }
 
-type AuthLogout204ResponseHeaders struct {
+type AuthLogout200ResponseHeaders struct {
 	SetCookie string
 }
 
-type AuthLogout204Response struct {
-	Headers AuthLogout204ResponseHeaders
+type AuthLogout200JSONResponse struct {
+	Body    LogoutResult
+	Headers AuthLogout200ResponseHeaders
 }
 
-func (response AuthLogout204Response) VisitAuthLogoutResponse(w http.ResponseWriter) error {
+func (response AuthLogout200JSONResponse) VisitAuthLogoutResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Set-Cookie", fmt.Sprint(response.Headers.SetCookie))
-	w.WriteHeader(204)
-	return nil
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
 }
 
 type AuthLogout401ApplicationProblemPlusJSONResponse struct {
@@ -7050,7 +7064,7 @@ type StrictServerInterface interface {
 	// AuthLogin Bắt đầu đăng nhập OIDC — chuyển hướng tới IdP
 	// (GET /auth/login)
 	AuthLogin(ctx context.Context, request AuthLoginRequestObject) (AuthLoginResponseObject, error)
-	// AuthLogout Đăng xuất — thu hồi session hiện tại
+	// AuthLogout Đăng xuất — thu hồi session hiện tại và kết thúc phiên SSO của IdP
 	// (POST /auth/logout)
 	AuthLogout(ctx context.Context, request AuthLogoutRequestObject) (AuthLogoutResponseObject, error)
 	// GetAuthSession Principal, membership, grant đang hiệu lực và CSRF token của session hiện tại

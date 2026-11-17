@@ -8,6 +8,8 @@ package main
 //	set-idp-client-secret  P2-T11: store the client secret of an IdP (stdin) and record its reference
 //	bootstrap-super-admin  P2-T11a: make (platform IdP, sub) a Super Admin while fewer than 2 active Super Admins exist
 //	seed-membership        P2-T11a: make (the tenant's IdP, sub) Tenant Owner or Tenant Admin of a tenant
+//	revoke-sessions        G2 round 2 (A-2): revoke every session of (IdP, sub) and disable the identity (offboarding)
+//	enable-identity        G2 round 2 (A-2): undo of revoke-sessions
 //
 // They run on the host beside the api service (`docker compose -p mg-app run --rm --no-deps -T api admin …` — compose
 // project mg-app, P2-T16), with the api's configuration (database roles mg_api_*, kek-app keyring, edge admin
@@ -16,7 +18,8 @@ package main
 // A credential is read from stdin only, and stdin must be a pipe — never a terminal (echo, history), never a file
 // (disk), never an argument or an environment variable. Nothing prints or logs a credential; the output names
 // references (mgsec://…) and public key prefixes. bootstrap-super-admin and seed-membership take no credential: their
-// inputs are identifiers (the `sub` of an IdP user, a tenant slug, a role key).
+// inputs are identifiers (the `sub` of an IdP user, a tenant slug, a role key); so do revoke-sessions and
+// enable-identity (an IdP id and a `sub`).
 
 import (
 	"context"
@@ -92,6 +95,10 @@ func init() {
 		"seed-membership": {run: runSeedMembership, usage: "seed-membership --tenant <slug|id> " +
 			"--role tenant_owner|tenant_admin --subject <sub> [--display-name <name>]\n" +
 			"      <sub> = id of the user in the tenant's own realm (its active identity provider)"},
+		"revoke-sessions": {run: runRevokeSessions, usage: "revoke-sessions --idp <idp id> --subject <sub> [--keep-enabled]\n" +
+			"      revoke every session of that identity and disable it (offboarding); --keep-enabled: sessions only"},
+		"enable-identity": {run: runEnableIdentity, usage: "enable-identity --idp <idp id> --subject <sub>\n" +
+			"      undo of revoke-sessions: the identity may sign in again"},
 	}
 }
 

@@ -57,6 +57,8 @@ type FakeIdP struct {
 
 	// AdvertiseIss sets authorization_response_iss_parameter_supported and adds iss to every authorization response.
 	AdvertiseIss bool
+	// NoEndSession leaves end_session_endpoint (<issuer>/logout, RP-Initiated Logout) out of the discovery document.
+	NoEndSession bool
 	// Now is the IdP clock (share the service clock).
 	Now func() time.Time
 
@@ -70,6 +72,7 @@ type FakeIdP struct {
 	override func(claims map[string]any) string // replaces the whole ID token
 	lastAuth url.Values
 	lastVer  string
+	lastID   string
 
 	TokenCalls     atomic.Int32
 	AuthorizeCalls atomic.Int32
@@ -165,6 +168,12 @@ func (f *FakeIdP) LastAuthorize() url.Values { f.mu.Lock(); defer f.mu.Unlock();
 // LastVerifier returns the PKCE verifier received by the last token request.
 func (f *FakeIdP) LastVerifier() string { f.mu.Lock(); defer f.mu.Unlock(); return f.lastVer }
 
+// LastIDToken returns the ID token of the last token response.
+func (f *FakeIdP) LastIDToken() string { f.mu.Lock(); defer f.mu.Unlock(); return f.lastID }
+
+// EndSessionEndpoint is the end_session_endpoint the discovery document announces (unless NoEndSession).
+func (f *FakeIdP) EndSessionEndpoint() string { return f.Issuer + "/logout" }
+
 func (f *FakeIdP) discovery(w http.ResponseWriter, _ *http.Request) {
 	doc := map[string]any{
 		"issuer":                                f.Issuer,
@@ -180,6 +189,9 @@ func (f *FakeIdP) discovery(w http.ResponseWriter, _ *http.Request) {
 	}
 	if f.AdvertiseIss {
 		doc["authorization_response_iss_parameter_supported"] = true
+	}
+	if !f.NoEndSession {
+		doc["end_session_endpoint"] = f.EndSessionEndpoint()
 	}
 	writeJSON(w, http.StatusOK, doc)
 }
@@ -268,7 +280,7 @@ func (f *FakeIdP) token(w http.ResponseWriter, r *http.Request) {
 	claims := map[string]any{
 		"iss": f.Issuer, "sub": code.user.Sub, "aud": id, "azp": id, "exp": now.Add(5 * time.Minute).Unix(),
 		"iat": now.Unix(), "auth_time": code.authTime.Unix(), "nonce": code.nonce, "name": code.user.Name,
-		"acr": "1",
+		"acr": "1", "amr": []any{"pwd", "otp"}, // as the Keycloak realms of the platform (amr mapper — G2 round 2, A-6)
 	}
 	if code.user.Email != "" {
 		claims["email"], claims["email_verified"] = code.user.Email, code.user.EmailVerified
@@ -285,6 +297,7 @@ func (f *FakeIdP) token(w http.ResponseWriter, r *http.Request) {
 	} else {
 		idToken = SignRS256(f.Key, f.KID, claims)
 	}
+	f.lastID = idToken
 	writeJSON(w, http.StatusOK, map[string]any{
 		"access_token": "at-" + randomHex(8), "token_type": "Bearer", "expires_in": 300, "id_token": idToken,
 	})

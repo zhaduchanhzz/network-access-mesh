@@ -291,6 +291,18 @@ age_linux_amd64_sha256 = "e442c7bc47bb52e08ccb02dfa5fc09ecf58ce6bce5de0cdda8443b
 age_keygen_linux_amd64_sha256 = "580c1a61d19c129cbdfa1c97689a061a91d27f22371eee9b30123afcde0a71a4"
 note = "Bản mới nhất, đã 80 ngày tuổi lúc pin (2026-11-17). Host không có age; không dùng gói age của Ubuntu 24.04 (1.1.1-1ubuntu0.24.04.3, Built-Using golang-1.22.2 + x/crypto 0.19.0; cài gói lên host là loại thay đổi cần duyệt riêng) — chọn build từ mã nguồn bằng toolchain Go 1.27.4 đã pin, binary tĩnh chép sang host và kiểm sha256 trước mỗi lần dùng. Image backup (P2-T03a, infrastructure/docker/backup) build lại age bằng đúng công thức này trong một stage và kiểm age_linux_amd64_sha256 ngay trong build (trùng — build tái lập lần thứ 5); agent (P3) dùng cùng cách"
 
+[sources.password-blocklist]   # G2 vòng 2, A-3 (ASVS 6.2.4, 6.2.11, 6.2.12): passwordBlacklist(mg-passwords-v1.txt) của mọi realm
+repo = "github.com/danielmiessler/SecLists"
+commit = "0008f4343439b48257c0815fc797955d0ab1e755"   # 2026-10-30 (≥ 14 ngày lúc pin); file không đổi từ c205c36 (2025-05-08)
+file = "Passwords/Common-Credentials/xato-net-10-million-passwords-1000000.txt"
+url = "https://raw.githubusercontent.com/danielmiessler/SecLists/0008f4343439b48257c0815fc797955d0ab1e755/Passwords/Common-Credentials/xato-net-10-million-passwords-1000000.txt"
+sha256 = "424a3e03a17df0a2bc2b3ca749d81b04e79d59cb7aeec8876a5a3f308d0caf51"   # 1 000 000 dòng; kiểm trong build (ADD --checksum)
+license = "MIT (LICENSE của SecLists, Copyright (c) 2018 Daniel Miessler) — chép vào image tại /opt/keycloak/mg/licenses/SecLists-LICENSE"
+license_url = "https://raw.githubusercontent.com/danielmiessler/SecLists/0008f4343439b48257c0815fc797955d0ab1e755/LICENSE"
+license_sha256 = "3dbdc93d5f8829de0941744841730a09c106d0732e5ae0e98ca1d77be7ded66c"
+origin = "Mark Burnett, \"Ten Million Passwords\" (2015), bản đã khử trùng và sắp theo tần suất của SecLists. Giấy phép riêng của bộ dữ liệu gốc không kiểm được (trang gốc không truy cập được ngày 2026-11-17) — quyền phân phối lại dựa vào giấy phép MIT của SecLists"
+build = "infrastructure/docker/idp/Dockerfile stage blocklist: giữ mục 12–128 ký tự ASCII in được (46 146 mục, chữ thường, không trùng) + từ ngữ cảnh × hậu tố (infrastructure/docker/idp/password-blocklist/context-*.txt) ⇒ /opt/keycloak/mg/password-blacklists/mg-passwords-v1.txt: 56 797 mục, sha256 a27c4822121fa224295bc0cf54a8a0efaee2fb4e72783781f8e2a9afb304a265 (build trên VM 110, 2026-11-17; LC_ALL=C sort -u ⇒ tất định)"
+
 [sources.gitleaks]
 repo = "github.com/gitleaks/gitleaks"
 version = "v8.30.1"
@@ -381,4 +393,4 @@ docker_compose = "5.7.1"    # 2026-11-11
 
 [pending]
 monitoring = "Prometheus, Alertmanager, Grafana, Loki, Alloy, exporters — pin ở P6-T01"
-own_images = "edge và stund đã pin (P1-T04), idp đã pin (P2-T05, 2026-11-17); headscale (bản vá V-26, P2-T10a) đã pin — [images.mg-headscale] ở trên (2026-11-17, workflow images run 44023754630); api, worker, backup đã pin cùng commit 03509d3 ([images.mg-api], [images.mg-worker], [images.mg-backup] — 2026-11-17, workflow images run 44063142251, P2-T16); agent, web pin khi build ở Phase 3–4. Quy ước: tag = commit SHA, pin theo digest lấy từ GHCR sau khi workflow images xanh"
+own_images = "idp phải pin lại sau G2 vòng 2 (image mới có danh sách mật khẩu cấm [sources.password-blocklist]; realm template mới đòi passwordBlacklist(mg-passwords-v1.txt) — image cũ c983f678 không import được realm mới): người điều phối pin digest của workflow images trên commit gộp, rồi docs/operations/deploy-backend.md mục 'Cập nhật sau G2 vòng 2'. edge và stund đã pin (P1-T04), idp đã pin (P2-T05, 2026-11-17); headscale (bản vá V-26, P2-T10a) đã pin — [images.mg-headscale] ở trên (2026-11-17, workflow images run 44023754630); api, worker, backup đã pin cùng commit 03509d3 ([images.mg-api], [images.mg-worker], [images.mg-backup] — 2026-11-17, workflow images run 44063142251, P2-T16); agent, web pin khi build ở Phase 3–4. Quy ước: tag = commit SHA, pin theo digest lấy từ GHCR sau khi workflow images xanh"

@@ -5,9 +5,10 @@
 #
 #   bash tests/idp/run_dev.sh up | test | down | all       (all = up + test + down, down chạy cả khi lỗi)
 #
-# Proxy TLS thử (Caddy pin digest, `tls internal`) đứng ở 10.249.0.2 trên network $PREFIX-edge — đúng IP tĩnh của edge
-# trên mg-edge mà compose render ra cho KC_PROXY_TRUSTED_ADDRESSES — nên stack thử dùng nguyên giá trị của bản thật;
-# ba network thử dùng cùng subnet với mg-edge / mg-egress / mg-idp-data (infrastructure/host/networks.sh).
+# Proxy TLS thử (Caddy pin digest, `tls internal`) đứng trên network $PREFIX-edge (publish cổng, alias auth.<DOMAIN>) và
+# ở 10.249.7.2 trên network $PREFIX-idp — đúng IP tĩnh của edge trên mg-idp mà compose render ra cho
+# KC_PROXY_TRUSTED_ADDRESSES (G2 vòng 2, A-8: idp chỉ ở mg-idp, cùng edge) — nên stack thử dùng nguyên giá trị của bản
+# thật; bốn network thử dùng cùng subnet với mg-edge / mg-idp / mg-egress / mg-idp-data (infrastructure/host/networks.sh).
 # Biến: PREFIX (mặc định mgidptest), PORT (18443), DOMAIN (<PREFIX>.test), WORK (/tmp/<PREFIX>-idp). Cần sudo (docker,
 # file secret thuộc root). Secret sinh mới mỗi lượt bằng infrastructure/idp/secrets.sh, không in ra, xóa khi down.
 # NET_BASE (mặc định 10.249 = dải thật): hai /16 khác nhau cho hai stack thử chạy CÙNG LÚC trên một máy (Docker từ chối
@@ -26,9 +27,10 @@ NET_BASE=${NET_BASE:-10.249}
 CADDY=docker.io/library/caddy@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0   # 2.11.9-alpine (versions.lock)
 IMAGE=$PREFIX-idp:test
 PROJECT=$PREFIX-idp
-PROXY_IP=$NET_BASE.0.2        # mặc định = IP tĩnh của edge (tools/render_edge.py EDGE_IPS) = KC_PROXY_TRUSTED_ADDRESSES
-UNTRUSTED_IP=$NET_BASE.0.200  # container thử KHÔNG phải proxy
+PROXY_IP=$NET_BASE.7.2        # mặc định = IP tĩnh của edge trên mg-idp (tools/render_edge.py EDGE_IPS) = KC_PROXY_TRUSTED_ADDRESSES
+UNTRUSTED_IP=$NET_BASE.7.100  # container thử KHÔNG phải proxy, trên network idp (ngoài dải cấp động .128/25)
 NETS="$PREFIX-edge $NET_BASE.0.0/24 no $NET_BASE.0.128/25
+$PREFIX-idp $NET_BASE.7.0/24 yes $NET_BASE.7.128/25
 $PREFIX-egress $NET_BASE.5.0/24 no -
 $PREFIX-idp-data $NET_BASE.6.0/24 yes -"
 D="sudo docker"
@@ -70,10 +72,11 @@ auth.$DOMAIN:443 {
 	reverse_proxy idp:8080
 }
 EOF
-  $D run -d --name "$PREFIX-proxy" --network "$PREFIX-edge" --ip "$PROXY_IP" --network-alias "auth.$DOMAIN" \
+  $D run -d --name "$PREFIX-proxy" --network "$PREFIX-edge" --network-alias "auth.$DOMAIN" \
     -p "127.0.0.1:$PORT:443" \
     --read-only --tmpfs /data --tmpfs /config --cap-drop ALL --security-opt no-new-privileges \
     -v "$WORK/proxy/Caddyfile:/etc/caddy/Caddyfile:ro" "$CADDY" >/dev/null
+  $D network connect --ip "$PROXY_IP" "$PREFIX-idp" "$PREFIX-proxy"
   say "docker compose up (idp-db, idp) — chờ healthy"
   t0=$(date +%s)
   compose up -d --wait --wait-timeout 420
@@ -83,7 +86,7 @@ EOF
 }
 
 probe() {   # <ip> <X-Forwarded-For giả>: client credentials sai gửi THẲNG tới idp:8080 (không qua proxy), in mã HTTP
-  $D run --rm --network "$PREFIX-edge" --ip "$1" --entrypoint wget "$CADDY" -S -q -O /dev/null \
+  $D run --rm --network "$PREFIX-idp" --ip "$1" --entrypoint wget "$CADDY" -S -q -O /dev/null \
     --header "X-Forwarded-For: $2" --header "X-Forwarded-Proto: https" --header "X-Forwarded-Host: auth.$DOMAIN" \
     --post-data 'grant_type=client_credentials&client_id=mg-idp-driver&client_secret=wrong-on-purpose' \
     http://idp:8080/realms/platform/protocol/openid-connect/token 2>&1 | grep -m1 'HTTP/' || true
@@ -138,7 +141,7 @@ down() {
   [ -z "$ids" ] || $D rm -f $ids >/dev/null
   $D volume rm "${PROJECT}_idp-db-data" >/dev/null 2>&1 || true
   $D rm -f "$PREFIX-proxy" >/dev/null 2>&1 || true
-  for n in "$PREFIX-edge" "$PREFIX-egress" "$PREFIX-idp-data"; do $D network rm "$n" >/dev/null 2>&1 || true; done
+  for n in "$PREFIX-edge" "$PREFIX-idp" "$PREFIX-egress" "$PREFIX-idp-data"; do $D network rm "$n" >/dev/null 2>&1 || true; done
   $D image rm "$IMAGE" >/dev/null 2>&1 || true
   sudo rm -rf "$WORK"
   echo "còn lại: $($D ps -a --filter "name=$PREFIX" -q | wc -l) container, $($D network ls --filter "name=$PREFIX" -q | wc -l) network, $($D volume ls --filter "name=$PREFIX" -q | wc -l) volume"

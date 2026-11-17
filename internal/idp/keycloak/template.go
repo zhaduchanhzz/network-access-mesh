@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"reflect"
 	"slices"
 	"sort"
@@ -86,6 +87,17 @@ func realmRep(p realmParams) (map[string]any, error) {
 	}
 	portal["name"] = sv.portalName
 	portal["redirectUris"] = []any{p.RedirectURI}
+	// RP-Initiated Logout (G2 round 2, A-1): the only page Keycloak may send the browser back to after a logout is the
+	// root of the Portal origin of the callback (https://<app|admin host>/).
+	plr, err := postLogoutRedirectURI(p.RedirectURI)
+	if err != nil {
+		return nil, err
+	}
+	attrs, _ = portal["attributes"].(map[string]any)
+	if attrs == nil {
+		return nil, errors.New("keycloak: realm template without Portal client attributes")
+	}
+	attrs["post.logout.redirect.uris"] = plr
 	b, err := json.Marshal(rep)
 	if err != nil {
 		return nil, err
@@ -97,6 +109,15 @@ func realmRep(p realmParams) (map[string]any, error) {
 		return nil, fmt.Errorf("keycloak: strings longer than 255 characters: %v", long)
 	}
 	return rep, nil
+}
+
+// postLogoutRedirectURI is the origin root of a Portal callback URI.
+func postLogoutRedirectURI(redirectURI string) (string, error) {
+	u, err := url.Parse(redirectURI)
+	if err != nil || u.Scheme != "https" || u.Host == "" {
+		return "", fmt.Errorf("keycloak: redirect URI %q is not an https URL", redirectURI)
+	}
+	return "https://" + u.Host + "/", nil
 }
 
 func longStrings(v any, at string) []string {

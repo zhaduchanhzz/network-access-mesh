@@ -1,0 +1,57 @@
+# Từ gốc theo ngữ cảnh cấm dùng làm mật khẩu (G2 vòng 2, A-3 — ASVS 6.1.2 "danh sách có tài liệu", 6.2.11).
+# Dockerfile của image idp ghép mỗi từ với mỗi hậu tố của context-suffixes.txt, giữ mục 12–128 ký tự, chữ thường, rồi
+# gộp với danh sách mật khẩu phổ biến (versions.lock [sources.password-blocklist]) thành passwordBlacklist(mg-passwords-v1.txt).
+# Keycloak so khớp NGUYÊN mật khẩu (không so chuỗi con), không phân biệt hoa/thường. Chỉ ngữ cảnh chung của sản phẩm —
+# không domain, slug tenant thật hay giá trị môi trường nào (image dùng chung mọi môi trường); ngữ cảnh của từng người
+# do notUsername/notEmail chặn. Đổi file này ⇒ đổi tên mg-passwords-v<N>.txt (Dockerfile, tools/render_idp.py
+# BLOCKLIST_FILE, realm template) và chạy infrastructure/idp/realm-update.sh. Dòng bắt đầu bằng # và dòng trống bị bỏ.
+# sản phẩm, công nghệ
+meshguard
+mesh-guard
+mesh_guard
+meshguardvpn
+meshguardztna
+mesh
+guard
+ztna
+zerotrust
+zero-trust
+wireguard
+tailscale
+headscale
+keycloak
+tailnet
+# vai trò, khái niệm của nền tảng, realm cố định của template
+platform
+tenant
+tenant-a
+tenant-b
+tenanta
+tenantb
+admin
+administrator
+superadmin
+super-admin
+owner
+tenantowner
+tenant-owner
+tenantadmin
+portal
+console
+staging
+production
+network
+vpn
+operator
+# từ yếu kinh điển hay được ghép
+password
+passw0rd
+p@ssw0rd
+p@ssword
+welcome
+letmein
+changeme
+qwerty
+secret
+login
+default

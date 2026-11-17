@@ -25,7 +25,6 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/idp"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/kit/httpx"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/monitoring"
-	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/secrets"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store/sqlcdb"
@@ -269,39 +268,42 @@ var errClientSecretRef = errors.New("identity provider client secret: the refere
 // clientSecrets resolves identity_providers.client_secret_ref (identity.ClientSecretSource) — never as a pass-through
 // of the SecretStore (G2 wiring hazard 4): the reference must be the client secret of one identity provider and bound
 // to it before the SecretStore is asked:
-//   - its name is provisioning.ClientSecretName(<idp id>) — a reference to any other secret (an API key, the
-//     provisioning identity…) is refused;
+//   - its name is the client secret of an IdP under either name the platform writes (G2 round 2, I-7):
+//     idp.ClientSecretName(<idp id>) = idp.<id>.client (the keycloak/external drivers) or
+//     idp.AdminClientSecretName(<idp id>) = idp-client-secret.<id> (`meshguard admin set-idp-client-secret`) — a
+//     reference to any other secret (an API key, the provisioning identity…) is refused;
 //   - that identity provider exists and records exactly this reference as its client_secret_ref;
-//   - the owner of the reference is the IdP's tenant (a tenant IdP) or the platform (a platform IdP).
+//   - the reference is that IdP's own (idp.Registration.OwnClientSecretRef — the check of the callback and the
+//     drivers): owner = the IdP's tenant (a tenant IdP) or the platform (a platform IdP), name = one of its two names.
 //
-// The identity module reads the reference from the row of the IdP it is completing a login with, so a row pointing at
-// another IdP's secret fails the second rule (the named IdP does not record it… unless both rows record the same
-// reference — refused at the source by set-idp-client-secret, which only ever names an IdP's own secret). The
-// identity module itself will add the same check with the IdP in hand (separate fix).
+// The identity module reads the reference from the row of the IdP it is completing a login with and checks it with
+// the IdP in hand (G2 F3); this source checks it again from the registry side (defence in depth).
 func clientSecrets(s secretReader, idps idpReader) identity.ClientSecretSource {
 	return identity.ClientSecretFunc(func(ctx context.Context, raw string) (string, error) {
 		ref, err := secrets.ParseRef(raw)
 		if err != nil {
 			return "", err
 		}
-		idpID, err := uuid.Parse(strings.TrimPrefix(ref.Name, "idp-client-secret."))
-		if err != nil || provisioning.ClientSecretName(idpID) != ref.Name {
+		idpID, ok := clientSecretIdP(ref.Name)
+		if !ok {
 			return "", fmt.Errorf("%w: not a client secret name", errClientSecretRef)
 		}
 		p, err := idps.GetIdP(ctx, idpID)
 		if err != nil {
 			return "", fmt.Errorf("%w: identity provider %s: %w", errClientSecretRef, idpID, err)
 		}
-		owner := uuid.Nil
-		if p.TenantID != nil {
-			owner = *p.TenantID
-		}
-		switch {
-		case p.ClientSecretRef != raw:
+		if p.ClientSecretRef != raw {
 			return "", fmt.Errorf("%w: identity provider %s records another reference", errClientSecretRef, idpID)
-		case ref.Tenant != owner, p.Scope == tenants.IdPScopeTenant && p.TenantID == nil,
-			p.Scope != tenants.IdPScopeTenant && p.TenantID != nil:
-			return "", fmt.Errorf("%w: owner of the reference is not the identity provider's", errClientSecretRef)
+		}
+		reg := idp.Registration{IdPID: p.ID, Scope: idp.Scope(p.Scope), Driver: p.Driver, ClientSecretRef: raw}
+		switch {
+		case p.Scope == tenants.IdPScopeTenant && p.TenantID == nil, p.Scope != tenants.IdPScopeTenant && p.TenantID != nil:
+			return "", fmt.Errorf("%w: identity provider %s: scope and tenant disagree", errClientSecretRef, idpID)
+		case p.TenantID != nil:
+			reg.TenantID = *p.TenantID
+		}
+		if _, err := reg.OwnClientSecretRef("runner.clientSecrets"); err != nil {
+			return "", fmt.Errorf("%w: owner of the reference is not the identity provider's: %w", errClientSecretRef, err)
 		}
 		v, err := s.Get(ctx, ref)
 		if err != nil {
@@ -310,6 +312,25 @@ func clientSecrets(s secretReader, idps idpReader) identity.ClientSecretSource {
 		defer v.Wipe()
 		return string(v.Bytes()), nil
 	})
+}
+
+// clientSecretIdP returns the IdP id of a client-secret name: idp.<id>.client or idp-client-secret.<id>, with the
+// canonical form of the id (anything else is not a client secret name).
+func clientSecretIdP(name string) (uuid.UUID, bool) {
+	var raw string
+	switch {
+	case strings.HasPrefix(name, "idp-client-secret."):
+		raw = strings.TrimPrefix(name, "idp-client-secret.")
+	case strings.HasPrefix(name, "idp.") && strings.HasSuffix(name, ".client"):
+		raw = strings.TrimSuffix(strings.TrimPrefix(name, "idp."), ".client")
+	default:
+		return uuid.Nil, false
+	}
+	id, err := uuid.Parse(raw)
+	if err != nil || id == uuid.Nil || (idp.ClientSecretName(id) != name && idp.AdminClientSecretName(id) != name) {
+		return uuid.Nil, false
+	}
+	return id, true
 }
 
 // newDevices builds the device inventory over the Headscale registry (P2-T13) on the store of the process.

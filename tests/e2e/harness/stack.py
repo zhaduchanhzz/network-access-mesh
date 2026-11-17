@@ -100,6 +100,7 @@ class Stack:
         self.edge_ip = f"{base}.0.2"
         self.admin_ip, self.obs_ip = f"{base}.2.2", f"{base}.3.2"
         self.worker_edge_ip = f"{base}.0.4"           # render_edge.APP_IPS: the edge's Admin-API allow-list (P2-T16)
+        self.edge_idp_ip = f"{base}.7.2"              # the edge on the idp network (G2 round 2, A-8)
         self.host_ip = f"{base}.0.1"                  # this host on the edge network: the only admin. source (P2-T16)
         self.app_images = DUMMY_IMAGES                # (api, worker) — build_app_images() sets the local image IDs
         # name → (subnet, internal, ip-range for dynamic allocation) — same layout as infrastructure/host/networks.sh
@@ -111,6 +112,7 @@ class Stack:
             "sec": (f"{base}.4.0/24", True, None),
             "egress": (f"{base}.5.0/24", False, None),
             "idp-data": (f"{base}.6.0/24", True, None),
+            "idp": (f"{base}.7.0/24", True, f"{base}.7.128/25"),   # edge + idp only (G2 round 2, A-8)
             "t-tenant-a": (net_a, True, None),
             "t-tenant-b": (net_b, True, None),
         }
@@ -185,8 +187,9 @@ class Stack:
             log(f"render {slug}: {', '.join(sorted(files))} (image {params['image'].split('@')[0]})")
         # The edge's static IPs and internal subnets are module constants of render_edge (the host layout of
         # infrastructure/host/networks.sh); the stack uses its own subnets. Updated in place: render_idp shares the dict
-        # (KC_PROXY_TRUSTED_ADDRESSES = the edge IP).
-        render_edge.EDGE_IPS.update(edge_ip=self.edge_ip, edge_admin_ip=self.admin_ip, edge_obs_ip=self.obs_ip)
+        # (KC_PROXY_TRUSTED_ADDRESSES = the edge's IP on the idp network).
+        render_edge.EDGE_IPS.update(edge_ip=self.edge_ip, edge_admin_ip=self.admin_ip, edge_obs_ip=self.obs_ip,
+                                    edge_idp_ip=self.edge_idp_ip)
         render_edge.INTERNAL.update(admin_subnet=self.networks["admin"][0], obs_subnet=self.networks["obs"][0])
         render_edge.APP_IPS.update(worker_edge_ip=self.worker_edge_ip)
         params = mgenv.expand(json.loads((ENV_DIR / "edge.json").read_text(encoding="utf-8")), self.env)
@@ -226,6 +229,17 @@ class Stack:
             ids.append(self.docker("image", "inspect", "-f", "{{.Id}}", tag).stdout.strip())
             log(f"build {app} (infrastructure/docker/app/Dockerfile): {ids[-1][:19]}… trong {time.time() - t0:.0f} s")
         self.app_images = (ids[0], ids[1])
+
+    def build_idp_image(self) -> None:
+        """The idp image built from the tree (infrastructure/docker/idp) — the realms rendered from the tree need what the
+        tree's image holds (password blocklist of G2 round 2 A-3; the pinned [images.mg-idp] may predate it)."""
+        t0 = time.time()
+        tag = f"{self.prefix}-idp:e2e"
+        ctx = ROOT / "infrastructure" / "docker" / "idp"
+        self.docker("build", "-q", "-f", str(ctx / "Dockerfile"), "--label", "meshguard.role=e2e", "-t", tag, str(ctx),
+                    timeout=1800)
+        self.images["idp"] = self.docker("image", "inspect", "-f", "{{.Id}}", tag).stdout.strip()
+        log(f"build idp (infrastructure/docker/idp/Dockerfile): {self.images['idp'][:19]}… trong {time.time() - t0:.0f} s")
 
     def write_stack_env(self) -> None:
         values = {"MGE_PREFIX": self.prefix, "MGE_WORK": str(self.work), "MGE_MESH_DOMAIN": self.mesh,
@@ -397,7 +411,7 @@ class Stack:
             self.docker("volume", "rm", "-f", f"{self.prefix}_{v}", check=False)
         if not self.keep_cache:
             self.docker("volume", "rm", "-f", self.name("gomod"), self.name("gocache"), check=False)
-        for app in ("api", "worker"):                        # images built from the tree (build cache is kept)
+        for app in ("api", "worker", "idp"):                 # images built from the tree (build cache is kept)
             self.docker("image", "rm", "-f", f"{self.prefix}-{app}:e2e", check=False)
         if self.work.exists():
             self.helper("rm -rf /w/* /w/.[!.]* 2>/dev/null || true", f"{self.work}:/w")

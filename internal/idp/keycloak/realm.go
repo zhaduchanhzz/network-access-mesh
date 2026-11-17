@@ -16,9 +16,12 @@ import (
 // builtinClients are created by Keycloak in every realm; anything else outside the template is reported as unmanaged.
 var builtinClients = []string{"account", "account-console", "admin-cli", "broker", "realm-management", "security-admin-console"}
 
-// realmSkip: template keys reconciled through their own endpoints (or identity: realm).
+// realmSkip: template keys reconciled through their own endpoints (or identity: realm). authenticatorConfig (the amr
+// references of the browser flow — G2 round 2, A-6) is created with the realm and not reconciled: a missing one
+// shows as a platform login refused for lack of MFA evidence; infrastructure/idp/realm-update.sh repairs it.
 var realmSkip = map[string]bool{"realm": true, "clients": true, "users": true, "authenticationFlows": true,
-	"requiredActions": true, "clientScopeMappings": true, "scopeMappings": true, "attributes": true}
+	"requiredActions": true, "clientScopeMappings": true, "scopeMappings": true, "attributes": true,
+	"authenticatorConfig": true}
 
 func (d *Driver) params(reg idp.Registration, realm, display string) realmParams {
 	return realmParams{Realm: realm, DisplayName: display, Scope: reg.Scope, IdPID: reg.IdPID, RedirectURI: d.redirectURI(reg)}
@@ -310,7 +313,8 @@ func (d *Driver) reconcileFlow(ctx context.Context, op string, ts tokenSource, r
 }
 
 // reconcileRequiredActions sets enabled/defaultAction of the template's required actions back (CONFIGURE_TOTP must stay
-// enabled and a default action); a missing action is drift.
+// enabled and a default action) and their configuration (max_auth_age = 0: changing a password or a second factor
+// from the account console always re-authenticates — G2 round 2, A-4); a missing action is drift.
 func (d *Driver) reconcileRequiredActions(ctx context.Context, op string, ts tokenSource, realm string, rep map[string]any) ([]string, error) {
 	var live []map[string]any
 	if _, _, err := d.call(ctx, op, ts, http.MethodGet, realmSub(realm, "authentication", "required-actions"), nil, &live); err != nil {
@@ -329,15 +333,28 @@ func (d *Driver) reconcileRequiredActions(ctx context.Context, op string, ts tok
 		if l == nil {
 			return changes, idp.NewError(idp.CodeDrift, op, "required_action_missing", nil)
 		}
-		if l["enabled"] == wm["enabled"] && l["defaultAction"] == wm["defaultAction"] {
-			continue
+		if l["enabled"] != wm["enabled"] || l["defaultAction"] != wm["defaultAction"] {
+			upd := deepCopy(l)
+			upd["enabled"], upd["defaultAction"] = wm["enabled"], wm["defaultAction"]
+			if _, _, err := d.call(ctx, op, ts, http.MethodPut, realmSub(realm, "authentication", "required-actions", alias), upd, nil); err != nil {
+				return changes, err
+			}
+			changes = append(changes, joinChange("requiredAction", alias))
 		}
-		upd := deepCopy(l)
-		upd["enabled"], upd["defaultAction"] = wm["enabled"], wm["defaultAction"]
-		if _, _, err := d.call(ctx, op, ts, http.MethodPut, realmSub(realm, "authentication", "required-actions", alias), upd, nil); err != nil {
-			return changes, err
+		if want := asMap(wm["config"]); len(want) > 0 {
+			path := realmSub(realm, "authentication", "required-actions", alias, "config")
+			var cfg map[string]any
+			if _, _, err := d.call(ctx, op, ts, http.MethodGet, path, nil, &cfg); err != nil {
+				return changes, err
+			}
+			have := asMap(cfg["config"])
+			if merged, ch := mergeAttributes(want, have); len(ch) > 0 {
+				if _, _, err := d.call(ctx, op, ts, http.MethodPut, path, map[string]any{"config": merged}, nil); err != nil {
+					return changes, err
+				}
+				changes = append(changes, joinChange("requiredAction", alias, "config"))
+			}
 		}
-		changes = append(changes, joinChange("requiredAction", alias))
 	}
 	return changes, nil
 }
