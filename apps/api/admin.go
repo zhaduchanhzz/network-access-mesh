@@ -6,14 +6,15 @@ package main
 //	                       Headscale over with a NEW API key read from stdin (`headscale apikeys create -e <ttl> -o json`)
 //	register-platform-idp  P2-T11: register the identity provider of the platform realm (MG_IDP_ID_PLATFORM)
 //	set-idp-client-secret  P2-T11: store the client secret of an IdP (stdin) and record its reference
+//	bootstrap-super-admin  P2-T11a: make (platform IdP, sub) a Super Admin while fewer than 2 active Super Admins exist
+//	seed-membership        P2-T11a: make (the tenant's IdP, sub) Tenant Owner or Tenant Admin of a tenant
 //
 // They run on the host beside the api service (`docker compose -p mg-core run --rm -T api admin …`), with the api's
 // configuration (database roles mg_api_*, kek-app keyring, edge admin listener): see infrastructure/host/RUNBOOK.md.
 // A credential is read from stdin only, and stdin must be a pipe — never a terminal (echo, history), never a file
 // (disk), never an argument or an environment variable. Nothing prints or logs a credential; the output names
-// references (mgsec://…) and public key prefixes.
-//
-// P2-T11a adds bootstrap-super-admin and seed-membership to adminCommands.
+// references (mgsec://…) and public key prefixes. bootstrap-super-admin and seed-membership take no credential: their
+// inputs are identifiers (the `sub` of an IdP user, a tenant slug, a role key).
 
 import (
 	"context"
@@ -70,8 +71,7 @@ type adminCommand struct {
 	run   func(ctx context.Context, args []string, aio adminIO) int
 }
 
-// adminCommands is the table of `meshguard admin` (P2-T11a adds its commands in init). Filled in init because the
-// commands print their own usage from it.
+// adminCommands is the table of `meshguard admin`. Filled in init because the commands print their own usage from it.
 var adminCommands map[string]adminCommand
 
 func init() {
@@ -83,6 +83,12 @@ func init() {
 			usage: "register-platform-idp   (MG_IDP_ID_PLATFORM, MG_BASE_DOMAIN)"},
 		"set-idp-client-secret": {run: runSetIdPClientSecret, usage: "set-idp-client-secret <idp id>\n" +
 			"      stdin: the client secret of mg-portal in the realm of that IdP"},
+		"bootstrap-super-admin": {run: runBootstrapSuperAdmin, usage: "bootstrap-super-admin --subject <sub> " +
+			"[--display-name <name>]   (MG_IDP_ID_PLATFORM)\n" +
+			"      only while fewer than 2 active Super Admins exist; <sub> = id of the user in the platform realm"},
+		"seed-membership": {run: runSeedMembership, usage: "seed-membership --tenant <slug|id> " +
+			"--role tenant_owner|tenant_admin --subject <sub> [--display-name <name>]\n" +
+			"      <sub> = id of the user in the tenant's own realm (its active identity provider)"},
 	}
 }
 

@@ -191,6 +191,110 @@ SQL
 
 Sự kiện audit đã ghi được giữ nguyên (append-only).
 
+## Super Admin đầu tiên và TO/TA của tenant A/B — `bootstrap-super-admin`, `seed-membership` (P2-T11a, chạy ở P2-T16)
+
+Tạo **hai** Super Admin đầu tiên (D-11: từ 2 người vận hành trở lên) theo `(IdP platform, sub)`, rồi gán Tenant Owner / Tenant Admin của `tenant-a` và `tenant-b` theo `(IdP của chính tenant, sub)` — không qua lời mời. Lần đăng nhập đầu của mỗi người khớp đúng hàng đã tạo theo `(idp_id, sub)`; **không bao giờ theo email** (§8.2). Từ Super Admin thứ ba trở đi chỉ qua API + 2P (`PUT /platform/users/{id}/super-admin-role`, P4-T03a): lệnh bootstrap tự từ chối khi đã có 2 SA đang hoạt động. Thiết kế và phép thử: [P2-T11a](../../docs/planning/evidence/P2-T11a.md).
+
+### Điều kiện
+
+- Đã xong mục "Đưa tenant A/B vào registry" ở trên: service `api` của core compose, `register-platform-idp` đã chạy, tenant A/B đã adopt (IdP `active` của từng tenant), client secret của `mg-portal` đã nạp.
+- Mỗi người có tài khoản trong **đúng realm**: người vận hành nền tảng trong realm `platform`; TO/TA của A trong realm `tenant-a`, của B trong `tenant-b`. Tạo user (nếu chưa có) ở Admin Console của Keycloak (`https://auth.<domain>/admin/master/console/`, chỉ từ mạng quản trị): realm → Users → Add user (username, email, *Email verified*), Required actions `Update Password` + `Configure OTP`; tab Credentials → mật khẩu **tạm** (Temporary: On), trao cho người đó qua kênh riêng — người đó đổi mật khẩu và đăng ký TOTP ở lần đăng nhập đầu. Không gửi mật khẩu qua chat/ticket, không ghi vào repo hay `current.md`.
+- Nạp tham số như mục adopt: `cd ~/mg && eval "$(python3 tools/mgenv.py export infrastructure/environments/staging/staging.env)" && sudo -v` (cho `MG_IDP_ID_PLATFORM`).
+
+### 1. Tìm `sub` của từng người
+
+Với Keycloak, `sub` = **id của user** (UUID chữ thường, ví dụ `0f8fad5b-d9cb-469f-a165-70867728950e`) — không phải username, không phải email; lệnh từ chối mọi giá trị không phải UUID cho IdP driver `keycloak`.
+
+- **Cách 1 (khuyến nghị) — script chỉ đọc qua Admin REST:** `sudo bash infrastructure/idp/user-id.sh <realm> <username|email>` in mảng JSON `[{ "id": …, "username": …, "email": …, "enabled": … }]` của user khớp chính xác; `id` là `sub`. Script chạy `kcadm.sh get users` **bên trong** container `idp` bằng admin khởi tạo của realm `master`: mật khẩu được đọc trong container từ secret đã mount, chỉ nằm trong biến môi trường của tiến trình `kcadm` — không in ra, không có trong dòng lệnh (`ps`), không qua terminal, không ghi đĩa; token tạm của `kcadm` ở tmpfs của container, xóa khi thoát. `[]` = không có user đó trong realm (kiểm lại realm/username).
+- **Cách 2 — Admin Console:** realm → Users → chọn user → trường **ID** ở đầu trang chi tiết (người vận hành tự đăng nhập console; không chép mật khẩu admin ra terminal).
+- Đối chiếu với chính người đó (username/email họ dùng để đăng nhập) trước khi chạy lệnh — `sub` sai chỉ tạo một danh tính không ai đăng nhập vào được, nhưng `sub` của **người khác** sẽ trao quyền cho người khác.
+
+```bash
+uid() {  # uid <realm> <username|email> → sub (lỗi nếu không đúng 1 user)
+  sudo bash infrastructure/idp/user-id.sh "$1" "$2" \
+    | python3 -c 'import json,sys; u=json.load(sys.stdin); assert len(u) == 1, f"{len(u)} user"; print(u[0]["id"])'
+}
+SA1=$(uid platform <username người vận hành 1>); SA2=$(uid platform <username người vận hành 2>)
+TOA=$(uid tenant-a <username TO của A>); TAA=$(uid tenant-a <username TA của A>)
+TOB=$(uid tenant-b <username TO của B>); TAB=$(uid tenant-b <username TA của B>)
+echo "$SA1 $SA2 $TOA $TAA $TOB $TAB"    # sub không phải secret — ghi vào hồ sơ thay đổi
+```
+
+### 2. Hai Super Admin
+
+```bash
+CORE="sudo docker compose -p mg-core -f /opt/meshguard/core/compose.core.yaml"   # như mục adopt (tên theo P2-T16)
+$CORE run --rm --no-deps -T -e MG_IDP_ID_PLATFORM api admin bootstrap-super-admin --subject "$SA1" --display-name "<tên 1>"
+$CORE run --rm --no-deps -T -e MG_IDP_ID_PLATFORM api admin bootstrap-super-admin --subject "$SA2" --display-name "<tên 2>"
+```
+
+Kết quả mong đợi (lần 1 có cảnh báo vì mới 1 SA; lần 2 `active Super Admins: 2`, không cảnh báo):
+
+```text
+bootstrap-super-admin: platform identity provider <MG_IDP_ID_PLATFORM> (issuer https://auth.<domain>/realms/platform)
+  identity: <identity_id> (subject <sub>) — created
+  platform user: <platform_user_id> — super_admin, active — created
+  audit: platform.super_admin.bootstrap (actor_type system, request admin-<uuid>)
+  active Super Admins: 1 (this command refuses from 2 on)
+  WARNING: fewer than 2 active Super Admins — dual-control (2P) operations cannot be approved until the next one is bootstrapped
+OK
+```
+
+Chạy lại cùng `sub` ⇒ `already an active Super Admin: nothing changed` (mã 0, không ghi, không audit). Người thứ ba ⇒ mã 1 `bootstrap closed: 2 active Super Admins already …` — **không** ghi gì. Lệnh cũng từ chối: `sub` không phải UUID (`not a username or an e-mail`), `MG_IDP_ID_PLATFORM` thiếu hoặc là id IdP của một tenant, identity đã bị khóa, người đã là platform user với role/trạng thái khác (đổi role đi qua API). Hai lệnh chạy đồng thời cũng không vượt ngưỡng (khóa advisory trong cùng transaction với phép đếm).
+
+### 3. TO/TA của A và B
+
+```bash
+$CORE run --rm --no-deps -T api admin seed-membership --tenant tenant-a --role tenant_owner --subject "$TOA"
+$CORE run --rm --no-deps -T api admin seed-membership --tenant tenant-a --role tenant_admin --subject "$TAA"
+$CORE run --rm --no-deps -T api admin seed-membership --tenant tenant-b --role tenant_owner --subject "$TOB"
+$CORE run --rm --no-deps -T api admin seed-membership --tenant tenant-b --role tenant_admin --subject "$TAB"
+```
+
+```text
+seed-membership: tenant tenant-a (<tenant_id>), identity provider <MG_IDP_ID_TENANT_A> (issuer https://auth.<domain>/realms/tenant-a)
+  identity: <identity_id> (subject <sub>) — created
+  membership: <membership_id> — tenant_owner, active — created
+  audit: platform.identity.seed + tenant.membership.seed (actor_type system, request admin-<uuid>)
+OK
+```
+
+IdP luôn là IdP `active` của chính tenant trong registry (không chọn được IdP khác); `--tenant` nhận slug hoặc id. Chỉ nhận `tenant_owner`/`tenant_admin` (mã 2 với role khác — role platform chỉ qua `bootstrap-super-admin`/API). Chạy lại ⇒ `nothing changed`; membership đã có với role/trạng thái khác ⇒ mã 1, không đổi gì. Hai bước ghi (identity trên pool platform, membership trên pool tenant — không role nào ghi được cả hai bảng): nếu bước 2 lỗi, lệnh in `identity … created …; the membership was NOT created` — chạy lại lệnh để hoàn tất (identity không có membership không có quyền gì).
+
+### 4. Kiểm
+
+```bash
+$CORE exec -T postgres psql -U postgres -d meshguard <<'SQL'
+SELECT 'platform' AS scope, r.key AS role, pu.status, i.subject, i.display_name
+  FROM platform_users pu JOIN identities i ON i.id = pu.identity_id JOIN roles r ON r.id = pu.role_id
+UNION ALL
+SELECT t.slug, r.key, m.status, i.subject, i.display_name
+  FROM tenant_memberships m JOIN tenants t ON t.id = m.tenant_id JOIN identities i ON i.id = m.identity_id
+  JOIN roles r ON r.id = m.role_id
+ORDER BY 1, 2;
+SELECT occurred_at, action, tenant_id, resource_type, resource_id, actor_type, request_id
+  FROM audit_events WHERE action IN ('platform.super_admin.bootstrap', 'platform.identity.seed', 'tenant.membership.seed')
+  ORDER BY occurred_at;
+SQL
+```
+
+Mong đợi: đúng 2 dòng `platform | super_admin | active`, mỗi tenant 1 `tenant_owner` + 1 `tenant_admin`; mỗi lệnh đã ghi có sự kiện `actor_type = system` (sự kiện membership mang `tenant_id` của tenant — tenant thấy trong `GET /tenants/{t}/audit`). Đăng nhập thử: Super Admin tại `https://admin.<domain>` (`GET /api/v1/auth/session` ⇒ `platform_role: super_admin`, `GET /api/v1/platform/tenants` liệt kê A và B, route `/tenants/{A}/…` ⇒ 403 khi chưa có Support Access Grant); TO của A tại `https://app.<domain>` (`/auth/login?scope=tenant&tenant=tenant-a`) thấy A, mọi đường dẫn của B ⇒ 404. Ghi kết quả (sub, id, request id — không secret) vào `current.md` ở P2-T16.
+
+### Hoàn tác (chỉ trước go-live)
+
+Sau go-live **không** xóa tay: khóa/offboard qua API (P4). Trước go-live, gỡ đúng các danh tính vừa tạo (mỗi `sub` một lần; session của identity bị xóa dây chuyền; audit giữ nguyên — append-only). Gỡ Super Admin làm số SA hoạt động < 2 ⇒ lệnh bootstrap dùng lại được — đúng chủ đích (chỉ trước go-live).
+
+```bash
+IDP=$MG_IDP_ID_PLATFORM; SUB=$SA2      # SA; với TO/TA: IDP=$MG_IDP_ID_TENANT_A (hoặc _B), SUB=$TOA …
+$CORE exec -T postgres psql -U postgres -d meshguard -v ON_ERROR_STOP=1 -v idp="$IDP" -v sub="$SUB" <<'SQL'
+BEGIN;
+DELETE FROM tenant_memberships WHERE identity_id IN (SELECT id FROM identities WHERE idp_id = :'idp' AND subject = :'sub');
+DELETE FROM platform_users     WHERE identity_id IN (SELECT id FROM identities WHERE idp_id = :'idp' AND subject = :'sub');
+DELETE FROM identities WHERE idp_id = :'idp' AND subject = :'sub';
+COMMIT;
+SQL
+```
+
 ## VPS gateway `mg-gateway` — dựng lại từ repo (ADR-25, T-19)
 
 VPS không giữ khóa TLS hay dữ liệu tenant, nên dựng lại chỉ cần render từ repo. Lần diễn tập đo được 14,1 s từ `down` tới khi `/key` qua VPS trả 200 ([P1-T18](../../docs/planning/evidence/P1-T18.md)).
