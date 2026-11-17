@@ -149,9 +149,6 @@ var (
 // maxText bounds one string value of a payload.
 const maxText = 256
 
-// payloadReserved are the keys Enqueue adds itself.
-var payloadReserved = map[string]bool{"ref": true, "locale": true, "tenant_name": true, "tenant_slug": true}
-
 // validate checks the event against its kind and returns the payload to store (without the reserved keys).
 func (ev Event) validate() (map[string]any, error) {
 	sp, ok := specs[ev.Kind]
@@ -188,7 +185,7 @@ func (ev Event) validate() (map[string]any, error) {
 	}
 	for _, e := range ev.To.Emails {
 		if _, err := normalizeEmail(e); err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrInvalidEvent, err)
+			return nil, fmt.Errorf("%w: %w", ErrInvalidEvent, err)
 		}
 	}
 	out := make(map[string]any, len(ev.Payload))

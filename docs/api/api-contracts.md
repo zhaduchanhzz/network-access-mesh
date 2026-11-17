@@ -70,7 +70,7 @@ Quy ước của bảng: `{t}` là viết tắt của `{tenantId}`; trong các n
 | `platform/tenants` (tạo, suspend, resume, xóa); `platform/instances/{id}/<action>`; `platform/hosts`; `platform/jobs/{id}/retry`, `/cancel` | 3 | P3-T05, P3-T08, P3-T09; P3-T11, P3-T13, P3-T13a; P3-T04; P3-T05 |
 | `platform/approvals`; approvals (phạm vi tenant) | 3 | P3-T04a |
 | invitations | 3 | P3-T05a |
-| notifications (in-portal) | 3 | P3-T05b |
+| notifications (đọc); `POST /notifications/{id}/read` | 3; 4 | P3-T05b; P4-T04 |
 | relay; `platform/relay-regions` (đọc) | 3 | P3-T05c |
 | enrollment (gồm `instructions`) | 4 | P4-T06 |
 | policies | 4 | P4-T10 (lõi áp dụng: P3-T08a) |
@@ -223,7 +223,7 @@ Job được enqueue **trong cùng transaction** với thay đổi nghiệp vụ
 | `devices`, `policies`, `network`, `enrollment` | `headscale`, `tenants`, `audit`, `usage` (quota — P3-T06a) | lẫn nhau qua DB (chỉ gọi qua service interface) |
 | `provisioning` | `tenants`, `headscale`, `secrets`, `relay`, `idp`, `platform` (placement — bước 3), `policies` (baseline — bước 15), agent client | HTTP handler |
 | `relay`, `monitoring`, `usage` | `tenants` | `policies`, `devices` (chỉ đọc qua interface) |
-| `notifications` | `audit`, `store` | module nghiệp vụ (chỉ nhận sự kiện qua outbox) |
+| `notifications` | `audit`, `store`, `jobs` (enqueue `notification.send` trong transaction của sự kiện — P3-T05b) | module nghiệp vụ (chỉ nhận sự kiện qua outbox) |
 | `audit` | — | mọi module nghiệp vụ |
 | `httpapi` | Service interface của mọi module nghiệp vụ; `authz`, `identity` | `headscale` trực tiếp; truy vấn DB trực tiếp |
 | `authz` | — (chỉ module nền) | `headscale`, `provisioning`, module nghiệp vụ |

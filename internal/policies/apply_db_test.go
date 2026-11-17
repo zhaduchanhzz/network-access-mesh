@@ -18,7 +18,7 @@ import (
 
 func fixtureText(t *testing.T, name string) string {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join("..", "..", "infrastructure", "headscale", "templates", name))
+	b, err := os.ReadFile(filepath.Join("..", "..", "infrastructure", "headscale", "templates", name)) //nolint:gosec // G304: fixture of the repository
 	if err != nil {
 		t.Fatal(err)
 	}

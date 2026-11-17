@@ -6,6 +6,7 @@ package smtptest
 
 import (
 	"bufio"
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -74,7 +75,7 @@ func New(t testing.TB, opts Options) *Server {
 	if opts.StartTLS || opts.Implicit {
 		s.tls, s.Roots = selfSigned(t)
 	}
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,9 +129,11 @@ func (s *Server) session(c net.Conn) {
 	defer func() { _ = c.Close() }()
 	_ = c.SetDeadline(time.Now().Add(30 * time.Second))
 	encrypted := false
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 	if s.opts.Implicit {
 		tc := tls.Server(c, s.tls)
-		if err := tc.Handshake(); err != nil {
+		if err := tc.HandshakeContext(ctx); err != nil {
 			return
 		}
 		c, encrypted = tc, true
@@ -170,7 +173,7 @@ func (s *Server) session(c net.Conn) {
 			}
 			say("220 go ahead")
 			tc := tls.Server(c, s.tls)
-			if err := tc.Handshake(); err != nil {
+			if err := tc.HandshakeContext(ctx); err != nil {
 				return
 			}
 			c, encrypted = tc, true

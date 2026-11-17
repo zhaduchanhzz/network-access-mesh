@@ -95,7 +95,7 @@ func TestLintCanonicalRendering(t *testing.T) {
 // the allow fixture keeps its single grant.
 func TestLintRepositoryFixtures(t *testing.T) {
 	for _, name := range []string{"bootstrap-policy.hujson", "test-allow-intra.hujson"} {
-		b, err := os.ReadFile(filepath.Join("..", "..", "infrastructure", "headscale", "templates", name))
+		b, err := os.ReadFile(filepath.Join("..", "..", "infrastructure", "headscale", "templates", name)) //nolint:gosec // G304: fixture of the repository
 		if err != nil {
 			t.Fatal(err)
 		}

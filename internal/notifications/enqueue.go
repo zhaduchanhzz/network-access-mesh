@@ -262,7 +262,7 @@ func resolve(ctx context.Context, q *sqlcdb.Queries, tenantID *uuid.UUID, a Audi
 	for _, raw := range emails {
 		e, err := normalizeEmail(raw)
 		if err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrInvalidEvent, err)
+			return nil, fmt.Errorf("%w: %w", ErrInvalidEvent, err)
 		}
 		if seen[strings.ToLower(e)] {
 			continue

@@ -14,18 +14,25 @@
   E2E-35  P3-T03a prober container: non-root, read-only, cap_drop ALL, no-new-privileges, no published port, only the
           edge and admin networks, healthy; a caller outside the allow-list ⇒ caller_not_allowed; a token in a probed
           path is redacted in the prober's log
+  E2E-36  P3-T08a policy core through `meshguard-worker admin policy-apply` in the running worker (its Locator, the
+          edge admin listener): an empty policy and one without "grants" exit 3 (lint) and leave Headscale unchanged;
+          the allow fixture (stdin) is applied — read-back sha256 = applied_sha256 = sha256 of `headscale policy get`
+          (its one trailing newline removed, RT-15) — and enforced (a1 sees a2, TCP 8000 connects); the deny-all
+          baseline applied the same way ends the case (a1 has no peer); the register holds the versions, the
+          applications and the audit pairs
 Standard library only. The pre-auth key never passes through this process: the Go helper writes it to a 0600 file
 that only the client containers mount.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import secrets
 import string
 
 import checks
-from stack import ENV_DIR, SECRET_RE, TENANTS, Stack
+from stack import ENV_DIR, ROOT, SECRET_RE, TENANTS, Stack
 
 ENROLL_SLUG = "tenant-a"
 ENROLL_USER = "mg-e2e-enroll"
@@ -228,8 +235,80 @@ def check_prober_container(r, st: Stack) -> None:
           hard and guard and redacted, "; ".join(rows))
 
 
+# ---------------------------------------------------------------------------------------------------- E2E-36
+POLICY_SLUG = "tenant-a"
+
+
+def policy_apply(st: Stack, text: str, *extra: str):
+    """`meshguard admin policy-apply` inside the running worker container, the policy on stdin (a pipe)."""
+    worker = st.compose("ps", "-q", "worker").stdout.strip()
+    p = st.docker("exec", "-i", worker, "/usr/local/bin/meshguard", "admin", "policy-apply", "--tenant", POLICY_SLUG,
+                  *extra, "--file", "-", check=False, timeout=180, input=text)
+    out = {}
+    for line in p.stdout.splitlines():
+        if line.startswith("{"):
+            out = json.loads(line)
+    return p.returncode, out, st.redact(p.stderr)
+
+
+def stored_sha(st: Stack) -> str:
+    """sha256 of the policy Headscale stores, from the CLI (which prints it with one trailing newline — RT-15)."""
+    got = st.headscale(POLICY_SLUG, "policy", "get").stdout
+    if got.endswith("\n"):
+        got = got[:-1]
+    return hashlib.sha256(got.encode("utf-8")).hexdigest()
+
+
+def check_policy_apply(r, st: Stack) -> None:
+    templates = ROOT / "infrastructure" / "headscale" / "templates"
+    allow = (templates / "test-allow-intra.hujson").read_text(encoding="utf-8")
+    base = (templates / "bootstrap-policy.hujson").read_text(encoding="utf-8")
+    rows, ok = [], True
+    before = stored_sha(st)
+    for name, doc, rule in (("empty", "", "L2"), ("no grants", '{"ssh": []}', "L1")):
+        code, out, err = policy_apply(st, doc)
+        good = code == 3 and out.get("lint_rule") == rule and out.get("state") == "rejected"
+        ok &= good
+        rows.append(f"{name}: exit {code} {out.get('lint_rule')}")
+    unchanged = stored_sha(st) == before
+    ok &= unchanged
+    rows.append(f"Headscale unchanged after lint: {unchanged}")
+    code, out, err = policy_apply(st, allow)
+    applied = (code == 0 and out.get("state") == "applied" and out.get("readback_sha256") == out.get("applied_sha256")
+               and stored_sha(st) == out.get("applied_sha256"))
+    ok &= applied
+    rows.append(f"allow: exit {code} {out.get('state')} applied {str(out.get('applied_sha256'))[:16]}… "
+                f"read-back {str(out.get('readback_sha256'))[:16]}… CLI {stored_sha(st)[:16]}… {err[-200:] if code else ''}")
+    a1 = checks.wait_peer_count(st, "a1", 1, 90)
+    a2 = checks.status(st, "a2")
+    answer = checks.tcp(st, "a1", checks.ip4(a2["Self"]), checks.ALLOWED_PORT) if a1 else ""
+    enforced = a1 is not None and "a2" in answer
+    ok &= enforced
+    rows.append(f"enforced: a1 peers {len(checks.peers(a1)) if a1 else '?'}, tcp a1→a2:8000 {answer or 'no connection'}")
+    code, out, err = policy_apply(st, base, "--trigger", "bootstrap")
+    denied = code == 0 and out.get("state") == "applied" and checks.wait_peer_count(st, "a1", 0, 90) is not None
+    ok &= denied
+    rows.append(f"baseline: exit {code} {out.get('state')}, a1 without peer {denied}")
+    sql = ("SELECT (SELECT count(*) FROM policy_versions v JOIN tenants t ON t.id = v.tenant_id WHERE t.slug = 'tenant-a'), "
+           "(SELECT count(*) FROM policy_applications a JOIN tenants t ON t.id = a.tenant_id WHERE t.slug = 'tenant-a' "
+           "AND a.state = 'applied'), "
+           "(SELECT count(*) FROM policy_applications a JOIN tenants t ON t.id = a.tenant_id WHERE t.slug = 'tenant-a' "
+           "AND a.state = 'applied' AND a.superseded_at IS NULL), "
+           "(SELECT count(*) FROM audit_events e JOIN tenants t ON t.id = e.tenant_id WHERE t.slug = 'tenant-a' "
+           "AND e.action IN ('policy.apply.requested', 'policy.apply.succeeded', 'policy.lint_rejected'))")
+    counts = st.exec("postgres", "psql", "-U", "postgres", "-d", "meshguard", "-tAF", "|", "-v", "ON_ERROR_STOP=1",
+                     "-c", sql).stdout.strip()
+    register = counts == "2|2|1|6"
+    ok &= register
+    rows.append(f"register versions|applied|current|audit = {counts}")
+    r.add("E2E-36", "P3-T08a lõi policy qua `meshguard admin policy-apply` trong worker: lint L1/L2 chặn (exit 3), fixture "
+          "allow áp qua edge admin ⇒ sha256 đọc lại khớp + thực thi (TCP 8000), baseline deny-all áp lại", ok,
+          "; ".join(rows))
+
+
 def run_all(r, st: Stack, guarded) -> None:
     guarded(r, "E2E-32", check_enroll, st)
     guarded(r, "E2E-33", check_prober_stun, st)
     guarded(r, "E2E-34", check_prober_https, st)
     guarded(r, "E2E-35", check_prober_container, st)
+    guarded(r, "E2E-36", check_policy_apply, st)
