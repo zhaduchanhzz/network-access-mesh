@@ -141,7 +141,16 @@ type harness struct {
 	rec                *recordingDriver
 	logs               *syncBuffer
 	gs                 *grpc.Server
+	served             chan struct{} // closed when the Serve goroutine of gs has returned
 	client             *agentclient.Client
+}
+
+// stop stops the current server and waits for its Serve goroutine to return. Serve closes its listener on the way out,
+// and a Unix listener unlinks its socket by PATH: returning only after Serve did means a later restart() cannot have
+// its new socket file removed by the old listener (a Serve started after Stop returns at once and closes it then).
+func (h *harness) stop() {
+	h.gs.Stop()
+	<-h.served
 }
 
 // env is the configuration of a test agent; mutate it before start.
@@ -232,8 +241,9 @@ func start(t *testing.T, inv agentspec.Inventory, peerUIDs []uint32, opts ...opt
 		t.Fatal(err)
 	}
 	gs := srv.grpcServer(cfg) // local: the goroutine must not read h.gs, which restart() replaces (data race)
-	h.gs = gs
-	go func() { _ = gs.Serve(l) }()
+	served := make(chan struct{})
+	h.gs, h.served = gs, served
+	go func() { _ = gs.Serve(l); close(served) }()
 	t.Cleanup(gs.Stop)
 	h.client = h.dial(t, cfg.TokenFile)
 	return h
