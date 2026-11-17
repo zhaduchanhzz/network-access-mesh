@@ -8,12 +8,12 @@ package store
 //
 // Each test database is created by the superuser, bootstrapped (database/bootstrap/superuser.sql) and migrated as
 // mg_migrator exactly like a deployment. Role passwords are derived from the superuser password (roles are
-// cluster-wide), set as SCRAM verifiers with SetRolePassword and handed to the code under test as password files.
+// cluster-wide — pgcluster.RolePassword, shared by every harness), set as SCRAM verifiers with SetRolePassword and
+// handed to the code under test as password files.
 
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"net/url"
 	"os"
@@ -23,6 +23,8 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/zhaduchanhzz/network-access-mesh/internal/store/storetest/pgcluster"
 )
 
 // loginRoles are every login role created by bootstrap and migrations (§6.1).
@@ -106,10 +108,7 @@ func (e *pgEnv) storeURL(db string) string {
 	return u.String()
 }
 
-func (e *pgEnv) password(role string) string {
-	sum := sha256.Sum256([]byte("meshguard-test|" + e.secret + "|" + role))
-	return hex.EncodeToString(sum[:])
-}
+func (e *pgEnv) password(role string) string { return pgcluster.RolePassword(e.secret, role) }
 
 // passwordFile writes the derived password of role to a 0600 file (with a trailing newline, like a file secret).
 func (e *pgEnv) passwordFile(t *testing.T, role string) string {
@@ -158,21 +157,16 @@ func randomHex(n int) string {
 	return hex.EncodeToString(b)
 }
 
-// clusterLockKey is the advisory lock (taken in database postgres) that every test package migrating databases in
-// the shared cluster holds while it bootstraps, migrates and sets role passwords: `go test ./...` runs packages in
-// parallel, and concurrent CREATE ROLE / ALTER ROLE on the same cluster-wide role fail (duplicate key, "tuple
-// concurrently updated"). Same key in internal/secrets, internal/authz, internal/identity and
-// internal/store/storetest (storetest.ClusterLock; not imported here: import cycle) — keep them equal.
-const clusterLockKey int64 = 0x6d675f74657374 // "mg_test"
-
-// lockCluster takes the cluster lock; the returned function releases it. Lock order: e.mu first, then this lock.
+// lockCluster takes the cluster-wide lock of every test harness (pgcluster.Lock: database creation, bootstrap,
+// migrations and role passwords across the test packages sharing the cluster); the returned function releases it.
+// Lock order inside this package: e.mu first, then this lock.
 func (e *pgEnv) lockCluster(t *testing.T) (unlock func()) {
 	t.Helper()
-	c := e.connectAdmin(t, "postgres")
-	if _, err := c.Exec(ctxT(t), "SELECT pg_advisory_lock($1)", clusterLockKey); err != nil {
-		t.Fatalf("cluster lock: %v", err)
+	release, err := pgcluster.Lock(ctxT(t), e.adminURL("postgres"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	return func() { _, _ = c.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", clusterLockKey) }
+	return release
 }
 
 // newDatabase creates a bootstrapped database migrated to version (0 = latest including River's schema, < 0 =

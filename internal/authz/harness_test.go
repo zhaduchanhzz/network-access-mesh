@@ -7,14 +7,13 @@ package authz
 //	MG_TEST_PG_REQUIRED=1 a missing URL fails the tests (CI) instead of skipping them
 //
 // The package gets one database, bootstrapped and migrated as mg_migrator with store.Migrate — which applies the
-// RBAC seed — exactly like a deployment. Role passwords are derived from the superuser password with the same
-// formula as internal/store's harness (roles are cluster-wide and both packages run in parallel under go test ./...),
-// and the creation holds the same cluster-wide advisory lock.
+// RBAC seed — exactly like a deployment. Role passwords are derived from the superuser password and the creation holds
+// the cluster-wide advisory lock, both shared by every harness of the repository (pgcluster.RolePassword,
+// pgcluster.Lock — roles are cluster-wide and the packages run in parallel under go test ./...).
 
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"fmt"
@@ -28,11 +27,8 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/store/storetest/pgcluster"
 )
-
-// clusterLockKey is the advisory lock of internal/store/harness_test.go: held on database postgres while a test
-// database is created, migrated and role passwords are set.
-const clusterLockKey int64 = 0x6d675f74657374 // "mg_test" (same key as internal/store and internal/secrets)
 
 var appLoginRoles = []string{"mg_api_tenant", "mg_worker_tenant", "mg_api_platform", "mg_worker_platform"}
 
@@ -97,11 +93,8 @@ func (e *pgEnv) storeURL(db string) string {
 	return u.String()
 }
 
-// password is the formula of internal/store's harness: both packages must set identical passwords.
-func (e *pgEnv) password(role string) string {
-	sum := sha256.Sum256([]byte("meshguard-test|" + e.secret + "|" + role))
-	return hex.EncodeToString(sum[:])
-}
+// password is the derivation shared by every harness (pgcluster.RolePassword): all packages set identical passwords.
+func (e *pgEnv) password(role string) string { return pgcluster.RolePassword(e.secret, role) }
 
 func (e *pgEnv) creds(role string) (store.Credentials, error) {
 	p := filepath.Join(e.pwDir, role)
@@ -128,16 +121,18 @@ func (e *pgEnv) database(t *testing.T) string {
 }
 
 func (e *pgEnv) create(ctx context.Context) (string, error) {
-	lock, err := pgx.Connect(ctx, e.adminURL("postgres"))
+	release, err := pgcluster.Lock(ctx, e.adminURL("postgres"))
 	if err != nil {
 		return "", err
 	}
-	defer func() { _ = lock.Close(ctx) }() // closing the session releases the advisory lock
-	if _, err := lock.Exec(ctx, "SELECT pg_advisory_lock($1)", clusterLockKey); err != nil {
+	defer release()
+	admin, err := pgx.Connect(ctx, e.adminURL("postgres"))
+	if err != nil {
 		return "", err
 	}
+	defer func() { _ = admin.Close(ctx) }()
 	name := "mga_" + randomHex(6)
-	if _, err := lock.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{name}.Sanitize()); err != nil {
+	if _, err := admin.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{name}.Sanitize()); err != nil {
 		return "", err
 	}
 	e.created = append(e.created, name)

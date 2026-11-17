@@ -7,15 +7,14 @@
 //	MG_TEST_PG_ADMIN_URL  superuser URL of a THROWAWAY cluster, e.g. postgres://postgres:<pw>@pg:5432/postgres?sslmode=disable
 //	MG_TEST_PG_REQUIRED=1 a missing URL fails the tests (CI) instead of skipping them
 //
-// Role passwords are derived from the superuser password exactly like internal/store's own harness, and database
-// creation takes the same cluster-wide advisory lock: roles are cluster-wide and `go test ./...` runs packages in
-// parallel against the same cluster.
+// Role passwords are derived (pgcluster.RolePassword) and database creation holds the cluster-wide advisory lock
+// (pgcluster.Lock) exactly like every other harness of the repository: roles are cluster-wide and `go test ./...` runs
+// packages in parallel against the same cluster.
 package storetest
 
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"net/url"
 	"os"
@@ -26,12 +25,8 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/store/storetest/pgcluster"
 )
-
-// ClusterLock is the advisory lock key (taken in database "postgres") that serialises database creation, role
-// creation and role password changes between the test processes sharing one cluster. internal/store's harness uses
-// the same key.
-const ClusterLock int64 = 0x6d675f74657374 // "mg_test"
 
 // loginRoles are the login roles whose passwords the harness sets after migration (bootstrap roles excluded).
 var loginRoles = []string{
@@ -113,11 +108,8 @@ func (e *Env) URL(db string) string {
 	return u.String()
 }
 
-// Password returns the derived test password of role (the same derivation as internal/store's harness).
-func (e *Env) Password(role string) string {
-	sum := sha256.Sum256([]byte("meshguard-test|" + e.secret + "|" + role))
-	return hex.EncodeToString(sum[:])
-}
+// Password returns the derived test password of role (pgcluster.RolePassword, shared by every harness).
+func (e *Env) Password(role string) string { return pgcluster.RolePassword(e.secret, role) }
 
 // Creds writes the password of role to a 0600 file (with a trailing newline, like a file secret) and returns the
 // credentials naming it.
@@ -157,15 +149,16 @@ func (e *Env) NewDatabase(t testing.TB) string {
 	ctx := t.Context()
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	release, err := pgcluster.Lock(ctx, e.adminURL("postgres"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
 	admin, err := pgx.Connect(ctx, e.adminURL("postgres"))
 	if err != nil {
 		t.Fatalf("connect superuser: %v", err)
 	}
-	defer func() { _ = admin.Close(context.Background()) }() // also releases the session lock below
-	if _, err := admin.Exec(ctx, "SELECT pg_advisory_lock($1)", ClusterLock); err != nil {
-		t.Fatalf("cluster lock: %v", err)
-	}
-	defer func() { _, _ = admin.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", ClusterLock) }()
+	defer func() { _ = admin.Close(context.Background()) }()
 
 	b := make([]byte, 6)
 	_, _ = rand.Read(b)

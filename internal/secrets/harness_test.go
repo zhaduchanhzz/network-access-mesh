@@ -15,7 +15,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"log/slog"
 	"net/url"
@@ -31,11 +30,8 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/kit/logx"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store/sqlcdb"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/store/storetest/pgcluster"
 )
-
-// clusterLockKey must equal the key of internal/store/harness_test.go: every test package that migrates databases in
-// the shared cluster holds it while creating roles and setting their passwords (cluster-wide objects).
-const clusterLockKey int64 = 0x6d675f74657374 // "mg_test"
 
 // appRoles are the login roles of the application processes (migration 0001).
 var appRoles = []string{"mg_api_tenant", "mg_worker_tenant", "mg_api_platform", "mg_worker_platform"}
@@ -96,12 +92,9 @@ func (e *pgEnv) storeURL(db string) string {
 	return u.String()
 }
 
-// password derives a role password exactly like internal/store's harness (roles are cluster-wide: both packages set
-// the same value).
-func (e *pgEnv) password(role string) string {
-	sum := sha256.Sum256([]byte("meshguard-test|" + e.secret + "|" + role))
-	return hex.EncodeToString(sum[:])
-}
+// password derives a role password like every harness of the repository (pgcluster.RolePassword — roles are
+// cluster-wide: all packages set the same value).
+func (e *pgEnv) password(role string) string { return pgcluster.RolePassword(e.secret, role) }
 
 func (e *pgEnv) creds(t *testing.T, role string) store.Credentials {
 	t.Helper()
@@ -144,17 +137,19 @@ func randomHex(n int) string {
 	return hex.EncodeToString(b)
 }
 
-// newDB creates a database, bootstraps and migrates it like a deployment, and sets the role passwords.
+// newDB creates a database, bootstraps and migrates it like a deployment, and sets the role passwords — under the
+// cluster-wide lock shared by every test harness (pgcluster.Lock).
 func (e *pgEnv) newDB(t *testing.T) string {
 	t.Helper()
 	ctx := t.Context()
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	admin := e.connectAdmin(t, "postgres")
-	if _, err := admin.Exec(ctx, "SELECT pg_advisory_lock($1)", clusterLockKey); err != nil {
-		t.Fatalf("cluster lock: %v", err)
+	release, err := pgcluster.Lock(ctx, e.adminURL("postgres"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	defer func() { _, _ = admin.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", clusterLockKey) }()
+	defer release()
+	admin := e.connectAdmin(t, "postgres")
 
 	name := "mgsec_" + randomHex(6)
 	if _, err := admin.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{name}.Sanitize()); err != nil {

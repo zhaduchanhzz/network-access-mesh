@@ -130,13 +130,19 @@ make sqlc-diff   # như CI
 
 Không có `MG_TEST_PG_ADMIN_URL` thì test tích hợp được bỏ qua — trừ khi `MG_TEST_PG_REQUIRED=1` (CI đặt biến này,
 nên thiếu PostgreSQL là FAIL). CI (`.github/workflows/go.yml`) chạy PostgreSQL bằng service container pin theo digest.
-Cùng cách đó cho test tích hợp của `internal/secrets` (P2-T04) và `internal/authz` (P2-T07). Package khác cần
-PostgreSQL thật dùng harness chung `internal/store/storetest` (mỗi lần gọi một database mới đã bootstrap + `MigrateAll`).
+Cùng cách đó cho test tích hợp của `internal/secrets` (P2-T04), `internal/authz` (P2-T07) và `internal/identity`
+(P2-T06). Package khác cần PostgreSQL thật dùng harness chung `internal/store/storetest` (mỗi lần gọi một database mới
+đã bootstrap + `MigrateAll`) — như `internal/jobs` (P2-T12).
 
 **Nhiều package test dùng chung một cụm:** `go test ./...` chạy các package song song, mà role là đối tượng của cả
-cụm — hai package cùng bootstrap/migrate (`CREATE ROLE`) hoặc đặt mật khẩu role (`ALTER ROLE`) một lúc sẽ lỗi
-(`duplicate key … pg_authid_rolname_index`, `tuple concurrently updated`; đối chứng ở bằng chứng P2-T04). Harness của
-mọi package tạo database thử (`internal/store`, `internal/secrets`, `internal/authz`, `internal/jobs` qua `storetest`,
-…) phải giữ advisory lock phiên `pg_advisory_lock(0x6d675f74657374)` ("mg_test", lấy trong database `postgres`,
-`storetest.ClusterLock`) suốt lúc tạo database, bootstrap, migrate và đặt mật khẩu role, và sinh mật khẩu role theo
-cùng công thức dẫn xuất (`sha256("meshguard-test|" + mật khẩu superuser + "|" + role)`, dạng hex).
+cụm — hai package cùng bootstrap/migrate (`CREATE ROLE`, `GRANT` role) hoặc đặt mật khẩu role (`ALTER ROLE`) một lúc
+sẽ lỗi (`duplicate key … pg_authid_rolname_index`, `tuple concurrently updated`; đối chứng ở bằng chứng P2-T04,
+P2-T06). Hai quy tắc chung nằm ở **một** chỗ — package `internal/store/storetest/pgcluster` (lá, chỉ phụ thuộc `pgx`,
+để chính test của `internal/store` import được mà không vòng import):
+
+- `pgcluster.Lock` — giữ advisory lock phiên `pgcluster.LockKey` (`0x6d675f74657374`, "mg_test", lấy trong database
+  `postgres`) từ `CREATE DATABASE` tới khi đặt xong mật khẩu role (bootstrap, migrate, `SetRolePassword`);
+- `pgcluster.RolePassword` — mật khẩu role dẫn xuất `sha256("meshguard-test|" + mật khẩu superuser + "|" + role)`
+  (hex), nên package này đặt lại mật khẩu không làm hỏng đăng nhập của package khác.
+
+Harness mới (của package mới) phải dùng `storetest` hoặc hai hàm trên — không tự đặt khóa hay công thức khác.

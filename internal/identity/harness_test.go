@@ -7,15 +7,14 @@ package identity
 //
 // One database per test binary is created by the superuser, bootstrapped and migrated as mg_migrator exactly like a
 // deployment; tests isolate themselves with random tenants and IdPs. Role passwords are derived from the superuser
-// password with the same formula as the store harness (roles are cluster-wide) and only written when the derived one
-// does not work yet; the cluster-wide part of the setup holds the advisory lock shared with internal/store (both
-// packages run in parallel under go test) and is retried on transient catalog conflicts. Identifiers are exported
-// because the end-to-end tests live in the external package identity_test.
+// password like in every harness of the repository (pgcluster.RolePassword — roles are cluster-wide) and only written
+// when the derived one does not work yet; the cluster-wide part of the setup holds the advisory lock shared by every
+// harness (pgcluster.Lock — the packages run in parallel under go test) and is retried on transient catalog
+// conflicts. Identifiers are exported because the end-to-end tests live in the external package identity_test.
 
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -31,10 +30,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/store/storetest/pgcluster"
 )
-
-// clusterSetupLockKey must equal clusterLockKey of internal/store/harness_test.go (storetest.ClusterLock).
-const clusterSetupLockKey int64 = 0x6d675f74657374 // "mg_test"
 
 // apiAndWorkerRoles are the login roles the tests use (created by the migrations).
 var apiAndWorkerRoles = []string{"mg_api_tenant", "mg_api_platform", "mg_worker_tenant", "mg_worker_platform"}
@@ -88,7 +85,8 @@ func setupPG(raw string) (*PGEnv, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Retry on catalog conflicts with a test package that does not (yet) take the cluster lock.
+	// Retry on catalog conflicts with a process that does not take the cluster lock (every harness of this
+	// repository does — pgcluster.Lock).
 	var lastErr error
 	for attempt := 1; attempt <= 5; attempt++ {
 		e := &PGEnv{admin: u, secret: pw, pwDir: dir, DB: "mgt_identity_" + randomHex(6)}
@@ -124,16 +122,17 @@ func transientPG(err error) bool {
 func (e *PGEnv) setup() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
-	lock, err := pgx.Connect(ctx, e.adminURL("postgres"))
+	release, err := pgcluster.Lock(ctx, e.adminURL("postgres"))
+	if err != nil {
+		return err
+	}
+	defer release()
+	admin, err := pgx.Connect(ctx, e.adminURL("postgres"))
 	if err != nil {
 		return fmt.Errorf("connect superuser: %w", err)
 	}
-	defer func() { _ = lock.Close(context.Background()) }()
-	if _, err := lock.Exec(ctx, "SELECT pg_advisory_lock($1)", clusterSetupLockKey); err != nil {
-		return fmt.Errorf("cluster setup lock: %w", err)
-	}
-	defer func() { _, _ = lock.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", clusterSetupLockKey) }()
-	if _, err := lock.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{e.DB}.Sanitize()); err != nil {
+	defer func() { _ = admin.Close(context.Background()) }()
+	if _, err := admin.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{e.DB}.Sanitize()); err != nil {
 		return fmt.Errorf("create database: %w", err)
 	}
 	su, err := pgx.Connect(ctx, e.adminURL(e.DB))
@@ -217,11 +216,8 @@ func (e *PGEnv) storeURL(db string) string {
 	return u.String()
 }
 
-// password must stay identical to pgEnv.password of internal/store/harness_test.go.
-func (e *PGEnv) password(role string) string {
-	sum := sha256.Sum256([]byte("meshguard-test|" + e.secret + "|" + role))
-	return hex.EncodeToString(sum[:])
-}
+// password is the derivation shared by every harness (pgcluster.RolePassword).
+func (e *PGEnv) password(role string) string { return pgcluster.RolePassword(e.secret, role) }
 
 func (e *PGEnv) passwordFile(role string) (string, error) {
 	p := filepath.Join(e.pwDir, role)
