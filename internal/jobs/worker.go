@@ -247,10 +247,21 @@ func (w *Worker) acquire(ctx context.Context, k Kind, id uuid.UUID, queueJobID i
 	var rec sqlcdb.ProvisioningJob
 	err := w.bookkeep(ctx, func(ctx context.Context, tx *store.Tx) error {
 		var err error
-		rec, err = tx.Q.AcquireJob(ctx, sqlcdb.AcquireJobParams{TimeoutSecs: k.Timeout.Seconds(), ID: id, QueueJobID: queueJobID})
+		rec, err = acquireJob(ctx, tx.Q, id, queueJobID, k.Timeout.Seconds())
 		return err
 	})
 	return rec, err
+}
+
+// acquireJob is AcquireJob followed by MarkJobStarted in the caller's transaction. The first statement may wait for the
+// previous holder of the tenant's lock to commit (unique index on lock_key), so a timestamp computed inside it can be
+// older than that holder's finished_at; the second runs only once the lock is held, so started_at never precedes it.
+// ErrNoRows / 23505 come from the first statement, as before.
+func acquireJob(ctx context.Context, q *sqlcdb.Queries, id uuid.UUID, queueJobID int64, timeoutSecs float64) (sqlcdb.ProvisioningJob, error) {
+	if _, err := q.AcquireJob(ctx, sqlcdb.AcquireJobParams{ID: id, QueueJobID: queueJobID}); err != nil {
+		return sqlcdb.ProvisioningJob{}, err
+	}
+	return q.MarkJobStarted(ctx, sqlcdb.MarkJobStartedParams{ID: id, TimeoutSecs: timeoutSecs})
 }
 
 // startPeriodic records a periodic run (River periodic jobs have no business row yet) directly as running, or resumes
@@ -273,7 +284,7 @@ func (w *Worker) startPeriodic(ctx context.Context, k Kind, args queueArgs, queu
 		if err != nil {
 			return err
 		}
-		rec, err = tx.Q.AcquireJob(ctx, sqlcdb.AcquireJobParams{TimeoutSecs: k.Timeout.Seconds(), ID: active.ID, QueueJobID: queueJobID})
+		rec, err = acquireJob(ctx, tx.Q, active.ID, queueJobID, k.Timeout.Seconds())
 		return err
 	})
 	return rec, err

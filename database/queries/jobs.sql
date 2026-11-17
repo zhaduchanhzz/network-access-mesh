@@ -1,5 +1,11 @@
 -- Job nghiệp vụ (P2-T12, §6.3, §11.3, §13.5) — khung job ở internal/jobs. provisioning_jobs là read model của
 -- GET /jobs cho mọi job kind; River chỉ chở tham chiếu provisioning_jobs.id (+ kind).
+-- Đồng hồ: now() là thời điểm BẮT ĐẦU transaction, không phải lúc câu lệnh chạy; transaction chờ khóa (partial unique
+-- index lock_key) có thể bắt đầu sớm hơn lúc bên giữ khóa kết thúc. Mốc ghi LÚC TRẠNG THÁI ĐỔI (started_at, finished_at
+-- của job và step, và hạn timeout_at tính từ mốc đó) dùng clock_timestamp() — đồng hồ thực tại lúc câu lệnh chạy; riêng
+-- started_at của job đặt bằng câu lệnh riêng (MarkJobStarted) sau khi đã giữ khóa, vì AcquireJob có thể chờ bên giữ
+-- khóa commit ngay ở bước chèn index. Nhờ vậy khoảng chạy của hai job cùng khóa không chồng nhau trong DB. now() giữ
+-- ở nơi so sánh với ảnh chụp của chính transaction (reaper, idempotency_keys) và ở created_at mặc định.
 
 -- name: InsertJob :one
 -- Enqueue trong cùng transaction với thay đổi nghiệp vụ. ON CONFLICT DO NOTHING không chỉ định đích nên bắt cả
@@ -18,7 +24,7 @@ RETURNING *;
 -- nhận job; lượt cùng slot còn chưa kết thúc (trùng dedupe_key) ⇒ 0 hàng.
 INSERT INTO provisioning_jobs (kind, dedupe_key, status, attempt, max_attempts, queue_job_id, started_at, timeout_at)
 VALUES (sqlc.arg(kind), sqlc.arg(dedupe_key)::text, 'running', 1, sqlc.arg(max_attempts), sqlc.arg(queue_job_id)::bigint,
-        now(), now() + sqlc.arg(timeout_secs)::float8 * interval '1 second')
+        clock_timestamp(), clock_timestamp() + sqlc.arg(timeout_secs)::float8 * interval '1 second')
 ON CONFLICT DO NOTHING
 RETURNING *;
 
@@ -42,11 +48,21 @@ WHERE id = sqlc.arg(id);
 -- name: AcquireJob :one
 -- Worker nhận job: queued → running — đồng thời chiếm khóa chạy lifecycle: đụng partial unique index lock_key ⇒ 23505,
 -- job tự hoãn (snooze) rồi thử lại, không advisory lock (§11.3, §13.5 mục d) — hoặc running → running (lượt retry,
--- rescue của chính job queue đó). Chỉ job River đang chở job (queue_job_id) được chạy; timeout_at đặt ở lần nhận đầu.
+-- rescue của chính job queue đó). Chỉ job River đang chở job (queue_job_id) được chạy. Không đặt mốc thời gian ở đây:
+-- câu lệnh này có thể chờ bên giữ khóa commit ngay tại bước chèn index, nên mọi mốc tính trong câu lệnh có thể cũ hơn
+-- lúc bên giữ khóa kết thúc — MarkJobStarted (câu lệnh sau, trong cùng transaction) đặt started_at/timeout_at.
 UPDATE provisioning_jobs
-SET status = 'running', attempt = attempt + 1, started_at = COALESCE(started_at, now()),
-    timeout_at = COALESCE(timeout_at, now() + sqlc.arg(timeout_secs)::float8 * interval '1 second')
+SET status = 'running', attempt = attempt + 1
 WHERE id = sqlc.arg(id) AND queue_job_id = sqlc.arg(queue_job_id)::bigint AND status IN ('queued', 'running')
+RETURNING *;
+
+-- name: MarkJobStarted :one
+-- Sau AcquireJob, cùng transaction: started_at và timeout_at đặt ở lần nhận đầu (clock_timestamp() — chạy sau khi đã
+-- giữ khóa, tức sau lúc bên giữ khóa trước commit finished_at của nó).
+UPDATE provisioning_jobs
+SET started_at = COALESCE(started_at, clock_timestamp()),
+    timeout_at = COALESCE(timeout_at, clock_timestamp() + sqlc.arg(timeout_secs)::float8 * interval '1 second')
+WHERE id = sqlc.arg(id)
 RETURNING *;
 
 -- name: GetLockHolder :one
@@ -62,7 +78,7 @@ SET status        = sqlc.arg(to_status)::text,
     error         = sqlc.narg(error),
     resource_type = COALESCE(sqlc.narg(resource_type), resource_type),
     resource_id   = COALESCE(sqlc.narg(resource_id), resource_id),
-    finished_at   = CASE WHEN sqlc.arg(to_status)::text IN ('succeeded', 'failed', 'cancelled', 'rolled_back') THEN now() END
+    finished_at   = CASE WHEN sqlc.arg(to_status)::text IN ('succeeded', 'failed', 'cancelled', 'rolled_back') THEN clock_timestamp() END
 WHERE id = sqlc.arg(id) AND status = sqlc.arg(from_status)::text AND attempt = sqlc.arg(attempt)
 RETURNING *;
 
@@ -70,7 +86,7 @@ RETURNING *;
 -- Lỗi không phục hồi được của job nhóm lifecycle có compensation: running → compensating (vẫn giữ khóa chạy), hạn mới.
 UPDATE provisioning_jobs
 SET status = 'compensating', error = sqlc.arg(error),
-    timeout_at = now() + sqlc.arg(timeout_secs)::float8 * interval '1 second'
+    timeout_at = clock_timestamp() + sqlc.arg(timeout_secs)::float8 * interval '1 second'
 WHERE id = sqlc.arg(id) AND status = 'running' AND attempt = sqlc.arg(attempt)
 RETURNING *;
 
@@ -110,16 +126,16 @@ GROUP BY status;
 INSERT INTO provisioning_job_steps (tenant_id, job_id, seq, name, status, attempt, started_at)
 VALUES (sqlc.narg(tenant_id), sqlc.arg(job_id),
         (SELECT COALESCE(max(s.seq) + 1, 0) FROM provisioning_job_steps s WHERE s.job_id = sqlc.arg(job_id)),
-        sqlc.arg(name), 'running', 1, now())
+        sqlc.arg(name), 'running', 1, clock_timestamp())
 ON CONFLICT (job_id, name) DO UPDATE
-SET status = 'running', attempt = provisioning_job_steps.attempt + 1, started_at = now(), finished_at = NULL,
+SET status = 'running', attempt = provisioning_job_steps.attempt + 1, started_at = clock_timestamp(), finished_at = NULL,
     error_code = NULL
 WHERE provisioning_job_steps.status <> 'succeeded'
 RETURNING *;
 
 -- name: FinishJobStep :exec
 UPDATE provisioning_job_steps
-SET status = sqlc.arg(status)::text, finished_at = now(), error_code = sqlc.narg(error_code),
+SET status = sqlc.arg(status)::text, finished_at = clock_timestamp(), error_code = sqlc.narg(error_code),
     detail = COALESCE(sqlc.narg(detail), detail)
 WHERE job_id = sqlc.arg(job_id) AND name = sqlc.arg(name) AND status = 'running';
 

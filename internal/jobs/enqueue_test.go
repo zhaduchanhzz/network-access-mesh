@@ -165,7 +165,7 @@ func TestLifecycleLockSQL(t *testing.T) {
 	other := f.job(t, st, mustEnqueue(t, st, Spec{Kind: "instance.upgrade", TenantID: &f.b, InstanceID: &f.instB}).Job.ID)
 	acquire := func(ctx context.Context, j sqlcdb.ProvisioningJob, hold <-chan struct{}) error {
 		return st.WithPlatformJobTx(ctx, func(tx *store.Tx) error {
-			if _, err := tx.Q.AcquireJob(ctx, sqlcdb.AcquireJobParams{TimeoutSecs: 60, ID: j.ID, QueueJobID: *j.QueueJobID}); err != nil {
+			if _, err := acquireJob(ctx, tx.Q, j.ID, *j.QueueJobID, 60); err != nil {
 				return err
 			}
 			if hold != nil {

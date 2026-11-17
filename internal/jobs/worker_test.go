@@ -254,6 +254,7 @@ func TestLifecycleJobsNeverRunConcurrently(t *testing.T) {
 	}
 	t.Logf("handler calls with both tenants running at once: %d (the lock is per tenant)", together)
 	mu.Unlock()
+	const stamp = "15:04:05.000000"
 	for i, a := range jobs {
 		if a.Attempt != 1 {
 			t.Errorf("%s: attempt %d, want 1 (waiting for the lock spends no attempt)", a.Kind, a.Attempt)
@@ -263,7 +264,8 @@ func TestLifecycleJobsNeverRunConcurrently(t *testing.T) {
 		}
 		for _, b := range jobs[i+1:] {
 			if *a.TenantID == *b.TenantID && a.StartedAt.Before(*b.FinishedAt) && b.StartedAt.Before(*a.FinishedAt) {
-				t.Errorf("%s and %s of the same tenant were running at the same time", a.Kind, b.Kind)
+				t.Errorf("%s [%s, %s] and %s [%s, %s] of the same tenant were running at the same time", a.Kind,
+					a.StartedAt.Format(stamp), a.FinishedAt.Format(stamp), b.Kind, b.StartedAt.Format(stamp), b.FinishedAt.Format(stamp))
 			}
 		}
 	}

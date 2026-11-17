@@ -16,7 +16,6 @@ import (
 	dto "github.com/prometheus/client_model/go"
 
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
-	"github.com/zhaduchanhzz/network-access-mesh/internal/store/sqlcdb"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store/storetest"
 )
 
@@ -118,7 +117,7 @@ func TestKilledWorkerIsReaped(t *testing.T) {
 	// the lock stays with the reaped job: another lifecycle job of the tenant cannot start
 	next := f.job(t, st, mustEnqueue(t, f.api(t), Spec{Kind: "instance.reconfigure", TenantID: &f.a, InstanceID: &f.instA}).Job.ID)
 	err = st.WithPlatformJobTx(t.Context(), func(tx *store.Tx) error {
-		_, err := tx.Q.AcquireJob(t.Context(), sqlcdb.AcquireJobParams{TimeoutSecs: 60, ID: next.ID, QueueJobID: *next.QueueJobID})
+		_, err := acquireJob(t.Context(), tx.Q, next.ID, *next.QueueJobID, 60)
 		return err
 	})
 	if store.SQLConstraint(err) != lockIndex {
@@ -165,7 +164,7 @@ func TestReaperQueueLost(t *testing.T) {
 
 	started := f.job(t, st, mustEnqueue(t, api, Spec{Kind: "instance.restart", TenantID: &f.a, InstanceID: &f.instA}).Job.ID)
 	if err := st.WithPlatformJobTx(t.Context(), func(tx *store.Tx) error {
-		_, err := tx.Q.AcquireJob(t.Context(), sqlcdb.AcquireJobParams{TimeoutSecs: 600, ID: started.ID, QueueJobID: *started.QueueJobID})
+		_, err := acquireJob(t.Context(), tx.Q, started.ID, *started.QueueJobID, 600)
 		return err
 	}); err != nil {
 		t.Fatal(err)
