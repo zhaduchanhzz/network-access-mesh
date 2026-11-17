@@ -74,6 +74,22 @@ job, chạy cả khi worker khởi động — `RunOnStart`; hàng DEFAULT > 0 �
 retention: chưa làm (lần đầu cần sau ≥ 400 ngày — §6.4). `usage_records` (0016, P6-T11) thêm vào
 `store.PartitionedTables`.
 
+## Audit (P2-T08)
+
+Module `internal/audit` (bằng chứng: [`P2-T08.md`](../docs/planning/evidence/P2-T08.md)); truy vấn ở `queries/audit.sql`.
+
+- **Ba đường ghi**: `audit.Record(ctx, q, ev)` trong transaction nghiệp vụ (role ứng dụng, RLS kiểm tenant);
+  `Logger.RecordDetached` cho sự kiện `denied`/`failure` trên pool riêng `store.OpenAuditWriter` (role
+  `mg_audit_writer`: chỉ `INSERT` trên `audit_events`, không đọc lại — truy vấn `AppendAuditEvent` không `RETURNING`,
+  id sinh ở ứng dụng; tách khỏi hủy của request); `Logger.RecordCommitted` cho sự kiện báo sau commit (identity).
+- **CHECK `audit_events_operation_pair`** (0004): hậu tố `.requested`/`.succeeded` ⇔ có `operation_id` + `success`,
+  `.failed` ⇔ có `operation_id` + `failure`, sự kiện khác không mang `operation_id`. Index `(operation_id)` cho việc đóng
+  cặp và reconcile (`ListOpenOperations`).
+- **`security_events`**: `severity ∈ {low, medium, high, critical}`; chống trùng theo `details.dedupe_key` trong một
+  cửa sổ, tuần tự hóa bằng `pg_advisory_xact_lock` (khóa phạm vi transaction, chỉ quanh lệnh kiểm + chèn).
+- **Đọc**: `ListTenantAuditEvents` (điều kiện `tenant_id` tường minh + RLS pool tenant) và `ListPlatformAuditEvents`
+  (`tenant_id IS NULL` + RLS pool platform), cursor `(occurred_at, id)` — index `(tenant_id, occurred_at DESC, id DESC)`.
+
 ## Job queue (River) — P2-T12
 
 River v0.51.0 (`go.mod`, `versions.lock`) — bảng của queue ở schema riêng `river` (§6.3), không chứa dữ liệu nghiệp vụ
@@ -110,6 +126,8 @@ ngoài tham chiếu `provisioning_jobs.id` (+ kind) trong args. Bằng chứng: 
    rồi schema River (`store.MigrateQueue`) và quyền của nó; luôn có dump trước migration — P2-T03a.
 4. Tiến trình: `store.Open(ctx, store.Config{URL: "postgres://postgres:5432/meshguard?sslmode=…", Tenant: …,
    Platform: …})` — URL không chứa user/mật khẩu; mật khẩu đọc lại từ file ở mỗi kết nối mới (xoay không cần restart).
+   Đường audit detached (api và worker): `store.OpenAuditWriter(ctx, url, store.Credentials{User: "mg_audit_writer",
+   PasswordFile: …})` — mật khẩu trong `mg-sec-app` (§14.2); hàm từ chối role không phải chỉ-`INSERT`.
 
 Migration sau này: forward-only, expand → migrate → contract. Do `FORCE ROW LEVEL SECURITY`, chính owner
 (`mg_migrator`) cũng bị RLS lọc (không có policy cho nó ⇒ 0 hàng): migration dữ liệu phải tạm `NO FORCE` trong cùng
