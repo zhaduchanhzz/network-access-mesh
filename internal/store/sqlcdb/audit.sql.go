@@ -13,6 +13,59 @@ import (
 	"github.com/google/uuid"
 )
 
+const appendAuditEvent = `-- name: AppendAuditEvent :exec
+INSERT INTO audit_events (id, occurred_at, tenant_id, actor_type, actor_identity_id, support_grant_id, actor_ip, action,
+                          resource_type, resource_id, request_id, operation_id, target_tenant_id, actor_display,
+                          outcome, details)
+VALUES ($1, COALESCE($2::timestamptz, now()), $3, $4,
+        $5, $6, $7, $8,
+        $9, $10, $11, $12,
+        $13, $14, $15, $16)
+`
+
+type AppendAuditEventParams struct {
+	ID              uuid.UUID
+	OccurredAt      *time.Time
+	TenantID        *uuid.UUID
+	ActorType       string
+	ActorIdentityID *uuid.UUID
+	SupportGrantID  *uuid.UUID
+	ActorIp         *netip.Addr
+	Action          string
+	ResourceType    string
+	ResourceID      *string
+	RequestID       *string
+	OperationID     *uuid.UUID
+	TargetTenantID  *uuid.UUID
+	ActorDisplay    *string
+	Outcome         string
+	Details         []byte
+}
+
+// Mọi đường ghi của internal/audit (P2-T08): id do ứng dụng sinh (UUIDv7), không RETURNING — role của đường detached
+// (mg_audit_writer) chỉ có INSERT, không đọc lại được. Pool tenant/platform: RLS như InsertAuditEvent.
+func (q *Queries) AppendAuditEvent(ctx context.Context, arg AppendAuditEventParams) error {
+	_, err := q.db.Exec(ctx, appendAuditEvent,
+		arg.ID,
+		arg.OccurredAt,
+		arg.TenantID,
+		arg.ActorType,
+		arg.ActorIdentityID,
+		arg.SupportGrantID,
+		arg.ActorIp,
+		arg.Action,
+		arg.ResourceType,
+		arg.ResourceID,
+		arg.RequestID,
+		arg.OperationID,
+		arg.TargetTenantID,
+		arg.ActorDisplay,
+		arg.Outcome,
+		arg.Details,
+	)
+	return err
+}
+
 const auditEventPartition = `-- name: AuditEventPartition :one
 SELECT tableoid::regclass::text AS partition_name
 FROM audit_events
@@ -30,6 +83,37 @@ func (q *Queries) AuditEventPartition(ctx context.Context, arg AuditEventPartiti
 	var partition_name string
 	err := row.Scan(&partition_name)
 	return partition_name, err
+}
+
+const countCrossTenantDenials = `-- name: CountCrossTenantDenials :one
+SELECT count(*) AS denials, count(DISTINCT target_tenant_id) AS targets
+FROM audit_events
+WHERE tenant_id IS NOT DISTINCT FROM $1::uuid
+  AND actor_identity_id = $2::uuid
+  AND outcome = 'denied'
+  AND target_tenant_id IS NOT NULL AND target_tenant_id IS DISTINCT FROM tenant_id
+  AND occurred_at >= now() - make_interval(secs => $3::float8)
+`
+
+type CountCrossTenantDenialsParams struct {
+	TenantID        *uuid.UUID
+	ActorIdentityID uuid.UUID
+	WindowSeconds   float64
+}
+
+type CountCrossTenantDenialsRow struct {
+	Denials int64
+	Targets int64
+}
+
+// Quy tắc chuỗi từ chối chéo tenant (§8.8, P2-T08): số lần một actor bị từ chối trên một tenant khác tenant của nó trong
+// cửa sổ window_seconds (đồng hồ DB) và số tenant đích khác nhau. Chạy trong phạm vi của chính actor: pool tenant với
+// tenant của actor, hoặc pool platform khi actor là nhân sự nền tảng (tenant_id NULL).
+func (q *Queries) CountCrossTenantDenials(ctx context.Context, arg CountCrossTenantDenialsParams) (CountCrossTenantDenialsRow, error) {
+	row := q.db.QueryRow(ctx, countCrossTenantDenials, arg.TenantID, arg.ActorIdentityID, arg.WindowSeconds)
+	var i CountCrossTenantDenialsRow
+	err := row.Scan(&i.Denials, &i.Targets)
+	return i, err
 }
 
 const insertAuditEvent = `-- name: InsertAuditEvent :one
@@ -126,21 +210,27 @@ func (q *Queries) InsertSecurityEvent(ctx context.Context, arg InsertSecurityEve
 	return i, err
 }
 
-const listTenantAuditEvents = `-- name: ListTenantAuditEvents :many
-SELECT id, occurred_at, tenant_id, actor_type, actor_identity_id, support_grant_id, actor_ip, action, resource_type, resource_id, request_id, operation_id, target_tenant_id, actor_display, outcome, details, prev_hash, hash FROM audit_events
-WHERE tenant_id = $1 AND occurred_at >= $2
-ORDER BY occurred_at DESC, id DESC
+const listOpenOperations = `-- name: ListOpenOperations :many
+SELECT id, occurred_at, tenant_id, actor_type, actor_identity_id, support_grant_id, actor_ip, action, resource_type, resource_id, request_id, operation_id, target_tenant_id, actor_display, outcome, details, prev_hash, hash FROM audit_events r
+WHERE r.tenant_id IS NOT DISTINCT FROM $1::uuid
+  AND r.operation_id IS NOT NULL AND r.action LIKE '%.requested'
+  AND r.occurred_at < now() - make_interval(secs => $2::float8)
+  AND NOT EXISTS (SELECT 1 FROM audit_events f WHERE f.operation_id = r.operation_id
+                    AND (f.action LIKE '%.succeeded' OR f.action LIKE '%.failed'))
+ORDER BY r.occurred_at, r.id
 LIMIT $3
 `
 
-type ListTenantAuditEventsParams struct {
-	TenantID *uuid.UUID
-	Since    time.Time
-	RowLimit int32
+type ListOpenOperationsParams struct {
+	TenantID         *uuid.UUID
+	OlderThanSeconds float64
+	RowLimit         int32
 }
 
-func (q *Queries) ListTenantAuditEvents(ctx context.Context, arg ListTenantAuditEventsParams) ([]AuditEvent, error) {
-	rows, err := q.db.Query(ctx, listTenantAuditEvents, arg.TenantID, arg.Since, arg.RowLimit)
+// *.requested chưa có sự kiện kết quả, cũ hơn older_than_seconds — tiến trình chết giữa chừng (§6.1), đầu vào của
+// reconcile. Phạm vi: tenant_id tường minh (NULL = platform) + RLS.
+func (q *Queries) ListOpenOperations(ctx context.Context, arg ListOpenOperationsParams) ([]AuditEvent, error) {
+	rows, err := q.db.Query(ctx, listOpenOperations, arg.TenantID, arg.OlderThanSeconds, arg.RowLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -176,4 +266,212 @@ func (q *Queries) ListTenantAuditEvents(ctx context.Context, arg ListTenantAudit
 		return nil, err
 	}
 	return items, nil
+}
+
+const listPlatformAuditEvents = `-- name: ListPlatformAuditEvents :many
+SELECT id, occurred_at, tenant_id, actor_type, actor_identity_id, support_grant_id, actor_ip, action, resource_type, resource_id, request_id, operation_id, target_tenant_id, actor_display, outcome, details, prev_hash, hash FROM audit_events
+WHERE tenant_id IS NULL
+  AND occurred_at >= $1::timestamptz AND occurred_at < $2::timestamptz
+  AND (occurred_at, id) < ($3::timestamptz, $4::uuid)
+  AND ($5::uuid IS NULL OR actor_identity_id = $5::uuid)
+  AND ($6::text IS NULL OR action = $6::text)
+  AND ($7::text IS NULL OR outcome = $7::text)
+ORDER BY occurred_at DESC, id DESC
+LIMIT $8
+`
+
+type ListPlatformAuditEventsParams struct {
+	FromAt   time.Time
+	ToAt     time.Time
+	BeforeAt time.Time
+	BeforeID uuid.UUID
+	Actor    *uuid.UUID
+	Action   *string
+	Outcome  *string
+	RowLimit int32
+}
+
+// GET /platform/audit (P2-T08): chỉ sự kiện platform (tenant_id NULL — §6.3 "P (sự kiện platform)", §8.5), cùng thứ
+// tự và bộ lọc như ListTenantAuditEvents; RLS của pool platform cũng chỉ để lộ hàng tenant_id NULL.
+func (q *Queries) ListPlatformAuditEvents(ctx context.Context, arg ListPlatformAuditEventsParams) ([]AuditEvent, error) {
+	rows, err := q.db.Query(ctx, listPlatformAuditEvents,
+		arg.FromAt,
+		arg.ToAt,
+		arg.BeforeAt,
+		arg.BeforeID,
+		arg.Actor,
+		arg.Action,
+		arg.Outcome,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AuditEvent{}
+	for rows.Next() {
+		var i AuditEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.OccurredAt,
+			&i.TenantID,
+			&i.ActorType,
+			&i.ActorIdentityID,
+			&i.SupportGrantID,
+			&i.ActorIp,
+			&i.Action,
+			&i.ResourceType,
+			&i.ResourceID,
+			&i.RequestID,
+			&i.OperationID,
+			&i.TargetTenantID,
+			&i.ActorDisplay,
+			&i.Outcome,
+			&i.Details,
+			&i.PrevHash,
+			&i.Hash,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listTenantAuditEvents = `-- name: ListTenantAuditEvents :many
+SELECT id, occurred_at, tenant_id, actor_type, actor_identity_id, support_grant_id, actor_ip, action, resource_type, resource_id, request_id, operation_id, target_tenant_id, actor_display, outcome, details, prev_hash, hash FROM audit_events
+WHERE tenant_id = $1::uuid
+  AND occurred_at >= $2::timestamptz AND occurred_at < $3::timestamptz
+  AND (occurred_at, id) < ($4::timestamptz, $5::uuid)
+  AND ($6::uuid IS NULL OR actor_identity_id = $6::uuid)
+  AND ($7::text IS NULL OR action = $7::text)
+  AND ($8::text IS NULL OR outcome = $8::text)
+ORDER BY occurred_at DESC, id DESC
+LIMIT $9
+`
+
+type ListTenantAuditEventsParams struct {
+	TenantID uuid.UUID
+	FromAt   time.Time
+	ToAt     time.Time
+	BeforeAt time.Time
+	BeforeID uuid.UUID
+	Actor    *uuid.UUID
+	Action   *string
+	Outcome  *string
+	RowLimit int32
+}
+
+// GET /tenants/{tenantId}/audit (P2-T08): sự kiện của một tenant, mới nhất trước, trang theo cursor (occurred_at, id)
+// (§13.1). Lớp 1: điều kiện tenant_id tường minh; lớp 2: RLS của pool tenant (chỉ tenant đang đặt). Không có giới hạn
+// thời gian thì ứng dụng truyền biên rất xa (from/to/before luôn có giá trị — giữ được partition pruning và index).
+func (q *Queries) ListTenantAuditEvents(ctx context.Context, arg ListTenantAuditEventsParams) ([]AuditEvent, error) {
+	rows, err := q.db.Query(ctx, listTenantAuditEvents,
+		arg.TenantID,
+		arg.FromAt,
+		arg.ToAt,
+		arg.BeforeAt,
+		arg.BeforeID,
+		arg.Actor,
+		arg.Action,
+		arg.Outcome,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AuditEvent{}
+	for rows.Next() {
+		var i AuditEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.OccurredAt,
+			&i.TenantID,
+			&i.ActorType,
+			&i.ActorIdentityID,
+			&i.SupportGrantID,
+			&i.ActorIp,
+			&i.Action,
+			&i.ResourceType,
+			&i.ResourceID,
+			&i.RequestID,
+			&i.OperationID,
+			&i.TargetTenantID,
+			&i.ActorDisplay,
+			&i.Outcome,
+			&i.Details,
+			&i.PrevHash,
+			&i.Hash,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockSecurityEventKey = `-- name: LockSecurityEventKey :exec
+SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))
+`
+
+// Tuần tự hóa việc chống trùng một security event theo khóa (khóa advisory phạm vi transaction, nhả khi commit/rollback).
+func (q *Queries) LockSecurityEventKey(ctx context.Context, dedupeKey string) error {
+	_, err := q.db.Exec(ctx, lockSecurityEventKey, dedupeKey)
+	return err
+}
+
+const operationState = `-- name: OperationState :one
+SELECT EXISTS (SELECT 1 FROM audit_events r WHERE r.operation_id = $1::uuid
+                 AND r.action LIKE '%.requested')::bool AS requested,
+       EXISTS (SELECT 1 FROM audit_events f WHERE f.operation_id = $1::uuid
+                 AND (f.action LIKE '%.succeeded' OR f.action LIKE '%.failed'))::bool AS finished
+`
+
+type OperationStateRow struct {
+	Requested bool
+	Finished  bool
+}
+
+// Trạng thái một cặp sự kiện (P2-T08): *.requested đã commit chưa, đã có *.succeeded/*.failed chưa (trong phạm vi RLS).
+func (q *Queries) OperationState(ctx context.Context, operationID uuid.UUID) (OperationStateRow, error) {
+	row := q.db.QueryRow(ctx, operationState, operationID)
+	var i OperationStateRow
+	err := row.Scan(&i.Requested, &i.Finished)
+	return i, err
+}
+
+const securityEventExists = `-- name: SecurityEventExists :one
+SELECT EXISTS (
+    SELECT 1 FROM security_events
+    WHERE tenant_id IS NOT DISTINCT FROM $1::uuid AND kind = $2
+      AND details ->> 'dedupe_key' = $3::text
+      AND occurred_at >= now() - make_interval(secs => $4::float8)
+)::bool AS found
+`
+
+type SecurityEventExistsParams struct {
+	TenantID      *uuid.UUID
+	Kind          string
+	DedupeKey     string
+	WindowSeconds float64
+}
+
+// Đã có security event cùng kind và cùng dedupe_key (trong details) trong window_seconds gần nhất chưa.
+func (q *Queries) SecurityEventExists(ctx context.Context, arg SecurityEventExistsParams) (bool, error) {
+	row := q.db.QueryRow(ctx, securityEventExists,
+		arg.TenantID,
+		arg.Kind,
+		arg.DedupeKey,
+		arg.WindowSeconds,
+	)
+	var found bool
+	err := row.Scan(&found)
+	return found, err
 }

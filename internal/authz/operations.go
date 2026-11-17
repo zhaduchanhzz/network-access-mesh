@@ -11,6 +11,7 @@ type Operation struct {
 	Method      string     // HTTP method, upper case
 	Path        string     // path template below /api/v1
 	Permission  Permission // x-permission: a matrix key or a special value
+	AuditAction string     // x-audit-action: audit_events.action of its denials and of its write events (P2-T08)
 	Secondary   Permission // x-permission-secondary (§8.4 invariant 4): checked by the service when it applies
 	OwnResource bool       // x-own-resource: a grant of scope own may call it, on the caller's own resources
 	DualControl bool       // x-dual-control: every caller needs a second approver (2P)

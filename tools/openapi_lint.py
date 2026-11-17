@@ -1380,12 +1380,14 @@ $$;
 
 
 def render_operations_go(spec: dict) -> str:
-    """internal/authz/operations_gen.go: x-permission, x-own-resource, x-dual-control and x-permission-secondary of
-    every operation, sorted by operationId (gofmt-clean: one composite literal per line, nothing to align)."""
+    """internal/authz/operations_gen.go: x-permission, x-audit-action, x-own-resource, x-dual-control and
+    x-permission-secondary of every operation, sorted by operationId (gofmt-clean: one composite literal per line,
+    nothing to align)."""
     rows = []
     for path, method, op, _ in sorted(operations(spec), key=lambda t: str(t[2].get("operationId"))):
         fields = [f"ID: {json.dumps(str(op.get('operationId', '')))}", f'Method: "{method.upper()}"',
-                  f"Path: {json.dumps(path)}", f"Permission: {json.dumps(str(op.get('x-permission', '')))}"]
+                  f"Path: {json.dumps(path)}", f"Permission: {json.dumps(str(op.get('x-permission', '')))}",
+                  f"AuditAction: {json.dumps(str(op.get('x-audit-action', '')))}"]
         if op.get("x-permission-secondary") is not None:
             fields.append(f"Secondary: {json.dumps(str(op['x-permission-secondary']))}")
         if op.get("x-own-resource") is True:
@@ -1400,7 +1402,7 @@ def render_operations_go(spec: dict) -> str:
 package authz
 
 // specOperations is the authorization contract of every operation of api/openapi.yaml (§13.1): x-permission,
-// x-own-resource, x-dual-control and x-permission-secondary, sorted by operationId.
+// x-audit-action, x-own-resource, x-dual-control and x-permission-secondary, sorted by operationId.
 var specOperations = []Operation{{
 {body}
 }}

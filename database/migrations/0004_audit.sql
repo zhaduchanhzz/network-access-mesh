@@ -51,19 +51,31 @@ CREATE TABLE audit_events (
     support_grant_id  uuid,
     actor_ip          inet,
     action            text        NOT NULL CHECK (length(action) BETWEEN 1 AND 200),
-    resource_type     text        NOT NULL,
-    resource_id       text,
+    resource_type     text        NOT NULL CHECK (length(resource_type) BETWEEN 1 AND 64),
+    resource_id       text        CHECK (length(resource_id) <= 200),
     request_id        text        CHECK (length(request_id) <= 200),
     operation_id      uuid,       -- nối *.requested với *.succeeded/*.failed
     target_tenant_id  uuid,       -- tenant trong path (từ chối chéo tenant — §6.1)
-    actor_display     text,
+    actor_display     text        CHECK (length(actor_display) <= 200),
     outcome           text        NOT NULL CHECK (outcome IN ('success', 'denied', 'failure')),
-    details           jsonb       NOT NULL DEFAULT '{}' CHECK (jsonb_typeof(details) = 'object'),
+    -- bảng append-only không dọn được: details có trần kích thước (P2-T08, internal/audit lọc nội dung trước khi ghi)
+    details           jsonb       NOT NULL DEFAULT '{}' CHECK (jsonb_typeof(details) = 'object' AND octet_length(details::text) <= 8192),
     prev_hash         bytea,      -- hash-chain theo tenant: Phase 6
     hash              bytea,
-    PRIMARY KEY (occurred_at, id)
+    PRIMARY KEY (occurred_at, id),
+    -- cặp sự kiện của thao tác gọi Headscale/job (§6.1, P2-T08): hậu tố .requested/.succeeded ⇔ operation_id + success,
+    -- .failed ⇔ operation_id + failure; mọi sự kiện khác không mang operation_id
+    CONSTRAINT audit_events_operation_pair CHECK (
+        CASE
+            WHEN action LIKE '%.requested' OR action LIKE '%.succeeded' THEN operation_id IS NOT NULL AND outcome = 'success'
+            WHEN action LIKE '%.failed' THEN operation_id IS NOT NULL AND outcome = 'failure'
+            ELSE operation_id IS NULL
+        END)
 ) PARTITION BY RANGE (occurred_at);
-CREATE INDEX audit_events_tenant_time_idx ON audit_events (tenant_id, occurred_at DESC);
+-- danh sách theo tenant, mới nhất trước, cursor (occurred_at, id) — §13.1
+CREATE INDEX audit_events_tenant_time_idx ON audit_events (tenant_id, occurred_at DESC, id DESC);
+-- tra cặp sự kiện theo operation_id (đóng cặp, reconcile *.requested còn mở)
+CREATE INDEX audit_events_operation_idx ON audit_events (operation_id) WHERE operation_id IS NOT NULL;
 
 -- append-only: REVOKE UPDATE/DELETE/TRUNCATE (không cấp) + trigger chặn cả owner. Retention chỉ bằng drop partition.
 -- +goose StatementBegin
@@ -106,10 +118,11 @@ GRANT INSERT ON audit_events TO mg_audit_writer;
 CREATE TABLE security_events (
     id              uuid        PRIMARY KEY DEFAULT uuidv7(),
     tenant_id       uuid,
-    kind            text        NOT NULL,
-    severity        text        NOT NULL,  -- tập giá trị chốt ở P2-T08 (§16.3)
-    source          text        NOT NULL,
-    details         jsonb       NOT NULL DEFAULT '{}' CHECK (jsonb_typeof(details) = 'object'),
+    kind            text        NOT NULL CHECK (kind ~ '^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$' AND length(kind) <= 100),
+    -- tập giá trị chốt ở P2-T08: thang mức của §16.3/§18
+    severity        text        NOT NULL CHECK (severity IN ('low', 'medium', 'high', 'critical')),
+    source          text        NOT NULL CHECK (source ~ '^[a-z][a-z0-9_.-]*$' AND length(source) <= 64),
+    details         jsonb       NOT NULL DEFAULT '{}' CHECK (jsonb_typeof(details) = 'object' AND octet_length(details::text) <= 8192),
     occurred_at     timestamptz NOT NULL DEFAULT now(),
     acknowledged_by uuid
 );
