@@ -173,7 +173,7 @@ export interface paths {
         };
         /**
          * Tổng quan của tenant — số liệu từ cache và health của instance
-         * @description Mỗi số kèm `synced_at`/`checked_at`; không có số liệu giả (§12.3, §16.4). Policy, route, relay và security event được bổ sung (cộng thêm) ở phase sau.
+         * @description Mỗi số kèm `synced_at`/`checked_at`; không có số liệu giả (§12.3, §16.4). Tenant chỉ lấy từ path; không nhận tham số truy vấn nào. Mục chưa có nguồn thật (policy, route, relay, security event; sổ thiết bị chưa từng sync) nằm trong `unavailable` kèm lý do — được bổ sung thành số liệu (cộng thêm) ở task xây nguồn của mục đó.
          */
         get: operations["getTenantDashboard"];
         put?: never;
@@ -446,7 +446,7 @@ export interface paths {
         };
         /**
          * Health tổng hợp của nền tảng
-         * @description Số liệu thật kèm `checked_at` (§12.2, §16.2); không có số liệu giả.
+         * @description Số liệu thật kèm `checked_at` (§12.2, §16.2); không có số liệu giả: thành phần chưa có probe được báo `unknown` kèm `reason`. Không chứa dữ liệu nội bộ của tenant (không có số thiết bị).
          */
         get: operations["getPlatformHealth"];
         put?: never;
@@ -567,6 +567,16 @@ export interface components {
          * @enum {string}
          */
         HealthStatus: "healthy" | "unhealthy" | "unknown";
+        /**
+         * @description Lý do ổn định khi `status` khác `healthy` — không bao giờ là thông điệp thô của Headscale (§13.4 quy tắc 5).
+         *     Kết quả probe: `instance_unavailable`, `circuit_open`, `database_unreachable`, `unsupported_version`,
+         *     `api_key_rejected`, `edge_rejected`, `not_located`, `upstream_rejected`, `incomplete_probe`, `internal`. Không có
+         *     kết luận: `no_instance`, `never_checked`, `stale`, `instance_not_running`, `invalid_record`. Thành phần nền
+         *     tảng: `no_heartbeat`, `heartbeat_stale`, `heartbeat_failed`, `no_probe`, `not_deployed`. Tập giá trị chỉ được
+         *     bổ sung (cộng thêm).
+         * @example instance_unavailable
+         */
+        HealthReason: string;
         /** @description Số lượng theo trạng thái */
         StatusCounts: {
             [key: string]: number;
@@ -725,9 +735,20 @@ export interface components {
              */
             synced_at: string | null;
         };
+        /** @description Mục của dashboard chưa có số liệu thật — báo "không khả dụng" kèm lý do thay vì số giả (§12.3, §16.4) */
+        UnavailableSection: {
+            /** @description Mục của dashboard — `devices`, `policies`, `routes`, `relay`, `security_events` (chỉ bổ sung) */
+            section: string;
+            /** @description `never_synced` (sổ thiết bị chưa từng sync — các số đếm của `devices` không phải số liệu), `no_source` (nền tảng chưa có nguồn cho mục này), `not_served` (có nguồn nhưng dashboard chưa phục vụ số liệu này) */
+            reason: string;
+            /** @description Câu giải thích ngắn (tiếng Anh) cho người đọc; phần ổn định là `reason` */
+            detail?: string;
+        };
+        /** @description Tổng quan của một tenant (§16.4): mọi số kèm thời điểm quan sát (`devices.synced_at`, `instance.checked_at`); mục chưa có nguồn thật nằm trong `unavailable` kèm lý do */
         TenantDashboard: {
             devices: components["schemas"]["DeviceCounts"];
             instance: components["schemas"]["InstanceHealth"];
+            unavailable: components["schemas"]["UnavailableSection"][];
         };
         /** @description Thiết bị (node của Headscale) trong sổ thiết bị của nền tảng (§13.3); dữ liệu cache kèm `synced_at` */
         Device: {
@@ -941,10 +962,12 @@ export interface components {
          * @enum {string}
          */
         InstanceStatus: "allocated" | "starting" | "running" | "stopped" | "failed" | "removed" | "quarantined";
+        /** @description Kết quả health probe gần nhất của instance qua adapter (`GET /version`, `GET /api/v1/health` — §16.2); `checked_at` là lúc probe bắt đầu, `null` khi chưa từng probe. Kết quả cũ hơn ngưỡng, hoặc instance không ở trạng thái `running`, cho `status = unknown` kèm `reason` */
         InstanceHealth: {
             status: components["schemas"]["HealthStatus"];
             /** Format: date-time */
             checked_at: string | null;
+            reason?: components["schemas"]["HealthReason"];
         };
         /** @description Headscale instance của một tenant (`tenant_instances`, §6.3) — không chứa secret */
         Instance: {
@@ -984,15 +1007,26 @@ export interface components {
             status: components["schemas"]["HealthStatus"];
             /** Format: date-time */
             checked_at: string | null;
+            reason?: components["schemas"]["HealthReason"];
         };
         TenantCounts: {
             total: number;
             by_status: components["schemas"]["StatusCounts"];
         };
+        /** @description Instance chưa `removed`: theo trạng thái, theo health (`healthy`/`unhealthy`/`unknown`, cùng quy tắc với `InstanceHealth`) và theo version Headscale báo ở lần probe gần nhất (`by_version` chỉ đếm instance đã báo version); `unhealthy` = `by_health.unhealthy` */
         InstanceCounts: {
             total: number;
             by_status: components["schemas"]["StatusCounts"];
             unhealthy: number;
+            by_health: components["schemas"]["StatusCounts"];
+            by_version: components["schemas"]["StatusCounts"];
+        };
+        /** @description Hàng đợi job của nền tảng (`provisioning_jobs`, §13.5) tại `checked_at`: `unfinished` = job chưa kết thúc theo trạng thái (`queued`, `running`, `compensating`, `failed_resumable`); `failed_last_24h` = job kết thúc `failed` hoặc `rolled_back` trong 24 giờ trước `checked_at` */
+        JobQueueHealth: {
+            /** Format: date-time */
+            checked_at: string;
+            unfinished: components["schemas"]["StatusCounts"];
+            failed_last_24h: number;
         };
         PlatformHealth: {
             /** Format: date-time */
@@ -1000,6 +1034,7 @@ export interface components {
             components: components["schemas"]["ComponentHealth"][];
             tenants: components["schemas"]["TenantCounts"];
             instances: components["schemas"]["InstanceCounts"];
+            jobs: components["schemas"]["JobQueueHealth"];
         };
     };
     responses: {

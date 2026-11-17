@@ -3,6 +3,8 @@
 // talks to it over HTTP. It keeps nodes and pre-auth keys in memory, answers in the wire format of 0.29.7 — including
 // the GetNode/ListNodes difference for tagged nodes (V-28) — and has switches for the failure modes of P2-T13: the
 // instance not answering, Headscale refusing a call, a write that is acknowledged but not applied (read-back mismatch).
+// It also answers the health checks of the monitoring probe (P2-T13a): GET /version with a settable version and
+// GET /api/v1/health with a settable database connectivity.
 // Test code only (internal/archtest keeps it out of the binaries).
 package devicestest
 
@@ -74,6 +76,9 @@ type Fake struct {
 	// ignore makes an acknowledged write a no-op: ExpireNode / DeleteNode / RenameNode answer success, change nothing.
 	ignore map[string]bool
 	now    func() time.Time
+	// version answered by GET /version; noDatabase makes GET /api/v1/health report no database connectivity.
+	version    string
+	noDatabase bool
 }
 
 // Operation names used by Refuse, Ignore and Calls.
@@ -85,6 +90,8 @@ const (
 	OpDeleteNode       = "DeleteNode"
 	OpListPreAuthKeys  = "ListPreAuthKeys"
 	OpExpirePreAuthKey = "ExpirePreAuthKey"
+	OpHealth           = "Health"
+	OpVersion          = "Version"
 )
 
 // New starts a fake instance for slug, closed when the test ends. Its credentials are generated per test.
@@ -93,7 +100,7 @@ func New(t testing.TB, slug string) *Fake {
 	f := &Fake{Slug: slug, EdgeToken: strings.Repeat("E", 20) + strings.ReplaceAll(uuid.NewString(), "-", "")[:20],
 		APIKey: "hskey-" + "api-" + "fakeprefix12" + "-" + strings.ReplaceAll(uuid.NewString(), "-", ""),
 		nodes:  map[uint64]*Node{}, keys: map[uint64]*Key{}, calls: map[string]int{}, refuse: map[string]bool{},
-		ignore: map[string]bool{}, now: time.Now}
+		ignore: map[string]bool{}, now: time.Now, version: "v0.29.7"}
 	f.Server = httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(f.Server.Close)
 	return f
@@ -162,6 +169,20 @@ func (f *Fake) SetDown(down bool) {
 	f.down = down
 }
 
+// SetVersion sets the version GET /version reports (default v0.29.7).
+func (f *Fake) SetVersion(v string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.version = v
+}
+
+// SetDatabase sets the database connectivity GET /api/v1/health reports (default true).
+func (f *Fake) SetDatabase(ok bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.noDatabase = !ok
+}
+
 // Refuse makes op answer a refusal (HTTP 500 with a gateway error body).
 func (f *Fake) Refuse(op string, on bool) {
 	f.mu.Lock()
@@ -208,11 +229,12 @@ func (f *Fake) serve(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if r.Method == http.MethodGet && r.URL.Path == "/version" {
+		f.calls[OpVersion]++
 		if f.down {
 			w.WriteHeader(http.StatusBadGateway)
 			return
 		}
-		writeJSON(w, map[string]any{"version": "v0.29.7", "commit": "c9cf210b8bc84d13177e18b91f555788a44b47b6"})
+		writeJSON(w, map[string]any{"version": f.version, "commit": "c9cf210b8bc84d13177e18b91f555788a44b47b6"})
 		return
 	}
 	if r.Header.Get("Authorization") != "Bearer "+f.APIKey {
@@ -233,6 +255,8 @@ func (f *Fake) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch op {
+	case OpHealth:
+		writeJSON(w, map[string]any{"databaseConnectivity": !f.noDatabase})
 	case OpListNodes:
 		out := make([]any, 0, len(f.nodes))
 		ids := make([]uint64, 0, len(f.nodes))
@@ -308,6 +332,8 @@ func (f *Fake) serve(w http.ResponseWriter, r *http.Request) {
 func route(r *http.Request) (op string, id uint64, rest string) {
 	p := strings.TrimPrefix(r.URL.Path, "/api/v1/")
 	switch {
+	case r.Method == http.MethodGet && p == "health":
+		return OpHealth, 0, ""
 	case r.Method == http.MethodGet && p == "node":
 		return OpListNodes, 0, ""
 	case r.Method == http.MethodGet && p == "preauthkey":
