@@ -54,6 +54,8 @@ func TestReconcileReportsForeignObjectsUntouched(t *testing.T) {
 		"MG_AGENT_TENANTS_DIR": filepath.Join(base, "tenants"), "MG_AGENT_BACKUPS_DIR": filepath.Join(base, "backups", "tenants"),
 		"MG_AGENT_RUN_UID_RANGE": "30000-39999", "MG_AGENT_TENANT_NET_POOL": e.pool, "MG_AGENT_PUBLIC_ENTRY_IPV4": "192.0.2.10",
 		"MG_BASE_DOMAIN": "agentit.test", "MG_AGENT_COMPOSE_BIN": os.Getenv("MG_AGENT_COMPOSE_BIN"), "MG_AGENT_LOCK_WAIT": "10s",
+		// required by the compose driver since P3-T03 (Noise key fingerprint helper): the image the test runs in
+		"MG_AGENT_HELPER_IMAGE": e.helper,
 	}
 	if env["MG_AGENT_COMPOSE_BIN"] == "" {
 		env["MG_AGENT_COMPOSE_BIN"] = "/usr/local/bin/docker-compose"
