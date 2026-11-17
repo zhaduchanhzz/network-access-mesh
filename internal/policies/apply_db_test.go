@@ -86,7 +86,8 @@ func TestApplyAllowFixtureReadbackMatches(t *testing.T) {
 		f.a.id, f.a.owner, f.a.admin, res.ApplicationID.String()); n != 2 {
 		t.Fatalf("policy.applied notifications: %d", n)
 	}
-	if n := f.count(t, `SELECT count(*) FROM notification_outbox WHERE kind = 'policy.applied'`); n != 2 {
+	if n := f.count(t, `SELECT count(*) FROM notification_outbox WHERE kind = 'policy.applied' AND tenant_id IN ($1, $2)`,
+		f.a.id, f.b.id); n != 2 {
 		t.Fatalf("notifications in total: %d", n)
 	}
 	if n := f.count(t, `SELECT count(*) FROM provisioning_jobs WHERE tenant_id = $1 AND kind = 'notification.send'`, f.a.id); n != 2 {
@@ -144,7 +145,7 @@ func TestApplyLintBlocksBeforeHeadscale(t *testing.T) {
 		t.Fatalf("Headscale reached: registry %d calls %v", f.reg.count(), f.a.hs.Calls())
 	}
 	for _, table := range []string{"policy_versions", "policy_applications", "notification_outbox"} {
-		if n := f.count(t, "SELECT count(*) FROM "+table); n != 0 {
+		if n := f.count(t, "SELECT count(*) FROM "+table+" WHERE tenant_id IN ($1, $2)", f.a.id, f.b.id); n != 0 {
 			t.Errorf("%s: %d rows", table, n)
 		}
 	}
@@ -153,10 +154,11 @@ func TestApplyLintBlocksBeforeHeadscale(t *testing.T) {
 		t.Fatalf("lint audit events: %d", n)
 	}
 	// A tenant that does not exist: refused, nothing audited.
-	if _, err := f.svc.Apply(context.Background(), ApplyRequest{TenantID: uuid.New(), HuJSON: ""}); err == nil {
+	unknown := uuid.New()
+	if _, err := f.svc.Apply(context.Background(), ApplyRequest{TenantID: unknown, HuJSON: ""}); err == nil {
 		t.Fatal("unknown tenant accepted")
 	}
-	if n := f.count(t, `SELECT count(*) FROM audit_events WHERE action = 'policy.lint_rejected'`); n != len(cases) {
+	if n := f.count(t, `SELECT count(*) FROM audit_events WHERE tenant_id = $1`, unknown); n != 0 {
 		t.Fatalf("audit for an unknown tenant: %d", n)
 	}
 }
@@ -234,7 +236,7 @@ func TestApplyUnknownOutcomeReasserts(t *testing.T) {
 		res.ApplicationID); n != 1 {
 		t.Fatal("failed row")
 	}
-	if n := f.count(t, `SELECT count(*) FROM security_events WHERE kind = 'policy.state_unknown'`); n != 0 {
+	if n := f.count(t, `SELECT count(*) FROM security_events WHERE kind = 'policy.state_unknown' AND tenant_id = $1`, f.a.id); n != 0 {
 		t.Fatal("security event although re-asserted")
 	}
 	// Re-assert fails as well: unknown state ⇒ security event, still recorded failed.

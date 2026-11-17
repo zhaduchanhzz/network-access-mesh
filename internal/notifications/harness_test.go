@@ -1,12 +1,17 @@
 package notifications
 
-// PostgreSQL integration harness of internal/notifications: every test gets its own database (internal/store/storetest)
-// with two tenants (A, B) — each with an Owner, an Admin, a Viewer, an End User (verified addresses) and an Admin whose
-// address is NOT verified — and two platform users (Super Admin with a verified address, Platform Viewer); the api
-// and worker stores; the real job framework delivering notification.send to the fake SMTP relay (smtptest).
+// PostgreSQL integration harness of internal/notifications: the tests of the package share ONE database
+// (internal/store/storetest — database creation is serialised across every package of the run); every test gets two
+// fresh tenants (A, B) — each with an Owner, an Admin, a Viewer, an End User (verified addresses) and an Admin whose
+// address is NOT verified — and two fresh platform users (Super Admin with a verified address, Platform Viewer; the
+// platform users of earlier tests are disabled); the api and worker stores; the real job framework delivering
+// notification.send to the fake SMTP relay (smtptest) — River jobs left by earlier tests are deleted before a worker
+// starts, so a test's relay only ever sees its own mail. Every assertion is scoped to the test's own tenants/addresses.
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"sync"
@@ -48,17 +53,36 @@ type fixture struct {
 	n     int
 }
 
+// shared is the database of the package (created by the first test that needs it, dropped by storetest.Cleanup).
+var shared struct {
+	mu sync.Mutex
+	db string
+}
+
+func randomHex(n int) string {
+	b := make([]byte, n)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	env := storetest.Require(t)
-	f := &fixture{env: env, db: env.NewDatabase(t)}
+	shared.mu.Lock()
+	if shared.db == "" {
+		shared.db = env.NewDatabase(t)
+	}
+	f := &fixture{env: env, db: shared.db}
+	shared.mu.Unlock()
 	f.su = env.Admin(t, f.db)
 	f.a, f.b = f.newTenant(t), f.newTenant(t)
+	run := randomHex(5)
 	pidp := uuid.New()
+	f.exec(t, `UPDATE platform_users SET status = 'disabled'`) // only this test's platform staff receive platform mail
 	f.exec(t, `INSERT INTO identity_providers (id, scope, issuer, client_id, driver, status)
-		VALUES ($1, 'platform', 'https://idp.invalid/realms/platform', 'mg-admin', 'keycloak', 'active')`, pidp)
-	f.super = "super@platform.test"
-	for _, p := range []struct{ sub, email, role string }{{"super", f.super, "super_admin"}, {"pv", "viewer@platform.test", "platform_viewer"}} {
+		VALUES ($1, 'platform', $2, 'mg-admin', 'keycloak', 'active')`, pidp, "https://idp.invalid/realms/platform-"+run)
+	f.super = "super-" + run + "@platform.test"
+	for _, p := range []struct{ sub, email, role string }{{"super", f.super, "super_admin"}, {"pv", "viewer-" + run + "@platform.test", "platform_viewer"}} {
 		ident := uuid.New()
 		f.exec(t, `INSERT INTO identities (id, idp_id, scope, subject, email, email_verified, display_name)
 			VALUES ($1, $2, 'platform', $3, $4, true, $3)`, ident, pidp, p.sub, p.email)
@@ -73,7 +97,8 @@ func newFixture(t *testing.T) *fixture {
 func (f *fixture) newTenant(t *testing.T) *tenantFx {
 	t.Helper()
 	f.n++
-	ten := &tenantFx{id: uuid.New(), idp: uuid.New(), slug: fmt.Sprintf("tenant%02d", f.n), email: map[uuid.UUID]string{}}
+	ten := &tenantFx{id: uuid.New(), idp: uuid.New(), slug: "t" + randomHex(5) + fmt.Sprintf("%02d", f.n),
+		email: map[uuid.UUID]string{}}
 	ten.name = "Tenant " + ten.slug
 	f.exec(t, `INSERT INTO tenants (id, slug, name, status) VALUES ($1, $2, $3, 'active')`, ten.id, ten.slug, ten.name)
 	f.exec(t, `INSERT INTO identity_providers (id, scope, tenant_id, issuer, client_id, driver, status)
@@ -151,6 +176,7 @@ func (f *fixture) worker(t *testing.T, mailer Mailer, attempts int) {
 	k := cfg.Kinds[JobKind]
 	k.MaxAttempts = attempts
 	cfg.Kinds[JobKind] = k
+	f.exec(t, `DELETE FROM river.river_job`) // jobs left queued by earlier tests of the shared database never reach this relay
 	w, err := jobs.NewWorker(f.wrk, cfg, jobs.Options{Registerer: prometheus.NewRegistry()})
 	if err != nil {
 		t.Fatal(err)

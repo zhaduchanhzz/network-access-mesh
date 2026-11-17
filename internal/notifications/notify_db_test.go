@@ -130,10 +130,11 @@ func TestEachEventExactlyOneNotificationToTheRightRecipients(t *testing.T) {
 		t.Fatalf("tenant B has %d notifications", n)
 	}
 	waitFor(t, 10*time.Second, "all rows settled", func() bool {
-		return f.count(t, `SELECT count(*) FROM notification_outbox WHERE status <> 'sent'`) == 0
+		return f.count(t, `SELECT count(*) FROM notification_outbox WHERE status <> 'sent'
+			AND (tenant_id = $1 OR recipient_email = $2)`, a.id, f.super) == 0
 	})
 	if n := f.count(t, `SELECT count(*) FROM notification_outbox WHERE status = 'sent' AND sent_at IS NOT NULL
-		AND recipient_email IS NOT NULL AND attempts = 1`); n != total {
+		AND recipient_email IS NOT NULL AND attempts = 1 AND (tenant_id = $1 OR recipient_email = $2)`, a.id, f.super); n != total {
 		t.Fatalf("sent e-mail rows with one attempt: %d, want %d", n, total)
 	}
 }
@@ -230,7 +231,7 @@ func TestRetryThenSentAndPermanentFailure(t *testing.T) {
 	})
 	waitFor(t, 10*time.Second, "job failed", func() bool {
 		return f.count(t, `SELECT count(*) FROM provisioning_jobs WHERE kind = 'notification.send' AND status = 'failed'
-			AND error ->> 'code' = 'smtp_rejected'`) == 1
+			AND error ->> 'code' = 'smtp_rejected' AND tenant_id = $1`, f.a.id) == 1
 	})
 	// Temporary forever: attempts exhausted.
 	// The job's limit is fixed at enqueue time from the registry (8 attempts); set this job's own limit to 3 like a
@@ -254,13 +255,15 @@ func TestNoRelayCancelsEmailKeepsPortal(t *testing.T) {
 		t.Fatalf("%+v %v", res, err)
 	}
 	waitFor(t, 20*time.Second, "cancelled", func() bool {
-		return f.count(t, `SELECT count(*) FROM notification_outbox WHERE status = 'cancelled'`) == 2
+		return f.count(t, `SELECT count(*) FROM notification_outbox WHERE status = 'cancelled' AND tenant_id = $1`, f.a.id) == 2
 	})
-	if n := f.count(t, `SELECT count(*) FROM notification_outbox WHERE status = 'sent' AND recipient_email IS NULL`); n != 1 {
+	if n := f.count(t, `SELECT count(*) FROM notification_outbox WHERE status = 'sent' AND recipient_email IS NULL
+		AND tenant_id = $1`, f.a.id); n != 1 {
 		t.Fatalf("portal-only row: %d", n)
 	}
 	waitFor(t, 10*time.Second, "jobs succeeded", func() bool {
-		return f.count(t, `SELECT count(*) FROM provisioning_jobs WHERE kind = 'notification.send' AND status = 'succeeded'`) == 2
+		return f.count(t, `SELECT count(*) FROM provisioning_jobs WHERE kind = 'notification.send' AND status = 'succeeded'
+			AND tenant_id = $1`, f.a.id) == 2
 	})
 	page, err := NewReader(f.api).ListMine(context.Background(), f.a.id, f.a.owner, ListQuery{})
 	if err != nil || len(page.Items) != 1 {

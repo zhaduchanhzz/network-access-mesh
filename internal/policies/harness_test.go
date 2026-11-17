@@ -1,12 +1,16 @@
 package policies
 
-// PostgreSQL integration harness of the policy core: every test gets its own database (internal/store/storetest) with two
-// tenants, each with a running instance and four members (Owner, Admin, Viewer, End User — verified addresses), and a
-// fake Headscale per tenant behind a fake headscale.Registry (the adapter's policy calls only). The real Headscale is
-// exercised by the contract tests (tests/integration/headscale, phase 12).
+// PostgreSQL integration harness of the policy core: the tests of the package share ONE database (internal/store/storetest
+// — database creation is serialised across every package of the run, so one per test made the whole suite slower), and
+// every test gets its own host and two fresh tenants in it, each with a running instance and four members (Owner,
+// Admin, Viewer, End User — verified addresses), and a fake Headscale per tenant behind a fake headscale.Registry (the
+// adapter's policy calls only). Every assertion is scoped to the test's own tenants. The real Headscale is exercised by
+// the contract tests (tests/integration/headscale, phase 12).
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"sync"
@@ -177,13 +181,35 @@ type fixture struct {
 	n    int
 }
 
+// shared is the database of the package (created by the first test that needs it, dropped by storetest.Cleanup).
+var shared struct {
+	mu sync.Mutex
+	db string
+}
+
+func sharedDB(t *testing.T, env *storetest.Env) string {
+	t.Helper()
+	shared.mu.Lock()
+	defer shared.mu.Unlock()
+	if shared.db == "" {
+		shared.db = env.NewDatabase(t)
+	}
+	return shared.db
+}
+
+func randomHex(n int) string {
+	b := make([]byte, n)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	env := storetest.Require(t)
-	f := &fixture{env: env, db: env.NewDatabase(t), host: uuid.New()}
+	f := &fixture{env: env, db: sharedDB(t, env), host: uuid.New()}
 	f.su = env.Admin(t, f.db)
 	f.exec(t, `INSERT INTO hosts (id, name, region, run_uid_range, tenant_net_pool)
-		VALUES ($1, 'host-1', 'lab', int4range(30000, 40000), '10.250.0.0/16')`, f.host)
+		VALUES ($1, $2, 'lab', int4range(30000, 40000), '10.250.0.0/16')`, f.host, "host-"+randomHex(6))
 	f.a, f.b = f.newTenant(t), f.newTenant(t)
 	f.reg = &fakeReg{hs: map[uuid.UUID]*fakeHS{f.a.id: f.a.hs, f.b.id: f.b.hs}}
 	f.st = env.OpenStore(t, f.db, "mg_worker_tenant", "mg_worker_platform", 8)
@@ -199,7 +225,7 @@ func (f *fixture) newTenant(t *testing.T) *tenantFx {
 	t.Helper()
 	f.n++
 	i := f.n
-	ten := &tenantFx{id: uuid.New(), instance: uuid.New(), slug: fmt.Sprintf("tenant%02d", i)}
+	ten := &tenantFx{id: uuid.New(), instance: uuid.New(), slug: "t" + randomHex(5) + fmt.Sprintf("%02d", i)}
 	ten.hs = &fakeHS{name: ten.slug}
 	f.exec(t, `INSERT INTO tenants (id, slug, name, status) VALUES ($1, $2, $3, 'active')`, ten.id, ten.slug, "Tenant "+ten.slug)
 	f.exec(t, `INSERT INTO tenant_instances (id, tenant_id, host_id, status, headscale_version, image_digest,
