@@ -3,9 +3,10 @@
 package authzmatrix_test
 
 // IT-10 (§5.2, P2-T15 part): no answer of the API — whatever the operation, the client and the outcome — and no line
-// of its log carries a secret: the canaries planted in the SecretStore (API keys of the instances, IdP client
-// secrets), session ids and CSRF tokens of every session (a client only ever sees its own CSRF token, in GET
-// /auth/session), the passwords of the database roles, or anything shaped like a credential.
+// of its log (nor of the device service, the Locator and the Headscale adapter behind the handlers) carries a secret:
+// the canaries planted in the SecretStore (API keys of the instances — handed to the adapter by the real Locator —,
+// IdP client secrets), the edge admin token, session ids and CSRF tokens of every session (a client only ever sees its
+// own CSRF token, in GET /auth/session), the passwords of the database roles, or anything shaped like a credential.
 
 import (
 	"net/url"
@@ -86,7 +87,7 @@ func (m *matrix) scan(t *testing.T) {
 			}
 		}
 	}
-	logs := m.Logs()
+	logs := m.Logs() + m.svcLog.String() // the API's log and the log of the services behind the handlers
 	for _, s := range secretValues {
 		if strings.Contains(logs, s.value) {
 			report("the API log", s.what)

@@ -66,6 +66,11 @@ func (e *env) registry(targets map[uuid.UUID]headscale.Target) *headscale.Cachin
 	})
 }
 
+// static returns a factory of registries holding one target for tenant.
+func (e *env) static(tenant uuid.UUID, target headscale.Target) func() *headscale.CachingRegistry {
+	return func() *headscale.CachingRegistry { return e.registry(map[uuid.UUID]headscale.Target{tenant: target}) }
+}
+
 // correct is the registry as it must be.
 func (e *env) correct() *headscale.CachingRegistry {
 	return e.registry(map[uuid.UUID]headscale.Target{
@@ -207,13 +212,13 @@ var readOps = map[string]func(context.Context, headscale.Instance) (string, erro
 	},
 }
 
-// refusedEverywhere calls every read op (and one write) for tenant through a registry holding target, each on a fresh
-// registry (no breaker carried over): all must fail with api_key_rejected (HTTP 401 after reloading the key) and no
-// answer may carry the other instance's marker.
-func refusedEverywhere(t *testing.T, e *env, tenant uuid.UUID, target headscale.Target, foreignMarker string) {
+// refusedEverywhere calls every read op (and one write) for tenant, each on a fresh registry from newRegistry (no
+// breaker carried over): all must fail with api_key_rejected (HTTP 401 after reloading the key) and no answer may carry
+// the other instance's marker.
+func refusedEverywhere(t *testing.T, newRegistry func() *headscale.CachingRegistry, tenant uuid.UUID, foreignMarker string) {
 	t.Helper()
 	for name, op := range readOps {
-		reg := e.registry(map[uuid.UUID]headscale.Target{tenant: target})
+		reg := newRegistry()
 		inst, err := reg.ForTenant(ctx(t), tenant) // the version check needs no API key
 		if err != nil {
 			t.Fatalf("ForTenant: %v", err)
@@ -234,8 +239,8 @@ func refusedEverywhere(t *testing.T, e *env, tenant uuid.UUID, target headscale.
 func TestIT10APIKeyOfAOnInstanceB(t *testing.T) {
 	e := setup(t)
 	prepare(t, e)
-	refusedEverywhere(t, e, tenantA, e.target(instanceB, e.slugB, e.keyA), markerB)
-	refusedEverywhere(t, e, tenantB, e.target(instanceA, e.slugA, e.keyB), markerA)
+	refusedEverywhere(t, e.static(tenantA, e.target(instanceB, e.slugB, e.keyA)), tenantA, markerB)
+	refusedEverywhere(t, e.static(tenantB, e.target(instanceA, e.slugA, e.keyB)), tenantB, markerA)
 	reg := e.correct()
 	if u := userNames(t, forTenant(t, reg, tenantA)); !slices.Contains(u, markerA) {
 		t.Errorf("control: A's key on A lists %v", u)
@@ -243,24 +248,21 @@ func TestIT10APIKeyOfAOnInstanceB(t *testing.T) {
 	t.Logf("IT-10: %d calls with A's key on B and B's key on A, all 401", 2*len(readOps))
 }
 
-// TestIT20RegistrySwap — IT-20 (§5.2, registry fault injection) at the adapter level: the registry entries of A and B
-// with internal_address swapped (A's entry routes to B's instance with A's key) or api_key_secret_ref swapped (A's
-// instance with B's key) — every call through ForTenant fails with 401 and returns nothing of the other tenant.
+// TestIT20RegistrySwap — IT-20 (§5.2, registry fault injection) at the level of the target the adapter receives: a
+// target whose routing (the instance behind the edge) is the other tenant's, with its own tenant's key, or whose key
+// is the other tenant's, on its own instance — every call through ForTenant fails with 401 and returns nothing of the
+// other tenant. A target with BOTH swapped is a complete, valid target of the other tenant that the adapter cannot
+// tell apart: that case, and the faults of the registry rows themselves, run against the production Locator in
+// TestIT20ProductionLocator (locator_test.go).
 func TestIT20RegistrySwap(t *testing.T) {
 	e := setup(t)
 	prepare(t, e)
-	t.Run("internal_address swapped", func(t *testing.T) {
-		refusedEverywhere(t, e, tenantA, e.target(instanceA, e.slugB, e.keyA), markerB)
-		refusedEverywhere(t, e, tenantB, e.target(instanceB, e.slugA, e.keyB), markerA)
+	t.Run("target routes to the other instance", func(t *testing.T) {
+		refusedEverywhere(t, e.static(tenantA, e.target(instanceA, e.slugB, e.keyA)), tenantA, markerB)
+		refusedEverywhere(t, e.static(tenantB, e.target(instanceB, e.slugA, e.keyB)), tenantB, markerA)
 	})
-	t.Run("api_key_secret_ref swapped", func(t *testing.T) {
-		refusedEverywhere(t, e, tenantA, e.target(instanceA, e.slugA, e.keyB), markerB)
-		refusedEverywhere(t, e, tenantB, e.target(instanceB, e.slugB, e.keyA), markerA)
-	})
-	t.Run("both swapped", func(t *testing.T) {
-		// Swapping both fields makes A's entry a complete, valid entry of B: the adapter cannot tell. Only the
-		// production Locator (P2-T11) refuses it — the secret reference names tenant B, not A (§5.2 boundary 10,
-		// P2-T04 "ForTenant kiểm ref.Tenant == tenantID"). This case runs against that Locator once it is merged.
-		t.Skip("IT-20 both swapped / foreign secret reference: needs the production Locator of P2-T11 (docs/planning/evidence/P2-T15.md)")
+	t.Run("target carries the other tenant's key", func(t *testing.T) {
+		refusedEverywhere(t, e.static(tenantA, e.target(instanceA, e.slugA, e.keyB)), tenantA, markerB)
+		refusedEverywhere(t, e.static(tenantB, e.target(instanceB, e.slugB, e.keyA)), tenantB, markerA)
 	})
 }

@@ -29,7 +29,8 @@ type recipe struct {
 	// endsSession: the request revokes the session it is sent with (logout) — sent with a throwaway session.
 	endsSession bool
 	// ok is the answer a mounted handler gives to a granted request on an own object; zero ⇒ any answer that is not a
-	// refusal (401/403/404), not 500/501 (handlers mounted later — P2-T11, P2-T13 — answer without a Headscale here).
+	// refusal (401/403/404), not 500/501 — for the device writes, whose answer depends on the order of the parallel
+	// requests on the same device (202, 409 revocation in progress) or on Headscale (unreachable here ⇒ 503).
 	ok answer
 	// public is the handler's answer to everyone for a public operation (authorization lets every caller through).
 	public answer
@@ -50,26 +51,26 @@ var recipes = map[string]recipe{
 	"getAuthSession":    {ok: answer{status: http.StatusOK}},
 	"listAuthSessions":  {ok: answer{status: http.StatusOK}},
 	"revokeAuthSession": {ok: answer{status: http.StatusNoContent}},
-	// tenants / platform registry (P2-T11 — not mounted yet)
-	"listMyTenants":         {},
-	"getTenant":             {},
-	"listTenantUsers":       {},
-	"getTenantUser":         {},
-	"listPlatformTenants":   {},
-	"getPlatformTenant":     {},
-	"listPlatformInstances": {},
-	"getPlatformInstance":   {},
-	// devices (P2-T13 — not mounted yet)
-	"listDevices":  {},
-	"getDevice":    {},
+	// tenants / platform registry (P2-T11, tenantsapi — mounted)
+	"listMyTenants":         {ok: answer{status: http.StatusOK}},
+	"getTenant":             {ok: answer{status: http.StatusOK}},
+	"listTenantUsers":       {ok: answer{status: http.StatusOK}},
+	"getTenantUser":         {ok: answer{status: http.StatusOK}},
+	"listPlatformTenants":   {ok: answer{status: http.StatusOK}},
+	"getPlatformTenant":     {ok: answer{status: http.StatusOK}},
+	"listPlatformInstances": {ok: answer{status: http.StatusOK}},
+	"getPlatformInstance":   {ok: answer{status: http.StatusOK}},
+	// devices (P2-T13, devicesapi — mounted; Headscale behind the real Locator is unreachable: see handlerSets)
+	"listDevices":  {ok: answer{status: http.StatusOK}},
+	"getDevice":    {ok: answer{status: http.StatusOK}},
 	"renameDevice": {body: `{"given_name":"matrix-renamed"}`},
 	"deleteDevice": {},
 	"expireDevice": {idempotent: true},
-	"syncDevices":  {idempotent: true},
+	"syncDevices":  {idempotent: true, ok: answer{status: http.StatusAccepted}},
 	// audit (P2-T08, auditapi — mounted)
 	"listTenantAuditEvents":   {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
 	"listPlatformAuditEvents": {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
-	// jobs (P2-T12 — no HTTP handler set yet)
+	// jobs (P2-T12 backend; the HTTP handler set is deferred to P2-T16 — not mounted)
 	"listTenantJobs":   {},
 	"getTenantJob":     {},
 	"listPlatformJobs": {},

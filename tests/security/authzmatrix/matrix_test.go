@@ -687,18 +687,22 @@ func (m *matrix) snapshot(t *testing.T, tenant uuid.UUID) map[string]string {
 	return out
 }
 
-// checkAudit — every request refused by authorization with a principal (outside /auth/*, which the identity module
-// audits itself) left exactly one denied event, in the actor's scope (its tenant, or platform for staff), never in the
-// probed tenant (§8.8, P2-T08).
+// checkAudit — every request refused with a principal (outside /auth/*, which the identity module audits itself) left
+// exactly one denied event, in the actor's scope (its tenant, or platform for staff), never in the probed tenant
+// (§8.8, P2-T08): refusals of authorization (layer 1) and, since the handler sets are mounted, the 404 of a granted
+// request on an object that is not the caller's (layer 2) — whose reason is not_own_resource when an own-only grant
+// meets another member's or a tagged device (§8.4 invariant 3b).
 func (m *matrix) checkAudit(t *testing.T) {
 	t.Helper()
 	var rows string
-	m.Scan(t, `SELECT coalesce(json_agg(json_build_object('r', request_id, 't', tenant_id, 'o', outcome)), '[]')::text
+	m.Scan(t, `SELECT coalesce(json_agg(json_build_object('r', request_id, 't', tenant_id, 'o', outcome,
+			'why', details ->> 'reason')), '[]')::text
 		FROM audit_events WHERE request_id IS NOT NULL`, nil, &rows)
 	var events []struct {
-		R string     `json:"r"`
-		T *uuid.UUID `json:"t"`
-		O string     `json:"o"`
+		R   string     `json:"r"`
+		T   *uuid.UUID `json:"t"`
+		O   string     `json:"o"`
+		Why string     `json:"why"`
 	}
 	if err := json.Unmarshal([]byte(rows), &events); err != nil {
 		t.Fatal(err)
@@ -707,27 +711,40 @@ func (m *matrix) checkAudit(t *testing.T) {
 	for i, e := range events {
 		byReq[e.R] = append(byReq[e.R], i)
 	}
-	var checked, bad int
+	var checked, layer2, bad int
 	for _, c := range m.calls {
-		if c.exp.decision != decDeny || c.actor.fx == nil || c.actor.kind == kindCrossOrigin || strings.HasPrefix(c.op.Path, "/auth/") {
+		if c.actor.fx == nil || c.actor.kind == kindCrossOrigin || strings.HasPrefix(c.op.Path, "/auth/") {
+			continue
+		}
+		refusedByHandler := c.exp.decision == decGrant && c.exp.status == http.StatusNotFound
+		if c.exp.decision != decDeny && !refusedByHandler {
 			continue
 		}
 		checked++
+		wantWhy := ""
+		if refusedByHandler {
+			layer2++
+			if c.exp.ownOnly && (c.objectCase == "eu-tagged" || c.objectCase == "other-member") {
+				wantWhy = "not_own_resource"
+			}
+		}
 		idx := byReq[c.reqs]
 		want := (*uuid.UUID)(nil)
 		if c.actor.fx.Tenant != nil {
 			want = &c.actor.fx.Tenant.ID
 		}
 		ok := len(idx) == 1 && events[idx[0]].O == "denied" &&
-			((want == nil && events[idx[0]].T == nil) || (want != nil && events[idx[0]].T != nil && *events[idx[0]].T == *want))
+			((want == nil && events[idx[0]].T == nil) || (want != nil && events[idx[0]].T != nil && *events[idx[0]].T == *want)) &&
+			(wantWhy == "" || events[idx[0]].Why == wantWhy)
 		if !ok {
 			bad++
 			if bad <= 10 {
-				t.Errorf("audit of %s: %d events %v, want one denied event in the scope of %s", c, len(idx), idx, c.actor.name)
+				t.Errorf("audit of %s: %d events %v, want one denied event in the scope of %s (reason %q)", c, len(idx), idx,
+					c.actor.name, wantWhy)
 			}
 		}
 	}
-	t.Logf("audit: %d denials checked, %d wrong", checked, bad)
+	t.Logf("audit: %d denials checked (%d refused by a handler — layer 2), %d wrong", checked, layer2, bad)
 }
 
 // report logs the coverage table (and writes it as Markdown to $MG_AUTHZ_MATRIX_REPORT when set) and returns the

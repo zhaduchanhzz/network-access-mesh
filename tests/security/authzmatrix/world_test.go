@@ -3,25 +3,37 @@
 package authzmatrix_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"reflect"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/zhaduchanhzz/network-access-mesh/internal/audit"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/authz"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/devices"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/headscale"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/headscale/locator"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/auditapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/authzhook"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/devicesapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/tenantsapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/kit/logx"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/kit/requestid"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/platform"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/secrets"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store/storetest"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/tenants"
 	"github.com/zhaduchanhzz/network-access-mesh/tests/security/sessionfixture"
 )
 
@@ -31,13 +43,43 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// handlerSets are the production handler sets of the composed API under test: every set that exists today. The
-// identity handlers (Auth) are added by the fixture. AFTER THE MERGE OF P2-T11 (Tenants), P2-T13 (Devices), the jobs
-// handlers and P2-T13a (Monitoring), add their sets here — mountedOps then switches the expectations of their
-// operations from 501 to real answers (own object accepted; another member's object for an own-only grant, another
-// tenant's object and a missing one ⇒ 404), with nothing else to change.
-func handlerSets(w *sessionfixture.World) httpapi.Handlers {
-	return httpapi.Handlers{Audit: auditapi.New(audit.NewReader(w.Store))}
+// unreachableEdge is the edge admin listener the Locator hands out: nothing listens there, so a handler that calls
+// Headscale for an own object answers 503 instance_unavailable — and an answer of 404 for any other object proves the
+// object was refused BEFORE any Headscale call.
+const unreachableEdge = "http://127.0.0.1:1"
+
+// handlerSets are the production handler sets of the composed API under test — every set that exists on main, wired
+// as the api process wires them (P2-T16): Tenants (P2-T11, tenantsapi over internal/tenants + internal/platform),
+// Devices (P2-T13, devicesapi over internal/devices) and Audit (P2-T08); the identity handlers (Auth, P2-T06) are added
+// by the fixture. The device service reaches Headscale only through the production registry — headscale.NewRegistry
+// over the real Locator of P2-T11 (tenant_instances read in the tenant's own scope, API key from the SecretStore that
+// holds the canaries) — pointed at unreachableEdge. mountedOps switches the expectations of the mounted operations from
+// 501 to real answers (own object accepted; another member's object under an own-only grant, another tenant's object
+// and a missing one ⇒ 404). Still 501: the Jobs set (HTTP handlers of the jobs API, deferred by P2-T12 to P2-T16) and
+// Monitoring (P2-T13a) — add them here when they exist.
+func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi.Handlers {
+	t.Helper()
+	log := logx.New(m.svcLog, slog.LevelDebug, "matrix")
+	dir := tenants.New(w.Store, tenants.Options{BaseDomain: "mesh.test"})
+	tokenFile := filepath.Join(t.TempDir(), "edge_admin_token")
+	if err := os.WriteFile(tokenFile, []byte(m.edgeToken+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loc, err := locator.New(dir, m.sec, locator.Options{AdminURL: unreachableEdge, EdgeTokenFile: tokenFile,
+		Timeout: 2 * time.Second, Logger: log})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg := headscale.NewRegistry(loc, headscale.Options{Logger: log, Retry: headscale.RetryPolicy{Attempts: 1}})
+	dev, err := devices.New(w.Store, devices.Config{Registry: reg, Logger: log, Registerer: prometheus.NewRegistry()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return httpapi.Handlers{
+		Tenants: tenantsapi.New(dir, platform.New(w.Store)),
+		Devices: devicesapi.New(dev),
+		Audit:   auditapi.New(audit.NewReader(w.Store)),
+	}
 }
 
 // mountedOps lists the Go names of the operations whose handler set is mounted (Auth always is: the fixture mounts
@@ -100,20 +142,63 @@ type objects struct {
 // matrixWorld is the world of the matrix: the fixture world with the real audit trail, the recorder, the objects.
 type matrixWorld struct {
 	*sessionfixture.World
-	rec     *recorder
-	mounted map[string]bool
-	obj     objects
+	rec       *recorder
+	mounted   map[string]bool
+	obj       objects
+	sec       *secrets.Store // the SecretStore of the api process (throwaway kek-app keyring)
+	edgeToken string         // the edge admin token the Locator reads from its file (a canary too)
+	svcLog    *syncBuffer    // log of the services behind the handlers: devices, Locator, Headscale adapter (scanned)
+}
+
+// syncBuffer collects the log lines written by concurrent requests.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// newSecretStore opens the SecretStore of the api process over a throwaway kek-app keyring.
+func newSecretStore(t *testing.T, w *sessionfixture.World) *secrets.Store {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "kek-matrix-1"), []byte(randomHex(32)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, secrets.ActiveFile), []byte("kek-matrix-1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	kr, err := secrets.LoadKeyring(secrets.KEKApp, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sec, err := secrets.New(w.Store, secrets.Options{App: kr})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sec
 }
 
 func newMatrixWorld(t *testing.T) *matrixWorld {
 	t.Helper()
-	m := &matrixWorld{rec: &recorder{recs: map[string]decisionRecord{}}}
+	m := &matrixWorld{rec: &recorder{recs: map[string]decisionRecord{}}, svcLog: &syncBuffer{}, edgeToken: randomHex(20)}
 	m.World = sessionfixture.New(t, sessionfixture.Options{MaxConns: 8, Mount: func(w *sessionfixture.World) sessionfixture.Mount {
 		logger, err := audit.New(w.Store, storetest.Require(t).OpenAuditWriter(t, w.DB), audit.Config{})
 		if err != nil {
 			t.Fatal(err)
 		}
-		h := handlerSets(w)
+		m.sec = newSecretStore(t, w)
+		h := m.handlerSets(t, w)
 		m.mounted = mountedOps(h)
 		return sessionfixture.Mount{
 			Handlers: h,
@@ -135,30 +220,17 @@ func randomHex(n int) string {
 }
 
 // createObjects inserts (as superuser) one host, one running instance per tenant whose API key and IdP client secret
-// are real SecretStore secrets holding canary values, three devices per tenant (the End User's untagged and tagged
-// devices, the Tenant Admin's device), one job per tenant and one platform job.
+// are real SecretStore secrets holding canary values (the API key is what the Locator hands the device service),
+// three devices per tenant (the End User's untagged and tagged devices, the Tenant Admin's device), one job per tenant
+// and one platform job.
 func (m *matrixWorld) createObjects(t *testing.T) objects {
 	t.Helper()
 	o := objects{
 		instance: map[string]uuid.UUID{}, devEU: map[string]uuid.UUID{}, devEUTagged: map[string]uuid.UUID{},
 		devOther: map[string]uuid.UUID{}, job: map[string]uuid.UUID{}, platformJob: uuid.Must(uuid.NewV7()),
+		canaries: []string{m.edgeToken},
 	}
-	// A throwaway kek-app keyring: the SecretStore writes the canaries as the api process would.
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "kek-matrix-1"), []byte(randomHex(32)+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, secrets.ActiveFile), []byte("kek-matrix-1\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	kr, err := secrets.LoadKeyring(secrets.KEKApp, dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sec, err := secrets.New(m.Store, secrets.Options{App: kr})
-	if err != nil {
-		t.Fatal(err)
-	}
+	sec := m.sec
 	host := uuid.Must(uuid.NewV7())
 	m.Exec(t, `INSERT INTO hosts (id, name, region, run_uid_range, tenant_net_pool)
 		VALUES ($1, 'host-matrix', 'lab', int4range(30000, 40000), '10.250.0.0/16')`, host)
