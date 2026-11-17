@@ -6,6 +6,8 @@ package platform_test
 // hàng cũ đã removed".
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/netip"
@@ -28,19 +30,50 @@ const (
 	hsVersion  = "v0.29.7"
 )
 
-// world is one migrated database, its superuser connection and a Placer on the worker's pools.
+// world is a migrated database seen by one test: its superuser connection, a Placer on the worker's pools, and the
+// suffix that keeps the test's hosts, regions and slugs apart from those of the other tests sharing the database.
 type world struct {
 	t      *testing.T
 	su     *pgx.Conn
 	st     *store.Store
 	placer *platform.Placer
+	sfx    string
+	own    bool // a database of its own: a tenant without region may land on any host
 }
 
+// shared is the database of the tests that keep to their own region (created once per test binary — database creation
+// holds the cluster-wide lock of storetest, so a database per test slows every package of `go test ./...`).
+var shared struct {
+	sync.Mutex
+	db string
+}
+
+// newWorld returns a world on the shared database: every tenant gets a region of the test (nil ⇒ "lab").
 func newWorld(t *testing.T, maxConns int32, o platform.PlacerOptions) *world {
 	t.Helper()
 	pg := storetest.Require(t)
-	db := pg.NewDatabase(t)
-	w := &world{t: t, su: pg.Admin(t, db), st: pg.OpenStore(t, db, "mg_worker_tenant", "mg_worker_platform", maxConns)}
+	shared.Lock()
+	if shared.db == "" {
+		shared.db = pg.NewDatabase(t)
+	}
+	db := shared.db
+	shared.Unlock()
+	return openWorld(t, pg, db, maxConns, o, false)
+}
+
+// newOwnWorld returns a world on a database of its own (tests of placement across every host).
+func newOwnWorld(t *testing.T, maxConns int32, o platform.PlacerOptions) *world {
+	t.Helper()
+	pg := storetest.Require(t)
+	return openWorld(t, pg, pg.NewDatabase(t), maxConns, o, true)
+}
+
+func openWorld(t *testing.T, pg *storetest.Env, db string, maxConns int32, o platform.PlacerOptions, own bool) *world {
+	t.Helper()
+	b := make([]byte, 3)
+	_, _ = rand.Read(b)
+	w := &world{t: t, su: pg.Admin(t, db), st: pg.OpenStore(t, db, "mg_worker_tenant", "mg_worker_platform", maxConns),
+		sfx: hex.EncodeToString(b), own: own}
 	if o.BaseDomain == "" {
 		o.BaseDomain = baseDomain
 	}
@@ -58,10 +91,15 @@ func (w *world) exec(sql string, args ...any) {
 	}
 }
 
-// host registers an active host with a public entry; extra is "col = expr" assignments applied afterwards.
+// region is the name of a region of this test.
+func (w *world) region(r string) string { return r + "-" + w.sfx }
+
+// host registers an active host <name>-<sfx> in region <region>-<sfx> with a public entry; extra is "col = expr"
+// assignments applied afterwards.
 func (w *world) host(name, region string, uidFirst, uidLast int, pool string, maxInstances int, extra ...string) uuid.UUID {
 	w.t.Helper()
 	id := uuid.Must(uuid.NewV7())
+	name, region = name+"-"+w.sfx, w.region(region)
 	w.exec(`INSERT INTO hosts (id, name, region, run_uid_range, tenant_net_pool, capacity, public_entry)
 		VALUES ($1, $2, $3, int4range($4, $5, '[]'), $6::cidr, jsonb_build_object('max_instances', $7::int),
 			'{"ipv4": "203.0.113.7", "mode": "vps_gateway"}')`, id, name, region, uidFirst, uidLast, pool, maxInstances)
@@ -71,10 +109,18 @@ func (w *world) host(name, region string, uidFirst, uidLast int, pool string, ma
 	return id
 }
 
-// tenant registers a tenant (status provisioning unless given) and returns its id.
+// tenant registers a tenant <slug>-<sfx> (status provisioning unless given) in region <region>-<sfx> — on the shared
+// database a tenant without region goes to "lab" of the test — and returns its id.
 func (w *world) tenant(slug string, region *string, status ...string) uuid.UUID {
 	w.t.Helper()
 	id := uuid.Must(uuid.NewV7())
+	slug += "-" + w.sfx
+	switch {
+	case region != nil:
+		region = ptr(w.region(*region))
+	case !w.own:
+		region = ptr(w.region("lab"))
+	}
 	st := "provisioning"
 	if len(status) > 0 {
 		st = status[0]
@@ -113,10 +159,12 @@ func TestAllocate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := platform.Allocation{InstanceID: iid, TenantID: tid, Slug: "acme", HostID: hid, HostName: "h1", Region: "lab",
-		RunUID: 30000, NetCIDR: netip.MustParsePrefix("10.250.0.0/29"), PublicEntryIPv4: netip.MustParseAddr("203.0.113.7"),
-		ControlHostname: "acme.mesh.mg.test", ServerURL: "https://acme.mesh.mg.test", BaseDomain: "acme.tail.mg.test",
-		InternalAddress: "hs-acme:8080", DataPath: "/opt/meshguard/tenants/" + iid.String() + "/data",
+	slug := "acme-" + w.sfx
+	want := platform.Allocation{InstanceID: iid, TenantID: tid, Slug: slug, HostID: hid, HostName: "h1-" + w.sfx,
+		Region: w.region("lab"), RunUID: 30000, NetCIDR: netip.MustParsePrefix("10.250.0.0/29"),
+		PublicEntryIPv4: netip.MustParseAddr("203.0.113.7"), ControlHostname: slug + ".mesh.mg.test",
+		ServerURL: "https://" + slug + ".mesh.mg.test", BaseDomain: slug + ".tail.mg.test",
+		InternalAddress: "hs-" + slug + ":8080", DataPath: "/opt/meshguard/tenants/" + iid.String() + "/data",
 		HeadscaleVersion: hsVersion, ImageDigest: digest, Status: "allocated"}
 	if a != want {
 		t.Fatalf("allocation\n%+v\nwant\n%+v", a, want)
@@ -144,7 +192,7 @@ func TestAllocate(t *testing.T) {
 		t.Errorf("repeat = %+v, %v", again, err)
 	}
 	var n int
-	if err := w.su.QueryRow(ctx, `SELECT count(*) FROM tenant_instances`).Scan(&n); err != nil || n != 1 {
+	if err := w.su.QueryRow(ctx, `SELECT count(*) FROM tenant_instances WHERE host_id = $1`, hid).Scan(&n); err != nil || n != 1 {
 		t.Errorf("%d rows after the repeat (%v)", n, err)
 	}
 	// refusals
@@ -189,7 +237,7 @@ func TestAllocate(t *testing.T) {
 func TestAllocateConcurrent(t *testing.T) {
 	const n = 24
 	w := newWorld(t, 6, platform.PlacerOptions{})
-	w.host("h1", "lab", 30000, 39999, "10.250.0.0/16", 100)
+	hid := w.host("h1", "lab", 30000, 39999, "10.250.0.0/16", 100)
 	ids := make([]uuid.UUID, n)
 	for i := range ids {
 		ids[i] = w.tenant(fmt.Sprintf("race-%02d", i), nil)
@@ -226,7 +274,7 @@ func TestAllocateConcurrent(t *testing.T) {
 	// the database agrees (and every row is a live allocation)
 	var rows, distinctUID, distinctNet, distinctHost int
 	if err := w.su.QueryRow(t.Context(), `SELECT count(*), count(DISTINCT run_uid), count(DISTINCT net_cidr),
-			count(DISTINCT control_hostname) FROM tenant_instances WHERE status = 'allocated'`).Scan(&rows, &distinctUID,
+			count(DISTINCT control_hostname) FROM tenant_instances WHERE status = 'allocated' AND host_id = $1`, hid).Scan(&rows, &distinctUID,
 		&distinctNet, &distinctHost); err != nil || rows != n || distinctUID != n || distinctNet != n || distinctHost != n {
 		t.Errorf("rows %d, distinct uid %d net %d host %d (%v)", rows, distinctUID, distinctNet, distinctHost, err)
 	}
@@ -455,7 +503,7 @@ func TestExhaustion(t *testing.T) {
 // (live / max_instances) is chosen, ties by name; UIDs and subnets are per host (the same UID on two hosts is fine);
 // concurrent allocations over two hosts never duplicate a UID or a subnet within a host.
 func TestMultiHost(t *testing.T) {
-	w := newWorld(t, 6, platform.PlacerOptions{})
+	w := newOwnWorld(t, 6, platform.PlacerOptions{})
 	ha := w.host("h-a", "lab", 30000, 39999, "10.250.0.0/16", 4)
 	hb := w.host("h-b", "lab", 30000, 39999, "10.250.0.0/16", 8)
 	hc := w.host("h-c", "dc2", 40000, 49999, "10.240.0.0/16", 100)
@@ -521,7 +569,7 @@ func TestPerTenantSTUN(t *testing.T) {
 	if _, err := w.allocate(w.tenant("plain", ptr("r-plain"))); !errors.Is(err, platform.ErrNoCapacity) {
 		t.Errorf("per-tenant STUN on a host without range: %v", err)
 	}
-	w.host("stun", "r-stun", 30000, 39999, "10.251.0.0/16", 100, `stun_port_range = int4range(3478, 3480, '[]')`)
+	sh := w.host("stun", "r-stun", 30000, 39999, "10.251.0.0/16", 100, `stun_port_range = int4range(3478, 3480, '[]')`)
 	var ports []int32
 	for i := range 2 {
 		ports = append(ports, w.mustAllocate(w.tenant(fmt.Sprintf("stun-%d", i), ptr("r-stun"))).STUNPort)
@@ -535,7 +583,8 @@ func TestPerTenantSTUN(t *testing.T) {
 		t.Errorf("third STUN port: %v", err)
 	}
 	var stored int32
-	if err := w.su.QueryRow(t.Context(), `SELECT stun_port FROM tenant_instances WHERE stun_port IS NOT NULL ORDER BY stun_port LIMIT 1`).Scan(&stored); err != nil ||
+	if err := w.su.QueryRow(t.Context(), `SELECT stun_port FROM tenant_instances WHERE host_id = $1 AND stun_port IS NOT NULL
+		ORDER BY stun_port LIMIT 1`, sh).Scan(&stored); err != nil ||
 		stored != 3479 {
 		t.Errorf("stored STUN port %d (%v)", stored, err)
 	}

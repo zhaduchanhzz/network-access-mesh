@@ -6,6 +6,7 @@ package usage_test
 // isolation between tenants, and the locked variants under concurrency (exactly the limit passes).
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/netip"
@@ -36,17 +37,54 @@ type world struct {
 	api     *store.Store // mg_api_tenant / mg_api_platform: validate (step 1), enrollment requests
 	checker *usage.Checker
 	host    uuid.UUID
+	sfx     string
+}
+
+// shared is the one database of this test binary (database creation holds the cluster-wide lock of storetest — one per
+// test would slow every package of `go test ./...`). The tests run one after the other; the tenant-cap tests work
+// relative to the tenants already there and put quota.max_tenants back to 10 when they end.
+var shared struct {
+	sync.Mutex
+	db string
 }
 
 func newWorld(t *testing.T) *world {
 	t.Helper()
 	pg := storetest.Require(t)
-	db := pg.NewDatabase(t)
+	shared.Lock()
+	if shared.db == "" {
+		shared.db = pg.NewDatabase(t)
+	}
+	db := shared.db
+	shared.Unlock()
 	w := &world{t: t, su: pg.Admin(t, db), api: pg.OpenStore(t, db, "mg_api_tenant", "mg_api_platform", 8)}
 	w.checker = usage.NewChecker(w.api)
 	w.host = uuid.Must(uuid.NewV7())
-	w.exec(`INSERT INTO hosts (id, name, region, run_uid_range, tenant_net_pool) VALUES ($1, 'h1', 'lab', int4range(30000, 40000), '10.250.0.0/16')`, w.host)
+	w.sfx = w.host.String()[30:]
+	w.exec(`INSERT INTO hosts (id, name, region, run_uid_range, tenant_net_pool)
+		VALUES ($1, 'h-'||$2, 'lab', int4range(30000, 40000), '10.250.0.0/16')`, w.host, w.sfx)
 	return w
+}
+
+// liveTenants counts the tenants not deleted (the measure of quota.max_tenants).
+func (w *world) liveTenants() int64 {
+	w.t.Helper()
+	var n int64
+	if err := w.su.QueryRow(w.t.Context(), `SELECT count(*) FROM tenants WHERE status <> 'deleted'`).Scan(&n); err != nil {
+		w.t.Fatal(err)
+	}
+	return n
+}
+
+// setCap sets quota.max_tenants and puts back the value of 0012 (10) when the test ends.
+func (w *world) setCap(v string) {
+	w.t.Helper()
+	w.exec(`INSERT INTO system_settings (key, value) VALUES ('quota.max_tenants', $1::jsonb)
+		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, v)
+	w.t.Cleanup(func() {
+		_, _ = w.su.Exec(context.Background(), `INSERT INTO system_settings (key, value) VALUES ('quota.max_tenants', '10')
+			ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`)
+	})
 }
 
 func (w *world) exec(sql string, args ...any) {
@@ -83,10 +121,11 @@ func (w *world) devices(tid, iid uuid.UUID, n int, removed bool) {
 	}
 }
 
+// plan inserts the plan <key>-<sfx> (a check names the plan by that key).
 func (w *world) plan(key, limits string) uuid.UUID {
 	w.t.Helper()
 	id := uuid.Must(uuid.NewV7())
-	w.exec(`INSERT INTO subscription_plans (id, key, name, limits) VALUES ($1, $2, $2, $3)`, id, key, limits)
+	w.exec(`INSERT INTO subscription_plans (id, key, name, limits) VALUES ($1, $2, $2, $3)`, id, key+"-"+w.sfx, limits)
 	return id
 }
 
@@ -114,28 +153,30 @@ func wantStatus(t *testing.T, what string, got, want tenants.QuotaStatus, err er
 	}
 }
 
-// TestTenantCap — quota.max_tenants (0012: 10) against the tenants not deleted, at the boundaries; deleted tenants free
-// a slot, failed ones do not; 0 refuses everything; a missing or malformed setting is ErrQuotaUnavailable (never
-// unlimited); the tenant pool cannot read the setting at all.
+// TestTenantCap — quota.max_tenants (0012: 10) against the tenants not deleted, at the boundaries (relative to the
+// tenants already in the shared database: base); deleted tenants free a slot, failed ones do not; 0 refuses everything;
+// a missing or malformed setting is ErrQuotaUnavailable (never unlimited); the tenant pool cannot read the setting.
 func TestTenantCap(t *testing.T) {
 	w := newWorld(t)
 	ctx := t.Context()
+	base := w.liveTenants()
 	st, err := w.checker.CheckTenantCreation(ctx)
-	wantStatus(t, "fresh platform (cap 10 from 0012)", st, tenants.QuotaStatus{Resource: "tenants", Limit: 10, Used: 0, Requested: 1}, err, false)
-	w.exec(`UPDATE system_settings SET value = '3' WHERE key = 'quota.max_tenants'`)
+	wantStatus(t, "cap 10 of 0012", st, tenants.QuotaStatus{Resource: "tenants", Limit: 10, Used: base, Requested: 1}, err, base >= 10)
+	w.setCap(fmt.Sprint(base + 3))
 	w.tenant("active", "running")
 	failed, _ := w.tenant("failed", "failed")
 	st, err = w.checker.CheckTenantCreation(ctx)
-	wantStatus(t, "2 of 3", st, tenants.QuotaStatus{Resource: "tenants", Limit: 3, Used: 2, Requested: 1}, err, false)
+	wantStatus(t, "2 of 3", st, tenants.QuotaStatus{Resource: "tenants", Limit: base + 3, Used: base + 2, Requested: 1}, err, false)
 	w.tenant("provisioning", "allocated")
 	st, err = w.checker.CheckTenantCreation(ctx)
-	wantStatus(t, "3 of 3", st, tenants.QuotaStatus{Resource: "tenants", Limit: 3, Used: 3, Requested: 1}, err, true)
+	wantStatus(t, "3 of 3", st, tenants.QuotaStatus{Resource: "tenants", Limit: base + 3, Used: base + 3, Requested: 1}, err, true)
 	w.exec(`UPDATE tenants SET status = 'deleted' WHERE id = $1`, failed)
 	st, err = w.checker.CheckTenantCreation(ctx)
-	wantStatus(t, "a deleted tenant frees its slot", st, tenants.QuotaStatus{Resource: "tenants", Limit: 3, Used: 2, Requested: 1}, err, false)
-	w.exec(`UPDATE system_settings SET value = '0' WHERE key = 'quota.max_tenants'`)
+	wantStatus(t, "a deleted tenant frees its slot", st,
+		tenants.QuotaStatus{Resource: "tenants", Limit: base + 3, Used: base + 2, Requested: 1}, err, false)
+	w.setCap("0")
 	st, err = w.checker.CheckTenantCreation(ctx)
-	wantStatus(t, "cap 0", st, tenants.QuotaStatus{Resource: "tenants", Limit: 0, Used: 2, Requested: 1}, err, true)
+	wantStatus(t, "cap 0", st, tenants.QuotaStatus{Resource: "tenants", Limit: 0, Used: base + 2, Requested: 1}, err, true)
 	for _, v := range []string{`"10"`, `-1`, `1.5`, `2147483648`, `null`, `{"max": 10}`, `[10]`, `true`} {
 		w.exec(`UPDATE system_settings SET value = $1::jsonb WHERE key = 'quota.max_tenants'`, v)
 		if _, err := w.checker.CheckTenantCreation(ctx); !errors.Is(err, usage.ErrQuotaUnavailable) || errors.Is(err, tenants.ErrQuotaExceeded) {
@@ -143,7 +184,7 @@ func TestTenantCap(t *testing.T) {
 		}
 	}
 	w.exec(`UPDATE system_settings SET value = '10.0' WHERE key = 'quota.max_tenants'`) // integral, written with a fraction
-	if st, err := w.checker.CheckTenantCreation(ctx); err != nil || st.Limit != 10 {
+	if st, err := w.checker.CheckTenantCreation(ctx); (err != nil && !errors.Is(err, tenants.ErrQuotaExceeded)) || st.Limit != 10 {
 		t.Errorf("setting 10.0: %+v, %v", st, err)
 	}
 	w.exec(`DELETE FROM system_settings WHERE key = 'quota.max_tenants'`)
@@ -166,8 +207,9 @@ func TestTenantCap(t *testing.T) {
 func TestTenantCapConcurrent(t *testing.T) {
 	w := newWorld(t)
 	ctx := t.Context()
-	w.exec(`UPDATE system_settings SET value = '5' WHERE key = 'quota.max_tenants'`)
 	w.tenant("active", "running")
+	base := w.liveTenants()
+	w.setCap(fmt.Sprint(base + 4))
 	var (
 		mu            sync.Mutex
 		ok, exceeded  int
@@ -182,7 +224,7 @@ func TestTenantCapConcurrent(t *testing.T) {
 				if _, err := usage.TenantCreationTx(ctx, q); err != nil {
 					return err
 				}
-				_, err := q.CreateTenant(ctx, sqlcdb.CreateTenantParams{Slug: fmt.Sprintf("conc-%02d", i), Name: "c",
+				_, err := q.CreateTenant(ctx, sqlcdb.CreateTenantParams{Slug: fmt.Sprintf("conc-%02d-%s", i, w.sfx), Name: "c",
 					Status: tenants.StatusProvisioning, Settings: []byte("{}")})
 				return err
 			})
@@ -203,9 +245,8 @@ func TestTenantCapConcurrent(t *testing.T) {
 	if ok != 4 || exceeded != 8 || len(unexpectedErr) > 0 {
 		t.Errorf("created %d, refused %d, other errors %v; want 4 and 8", ok, exceeded, unexpectedErr)
 	}
-	var n int
-	if err := w.su.QueryRow(ctx, `SELECT count(*) FROM tenants WHERE status <> 'deleted'`).Scan(&n); err != nil || n != 5 {
-		t.Errorf("%d live tenants, want the cap 5 (%v)", n, err)
+	if n := w.liveTenants(); n != base+4 {
+		t.Errorf("%d live tenants, want the cap %d", n, base+4)
 	}
 }
 
@@ -235,7 +276,7 @@ func TestDeviceQuota(t *testing.T) {
 	w.devices(b, bi, 20, false)
 
 	st := func(limit, used, req int64) tenants.QuotaStatus {
-		return tenants.QuotaStatus{Resource: "devices", Plan: "small", Limit: limit, Used: used, Requested: req}
+		return tenants.QuotaStatus{Resource: "devices", Plan: "small-" + w.sfx, Limit: limit, Used: used, Requested: req}
 	}
 	got, err := w.checker.CheckDevices(ctx, a, 1)
 	wantStatus(t, "2 of 3 + 1", got, st(3, 2, 1), err, false)
@@ -259,7 +300,7 @@ func TestDeviceQuota(t *testing.T) {
 	wantStatus(t, "override 0", got, st(0, 3, 1), err, true)
 	// B is untouched by A's numbers and the other way round
 	got, err = w.checker.CheckDevices(ctx, b, 1)
-	wantStatus(t, "tenant B", got, tenants.QuotaStatus{Resource: "devices", Plan: "big", Limit: 1000, Used: 20, Requested: 1}, err, false)
+	wantStatus(t, "tenant B", got, tenants.QuotaStatus{Resource: "devices", Plan: "big-" + w.sfx, Limit: 1000, Used: 20, Requested: 1}, err, false)
 	// no live subscription: cancelled, then none at all
 	w.exec(`UPDATE subscriptions SET status = 'cancelled' WHERE tenant_id = $1`, a)
 	got, err = w.checker.CheckDevices(ctx, a, 1)
