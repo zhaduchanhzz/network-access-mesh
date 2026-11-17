@@ -6,7 +6,7 @@ import "github.com/prometheus/client_golang/prometheus"
 // the failed job itself (meshguard_job_alerts_total{kind="device.revoke"}). Alertmanager rules: P6-T01.
 type metrics struct {
 	syncs       *prometheus.CounterVec // result: applied, stale, failed
-	clamps      *prometheus.CounterVec // result: clamped, failed
+	clamps      *prometheus.CounterVec // result: clamped, failed, skipped (nothing left to shorten, revocation pending)
 	revocations *prometheus.CounterVec // kind, state: applied, failed
 	scheduled   prometheus.Counter     // inventory.sync jobs enqueued by the schedule
 }
@@ -18,7 +18,7 @@ func newMetrics(reg prometheus.Registerer) *metrics {
 		}, []string{"result"}),
 		clamps: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "meshguard_device_expiry_clamps_total",
-			Help: "Node expiries beyond the tenant's node_expiry that a sync clamped (or failed to clamp).",
+			Help: "Node expiries beyond the tenant's node_expiry that a sync clamped, failed to clamp, or skipped on a second look.",
 		}, []string{"result"}),
 		revocations: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "meshguard_device_revocations_total", Help: "Device revocations settled, by kind and final state.",

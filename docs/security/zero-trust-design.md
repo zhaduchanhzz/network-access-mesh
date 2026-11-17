@@ -115,7 +115,7 @@ Giới hạn đã biết của luồng A: (1) endpoint control là public nên *
 
 **Vòng đời khóa:** `node.expiry` được đặt tường minh theo tenant (đề xuất mặc định 90 ngày; mặc định upstream là không hết hạn — HS-19). Lưu ý `node.expiry` chỉ là **giá trị mặc định**: client có thể tự yêu cầu expiry khác khi đăng ký và Headscale chấp nhận (VERIFIED trên 0.29.7 — V-21, P2-T10: `RegisterRequest.Expiry` do client yêu cầu luôn thắng, qua pre-auth key lẫn `AuthRegister`, kể cả `9999-12-31`). Vì vậy nền tảng **kẹp expiry**: sau mỗi lần đăng ký và ở mỗi lần inventory sync, node thuộc user có expiry rỗng hoặc vượt `thời điểm đăng ký + node_expiry` bị đặt lại bằng `ExpireNode(expiry=…)` kèm `security_event`; quyền tắt expiry (`disable_expiry`) chỉ dành cho Owner. Tagged node không hết hạn ⇒ có báo cáo rà soát định kỳ; pre-auth key ≤ 15 phút; API key của instance ≤ 90 ngày, xoay tự động; **không** tồn tại enrollment credential quyền cao vô thời hạn.
 
-**Thu hồi thiết bị:** `ExpireNode` (giữ bản ghi, buộc re-auth) hoặc `DeleteNode` (xóa và đóng session), kèm expire mọi pre-auth key còn hiệu lực của user đó để thiết bị không tự đăng ký lại; chỉ báo "đã áp dụng" sau khi đọc lại xác minh (T-17).
+**Thu hồi thiết bị:** `ExpireNode` (giữ bản ghi, buộc re-auth) hoặc `DeleteNode` (xóa và đóng session), kèm expire mọi pre-auth key còn hiệu lực của user đó để thiết bị không tự đăng ký lại; chỉ báo "đã áp dụng" sau khi đọc lại xác minh (T-17). Không thao tác nền nào được làm thu hồi mất hiệu lực: kẹp hạn chỉ rút ngắn, không áp dụng cho thiết bị đang/đã thu hồi; snapshot `inventory.sync` cũ hơn lần chốt thu hồi không ghi đè hạn đã xác minh (§13.4).
 
 ### 7.5 Application-level ZTNA — phân loại (Mesh VPN ≠ Application ZTNA)
 

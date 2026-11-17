@@ -4,7 +4,8 @@
 // the GetNode/ListNodes difference for tagged nodes (V-28) — and has switches for the failure modes of P2-T13: the
 // instance not answering, Headscale refusing a call, a write that is acknowledged but not applied (read-back mismatch).
 // It also answers the health checks of the monitoring probe (P2-T13a): GET /version with a settable version and
-// GET /api/v1/health with a settable database connectivity.
+// GET /api/v1/health with a settable database connectivity. One-shot hooks (Before, After) let a test interleave
+// another actor — a revocation job, an operator's CLI — at an exact point of a call, without sleeps.
 // Test code only (internal/archtest keeps it out of the binaries).
 package devicestest
 
@@ -79,6 +80,10 @@ type Fake struct {
 	// version answered by GET /version; noDatabase makes GET /api/v1/health report no database connectivity.
 	version    string
 	noDatabase bool
+	// before/after: one-shot hooks of the next call of an op (Before, After); expiries: the expiry of every ExpireNode
+	// call received, per node (ExpireCalls).
+	before, after map[string]func(id uint64)
+	expiries      map[uint64][]time.Time
 }
 
 // Operation names used by Refuse, Ignore and Calls.
@@ -100,7 +105,8 @@ func New(t testing.TB, slug string) *Fake {
 	f := &Fake{Slug: slug, EdgeToken: strings.Repeat("E", 20) + strings.ReplaceAll(uuid.NewString(), "-", "")[:20],
 		APIKey: "hskey-" + "api-" + "fakeprefix12" + "-" + strings.ReplaceAll(uuid.NewString(), "-", ""),
 		nodes:  map[uint64]*Node{}, keys: map[uint64]*Key{}, calls: map[string]int{}, refuse: map[string]bool{},
-		ignore: map[string]bool{}, now: time.Now, version: "v0.29.7"}
+		ignore: map[string]bool{}, now: time.Now, version: "v0.29.7",
+		before: map[string]func(uint64){}, after: map[string]func(uint64){}, expiries: map[uint64][]time.Time{}}
 	f.Server = httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(f.Server.Close)
 	return f
@@ -211,6 +217,40 @@ func (f *Fake) ResetCalls() {
 	f.calls = map[string]int{}
 }
 
+// Before runs fn once, at the next call of op, before the fake handles it (fn gets the node id of the call, 0 for
+// calls without one). The fake is not locked while fn runs: fn may call the instance itself (its own calls of op do
+// not run the hook again).
+func (f *Fake) Before(op string, fn func(id uint64)) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.before[op] = fn
+}
+
+// After runs fn once, at the next call of op, after the fake computed its answer and before the answer is sent: the
+// caller receives the state as it was before fn — e.g. a ListNodes snapshot that a revocation then makes stale.
+func (f *Fake) After(op string, fn func(id uint64)) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.after[op] = fn
+}
+
+// ExpireCalls returns the expiry of every ExpireNode call the fake handled for node id, in the order it handled them
+// (after any Before hook of the call; refused and ignored calls included).
+func (f *Fake) ExpireCalls(id uint64) []time.Time {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.expiries[id])
+}
+
+// hook removes and returns the hook of op in hooks.
+func (f *Fake) hook(hooks map[string]func(uint64), op string) func(uint64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	fn := hooks[op]
+	delete(hooks, op)
+	return fn
+}
+
 func gw(code int, msg string) string {
 	b, _ := json.Marshal(map[string]any{"code": code, "message": msg, "details": []any{}})
 	return string(b)
@@ -226,6 +266,24 @@ func (f *Fake) serve(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
+	op, id, _ := route(r)
+	if fn := f.hook(f.before, op); fn != nil {
+		fn(id)
+	}
+	rec := httptest.NewRecorder()
+	f.answer(rec, r, body)
+	if fn := f.hook(f.after, op); fn != nil {
+		fn(id)
+	}
+	for k, v := range rec.Header() {
+		w.Header()[k] = v
+	}
+	w.WriteHeader(rec.Code)
+	_, _ = w.Write(rec.Body.Bytes())
+}
+
+// answer handles one call that passed the edge checks, under the fake's lock.
+func (f *Fake) answer(w http.ResponseWriter, r *http.Request, body []byte) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if r.Method == http.MethodGet && r.URL.Path == "/version" {
@@ -244,6 +302,11 @@ func (f *Fake) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	op, id, rest := route(r)
 	f.calls[op]++
+	if op == OpExpireNode {
+		if at, err := time.Parse(time.RFC3339Nano, r.URL.Query().Get("expiry")); err == nil {
+			f.expiries[id] = append(f.expiries[id], at)
+		}
+	}
 	if f.down {
 		w.WriteHeader(http.StatusBadGateway)
 		return

@@ -41,6 +41,9 @@ type SyncReport struct {
 	Reused      int       `json:"reused"` // node id handed out again to another machine key: old row removed, new row
 	Clamped     int       `json:"clamped"`
 	ClampFailed int       `json:"clamp_failed"`
+	// ClampSkipped counts candidates left alone when the clamp looked again: the node is gone or already within the
+	// limit or expired, or the device's revocation is pending (a clamp only ever shortens an expiry — T-17).
+	ClampSkipped int `json:"clamp_skipped"`
 	// ClampLimit is node_expiry in hours (0: no limit known or never expires) and ClampSource where it came from
 	// (tenant_settings, instance_config, none).
 	ClampLimitHours float64 `json:"clamp_limit_hours"`
@@ -134,10 +137,13 @@ func (s *Service) Sync(ctx context.Context, tenantID, instanceID uuid.UUID) (Syn
 		s.raise(ctx, tenantID, r)
 	}
 	for _, c := range clamps {
-		if s.clamp(ctx, tenantID, inst, c, limit, source) {
+		switch s.clamp(ctx, tenantID, inst, c, limit, source) {
+		case clampDone:
 			rep.Clamped++
-		} else {
+		case clampFailed:
 			rep.ClampFailed++
+		default:
+			rep.ClampSkipped++
 		}
 	}
 	n, err := s.settleOrphans(ctx, tenantID, nil)
@@ -233,11 +239,16 @@ func (s *Service) apply(ctx context.Context, tenantID, instanceID uuid.UUID, t0 
 			c := normalise(n, owners)
 			old, isLive := byNode[id]
 			if isLive && old.MachineKey == n.MachineKey {
-				if err := q.UpdateSyncedDevice(ctx, c.update(tenantID, old.ID, t0, gen)); err != nil {
+				p := c.update(tenantID, old.ID, t0, gen)
+				predates := snapshotPredatesRevocation(old, t0)
+				if predates {
+					p.Expiry = old.Expiry // the revocation's read-back is newer than this snapshot's expiry
+				}
+				if err := q.UpdateSyncedDevice(ctx, p); err != nil {
 					return err
 				}
 				rep.Updated++
-				if cand, ok := clampOf(n, old.ID, t0, limit, false); ok {
+				if cand, ok := clampOf(n, old.ID, t0, limit, false); ok && !predates {
 					clamps = append(clamps, cand)
 				}
 				continue
@@ -291,6 +302,15 @@ func (s *Service) apply(ctx context.Context, tenantID, instanceID uuid.UUID, t0 
 			NodeCount: int32(min(len(nodes), 1<<31-1)), TenantID: tenantID, InstanceID: instanceID}) //nolint:gosec // bounded
 	})
 	return clamps, reappeared, err
+}
+
+// snapshotPredatesRevocation reports whether a snapshot taken at t0 may be older than the revocation of device r: one
+// is pending (its job owns the node's expiry until it settles), or one was settled applied at or after t0 (its
+// read-back may be newer than what ListNodes reported). Such a snapshot neither writes the cached expiry nor yields an
+// expiry-clamp candidate. Both times come from the database clock: verified_at is the start of the settling
+// transaction, which begins after the read-back, so verified_at < t0 means the node was listed after the revocation.
+func snapshotPredatesRevocation(r sqlcdb.DeviceInventoryCache, t0 time.Time) bool {
+	return r.RevocationState == StatePending || r.RevocationVerifiedAt != nil && !r.RevocationVerifiedAt.Before(t0)
 }
 
 // columns are the cache columns of a node, normalised from ListNodes (§13.4 "Đọc node").
@@ -383,12 +403,70 @@ func clampOf(n headscale.Node, deviceID uuid.UUID, t0 time.Time, limit time.Dura
 	return clampCandidate{deviceID: deviceID, nodeID: n.ID, machineKey: n.MachineKey, observed: n.Expiry, target: target}, true
 }
 
-// clamp expires one node at the clamp target and records the audit pair and the security event (§13.4). It reports
-// whether the read-back shows the new expiry.
+// clampResult is what one clamp candidate came to.
+type clampResult int
+
+const (
+	clampSkipped clampResult = iota // nothing to shorten any more, or a revocation owns the node's expiry: no call, no audit
+	clampDone                       // expired at the target and read back
+	clampFailed                     // refused, not read back, or superseded by a revocation started meanwhile
+)
+
+// ReasonRevocationStarted: a revocation of the device started while its expiry clamp was in flight; the clamp is
+// recorded failed and the revocation's own expiry is applied again.
+const ReasonRevocationStarted = "revocation_started"
+
+// clamp expires one node at the clamp target and records the audit pair and the security event (§13.4). A clamp only
+// ever shortens the expiry of a device no revocation is working on (T-17):
+//
+//  1. the device is read under its row lock: removed or a revocation pending ⇒ skipped. The revocation job is
+//     remembered, and the database clock is "now";
+//  2. the node is read again (GetNode: expiry, tags and machine key, never written to the register): only the same
+//     machine's user-owned node that never expires, or expires after the target and not yet, is clamped — the
+//     snapshot of the sync may predate a revocation, an operator's expire, a tag or a node id handed out again;
+//  3. device.expiry_clamp.requested commits, then ExpireNode(target);
+//  4. a revocation started since step 1 (another revocation job on the row) may have expired the node before this
+//     write landed: no transaction is held across a Headscale call (§13.5 d), so instead its explicit expiry
+//     (requested_at, §13.4 rule 3) is applied again before the outcome is recorded. The clamp is then .failed with
+//     reason revocation_started, and a security event of severity high is raised if applying it again failed.
 func (s *Service) clamp(ctx context.Context, tenantID uuid.UUID, inst headscale.Instance, c clampCandidate,
 	limit time.Duration, source string,
-) bool {
+) clampResult {
 	sctx := systemContext(ctx)
+	var (
+		now  time.Time
+		job  *uuid.UUID // revocation job of the device at step 1
+		skip bool
+	)
+	err := s.st.WithTenantTx(sctx, tenantID, func(q *sqlcdb.Queries) error {
+		row, err := q.LockLiveDevice(sctx, sqlcdb.LockLiveDeviceParams{TenantID: tenantID, ID: c.deviceID})
+		if errors.Is(err, store.ErrNoRows) || err == nil && row.RevocationState == StatePending {
+			skip = true
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		job = row.RevocationJobID
+		now, err = q.DevicesSnapshotTime(sctx)
+		return err
+	})
+	if err != nil {
+		s.log.ErrorContext(ctx, "devices: expiry clamp not started (device)", "device_id", c.deviceID, "sqlstate", store.SQLState(err))
+		s.m.clamps.WithLabelValues("failed").Inc()
+		return clampFailed
+	}
+	if skip {
+		s.m.clamps.WithLabelValues("skipped").Inc()
+		return clampSkipped
+	}
+	current, err := inst.GetNode(ctx, c.nodeID)
+	if isGone(err) || err == nil && (current.MachineKey != c.machineKey || !shortens(current, c.target, now)) {
+		s.m.clamps.WithLabelValues("skipped").Inc()
+		return clampSkipped
+	}
+	readErr := err // the instance did not answer: recorded as a failed clamp like a refused ExpireNode
+
 	observed := "never"
 	if c.observed != nil {
 		observed = c.observed.UTC().Format(time.RFC3339)
@@ -396,7 +474,7 @@ func (s *Service) clamp(ctx context.Context, tenantID uuid.UUID, inst headscale.
 	details := audit.Details{"node_id": c.nodeID, "observed_expiry": observed,
 		"clamped_to": c.target.UTC().Format(time.RFC3339), "limit_hours": limit.Hours(), "limit_source": source}
 	var op audit.Operation
-	err := s.st.WithTenantTx(sctx, tenantID, func(q *sqlcdb.Queries) error {
+	err = s.st.WithTenantTx(sctx, tenantID, func(q *sqlcdb.Queries) error {
 		var err error
 		op, err = audit.Requested(sctx, q, audit.Event{Action: ActionClamp, ActorType: audit.ActorSystem, TenantID: &tenantID,
 			ResourceType: resourceDevice, ResourceID: c.deviceID.String(), Details: details})
@@ -405,10 +483,14 @@ func (s *Service) clamp(ctx context.Context, tenantID uuid.UUID, inst headscale.
 	if err != nil {
 		s.log.ErrorContext(ctx, "devices: expiry clamp not started (audit)", "device_id", c.deviceID, "sqlstate", store.SQLState(err))
 		s.m.clamps.WithLabelValues("failed").Inc()
-		return false
+		return clampFailed
 	}
+	var node headscale.Node
+	err = readErr
 	target := c.target
-	node, err := inst.ExpireNode(ctx, c.nodeID, &target)
+	if readErr == nil {
+		node, err = inst.ExpireNode(ctx, c.nodeID, &target)
+	}
 	ok := err == nil && node.MachineKey == c.machineKey && node.Expiry != nil && absDuration(node.Expiry.Sub(target)) <= expiryWindow
 	reason := ""
 	switch {
@@ -419,7 +501,18 @@ func (s *Service) clamp(ctx context.Context, tenantID uuid.UUID, inst headscale.
 	}
 	wctx, cancel := s.detached(sctx)
 	defer cancel()
+	superseded, reapplied := false, (*bool)(nil)
+	if readErr == nil { // ExpireNode was sent: it may have landed even when it failed
+		superseded, reapplied = s.reapplyRevocation(ctx, wctx, tenantID, inst, c, job)
+	}
+	if superseded {
+		ok, reason = false, ReasonRevocationStarted
+	}
 	err = s.st.WithTenantTx(wctx, tenantID, func(q *sqlcdb.Queries) error {
+		outcome := audit.Details{}
+		if reapplied != nil {
+			outcome["revocation_reapplied"] = *reapplied
+		}
 		if ok {
 			if err := q.SetDeviceExpiry(wctx, sqlcdb.SetDeviceExpiryParams{Expiry: node.Expiry, TenantID: tenantID, ID: c.deviceID}); err != nil {
 				return err
@@ -427,14 +520,21 @@ func (s *Service) clamp(ctx context.Context, tenantID uuid.UUID, inst headscale.
 			if err := op.Succeeded(wctx, q, audit.Details{"expiry": node.Expiry.UTC().Format(time.RFC3339)}); err != nil {
 				return err
 			}
-		} else if err := op.Failed(wctx, q, reason, nil); err != nil {
+		} else if err := op.Failed(wctx, q, reason, outcome); err != nil {
 			return err
 		}
 		ev := details
 		ev["device_id"] = c.deviceID.String()
 		ev["clamped"] = ok
+		severity := audit.SeverityMedium
+		if reapplied != nil {
+			ev["revocation_reapplied"] = *reapplied
+			if !*reapplied {
+				severity = audit.SeverityHigh // the revocation may no longer hold
+			}
+		}
 		_, err := audit.RecordSecurityEvent(wctx, q, audit.SecurityEvent{TenantID: &tenantID, Kind: SecurityExpiryOverridden,
-			Severity: audit.SeverityMedium, Source: SecuritySource, Details: ev,
+			Severity: severity, Source: SecuritySource, Details: ev,
 			DedupeKey: "expiry_overridden:" + c.deviceID.String() + ":" + observed + ":" + strconv.FormatBool(ok), DedupeWindow: 24 * time.Hour})
 		return err
 	})
@@ -445,12 +545,59 @@ func (s *Service) clamp(ctx context.Context, tenantID uuid.UUID, inst headscale.
 		s.m.clamps.WithLabelValues("clamped").Inc()
 		s.log.WarnContext(ctx, "devices: node expiry clamped", "tenant_id", tenantID, "device_id", c.deviceID,
 			"node_id", c.nodeID, "observed_expiry", observed, "clamped_to", c.target.UTC())
-	} else {
-		s.m.clamps.WithLabelValues("failed").Inc()
-		s.log.ErrorContext(ctx, "devices: node expiry clamp failed", "tenant_id", tenantID, "device_id", c.deviceID,
-			"node_id", c.nodeID, "reason", reason)
+		return clampDone
 	}
-	return ok
+	s.m.clamps.WithLabelValues("failed").Inc()
+	s.log.ErrorContext(ctx, "devices: node expiry clamp failed", "tenant_id", tenantID, "device_id", c.deviceID,
+		"node_id", c.nodeID, "reason", reason, "alert", reapplied != nil && !*reapplied)
+	return clampFailed
+}
+
+// shortens reports whether ExpireNode(target) can only bring the expiry of node n earlier: a user-owned node that never
+// expires, or that expires later than target (beyond the slack of the clamp rule) and is not expired at now. A node
+// already expired — by a revocation, by an operator — is never touched, and a clamp never extends an expiry.
+func shortens(n headscale.Node, target, now time.Time) bool {
+	if n.IsTagged() {
+		return false
+	}
+	if n.Expiry == nil {
+		return true
+	}
+	return n.Expiry.After(now) && n.Expiry.After(target.Add(headscale.ExpiryClampSlack))
+}
+
+// reapplyRevocation is step 4 of clamp: once the clamp's ExpireNode was sent, it reads the device again and reports
+// whether a revocation started since step 1 (its job is no longer job); for one of kind expire it calls
+// ExpireNode(requested_at) again and reports whether the answer shows it (nil when nothing had to be applied). A
+// delete needs nothing: the node is gone or will be.
+func (s *Service) reapplyRevocation(ctx, wctx context.Context, tenantID uuid.UUID, inst headscale.Instance,
+	c clampCandidate, job *uuid.UUID,
+) (bool, *bool) {
+	var row sqlcdb.DeviceInventoryCache
+	err := s.st.WithTenantTx(wctx, tenantID, func(q *sqlcdb.Queries) error {
+		var err error
+		row, err = q.LockDevice(wctx, sqlcdb.LockDeviceParams{TenantID: tenantID, ID: c.deviceID})
+		return err
+	})
+	if err != nil {
+		s.log.ErrorContext(ctx, "devices: expiry clamp could not re-read the device", "alert", true, "device_id", c.deviceID,
+			"sqlstate", store.SQLState(err))
+		return false, nil
+	}
+	if sameID(row.RevocationJobID, job) {
+		return false, nil
+	}
+	if deref(row.RevocationKind) != RevokeExpire || row.RevocationRequestedAt == nil {
+		return true, nil
+	}
+	at := *row.RevocationRequestedAt
+	back, err := inst.ExpireNode(wctx, c.nodeID, &at)
+	done := isGone(err) || err == nil && (back.MachineKey != c.machineKey || back.Expiry != nil && !back.Expiry.After(at.Add(expiryWindow)))
+	return true, &done
+}
+
+func sameID(a, b *uuid.UUID) bool {
+	return a == nil && b == nil || a != nil && b != nil && *a == *b
 }
 
 func absDuration(d time.Duration) time.Duration {

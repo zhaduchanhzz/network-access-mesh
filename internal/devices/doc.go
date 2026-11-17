@@ -17,10 +17,15 @@
 //     machine key (id handed out again after a restore — §6.3) marks the old row removed and inserts a new one; a node
 //     without a live row is inserted, unless the newest row of that exact node was removed at or after T0 (the
 //     snapshot predates the removal); a live row whose node is absent is marked removed. The owner of a user-owned
-//     node is the membership named by its Headscale user; the owner of a tagged node is platform data and kept;
+//     node is the membership named by its Headscale user; the owner of a tagged node is platform data and kept. A
+//     device whose revocation is pending, or was settled at or after T0, keeps its cached expiry and yields no clamp
+//     candidate: the snapshot may predate the revocation's ExpireNode;
 //  4. the expiry clamp (§7.4, §13.4, V-21): a user-owned node whose expiry is empty or beyond registration +
 //     node_expiry is expired at exactly that time (ExpireNode with an explicit time), with an audit pair
-//     device.expiry_clamp.requested → .succeeded/.failed (actor system) and security_event kind expiry_overridden;
+//     device.expiry_clamp.requested → .succeeded/.failed (actor system) and security_event kind expiry_overridden.
+//     A clamp only ever shortens: it skips a device whose revocation is pending, re-reads the node (GetNode, nothing
+//     written to the register) and leaves alone a node already expired or within the limit; a revocation that starts
+//     while the clamp's ExpireNode is in flight gets its own expiry applied again (Service.clamp);
 //  5. revocations still pending whose job ended without success are settled failed (safety net).
 //
 // Revocation (Service.Revoke — POST …/expire, DELETE …/devices/{id}): pending + device.<kind>.requested + job

@@ -203,16 +203,25 @@ func actorCtx(identity uuid.UUID, tenant uuid.UUID, action string) context.Conte
 // run builds the jobs.Run a worker hands to a handler for one attempt of job id.
 func (f *fixture) run(t *testing.T, id uuid.UUID, attempt, maxAttempts int) *jobs.Run {
 	t.Helper()
+	r, err := f.runOf(id, attempt, maxAttempts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+// runOf is run without testing.T, for the hooks of the fake (they run on its handler goroutine: no t.Fatal there).
+func (f *fixture) runOf(id uuid.UUID, attempt, maxAttempts int) (*jobs.Run, error) {
 	var j sqlcdb.ProvisioningJob
 	if err := f.wrkSt.WithPlatformTx(context.Background(), func(q *sqlcdb.Queries) error {
 		var err error
 		j, err = q.GetJob(context.Background(), id)
 		return err
 	}); err != nil {
-		t.Fatalf("job %s: %v", id, err)
+		return nil, fmt.Errorf("job %s: %w", id, err)
 	}
 	return &jobs.Run{ID: j.ID, Kind: j.Kind, TenantID: j.TenantID, InstanceID: j.InstanceID, Input: json.RawMessage(j.Input),
-		Attempt: attempt, MaxAttempts: maxAttempts, Deadline: time.Now().Add(time.Minute), Store: f.wrkSt}
+		Attempt: attempt, MaxAttempts: maxAttempts, Deadline: time.Now().Add(time.Minute), Store: f.wrkSt}, nil
 }
 
 // auditActions lists the actions of the events of an operation or resource, oldest first.
