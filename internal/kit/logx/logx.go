@@ -34,6 +34,16 @@ func ParseLevel(s string) (slog.Level, error) {
 	return l, err
 }
 
+// RedactString replaces every Headscale credential (API key, pre-auth key, web-auth ID) found in s. It is the same
+// rule the logger applies to string values, exported for text that is stored or returned rather than logged
+// (for example the upstream message kept in an adapter error — §13.4).
+func RedactString(s string) string {
+	if !hskeyPattern.MatchString(s) {
+		return s
+	}
+	return hskeyPattern.ReplaceAllString(s, Redacted)
+}
+
 func redact(_ []string, a slog.Attr) slog.Attr {
 	key := strings.ToLower(a.Key)
 	for _, part := range sensitiveKeyParts {
@@ -43,7 +53,7 @@ func redact(_ []string, a slog.Attr) slog.Attr {
 	}
 	if a.Value.Kind() == slog.KindString {
 		if v := a.Value.String(); hskeyPattern.MatchString(v) {
-			return slog.String(a.Key, hskeyPattern.ReplaceAllString(v, Redacted))
+			return slog.String(a.Key, RedactString(v))
 		}
 	}
 	return a

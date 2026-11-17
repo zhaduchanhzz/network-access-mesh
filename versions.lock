@@ -94,6 +94,16 @@ run_as = "run_uid của instance được backup (§17.1)"
 released = "2026-11-05"
 note = "Gói sqlite 3.53.4-r0 (≥ 3.51.3; Debian trixie chỉ có 3.46.1). Trước khi build image trợ giúp (P3-T11) kiểm lại các CVE được báo là sửa ở SQLite 3.54.0 — chưa xác minh"
 
+[images.tailscale]   # client chính thức — CHỈ dùng trong test (P2-T10: tests/integration/headscale/run.sh)
+image = "docker.io/tailscale/tailscale"
+tag = "v1.104.7"
+index = "sha256:72c1e19e0aedca96b8533bbb0b4368564410ff20b17e53b804eb6c1f04a31be4"
+amd64 = "sha256:91b7c58cbce2f1273f1d76046892fcd45b8cdd5efe70a45c8ede53d041e89688"
+user = "0"
+run_as = "root trong container thử (userspace networking, state trên tmpfs), không bao giờ chạy trên host staging/production"
+released = "2026-11-12"
+note = "Cùng phiên bản client của lab (P1-T12) và nguồn stund ([sources.tailscale]). Config blob tạo 2026-11-12 — dưới 14 ngày tuổi, chấp nhận vì chỉ dùng trong test và là đúng bản đã dùng ở Phase 1. Digest kiểm qua Registry API v2 ngày 2026-11-17 (sha256 của index, manifest amd64 và config blob khớp Docker-Content-Digest)"
+
 # ---------------------------------------------------------------- image tự build (P1-T04, workflow `images`)
 
 [images.mg-edge]
@@ -236,6 +246,9 @@ go = "1.27.4"
 "github.com/jackc/pgx/v5" = "v5.12.0"          # 2026-10-31 (P2-T03): pgxpool + stdlib; v5.13.0 (2026-11-11) chưa đủ 14 ngày
 "github.com/pressly/goose/v3" = "v3.29.0"      # 2026-10-11 (P2-T03): migration SQL nhúng; v3.30.x (2026-11-10/12) chưa đủ 14 ngày
 "github.com/google/uuid" = "v1.6.0"            # 2024-01-23 (P2-T03): kiểu UUID của mã sinh sqlc và store
+
+[go_test_modules]   # module Go riêng chỉ cho test (go.mod/go.sum của từng module là nguồn sự thật; không vào binary api/worker)
+"tests/integration/headscale" = "tailscale.com v1.104.7 (control/tsp + control/ts2021: client giao thức Tailscale để gửi RegisterRequest/MapRequest thật, kể cả RegisterRequest.Expiry mà client chính thức không gửi — P2-T10); main module qua replace ../../.. (adapter internal/headscale). Cùng bản với tests/isolation/derpprobe và [sources.tailscale]"
 
 [npm]   # apps/web — package-lock.json (integrity sha512) là nguồn sự thật; ở P2-T02 chỉ dùng để sinh type TypeScript từ api/openapi.yaml
 "openapi-typescript" = "7.13.0"   # 2026-02-11
