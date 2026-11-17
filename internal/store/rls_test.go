@@ -11,7 +11,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store/sqlcdb"
 )
 
-// rlsTables classifies every RLS table of migrations 0001–0006 by its §6.3 symbol: T (app.tenant_id only),
+// rlsTables classifies every RLS table of migrations 0001–0013 by its §6.3 symbol: T (app.tenant_id only),
 // T+P (tenant or platform scope), P (platform scope only), T/P (audit: tenant events / platform events).
 // col is the column compared with app_tenant_id(). A new table must be added here (TestCatalogRLSOnEveryTable).
 var rlsTables = []struct{ name, kind, col string }{
@@ -33,13 +33,23 @@ var rlsTables = []struct{ name, kind, col string }{
 	{"provisioning_jobs", "T+P", "tenant_id"},
 	{"provisioning_job_steps", "T+P", "tenant_id"},
 	{"idempotency_keys", "T+P", "tenant_id"},
+	// 0009–0013 (P3-T06)
+	{"approval_requests", "T+P", "tenant_id"},
+	{"tenant_invitations", "T", "tenant_id"},
+	{"notification_outbox", "T+P", "tenant_id"},
+	{"relay_regions", "T+P", "tenant_id"},
+	{"relay_assignments", "T+P", "tenant_id"},
+	{"backups", "T+P", "tenant_id"},
+	{"subscriptions", "T+P", "tenant_id"},
+	{"policy_versions", "T", "tenant_id"},
+	{"policy_applications", "T", "tenant_id"},
 }
 
-// noRLSTables are the tables §6.3 marks "—": global reference data, or identity-module tables used only through the
-// platform pool (sessions, auth_requests). goose_db_version belongs to the migrator alone.
+// noRLSTables are the tables §6.3 marks "—": global reference data (RBAC, subscription_plans), or identity-module
+// tables used only through the platform pool (sessions, auth_requests). goose_db_version belongs to the migrator alone.
 var noRLSTables = map[string]bool{
 	"roles": true, "permissions": true, "role_permissions": true, "sessions": true, "auth_requests": true,
-	"goose_db_version": true,
+	"subscription_plans": true, "goose_db_version": true,
 }
 
 const privilegeErr = "42501" // insufficient_privilege — also raised for a row that fails a WITH CHECK policy
@@ -474,7 +484,7 @@ func TestReadonlyCannotReadRLSTables(t *testing.T) {
 		_, err := ro.Exec(ctx, "SELECT 1 FROM public."+q(r.name)+" LIMIT 1")
 		wantSQLState(t, "mg_readonly/"+r.name, err, privilegeErr)
 	}
-	for _, table := range []string{"sessions", "auth_requests", "roles"} {
+	for _, table := range []string{"sessions", "auth_requests", "roles", "subscription_plans"} {
 		_, err := ro.Exec(ctx, "SELECT 1 FROM public."+q(table)+" LIMIT 1")
 		wantSQLState(t, "mg_readonly/"+table, err, privilegeErr)
 	}

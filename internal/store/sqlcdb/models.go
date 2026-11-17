@@ -12,6 +12,25 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type ApprovalRequest struct {
+	ID                    uuid.UUID
+	Scope                 string
+	TenantID              *uuid.UUID
+	Action                string
+	ResourceType          string
+	ResourceID            *string
+	Payload               []byte
+	PayloadSha256         string
+	RequestedByIdentityID uuid.UUID
+	ApprovedByIdentityID  *uuid.UUID
+	DecidedAt             *time.Time
+	Status                string
+	Reason                *string
+	ExpiresAt             time.Time
+	JobID                 *uuid.UUID
+	CreatedAt             time.Time
+}
+
 type AuditEvent struct {
 	ID              uuid.UUID
 	OccurredAt      time.Time
@@ -46,6 +65,24 @@ type AuthRequest struct {
 	CreatedAt          time.Time
 	ExpiresAt          time.Time
 	ConsumedAt         *time.Time
+}
+
+type Backup struct {
+	ID               uuid.UUID
+	TenantID         *uuid.UUID
+	InstanceID       *uuid.UUID
+	Kind             string
+	Status           string
+	StorageUri       string
+	SizeBytes        *int64
+	Sha256           *string
+	KeyRef           *string
+	HeadscaleVersion *string
+	StartedAt        time.Time
+	FinishedAt       *time.Time
+	ExpiresAt        *time.Time
+	VerifiedAt       *time.Time
+	JobID            *uuid.UUID
 }
 
 type DeviceInventoryCache struct {
@@ -172,6 +209,20 @@ type InstanceConfigVersion struct {
 	AppliedAt       *time.Time
 }
 
+type NotificationOutbox struct {
+	ID                    uuid.UUID
+	TenantID              *uuid.UUID
+	RecipientMembershipID *uuid.UUID
+	RecipientEmail        *string
+	Kind                  string
+	Payload               []byte
+	Status                string
+	Attempts              int32
+	SentAt                *time.Time
+	ReadAt                *time.Time
+	CreatedAt             time.Time
+}
+
 type Permission struct {
 	Key         string
 	Scope       string
@@ -189,6 +240,51 @@ type PlatformUser struct {
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 	Version       int64
+}
+
+type PolicyApplication struct {
+	ID                    uuid.UUID
+	TenantID              uuid.UUID
+	InstanceID            uuid.UUID
+	PolicyVersionID       uuid.UUID
+	Trigger               string
+	InputsSha256          *string
+	AppliedHujson         string
+	AppliedSha256         string
+	State                 string
+	HeadscaleUpdatedAt    *time.Time
+	ErrorCode             *string
+	RequestedByIdentityID *uuid.UUID
+	CreatedAt             time.Time
+	FinishedAt            *time.Time
+	SupersededAt          *time.Time
+}
+
+type PolicyVersion struct {
+	ID                    uuid.UUID
+	TenantID              uuid.UUID
+	Version               int32
+	Revision              int64
+	Kind                  string
+	Source                []byte
+	SourceHujson          *string
+	ContentSha256         string
+	State                 string
+	ValidationReport      []byte
+	ParentVersionID       *uuid.UUID
+	RollbackOf            *uuid.UUID
+	CreatedBy             *uuid.UUID
+	SubmittedBy           *uuid.UUID
+	SubmittedAt           *time.Time
+	ApprovedBy            *uuid.UUID
+	ApprovedAt            *time.Time
+	ApprovedContentSha256 *string
+	ReviewMode            *string
+	RejectedBy            *uuid.UUID
+	RejectedAt            *time.Time
+	RejectedReason        *string
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
 }
 
 type ProvisioningJob struct {
@@ -230,6 +326,37 @@ type ProvisioningJobStep struct {
 	Detail             []byte
 	CreatedResources   []byte
 	CompensationStatus *string
+}
+
+type RelayAssignment struct {
+	ID            uuid.UUID
+	TenantID      uuid.UUID
+	InstanceID    uuid.UUID
+	RelayRegionID uuid.UUID
+	Priority      int16
+	Status        string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+type RelayRegion struct {
+	ID           uuid.UUID
+	Code         string
+	Name         string
+	Kind         string
+	DerpRegionID int32
+	Hostname     string
+	Ipv4         *netip.Addr
+	Ipv6         *netip.Addr
+	StunPort     *int32
+	DerpPort     int32
+	VerifyMode   string
+	HostID       *uuid.UUID
+	TenantID     *uuid.UUID
+	Status       string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	Version      int64
 }
 
 type Role struct {
@@ -296,6 +423,30 @@ type Session struct {
 	IDTokenHintEnc    []byte
 }
 
+type Subscription struct {
+	ID          uuid.UUID
+	TenantID    uuid.UUID
+	PlanID      uuid.UUID
+	Status      string
+	PeriodStart time.Time
+	PeriodEnd   *time.Time
+	Overrides   []byte
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	Version     int64
+}
+
+type SubscriptionPlan struct {
+	ID        uuid.UUID
+	Key       string
+	Name      string
+	Limits    []byte
+	IsActive  bool
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	Version   int64
+}
+
 type SystemSetting struct {
 	Key       string
 	Value     []byte
@@ -341,6 +492,24 @@ type TenantInstance struct {
 	DataPath            string
 	LastHealthAt        *time.Time
 	LastHealth          []byte
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	Version             int64
+}
+
+type TenantInvitation struct {
+	ID                  uuid.UUID
+	TenantID            uuid.UUID
+	IdpID               uuid.UUID
+	Email               string
+	RoleID              uuid.UUID
+	RoleScope           string
+	InvitedByIdentityID *uuid.UUID
+	TokenHash           []byte
+	ExpiresAt           time.Time
+	Status              string
+	AcceptedIdentityID  *uuid.UUID
+	AcceptedAt          *time.Time
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
 	Version             int64
