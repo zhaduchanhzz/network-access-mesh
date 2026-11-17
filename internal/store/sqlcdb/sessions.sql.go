@@ -109,7 +109,7 @@ func (q *Queries) GetPlatformRoleKeyForIdentity(ctx context.Context, identityID 
 }
 
 const getSessionForRequest = `-- name: GetSessionForRequest :one
-SELECT s.id_hash, s.public_id, s.identity_id, s.idp_id, s.origin, s.created_at, s.last_seen_at, s.auth_time, s.idle_expires_at, s.absolute_expires_at, s.ip, s.user_agent, s.acr, s.amr, s.revoked_at, i.scope AS identity_scope, i.tenant_id AS identity_tenant_id, i.status AS identity_status,
+SELECT s.id_hash, s.public_id, s.identity_id, s.idp_id, s.origin, s.created_at, s.last_seen_at, s.auth_time, s.idle_expires_at, s.absolute_expires_at, s.ip, s.user_agent, s.acr, s.amr, s.revoked_at, s.id_token_hint_enc, i.scope AS identity_scope, i.tenant_id AS identity_tenant_id, i.status AS identity_status,
        i.subject AS identity_subject, i.email AS identity_email, i.display_name AS identity_display_name,
        p.status AS idp_status
 FROM sessions s
@@ -150,6 +150,7 @@ func (q *Queries) GetSessionForRequest(ctx context.Context, idHash []byte) (GetS
 		&i.Session.Acr,
 		&i.Session.Amr,
 		&i.Session.RevokedAt,
+		&i.Session.IDTokenHintEnc,
 		&i.IdentityScope,
 		&i.IdentityTenantID,
 		&i.IdentityStatus,
@@ -159,6 +160,21 @@ func (q *Queries) GetSessionForRequest(ctx context.Context, idHash []byte) (GetS
 		&i.IdpStatus,
 	)
 	return i, err
+}
+
+const getSessionLogoutHint = `-- name: GetSessionLogoutHint :one
+SELECT id_token_hint_enc FROM sessions
+WHERE id_hash = $1 AND revoked_at IS NULL
+FOR UPDATE
+`
+
+// POST /auth/logout (G2 vòng 2 A-1): id_token_hint đã mã hóa của session còn chưa thu hồi, khóa hàng tới khi
+// RevokeSessionByHash trong cùng transaction xóa nó. Không có hàng ⇒ session đã bị thu hồi giữa chừng.
+func (q *Queries) GetSessionLogoutHint(ctx context.Context, idHash []byte) ([]byte, error) {
+	row := q.db.QueryRow(ctx, getSessionLogoutHint, idHash)
+	var id_token_hint_enc []byte
+	err := row.Scan(&id_token_hint_enc)
+	return id_token_hint_enc, err
 }
 
 const insertAuthRequest = `-- name: InsertAuthRequest :exec
@@ -204,11 +220,11 @@ func (q *Queries) InsertAuthRequest(ctx context.Context, arg InsertAuthRequestPa
 
 const insertSession = `-- name: InsertSession :one
 INSERT INTO sessions (id_hash, identity_id, idp_id, origin, created_at, last_seen_at, auth_time, idle_expires_at,
-                      absolute_expires_at, ip, user_agent, acr, amr)
+                      absolute_expires_at, ip, user_agent, acr, amr, id_token_hint_enc)
 VALUES ($1, $2, $3, $4, $5, $5,
         $6, $7, $8, $9,
-        $10, $11, $12)
-RETURNING id_hash, public_id, identity_id, idp_id, origin, created_at, last_seen_at, auth_time, idle_expires_at, absolute_expires_at, ip, user_agent, acr, amr, revoked_at
+        $10, $11, $12, $13)
+RETURNING id_hash, public_id, identity_id, idp_id, origin, created_at, last_seen_at, auth_time, idle_expires_at, absolute_expires_at, ip, user_agent, acr, amr, revoked_at, id_token_hint_enc
 `
 
 type InsertSessionParams struct {
@@ -224,9 +240,12 @@ type InsertSessionParams struct {
 	UserAgent         *string
 	Acr               *string
 	Amr               []string
+	IDTokenHintEnc    []byte
 }
 
-// §8.3 bước 4: chỉ lưu hash của session id; session chỉ mang danh tính (không role).
+// §8.3 bước 4: chỉ lưu hash của session id; session chỉ mang danh tính (không role). id_token_hint_enc (0008, G2 vòng 2
+// A-1): ID token của lần đăng nhập đã mã hóa bằng khóa dẫn xuất từ session id thô — NULL khi IdP không có
+// end_session_endpoint.
 func (q *Queries) InsertSession(ctx context.Context, arg InsertSessionParams) (Session, error) {
 	row := q.db.QueryRow(ctx, insertSession,
 		arg.IDHash,
@@ -241,6 +260,7 @@ func (q *Queries) InsertSession(ctx context.Context, arg InsertSessionParams) (S
 		arg.UserAgent,
 		arg.Acr,
 		arg.Amr,
+		arg.IDTokenHintEnc,
 	)
 	var i Session
 	err := row.Scan(
@@ -259,6 +279,7 @@ func (q *Queries) InsertSession(ctx context.Context, arg InsertSessionParams) (S
 		&i.Acr,
 		&i.Amr,
 		&i.RevokedAt,
+		&i.IDTokenHintEnc,
 	)
 	return i, err
 }
@@ -355,7 +376,7 @@ func (q *Queries) ListActivePlatformIdPs(ctx context.Context) ([]IdentityProvide
 }
 
 const listLiveSessionsForIdentity = `-- name: ListLiveSessionsForIdentity :many
-SELECT id_hash, public_id, identity_id, idp_id, origin, created_at, last_seen_at, auth_time, idle_expires_at, absolute_expires_at, ip, user_agent, acr, amr, revoked_at FROM sessions
+SELECT id_hash, public_id, identity_id, idp_id, origin, created_at, last_seen_at, auth_time, idle_expires_at, absolute_expires_at, ip, user_agent, acr, amr, revoked_at, id_token_hint_enc FROM sessions
 WHERE identity_id = $1 AND revoked_at IS NULL
   AND idle_expires_at > $2 AND absolute_expires_at > $2
   AND (created_at > $3
@@ -405,6 +426,7 @@ func (q *Queries) ListLiveSessionsForIdentity(ctx context.Context, arg ListLiveS
 			&i.Acr,
 			&i.Amr,
 			&i.RevokedAt,
+			&i.IDTokenHintEnc,
 		); err != nil {
 			return nil, err
 		}
@@ -476,7 +498,7 @@ func (q *Queries) ListLoginIdPsForTenant(ctx context.Context, slug string) ([]Li
 }
 
 const revokeIdentitySessions = `-- name: RevokeIdentitySessions :execrows
-UPDATE sessions SET revoked_at = $1::timestamptz
+UPDATE sessions SET revoked_at = $1::timestamptz, id_token_hint_enc = NULL
 WHERE identity_id = $2 AND revoked_at IS NULL
 `
 
@@ -485,7 +507,8 @@ type RevokeIdentitySessionsParams struct {
 	IdentityID uuid.UUID
 }
 
-// Khóa / offboard / đổi role: thu hồi mọi session của một identity (§8.3 bước 8).
+// Khóa / offboard / đổi role: thu hồi mọi session của một identity (§8.3 bước 8; `meshguard admin revoke-sessions` —
+// G2 vòng 2 A-2). Đếm mọi session chưa thu hồi (kể cả đã hết hạn idle — vô hại) và xóa hint đăng xuất của chúng.
 func (q *Queries) RevokeIdentitySessions(ctx context.Context, arg RevokeIdentitySessionsParams) (int64, error) {
 	result, err := q.db.Exec(ctx, revokeIdentitySessions, arg.Now, arg.IdentityID)
 	if err != nil {
@@ -495,7 +518,7 @@ func (q *Queries) RevokeIdentitySessions(ctx context.Context, arg RevokeIdentity
 }
 
 const revokeOwnSession = `-- name: RevokeOwnSession :execrows
-UPDATE sessions SET revoked_at = $1::timestamptz
+UPDATE sessions SET revoked_at = $1::timestamptz, id_token_hint_enc = NULL
 WHERE public_id = $2 AND identity_id = $3 AND revoked_at IS NULL
   AND idle_expires_at > $1::timestamptz AND absolute_expires_at > $1::timestamptz
 `
@@ -516,7 +539,7 @@ func (q *Queries) RevokeOwnSession(ctx context.Context, arg RevokeOwnSessionPara
 }
 
 const revokeSessionByHash = `-- name: RevokeSessionByHash :execrows
-UPDATE sessions SET revoked_at = $1::timestamptz
+UPDATE sessions SET revoked_at = $1::timestamptz, id_token_hint_enc = NULL
 WHERE id_hash = $2 AND revoked_at IS NULL
 `
 
@@ -525,7 +548,7 @@ type RevokeSessionByHashParams struct {
 	IDHash []byte
 }
 
-// Đăng xuất / xoay session khi đăng nhập lại: thu hồi có hiệu lực ngay (§8.3 bước 6).
+// Đăng xuất / xoay session khi đăng nhập lại: thu hồi có hiệu lực ngay (§8.3 bước 6); hint đăng xuất bị xóa cùng lúc.
 func (q *Queries) RevokeSessionByHash(ctx context.Context, arg RevokeSessionByHashParams) (int64, error) {
 	result, err := q.db.Exec(ctx, revokeSessionByHash, arg.Now, arg.IDHash)
 	if err != nil {

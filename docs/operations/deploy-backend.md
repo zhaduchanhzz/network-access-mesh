@@ -18,6 +18,7 @@
 | h | Edge: template v5 (site `app.`/`admin.`/`auth.`) — **reload có lịch**; rồi IdP driver bootstrap + đăng nhập thử | **[CHỦ DỰ ÁN DUYỆT]** + thông báo trước | **Reload đóng mọi stream upgrade sau `stream_close_delay` (5 phút)** — client tự nối lại |
 | i | DNS công khai `app.`/`auth.` + CAA, mở qua VPS | **[CHỦ DỰ ÁN DUYỆT] riêng** | `app.`/`auth.` public |
 | j | Thu thập bằng chứng G2 | — | Không |
+| k | Cập nhật sau G2 vòng 2 (OWASP ASVS): network `mg-idp`, image idp mới, `realm-update.sh`, migration `0008`, api/worker mới | **[CHỦ DỰ ÁN DUYỆT]** từng bước | Xem bảng của mục k |
 
 Lệch thứ tự so với danh sách của brief: **idp-bootstrap và đăng nhập thử nằm sau (h)** — worker chỉ tới được Admin API của Keycloak qua site `auth.` mới của edge, đăng nhập cần site `app.`/`admin.`. Adopt, client secret, bootstrap SA/seed (e, f) không cần edge mới.
 
@@ -71,7 +72,7 @@ Hoàn tác: migration chỉ tiến; lần đầu (DB rỗng) — `sudo docker ex
 
 ## c. IdP (`mg-idp`) — tiền điều kiện
 
-`mg-idp` (Keycloak 26.8.2, realm `platform`, `tenant-a`, `tenant-b`) **đã chạy trên staging** do người điều phối dựng — xem mục IdP của [RUNBOOK](../../infrastructure/host/RUNBOOK.md). Backend chỉ cần: (1) container `idp` trên `mg-edge` với alias `idp` (edge → `idp:8080`), (2) client `mg-portal` của mỗi realm (secret đưa vào SecretStore ở bước e), (3) admin khởi tạo của realm `master` cho **một** lần idp-bootstrap (bước h), (4) site `auth.` của edge (bước h). Kiểm: `sudo docker compose -p mg-idp -f /opt/meshguard/core/compose.idp.yaml ps` ⇒ `idp` healthy.
+`mg-idp` (Keycloak 26.8.2, realm `platform`, `tenant-a`, `tenant-b`) **đã chạy trên staging** do người điều phối dựng — xem mục IdP của [RUNBOOK](../../infrastructure/host/RUNBOOK.md). Backend chỉ cần: (1) container `idp` với alias `idp` trên network edge dùng để tới nó (edge → `idp:8080`; từ G2 vòng 2 là `mg-idp`, chỉ edge + idp — mục k), (2) client `mg-portal` của mỗi realm (secret đưa vào SecretStore ở bước e), (3) admin khởi tạo của realm `master` cho **một** lần idp-bootstrap (bước h), (4) site `auth.` của edge (bước h). Kiểm: `sudo docker compose -p mg-idp -f /opt/meshguard/core/compose.idp.yaml ps` ⇒ `idp` healthy.
 
 ## d. api và worker
 
@@ -159,3 +160,91 @@ sudo python3 infrastructure/gateway/cf_dns.py apply infrastructure/environments/
 ## j. Bằng chứng G2
 
 Ghi vào `docs/planning/evidence/P2-T16.md` (mục "Triển khai lên host") và `current.md`: digest đã pin; output JSON của `db-bootstrap`/`migrate` + id bộ pre-migration; `check-secrets.sh`; `/readyz` + KCV trong log; output adopt/register/client secret (chỉ reference, prefix); id SA/membership (sub, request id); `run_staging.sh` (gồm `platform`), IT-14, `external.py`; kết quả đăng nhập thử; `status.json` của `mg-backup`; truy vấn `audit_events`. Rà soát G2 (người không viết code, OWASP ASVS — §19) dùng bảng "Wiring hazards G2" của bằng chứng P2-T16 làm danh mục kiểm.
+
+## k. Cập nhật sau G2 vòng 2
+
+Áp các bản sửa của rà soát G2 vòng 2 (OWASP ASVS — [bằng chứng G2](../planning/evidence/G2-security-review.md), mục "Sửa sau vòng 2") lên staging đang chạy. **Thứ tự là bắt buộc**: image idp mới phải chạy trước `realm-update.sh` (realm mới tham chiếu file danh sách mật khẩu chỉ image mới có), realm phải có mapper `amr` trước api mới (api mới từ chối đăng nhập platform không có bằng chứng MFA), migration `0008` trước api mới (api mới đọc/ghi cột `sessions.id_token_hint_enc`; api cũ chạy được trên schema mới — expand-only).
+
+| # | Bước | Duyệt | Ảnh hưởng tới đang chạy |
+|---|---|---|---|
+| k1 | Pin image, đồng bộ `~/mg` | — | Không |
+| k2 | Network `mg-idp`; edge gắn vào (không restart) + Caddyfile v7 (reload) | **[CHỦ DỰ ÁN DUYỆT]** + thông báo trước | Reload: stream upgrade đóng sau 5 phút, client tự nối lại |
+| k3 | idp: image mới, chỉ trên `mg-idp` (recreate) | **[CHỦ DỰ ÁN DUYỆT]** | `auth.` không phục vụ ~1–2 phút; phiên SSO Keycloak còn (DB giữ nguyên) |
+| k4 | `realm-update.sh` (realm platform/tenant-a/tenant-b + gia cố master) | **[CHỦ DỰ ÁN DUYỆT]** | Mật khẩu đặt mới phải qua danh sách cấm; đổi credential ở account console phải xác thực lại |
+| k5 | Migration `0008` qua `migrate.sh` (backup pre-migration trước) | **[CHỦ DỰ ÁN DUYỆT]** | Không (expand-only) |
+| k6 | api, worker image mới | **[CHỦ DỰ ÁN DUYỆT]** | Đăng xuất chuyển tới Keycloak; đăng nhập platform luôn hỏi mật khẩu + OTP |
+| k7 | Kiểm (+ chạy lại các kiểm S-4…S-7, S-13 của vòng 2) | — | Không |
+
+**k1. Pin + đồng bộ** (máy người điều phối): workflow `images` xanh trên `main` cho commit gộp ⇒ commit riêng ghi vào `versions.lock`: `[images.mg-idp]` (image mới — có `/opt/keycloak/mg/password-blacklists/mg-passwords-v1.txt`), `[images.mg-api]`, `[images.mg-worker]` (**cùng commit**), `[images.mg-backup]` nếu workflow build lại. `[images.mg-edge]` không đổi (chỉ Caddyfile đổi). Trên host: `~/mg` = `git archive` của commit đó; `cd ~/mg && eval "$(python3 tools/mgenv.py export infrastructure/environments/staging/staging.env)" && sudo -v`; `IDP="sudo docker compose -p mg-idp -f /opt/meshguard/core/compose.idp.yaml"`, `APP` như mục 0. Kiểm: `python3 tools/test_render_idp.py && python3 tools/test_render_edge.py` ⇒ exit 0.
+
+**k2. Network `mg-idp` + edge** (trước k3: sau k3 edge chỉ tới được idp qua `mg-idp`):
+
+```bash
+sudo bash infrastructure/host/networks.sh                                   # "tạo mg-idp 10.249.7.0/24 (internal)"
+sudo docker network connect --ip 10.249.7.2 mg-idp mg-edge                  # gắn khi đang chạy — không restart
+python3 tools/render_edge.py infrastructure/environments/staging/edge.json /tmp/edge
+sudo cp -a /opt/meshguard/core/compose.edge.yaml /root/compose.edge.yaml.v6.$(date -u +%Y%m%dT%H%M%SZ)
+sudo cp -a /opt/meshguard/core/caddy/Caddyfile /root/Caddyfile.v6.$(date -u +%Y%m%dT%H%M%SZ)
+sudo install -o root -g root -m 0644 /tmp/edge/compose.edge.yaml /opt/meshguard/core/compose.edge.yaml   # cho lần recreate sau
+sudo install -o root -g root -m 0644 /tmp/edge/caddy/Caddyfile /opt/meshguard/core/caddy/Caddyfile
+sudo docker exec mg-edge caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+sudo docker exec mg-edge caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile --address unix//run/caddy/admin.sock
+```
+
+Kiểm: `sudo docker inspect -f '{{json .NetworkSettings.Networks}}' mg-edge | python3 -m json.tool | grep -A3 '"mg-idp"'` ⇒ `10.249.7.2`; diff Caddyfile cũ/mới chỉ gồm `template_version 7`, chú thích và khối `format filter … delete id_token_hint` của `(access_log)`; `/key?v=113` qua VPS và LAN-direct 200 như mục "Đổi cấu hình edge" của RUNBOOK. Hoàn tác: cài lại `/root/Caddyfile.v6.*` + reload; `sudo docker network disconnect mg-idp mg-edge` (chỉ sau khi k3 đã hoàn tác).
+
+**k3. idp: image mới, chỉ trên `mg-idp`** (realm trong `idp-db` giữ nguyên; `--import-realm` bỏ qua realm đã có):
+
+```bash
+python3 tools/render_idp.py infrastructure/environments/staging/staging.env /tmp/mg-idp     # image = [images.mg-idp] mới
+sudo cp -a /opt/meshguard/core/compose.idp.yaml /root/compose.idp.yaml.v1.$(date -u +%Y%m%dT%H%M%SZ)
+sudo tar -C /opt/meshguard/core/idp -czf /root/idp-realms.v1.$(date -u +%Y%m%dT%H%M%SZ).tgz realms
+sudo install -o root -g root -m 0644 /tmp/mg-idp/compose.idp.yaml /opt/meshguard/core/compose.idp.yaml
+sudo install -o root -g root -m 0644 /tmp/mg-idp/idp/realms/*.json /opt/meshguard/core/idp/realms/
+$IDP config --quiet && $IDP pull idp && $IDP up -d --wait --wait-timeout 300 idp
+```
+
+Kiểm: `$IDP ps` ⇒ `idp` healthy; `sudo docker network inspect -f '{{range .Containers}}{{.Name}} {{end}}' mg-idp` ⇒ đúng `mg-edge` và `mg-idp-idp-1`; `idp` không còn trên `mg-edge`; `KC_PROXY_TRUSTED_ADDRESSES=10.249.7.2` trong `sudo docker inspect mg-idp-idp-1`; `https://auth.$MG_BASE_DOMAIN/realms/tenant-a/.well-known/openid-configuration` (LAN) ⇒ 200, `issuer` đúng; từ container khác trên `mg-edge`: `sudo docker run --rm --network mg-edge <image alpine của versions.lock> wget -q -T 5 -O- http://idp:8080/realms/master` ⇒ thất bại (A-8). Hoàn tác: cài lại `/root/compose.idp.yaml.v1.*` (image cũ `c983f678`, trên `mg-edge`) + `$IDP up -d idp` — **chỉ sau khi đã gỡ `passwordBlacklist` khỏi policy các realm** (k4 hoàn tác), nếu không Keycloak cũ không tìm thấy file danh sách khi đặt mật khẩu.
+
+**k4. Realm đang chạy + realm master:**
+
+```bash
+sudo bash infrastructure/idp/realm-update.sh --check     # in diff trước → sau, exit 3 = có thay đổi chờ áp, không ghi gì
+sudo bash infrastructure/idp/realm-update.sh 2>&1 | sudo tee /root/realm-update.$(date -u +%Y%m%dT%H%M%SZ).log
+sudo bash infrastructure/idp/realm-update.sh --check     # exit 0: "0 thay đổi" mọi realm
+```
+
+Mong đợi lần áp: mỗi realm `passwordPolicy` (+ `passwordBlacklist(mg-passwords-v1.txt)`), `attributes.meshguard.template` (`idp-realm-v2`), `mg-portal.post.logout.redirect.uris` (`+` → `https://app.`/`admin.$MG_BASE_DOMAIN/`), `mg-portal.protocolMappers` (+ `amr`), hai `authenticatorConfig` (`mg-amr-pwd`, `mg-amr-otp`), 5 `requiredAction.*.config` (`max_auth_age` `0`); realm `master` 7 khóa (brute force bật, event bật, policy); rồi `check_realm trên bản export của Keycloak — đạt` cho 3 realm và `OK`. Log không chứa secret (chỉ các khóa trên). Mật khẩu hiện có **không** bị kiểm lại: 6 tài khoản mẫu (24 ký tự ngẫu nhiên) không bị ảnh hưởng; danh sách chỉ áp khi đặt/đổi mật khẩu. Hoàn tác (giá trị cũ nằm trong log đã lưu): với từng realm, kcadm **trong** container như `user-id.sh` — ví dụ policy:
+
+```bash
+sudo docker exec -i mg-idp-idp-1 bash -s -- tenant-a <<'IN'
+set -euo pipefail; cfg=$(mktemp /tmp/kcadm.XXXXXX); trap 'rm -f "$cfg"' EXIT; conf=/run/secrets/keycloak.conf
+KC_CLI_PASSWORD=$(sed -n 's/^bootstrap-admin-password=//p' "$conf") /opt/keycloak/bin/kcadm.sh config credentials \
+  --config "$cfg" --server http://localhost:8080 --realm master --user "$(sed -n 's/^bootstrap-admin-username=//p' "$conf")" >/dev/null
+/opt/keycloak/bin/kcadm.sh update "realms/$1" --config "$cfg" \
+  -s 'passwordPolicy=length(12) and maxLength(128) and notUsername and notEmail and passwordHistory(5)'
+IN
+```
+
+(mapper `amr`, `authenticatorConfig`, `max_auth_age`, khóa của master: để nguyên khi hoàn tác api — chúng không làm hỏng api cũ; gỡ mapper `amr` của realm `platform` sẽ làm api **mới** từ chối mọi đăng nhập platform.)
+
+**k5. Migration `0008`** (mục b bước 3 — luôn qua `migrate.sh`, image migrate = `[images.mg-api]` mới):
+
+```bash
+sudo bash infrastructure/host/migrate.sh
+```
+
+Mong đợi `"schema_version":8,"latest_migration":8`, `OK: backup pre-migration + migrate xong`; ghi id bộ pre-migration vào bằng chứng. `0008` chỉ thêm cột NULL `sessions.id_token_hint_enc` (không ghi lại hàng). Hoàn tác: forward-only — api/worker cũ chạy được trên schema 8; về schema 7 chỉ bằng restore bộ pre-migration ([backup-restore.md](backup-restore.md) mục 6.3) — không cần cho hoàn tác thường.
+
+**k6. api, worker:** `python3 tools/render_app.py infrastructure/environments/staging/staging.env /tmp/mg-app` → cài như mục a bước 2 → `$APP up -d --wait --wait-timeout 180 api worker` → kiểm như mục d. Hoàn tác: pin lại digest `03509d3` của `[images.mg-api]`/`[images.mg-worker]`, render, `$APP up -d api worker`.
+
+**k7. Kiểm sau triển khai** (tài khoản thử, không dùng tài khoản thật của người khác):
+
+1. **A-1** — đăng nhập TO của A trên `app.` (mật khẩu + OTP), `POST /api/v1/auth/logout` (CSRF) ⇒ `200 {"redirect_to": "https://auth.…/realms/tenant-a/protocol/openid-connect/logout?client_id=mg-portal&id_token_hint=…&post_logout_redirect_uri=https%3A%2F%2Fapp.…%2F"}`; trình duyệt tới đó ⇒ Keycloak 302 về `https://app.$MG_BASE_DOMAIN/`; `GET /api/v1/auth/login?scope=tenant&tenant=tenant-a` ⇒ Keycloak **hiện form mật khẩu** (S-5 lặp lại phải đổi kết quả). Trên `admin.`: URL tới Keycloak luôn có `prompt=login`. `sudo grep -c id_token_hint= /opt/meshguard/logs/edge/access.log` ⇒ 0.
+2. **A-6** — `psql … -c "SELECT origin, acr, amr FROM sessions WHERE revoked_at IS NULL ORDER BY created_at DESC LIMIT 5"` ⇒ phiên `admin` có `amr` `{pwd,otp}`.
+3. **A-3** — đặt mật khẩu `password1234` cho tài khoản thử (Admin API/console) ⇒ bị từ chối (`invalidPasswordBlacklistedMessage`).
+4. **A-4** — account console `https://auth.$MG_BASE_DOMAIN/realms/tenant-a/account` → đổi mật khẩu ⇒ hỏi lại mật khẩu + OTP trước form mật khẩu mới (S-13 lặp lại phải đổi kết quả).
+5. **A-2** — tài khoản thử đăng nhập, khóa ở Keycloak, `revoke-sessions` theo mục "Một người rời đi…" của RUNBOOK ⇒ cookie cũ `GET /api/v1/auth/session` ⇒ 401; `enable-identity` để trả lại.
+6. **A-8** — `sudo bash infrastructure/idp/realm-update.sh --check` ⇒ exit 0; `master`: `bruteForceProtected=true` (dòng `realm master: 0 thay đổi (đã gia cố)`).
+
+Ghi kết quả vào bằng chứng G2 (mục "Sửa sau vòng 2" — phần staging) và `current.md` (image đã pin, network `mg-idp`, id bộ pre-migration, log `realm-update`).

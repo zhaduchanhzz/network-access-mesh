@@ -31,8 +31,8 @@ secrets:
     file: ${MGT_WORK}/secrets/idp/backup_db_password
 
 networks:
-  mg-edge:
-    name: ${MGT_PREFIX}-edge
+  mg-idp:
+    name: ${MGT_PREFIX}-idp
     external: true
   mg-idp-data:
     name: ${MGT_PREFIX}-idp-data

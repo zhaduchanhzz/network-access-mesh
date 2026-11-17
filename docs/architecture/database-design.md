@@ -115,16 +115,17 @@ Bảng của job queue (River, §4) nằm ở schema riêng `river`, không ch�
 | `0005` | 2 / P2-T03 (+ P2-T13) | `device_inventory_cache`, `device_inventory_sync_state` (P2-T13) |
 | `0006` | 2 / P2-T03 | `provisioning_jobs`/`provisioning_job_steps`, `idempotency_keys`, schema `river` (bảng do River tạo — P2-T12) |
 | `0007` | 2 / G2 (sửa F3) | không bảng mới: CHECK chủ của `identity_providers.client_secret_ref` (owner segment = `tenant_id`, hoặc `platform` khi `tenant_id` NULL) — `0007_idp_secret_ref_owner.sql` |
-| `0008` | 3 / P3-T06 | `approval_requests`, `tenant_invitations`, `notification_outbox` |
-| `0009` | 3 / P3-T06 | `relay_regions`/`relay_assignments` |
-| `0010` | 3 / P3-T06 | `backups` |
-| `0011` | 3 / P3-T06 | `subscription_plans`/`subscriptions` |
-| `0012` | 3 / P3-T06 | `policy_versions`, `policy_applications` (+ FK `tenants.desired_policy_version_id`) |
-| `0013` | 4 / P4-T05 | `enrollment_requests` (+ FK `device_inventory_cache.enrollment_request_id`) |
-| `0014` | 4 / P4-T05 | `groups`/`group_members`, `tenant_tags` |
-| `0015` | 4 / P4-T05 | `network_resources`, `dns_records` |
-| `0016` | 4 / P4-T05 | `support_access_grants`, `identity_links` |
-| `0017` | 6 / P6-T11 | `usage_records` (partition) + bảng tổng hợp |
+| `0008` | 2 / G2 vòng 2 (sửa A-1) | không bảng mới: cột `sessions.id_token_hint_enc` (ID token của lần đăng nhập, mã hóa bằng khóa dẫn xuất từ session id — `id_token_hint` của RP-Initiated Logout, §8.3 bước 6) — `0008_session_logout_hint.sql` |
+| `0009` | 3 / P3-T06 | `approval_requests`, `tenant_invitations`, `notification_outbox` |
+| `0010` | 3 / P3-T06 | `relay_regions`/`relay_assignments` |
+| `0011` | 3 / P3-T06 | `backups` |
+| `0012` | 3 / P3-T06 | `subscription_plans`/`subscriptions` |
+| `0013` | 3 / P3-T06 | `policy_versions`, `policy_applications` (+ FK `tenants.desired_policy_version_id`) |
+| `0014` | 4 / P4-T05 | `enrollment_requests` (+ FK `device_inventory_cache.enrollment_request_id`) |
+| `0015` | 4 / P4-T05 | `groups`/`group_members`, `tenant_tags` |
+| `0016` | 4 / P4-T05 | `network_resources`, `dns_records` |
+| `0017` | 4 / P4-T05 | `support_access_grants`, `identity_links` |
+| `0018` | 6 / P6-T11 | `usage_records` (partition) + bảng tổng hợp |
 
 ### 6.4 Data ownership & retention
 

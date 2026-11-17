@@ -468,11 +468,28 @@ func TestKeycloakTenantLoginEndToEnd(t *testing.T) {
 	}
 	t.Logf("session 2: auth_time %s (was %s)", s2.AuthTime.Format(time.RFC3339), s1.AuthTime.Format(time.RFC3339))
 
-	// Logout revokes the session server-side.
+	// Logout revokes the session server-side and ends the Keycloak session (G2 round 2, A-1): the browser follows
+	// redirect_to to the end_session_endpoint; the next login asks for password + OTP again.
 	rec = b.do(http.MethodPost, "https://"+app+"/api/v1/auth/logout", unsafeHeaders(app, b.csrf(app)))
-	wantStatus(t, "logout", rec.Code, http.StatusNoContent, rec.Body.String())
+	wantStatus(t, "logout", rec.Code, http.StatusOK, "")
+	var out struct {
+		RedirectTo string `json:"redirect_to"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || !strings.HasPrefix(out.RedirectTo, issuer+"/protocol/openid-connect/logout?") {
+		t.Fatalf("logout redirect_to is not the realm's end_session_endpoint (%v)", err)
+	}
 	if r, _ := b.session(app); r.Code != http.StatusUnauthorized {
 		t.Fatal("session alive after logout")
+	}
+	end := kc.do(t, kcJar, http.MethodGet, out.RedirectTo, nil, nil)
+	_ = end.Body.Close()
+	if end.StatusCode != http.StatusFound || !strings.HasPrefix(end.Header.Get("Location"), "https://"+app+"/") {
+		t.Fatalf("end_session_endpoint: HTTP %d", end.StatusCode)
+	}
+	start = b.startLogin(app, "scope=tenant&tenant="+slug)
+	authURL, _ = locationQuery(t, start.Header().Get("Location"))
+	if _, steps := kc.kcBrowserLogin(t, kcJar, authURL.String(), username, password, otp, app); strings.Join(steps, ",") != "password,otp" {
+		t.Fatalf("login after logout: steps %v (the Keycloak session outlived the logout)", steps)
 	}
 }
 
@@ -505,9 +522,20 @@ func TestKeycloakPlatformLoginOriginBound(t *testing.T) {
 	if q.Get("redirect_uri") != redirectURI(admin, idpID) || q.Get("max_age") != "28800" {
 		t.Fatalf("authorization request %s", authURL)
 	}
-	cb, steps := kc.kcBrowserLogin(t, kcJar, authURL.String(), username, password, &totp{}, admin)
+	if q.Get("prompt") != "login" {
+		t.Fatalf("platform login without prompt=login (G2 round 2, A-1): %v", q.Get("prompt"))
+	}
+	otp := &totp{}
+	cb, steps := kc.kcBrowserLogin(t, kcJar, authURL.String(), username, password, otp, admin)
 	t.Logf("platform login steps: %v", steps)
+	// The login that enrols the TOTP carries no otp in amr (G2 round 2, A-6): 401 reauth_required, then sign in again.
 	rec := b.get(cb.String())
+	wantStatus(t, "callback of the enrolling login", rec.Code, http.StatusUnauthorized, rec.Body.String())
+	start = b.startLogin(admin, "scope=platform&reauth=true")
+	authURL, _ = locationQuery(t, start.Header().Get("Location"))
+	cb, steps = kc.kcBrowserLogin(t, kcJar, authURL.String(), username, password, otp, admin)
+	t.Logf("platform login again: %v", steps)
+	rec = b.get(cb.String())
 	wantStatus(t, "callback", rec.Code, http.StatusFound, rec.Body.String())
 	r, s := b.session(admin)
 	wantStatus(t, "session on admin", r.Code, http.StatusOK, r.Body.String())

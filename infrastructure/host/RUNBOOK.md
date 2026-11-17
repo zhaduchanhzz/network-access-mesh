@@ -96,7 +96,7 @@ Hoàn tác (về digest chính thức): đặt lại `"headscale_build": "offici
 
 Project `mg-idp`: `idp` (Keycloak 26.8.2, 3 realm `platform`/`tenant-a`/`tenant-b` nhập lúc khởi động đầu), `idp-db` (PostgreSQL riêng, chỉ trên `mg-idp-data`) và — khi `MG_IDP_MAIL_SINK=mailpit` (staging) — `mailsink` (Mailpit, network `mail` internal: thư không ra ngoài host). Không publish cổng nào; `auth.<domain>` qua edge là bước riêng của P2-T16 (template edge mới + reload có lịch). Thiết kế: [P2-T05](../../docs/planning/evidence/P2-T05.md), [P2-T05b](../../docs/planning/evidence/P2-T05b.md).
 
-Điều kiện: network nền tảng đã có (`networks.sh` — có `mg-edge`, `mg-idp-data`, `mg-egress`), edge chạy ở `10.249.0.2` (proxy tin cậy duy nhất của Keycloak), `~/mg` là bản đồng bộ **chỉ file tracked** của repo (không bao giờ có `config/secrets/`).
+Điều kiện: network nền tảng đã có (`networks.sh` — có `mg-edge`, `mg-idp`, `mg-idp-data`, `mg-egress`), edge chạy ở `10.249.0.2` và gắn `mg-idp` ở `10.249.7.2` (proxy tin cậy duy nhất của Keycloak — từ G2 vòng 2 idp chỉ ở `mg-idp`, không còn trên `mg-edge`), `~/mg` là bản đồng bộ **chỉ file tracked** của repo (không bao giờ có `config/secrets/`).
 
 ```bash
 cd ~/mg
@@ -121,7 +121,7 @@ Kiểm:
 
 - `$IDP ps`: `idp`, `idp-db` (và `mailsink`) đều `healthy`.
 - Realm đã nhập và admin khởi tạo dùng được: `sudo bash infrastructure/idp/user-id.sh tenant-a service-account-mg-idp-driver` in đúng một user.
-- Discovery của 3 realm (từ host, thẳng tới `idp:8080` trên `mg-edge`): `issuer` = `https://auth.<domain>/realms/<realm>`.
+- Discovery của 3 realm (từ host, thẳng tới IP của `idp` trên `mg-idp`, cổng 8080): `issuer` = `https://auth.<domain>/realms/<realm>`.
 - `mail` là network internal, chỉ có `idp` và `mailsink`: `sudo docker network inspect mg-idp_mail`.
 - Thư đi được Keycloak → Mailpit: gửi `execute-actions-email` cho một tài khoản mẫu, đếm thư qua API của Mailpit (`http://<IP mailsink>:8025/api/v1/messages` từ host). Đọc thư bằng trình duyệt: `ssh -L 8025:<IP mailsink>:8025 mgdeploy@<host>` rồi mở `http://localhost:8025`.
 
@@ -371,3 +371,44 @@ $APP --profile bootstrap run --rm -T db-bootstrap                 # MỘT lần 
 sudo bash infrastructure/host/migrate.sh                          # mỗi lần nâng cấp: backup pre-migration → migrate
 $APP up -d --wait api worker                                      # /readyz: postgres, secretstore, edge_admin
 ```
+
+## Một người rời đi, bị lộ tài khoản hoặc mất thiết bị TOTP — `revoke-sessions` (G2 vòng 2, A-2/A-7)
+
+Khóa user ở Keycloak (`enabled=false`, đăng xuất mọi phiên SSO) **không** chạm phiên BFF của người đó: phiên BFF sống tới hết hạn tuyệt đối (12 h tenant / 8 h nhân sự nền tảng) nếu vẫn có request trong khoảng idle. Đồng bộ tự động sự kiện của IdP (back-channel logout / `idp.audit_sync`) là Phase 6 (§8.2) — tới lúc đó dùng lệnh host-only dưới đây. Lệnh chỉ nhận định danh (id của IdP trong file môi trường, `sub` của user ở IdP — không bao giờ email), ghi **cặp audit** `identity.sessions.revoke.requested` → `.succeeded` (`actor_type=system`, thuộc tenant của người đó hoặc nền tảng) và in số phiên bị thu hồi. Thiết kế và phép thử: [bằng chứng G2](../../docs/planning/evidence/G2-security-review.md), mục "Sửa sau vòng 2".
+
+```bash
+cd ~/mg && eval "$(python3 tools/mgenv.py export infrastructure/environments/staging/staging.env)" && sudo -v
+CORE="sudo docker compose -p mg-app -f /opt/meshguard/core/compose.app.yaml"
+SUB=$(sudo bash infrastructure/idp/user-id.sh tenant-a <username> | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["id"])')
+```
+
+### Offboarding (người rời đi, tài khoản bị chiếm) — theo đúng thứ tự
+
+1. **Keycloak** — chặn đăng nhập mới và phiên SSO: Admin Console hoặc `kcadm` trong container (như `user-id.sh`): realm → Users → user → *Enabled* = off, rồi *Sign out* (`POST /admin/realms/<realm>/users/<id>/logout`).
+2. **Nền tảng** — thu hồi mọi phiên BFF và khóa danh tính (lần đăng nhập sau bị từ chối `identity_disabled` kể cả khi Keycloak mở lại):
+
+   ```bash
+   $CORE run --rm --no-deps -T api admin revoke-sessions --idp "$MG_IDP_ID_TENANT_A" --subject "$SUB"
+   ```
+
+   Mong đợi `sessions revoked: <n>`, `status: active → disabled`, `OK`. Với nhân sự nền tảng: `--idp "$MG_IDP_ID_PLATFORM"`. Chạy lại vô hại (`sessions revoked: 0`, `unchanged`).
+3. **Thiết bị** — expire thiết bị của người đó (P2-T13, hai pha): `POST /api/v1/tenants/{tenantId}/devices/{deviceId}/expire` (TO/TA, CSRF + `Idempotency-Key`) cho mỗi thiết bị của người đó (`GET …/devices?owner=<membership id>` — trường `owner`); kiểm job `device.revoke` `succeeded`. Membership của người đó giữ nguyên tới khi có API users (P4-T09); identity đã khóa nên membership không dùng được.
+4. **Kiểm**: `psql … -c "SELECT action, outcome FROM audit_events WHERE resource_id = '<identity id in ra>' ORDER BY occurred_at"` ⇒ cặp `identity.sessions.revoke.*`; người đó gọi `GET /api/v1/auth/session` bằng cookie cũ ⇒ 401.
+
+Hoàn tác (khóa nhầm, người quay lại): `$CORE run --rm --no-deps -T api admin enable-identity --idp <id> --subject "$SUB"` (audit `identity.enable`; không hồi sinh phiên cũ, không đụng membership hay tài khoản Keycloak — bật lại user ở Keycloak riêng).
+
+### Mất thiết bị TOTP (hoặc nghi lộ mật khẩu) — khôi phục, không khóa
+
+1. **Xác minh danh tính ngang mức lúc cấp tài khoản** (ASVS 6.4.4) — không bao giờ chỉ qua kênh vừa liên lạc tới: gọi lại qua số/kênh đã biết từ trước; với **nhân sự nền tảng** cần **hai người vận hành** cùng xác nhận (2P). Ghi ticket (ai yêu cầu, ai xác minh, kênh nào) — không ghi mã, mật khẩu hay seed TOTP.
+2. **Keycloak**: realm → Users → user → tab *Credentials* → xóa credential `otp`; *Required user actions* thêm `Configure OTP` (và `Update Password` nếu nghi lộ mật khẩu — đặt mật khẩu tạm qua kênh riêng); *Sign out* mọi phiên.
+3. **Nền tảng** — thu hồi mọi phiên BFF nhưng **không** khóa (người đó đăng nhập lại và đăng ký TOTP mới):
+
+   ```bash
+   $CORE run --rm --no-deps -T api admin revoke-sessions --idp <id> --subject "$SUB" --keep-enabled
+   ```
+
+4. Thiết bị đã enroll vẫn hợp lệ (node key không phụ thuộc TOTP); nếu thiết bị mất là laptop/điện thoại đã enroll ⇒ expire nó như bước 3 của offboarding.
+
+### Phiên đồng thời (ASVS 7.1.2)
+
+Không giới hạn số phiên BFF của một người (Portal web + Console, nhiều trình duyệt). Mỗi phiên hiện ở `GET /api/v1/auth/sessions` (thời điểm tạo, lần dùng cuối, IP, user agent); chính người đó thu hồi phiên lạ bằng `DELETE /api/v1/auth/sessions/{id}` (không đòi xác thực lại — chấp nhận ở §23, A-5) hoặc đăng xuất. Người vận hành thu hồi **mọi** phiên của một người bằng `revoke-sessions` ở trên; thu hồi mọi phiên của mọi người (sau restore, sự cố khóa) — [backup-restore.md](../../docs/operations/backup-restore.md) mục 6.3 bước 5. Cảnh báo khi số phiên vượt ngưỡng: Phase 6 (giám sát).

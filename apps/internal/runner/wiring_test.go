@@ -26,6 +26,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/zhaduchanhzz/network-access-mesh/internal/config"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/idp"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/kit/logx"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/secrets"
@@ -195,6 +196,53 @@ func TestClientSecretsBoundToTheirIdP(t *testing.T) {
 	}
 	if _, err := src.ClientSecret(t.Context(), refused["an unknown IdP"]); !errors.Is(err, errClientSecretRef) {
 		t.Errorf("unknown IdP: %v", err)
+	}
+}
+
+// TestClientSecretsAcceptTheDriverName — G2 round 2, I-7: an IdP created by a driver (keycloak/external: P3 idp.ensure)
+// records its client secret as idp.<id>.client, `set-idp-client-secret` as idp-client-secret.<id>; the source resolves
+// both names, each only for its own IdP and owner (idp.Registration.OwnClientSecretRef) and only when the IdP records
+// exactly that reference. Before the fix the driver name was refused and such an IdP could never complete a login.
+func TestClientSecretsAcceptTheDriverName(t *testing.T) {
+	tenantA, tenantB := uuid.New(), uuid.New()
+	idpD, idpE, idpP := uuid.New(), uuid.New(), uuid.New()
+	refD := secrets.TenantRef(tenantA, idp.ClientSecretName(idpD), 1).String()      // driver name, tenant
+	refE := secrets.TenantRef(tenantB, idp.AdminClientSecretName(idpE), 3).String() // admin name, tenant
+	refP := secrets.PlatformRef(idp.ClientSecretName(idpP), 2).String()             // driver name, platform
+	idps := fakeIdPs{
+		idpD: {ID: idpD, Scope: tenants.IdPScopeTenant, TenantID: &tenantA, Driver: "keycloak", ClientSecretRef: refD},
+		idpE: {ID: idpE, Scope: tenants.IdPScopeTenant, TenantID: &tenantB, Driver: "external", ClientSecretRef: refE},
+		idpP: {ID: idpP, Scope: tenants.IdPScopePlatform, Driver: "keycloak", ClientSecretRef: refP},
+	}
+	sec := &fakeSecrets{}
+	src := clientSecrets(sec, idps)
+	for _, ref := range []string{refD, refE, refP} {
+		if v, err := src.ClientSecret(t.Context(), ref); err != nil || v != "value-of-"+ref {
+			t.Errorf("%s: %q, %v", ref, v, err)
+		}
+	}
+	// a tampered row (the CHECK of 0007 dropped): IdP T of tenant A records its own name under tenant B's owner — the
+	// row and the reference agree, only OwnClientSecretRef refuses it
+	idpT := uuid.New()
+	refT := secrets.TenantRef(tenantB, idp.ClientSecretName(idpT), 1).String()
+	idps[idpT] = tenants.IdP{ID: idpT, Scope: tenants.IdPScopeTenant, TenantID: &tenantA, Driver: "keycloak", ClientSecretRef: refT}
+	sec.asked = nil
+	for name, ref := range map[string]string{
+		"T's own name under another tenant (row tampered)": refT,
+		"D's driver name under B's tenant":                 secrets.TenantRef(tenantB, idp.ClientSecretName(idpD), 1).String(),
+		"D's other name (not the one recorded)":            secrets.TenantRef(tenantA, idp.AdminClientSecretName(idpD), 1).String(),
+		"platform's driver name under a tenant":            secrets.TenantRef(tenantA, idp.ClientSecretName(idpP), 2).String(),
+		"D's driver name as a platform secret":             secrets.PlatformRef(idp.ClientSecretName(idpD), 1).String(),
+		"driver name with a non-canonical id":              secrets.TenantRef(tenantA, "idp."+strings.ToUpper(idpD.String())+".client", 1).String(),
+		"driver-like name of another kind":                 secrets.TenantRef(tenantA, "idp."+idpD.String()+".driver", 1).String(),
+		"the keycloak provisioning identity name":          secrets.PlatformRef("idp.keycloak.provisioner", 1).String(),
+	} {
+		if v, err := src.ClientSecret(t.Context(), ref); err == nil || v != "" {
+			t.Errorf("%s: accepted (%q)", name, v)
+		}
+	}
+	if len(sec.asked) != 0 {
+		t.Errorf("the SecretStore was asked for %v", sec.asked)
 	}
 }
 

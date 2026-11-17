@@ -101,6 +101,49 @@ func TestSealedVerifier(t *testing.T) {
 	}
 }
 
+// TestLogoutHintSealing — G2 round 2, A-1: the ID token kept as id_token_hint opens only with the raw id of its own
+// session (never stored) and the AAD of its row and IdP; the ciphertext holds no part of the token; an empty or
+// oversized token is not kept.
+func TestLogoutHintSealing(t *testing.T) {
+	raw, idp := newSecret(), uuid.New()
+	aad := hintAAD(hashSecret(raw), idp)
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256"}`))
+	token := header + "." + encodeSecret(newSecret()) + "." + encodeSecret(newSecret()) // shape of a compact JWS
+	sealed, err := sealHint(raw, aad, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, part := range strings.Split(token, ".") {
+		if bytes.Contains(sealed, []byte(part)) {
+			t.Fatal("ciphertext contains part of the token")
+		}
+	}
+	if got, err := openHint(raw, aad, sealed); err != nil || got != token {
+		t.Fatalf("open = %q, %v", got, err)
+	}
+	other := newSecret()
+	for name, f := range map[string]func() (string, error){
+		"other session id":   func() (string, error) { return openHint(other, aad, sealed) },
+		"other row (AAD)":    func() (string, error) { return openHint(raw, hintAAD(hashSecret(other), idp), sealed) },
+		"other IdP (AAD)":    func() (string, error) { return openHint(raw, hintAAD(hashSecret(raw), uuid.New()), sealed) },
+		"tampered":           func() (string, error) { s := bytes.Clone(sealed); s[20] ^= 1; return openHint(raw, aad, s) },
+		"nonce and tag only": func() (string, error) { return openHint(raw, aad, sealed[:28]) },
+	} {
+		if v, err := f(); err == nil || v != "" || strings.Contains(err.Error(), token[:10]) {
+			t.Errorf("%s: %q, %v", name, v, err)
+		}
+	}
+	if _, err := sealHint(raw, aad, ""); err == nil {
+		t.Error("empty token kept")
+	}
+	if _, err := sealHint(raw, aad, strings.Repeat("a", maxHintToken+1)); err == nil {
+		t.Error("oversized token kept")
+	}
+	if s, err := sealHint(raw, aad, strings.Repeat("a", maxHintToken)); err != nil || len(s) != maxHintToken+28 {
+		t.Errorf("largest token: %d bytes, %v (0008 CHECK allows 16412)", len(s), err)
+	}
+}
+
 func TestCleanReturnTo(t *testing.T) {
 	ok := map[string]string{"": "/", "/": "/", "/devices": "/devices", "/a/b?c=d#e": "/a/b?c=d#e", "/x%2F%2Fy": "/x%2F%2Fy"}
 	for in, want := range ok {

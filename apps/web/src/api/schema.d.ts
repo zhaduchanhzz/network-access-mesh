@@ -61,8 +61,13 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Đăng xuất — thu hồi session hiện tại
-         * @description Thu hồi phía server có hiệu lực ngay (§8.3 bước 6) và xóa cookie `__Host-mg_session`.
+         * Đăng xuất — thu hồi session hiện tại và kết thúc phiên SSO của IdP
+         * @description Thu hồi phía server có hiệu lực ngay (§8.3 bước 6) và xóa cookie `__Host-mg_session`. Rồi kết thúc cả phiên của
+         *     IdP (OIDC RP-Initiated Logout 1.0 — G2 vòng 2, A-1): `redirect_to` là `end_session_endpoint` của issuer kèm
+         *     `client_id`, `post_logout_redirect_uri` (= `https://<origin>/`, đăng ký trong realm) và `id_token_hint` của lần
+         *     đăng nhập (giữ phía server, đã mã hóa bằng khóa chỉ cookie của session này mở được). Portal điều hướng trình
+         *     duyệt (top-level, không fetch) tới `redirect_to`; IdP kết thúc phiên SSO rồi trả về `post_logout_redirect_uri`.
+         *     IdP không có `end_session_endpoint` (hoặc không tới được) ⇒ `redirect_to` = `post_logout_redirect_uri`.
          */
         post: operations["authLogout"];
         delete?: never;
@@ -644,6 +649,14 @@ export interface components {
             memberships: components["schemas"]["SessionMembership"][];
             support_grants: components["schemas"]["SupportGrantSummary"][];
         };
+        /** @description Kết quả của `POST /auth/logout` (G2 vòng 2, A-1) */
+        LogoutResult: {
+            /**
+             * Format: uri
+             * @description URL tuyệt đối (https) trình duyệt phải tới: `end_session_endpoint` của IdP với `client_id`, `post_logout_redirect_uri` và `id_token_hint` (nếu session giữ được), hoặc chính `post_logout_redirect_uri` khi IdP không hỗ trợ đăng xuất. Không lưu, không ghi log giá trị này (chứa ID token).
+             */
+            redirect_to: string;
+        };
         SessionSummary: {
             /**
              * Format: uuid
@@ -1113,7 +1126,7 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
-        /** @description Đăng nhập thất bại — `unauthenticated` (state lạ, đã dùng hoặc hết hạn; IdP mix-up; cookie ràng buộc thiếu hoặc không khớp; IdP trả lỗi; token hoặc ID token không hợp lệ); xóa cookie `__Host-mg_authreq` */
+        /** @description Đăng nhập thất bại — `unauthenticated` (state lạ, đã dùng hoặc hết hạn; IdP mix-up; cookie ràng buộc thiếu hoặc không khớp; IdP trả lỗi; token hoặc ID token không hợp lệ) hoặc `reauth_required` (đăng nhập platform mà ID token không có bằng chứng yếu tố thứ hai trong `amr` — G2 vòng 2 A-6; ví dụ lần đăng nhập vừa đăng ký TOTP: đăng nhập lại với `reauth=true`); xóa cookie `__Host-mg_authreq` */
         AuthCallbackUnauthenticated: {
             headers: {
                 "X-Request-Id": components["headers"]["RequestId"];
@@ -1308,13 +1321,15 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Đã thu hồi session */
-            204: {
+            /** @description Đã thu hồi session; điều hướng trình duyệt tới `redirect_to` */
+            200: {
                 headers: {
                     "Set-Cookie": components["headers"]["SetCookie"];
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["LogoutResult"];
+                };
             };
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Forbidden"];

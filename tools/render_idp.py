@@ -45,10 +45,10 @@ import uuid
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import mgenv  # noqa: E402 — env file of the environment (no secrets)
-from render_edge import DOMAIN_RE, EDGE_IPS  # noqa: E402 — same domain rule and the edge's static IP on mg-edge
+from render_edge import DOMAIN_RE, EDGE_IPS  # noqa: E402 — same domain rule and the edge's static IP on mg-idp
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-TEMPLATE_VERSION = "1"
+TEMPLATE_VERSION = "2"
 COMPOSE_TMPL = ROOT / "infrastructure" / "compose" / "compose.idp.yaml.tmpl"
 REALM_DIR = ROOT / "infrastructure" / "idp" / "realms"
 INITDB = [ROOT / "infrastructure" / "idp" / "initdb" / n for n in ("10-keycloak-db.sql", "20-idp-backup-role.sql")]
@@ -70,6 +70,16 @@ REQUIRED_ACTIONS = {"TERMS_AND_CONDITIONS", "UPDATE_PROFILE", "VERIFY_EMAIL", "C
                     "VERIFY_PROFILE", "delete_credential", "idp_link", "CONFIGURE_RECOVERY_AUTHN_CODES",
                     "update_user_locale"}
 IMAGE_RE = re.compile(r"^(?:[a-z0-9][a-z0-9._/:-]*@)?sha256:[0-9a-f]{64}$")   # name@sha256:… or a local image ID
+# G2 vòng 2 (docs/planning/evidence/G2-security-review.md):
+# A-3 — danh sách mật khẩu cấm nướng trong image idp (infrastructure/docker/idp/Dockerfile: /opt/keycloak/mg/
+#       password-blacklists/<file>); đổi nội dung danh sách ⇒ đổi tên file (v2…) để realm nào cũng phải cập nhật policy.
+BLOCKLIST_FILE = "mg-passwords-v1.txt"
+# A-4 — required action đổi/thêm/gỡ credential từ account console (AIA): luôn xác thực lại (max_auth_age 0; mặc định
+#       của Keycloak 26.8.2 là 300 s — P12).
+REAUTH_ACTIONS = ("UPDATE_PASSWORD", "CONFIGURE_TOTP", "delete_credential", "webauthn-register",
+                  "webauthn-register-passwordless")
+# A-6 — tham chiếu amr (RFC 8176) của từng bước trong flow mg-browser-forms, mapper amr trên mg-portal.
+AMR_REFS = {"auth-username-password-form": "pwd", "auth-otp-form": "otp"}
 UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 
 
@@ -145,10 +155,10 @@ def smtp_server(base_domain: str) -> dict:
 
 def add_mail_sink(compose: str, mailpit_image: str) -> str:
     """Insert the mailsink service, the idp attachment and the `mail` network into the rendered compose."""
-    for anchor in (IDP_DATA_LINE, "\nsecrets:\n", "\nnetworks:\n  mg-edge:\n"):
+    for anchor in (IDP_DATA_LINE, "\nsecrets:\n", "\nnetworks:\n  mg-idp:\n"):
         if compose.count(anchor) != 1:
             raise ParamError(f"compose.idp.yaml.tmpl đã đổi — không tìm thấy đúng một chỗ chèn {anchor!r}")
-    if re.search(r"^\S", compose.split("\nnetworks:\n  mg-edge:\n", 1)[1], flags=re.M):
+    if re.search(r"^\S", compose.split("\nnetworks:\n  mg-idp:\n", 1)[1], flags=re.M):
         raise ParamError("compose.idp.yaml.tmpl đã đổi — `networks:` không còn là khóa top-level cuối cùng")
     service = string.Template(MAILSINK_SERVICE).substitute(mailpit_image=mailpit_image, smtp_port=SMTP_SINK_PORT)
     compose = compose.replace(IDP_DATA_LINE, IDP_DATA_LINE + IDP_MAIL_LINE)
@@ -199,6 +209,9 @@ def check_realm(rep: dict, realm: str, base_domain: str, idp_id: str) -> list[st
          and 3 <= int(rep.get("failureFactor", 0)) <= 10, "brute-force detection")
     m = re.search(r"\blength\((\d+)\)", rep.get("passwordPolicy", ""))
     need(bool(m) and int(m.group(1)) >= 12, "passwordPolicy phải có length(>=12)")
+    bl = re.findall(r"\bpasswordBlacklist\(([^)]*)\)", rep.get("passwordPolicy", ""))
+    need(bl == [BLOCKLIST_FILE], f"passwordPolicy phải có đúng passwordBlacklist({BLOCKLIST_FILE}) — danh sách trong image "
+                                 f"idp (G2 vòng 2 A-3), có {bl}")
     need(rep.get("otpPolicyType") == "totp" and rep.get("otpPolicyCodeReusable") is False, "OTP policy (TOTP, dùng một lần)")
     need((rep.get("ssoSessionIdleTimeout"), rep.get("ssoSessionMaxLifespan")) == spec["sso"],
          f"phiên SSO phải là {spec['sso']} giây (§8.3 bước 6)")
@@ -218,11 +231,20 @@ def check_realm(rep: dict, realm: str, base_domain: str, idp_id: str) -> list[st
         need(top == [("auth-cookie", "ALTERNATIVE"), ("mg-browser-forms", "ALTERNATIVE")], f"mg-browser = {top}")
         need(forms == [("auth-username-password-form", "REQUIRED"), ("auth-otp-form", "REQUIRED")],
              f"mg-browser-forms phải là mật khẩu + OTP đều REQUIRED, có {forms}")
+        # amr (A-6): mỗi bước mang tham chiếu của nó (pwd, otp), maxAge > 0 (0 ⇒ Keycloak bỏ bước cũ hơn 1 s khỏi amr)
+        cfgs = {c.get("alias"): c.get("config", {}) for c in rep.get("authenticatorConfig", [])}
+        refs = {e.get("authenticator"): cfgs.get(e.get("authenticatorConfig"), {}) for e in _execs(flows, "mg-browser-forms")}
+        need(all(refs.get(a, {}).get("default.reference.value") == v
+                 and int(refs.get(a, {}).get("default.reference.maxAge", "0")) > 0 for a, v in AMR_REFS.items()),
+             f"mg-browser-forms: mỗi bước phải có authenticatorConfig default.reference.value {AMR_REFS} và maxAge > 0 "
+             "(amr — G2 vòng 2 A-6)")
     ra = {a.get("alias"): a for a in rep.get("requiredActions", [])}
     need(set(ra) == REQUIRED_ACTIONS, f"requiredActions phải đủ bộ mặc định của Keycloak 26.8.2 (thiếu "
                                       f"{sorted(REQUIRED_ACTIONS - set(ra))}, thừa {sorted(set(ra) - REQUIRED_ACTIONS)})")
     totp = ra.get("CONFIGURE_TOTP", {})
     need(totp.get("enabled") is True and totp.get("defaultAction") is True, "CONFIGURE_TOTP phải bật và là default action")
+    lax = [a for a in REAUTH_ACTIONS if ra.get(a, {}).get("config", {}).get("max_auth_age") != "0"]
+    need(not lax, f"required action {lax}: config max_auth_age phải là \"0\" (đổi credential luôn xác thực lại — G2 vòng 2 A-4)")
 
     clients = {c.get("clientId"): c for c in rep.get("clients", [])}
     need(set(clients) == CLIENTS, f"client phải đúng {sorted(CLIENTS)}, có {sorted(clients)}")
@@ -247,6 +269,13 @@ def check_realm(rep: dict, realm: str, base_domain: str, idp_id: str) -> list[st
     need(pa.get("use.refresh.tokens") == "false", f"{PORTAL}: không cấp refresh token (BFF chỉ cần ID token)")
     need(pa.get("exclude.issuer.from.auth.response") == "false", f"{PORTAL}: phải trả iss trong authorization response (RFC 9207)")
     need({"basic", "acr"} <= set(portal.get("defaultClientScopes", [])), f"{PORTAL}: scope basic (sub, auth_time) và acr")
+    want_plr = f"https://{spec['origin']}.{base_domain}/"
+    need(pa.get("post.logout.redirect.uris") == want_plr,
+         f"{PORTAL}: post.logout.redirect.uris phải đúng một giá trị {want_plr} (RP-Initiated Logout — G2 vòng 2 A-1)")
+    amr = [m for m in portal.get("protocolMappers", []) if m.get("protocolMapper") == "oidc-amr-mapper"]
+    need(len(amr) == 1 and amr[0].get("config", {}).get("id.token.claim") == "true",
+         f"{PORTAL}: cần đúng một mapper oidc-amr-mapper vào ID token (BFF đòi bằng chứng MFA — G2 vòng 2 A-6)")
+    need(len(portal.get("protocolMappers", [])) == len(amr), f"{PORTAL}: không mapper nào khác ngoài amr")
     drv = clients.get(DRIVER, {})
     need(drv.get("serviceAccountsEnabled") is True and drv.get("standardFlowEnabled") is False
          and drv.get("publicClient") is False and drv.get("fullScopeAllowed") is False,
@@ -298,7 +327,7 @@ def render(env: dict[str, str], image: str) -> dict[str, str]:
     if problems:
         raise ParamError("realm vi phạm bất biến P2-T05:\n  " + "\n  ".join(problems))
     values = {"template_version": TEMPLATE_VERSION, "idp_image": image, "auth_host": f"auth.{base_domain}",
-              "edge_ip": EDGE_IPS["edge_ip"]}
+              "edge_idp_ip": EDGE_IPS["edge_idp_ip"]}
     files["compose.idp.yaml"] = string.Template(COMPOSE_TMPL.read_text(encoding="utf-8")).substitute(values)
     if sink:
         files["compose.idp.yaml"] = add_mail_sink(files["compose.idp.yaml"], pinned_image("mailpit"))

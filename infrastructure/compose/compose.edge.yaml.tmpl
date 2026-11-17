@@ -49,6 +49,8 @@ ${tunnel_ports}    networks:
         ipv4_address: ${edge_admin_ip}
       mg-obs:
         ipv4_address: ${edge_obs_ip}
+      mg-idp:                       # → idp:8080 (auth.<domain>); chỉ edge + idp trên network này (G2 vòng 2, A-8)
+        ipv4_address: ${edge_idp_ip}
     dns_search: ["."]               # xóa search domain kế thừa; tên upstream rooted (hs-<slug>.) — §14.6
     dns_opt: ["ndots:1"]
     sysctls:                        # edge không được làm router giữa các network (IT-14)
@@ -99,4 +101,6 @@ networks:
   mg-admin:
     external: true
   mg-obs:
+    external: true
+  mg-idp:
     external: true

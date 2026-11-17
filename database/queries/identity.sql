@@ -21,6 +21,18 @@ RETURNING *;
 SELECT * FROM identities
 WHERE idp_id = sqlc.arg(idp_id) AND subject = sqlc.arg(subject);
 
+-- name: GetIdentityBySubjectForUpdate :one
+-- `meshguard admin revoke-sessions` / `enable-identity` (G2 vòng 2 A-2): khóa hàng identity tới hết transaction để
+-- trạng thái và việc thu hồi session commit cùng nhau (một lần đăng nhập đồng thời chờ, rồi thấy trạng thái mới).
+SELECT * FROM identities
+WHERE idp_id = sqlc.arg(idp_id) AND subject = sqlc.arg(subject)
+FOR UPDATE;
+
+-- name: SetIdentityStatus :execrows
+-- Pool platform (quyền UPDATE (status, updated_at) của 0002). 0 hàng ⇒ identity đã ở trạng thái đó.
+UPDATE identities SET status = sqlc.arg(status), updated_at = sqlc.arg(now)::timestamptz
+WHERE id = sqlc.arg(id) AND status <> sqlc.arg(status);
+
 -- name: CreateTenantMembership :one
 -- Pool tenant. FK ghép (tenant_id, identity_id) → identities: identity của tenant khác bị DB từ chối.
 INSERT INTO tenant_memberships (tenant_id, identity_id, role_id)

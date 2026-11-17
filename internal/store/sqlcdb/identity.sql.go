@@ -7,6 +7,7 @@ package sqlcdb
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -173,6 +174,39 @@ func (q *Queries) GetIdentityBySubject(ctx context.Context, arg GetIdentityBySub
 	return i, err
 }
 
+const getIdentityBySubjectForUpdate = `-- name: GetIdentityBySubjectForUpdate :one
+SELECT id, idp_id, tenant_id, scope, subject, email, email_verified, display_name, status, last_login_at, created_at, updated_at FROM identities
+WHERE idp_id = $1 AND subject = $2
+FOR UPDATE
+`
+
+type GetIdentityBySubjectForUpdateParams struct {
+	IdpID   uuid.UUID
+	Subject string
+}
+
+// `meshguard admin revoke-sessions` / `enable-identity` (G2 vòng 2 A-2): khóa hàng identity tới hết transaction để
+// trạng thái và việc thu hồi session commit cùng nhau (một lần đăng nhập đồng thời chờ, rồi thấy trạng thái mới).
+func (q *Queries) GetIdentityBySubjectForUpdate(ctx context.Context, arg GetIdentityBySubjectForUpdateParams) (Identity, error) {
+	row := q.db.QueryRow(ctx, getIdentityBySubjectForUpdate, arg.IdpID, arg.Subject)
+	var i Identity
+	err := row.Scan(
+		&i.ID,
+		&i.IdpID,
+		&i.TenantID,
+		&i.Scope,
+		&i.Subject,
+		&i.Email,
+		&i.EmailVerified,
+		&i.DisplayName,
+		&i.Status,
+		&i.LastLoginAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getIdentityProvider = `-- name: GetIdentityProvider :one
 SELECT id, scope, tenant_id, issuer, client_id, client_secret_ref, required_claims, require_email_verified, allowed_email_domains, claim_mapping, driver, driver_ref, status, created_at, updated_at, version FROM identity_providers
 WHERE id = $1
@@ -273,6 +307,26 @@ func (q *Queries) ListTenantMemberships(ctx context.Context, tenantID uuid.UUID)
 		return nil, err
 	}
 	return items, nil
+}
+
+const setIdentityStatus = `-- name: SetIdentityStatus :execrows
+UPDATE identities SET status = $1, updated_at = $2::timestamptz
+WHERE id = $3 AND status <> $1
+`
+
+type SetIdentityStatusParams struct {
+	Status string
+	Now    time.Time
+	ID     uuid.UUID
+}
+
+// Pool platform (quyền UPDATE (status, updated_at) của 0002). 0 hàng ⇒ identity đã ở trạng thái đó.
+func (q *Queries) SetIdentityStatus(ctx context.Context, arg SetIdentityStatusParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setIdentityStatus, arg.Status, arg.Now, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const updateTenantMembershipRole = `-- name: UpdateTenantMembershipRole :one

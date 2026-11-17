@@ -103,7 +103,9 @@ func (h *Handlers) AuthCallback(ctx context.Context, req gen.AuthCallbackRequest
 	return redirectResponse{location: res.ReturnTo, cookies: []*http.Cookie{res.Cookie, clearBinding}}, nil
 }
 
-// AuthLogout implements POST /auth/logout: server-side revocation, effective immediately (§8.3 step 6).
+// AuthLogout implements POST /auth/logout: server-side revocation, effective immediately (§8.3 step 6), and the
+// redirect that ends the IdP's session (RP-Initiated Logout — G2 round 2, A-1). CSRF: an unsafe method, so the session
+// middleware has checked Origin and X-CSRF-Token before this runs.
 func (h *Handlers) AuthLogout(ctx context.Context, _ gen.AuthLogoutRequestObject) (gen.AuthLogoutResponseObject, error) {
 	info, perr := requestInfo(ctx)
 	if perr != nil {
@@ -113,10 +115,11 @@ func (h *Handlers) AuthLogout(ctx context.Context, _ gen.AuthLogoutRequestObject
 	if !ok {
 		return problemFor(identity.ErrUnauthenticated, info), nil
 	}
-	if err := h.svc.Logout(ctx, sess, info); err != nil {
+	res, err := h.svc.Logout(ctx, sess, info)
+	if err != nil {
 		return problemFor(err, info), nil
 	}
-	return logoutResponse{}, nil
+	return logoutResponse{redirectTo: res.RedirectTo}, nil
 }
 
 // GetAuthSession implements GET /auth/session: principal, memberships, grants and the CSRF token.

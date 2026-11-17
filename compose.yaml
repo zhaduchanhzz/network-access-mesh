@@ -275,5 +275,6 @@ networks:
   mg-sec: {name: "${MGE_PREFIX}-sec", external: true}
   mg-egress: {name: "${MGE_PREFIX}-egress", external: true}
   mg-idp-data: {name: "${MGE_PREFIX}-idp-data", external: true}
+  mg-idp: {name: "${MGE_PREFIX}-idp", external: true}
   mg-t-tenant-a: {name: "${MGE_PREFIX}-t-tenant-a", external: true}
   mg-t-tenant-b: {name: "${MGE_PREFIX}-t-tenant-b", external: true}

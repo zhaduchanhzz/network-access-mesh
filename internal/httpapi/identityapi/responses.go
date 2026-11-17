@@ -102,16 +102,25 @@ func (s sessionResponse) VisitGetAuthSessionResponse(w http.ResponseWriter) erro
 	return err
 }
 
-// logoutResponse is the 204 of POST /auth/logout: it deletes the session cookie.
-type logoutResponse struct{}
+// logoutResponse is the 200 of POST /auth/logout: it deletes the session cookie and tells the Portal where to send the
+// browser (the IdP's end_session_endpoint — G2 round 2, A-1). The body may carry the id_token_hint: never cached, no
+// Referer onwards.
+type logoutResponse struct{ redirectTo string }
 
 // VisitAuthLogoutResponse implements gen.AuthLogoutResponseObject.
-func (logoutResponse) VisitAuthLogoutResponse(w http.ResponseWriter) error {
+func (l logoutResponse) VisitAuthLogoutResponse(w http.ResponseWriter) error {
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(gen.LogoutResult{RedirectTo: l.redirectTo}); err != nil {
+		return err
+	}
 	h := w.Header()
 	h.Add("Set-Cookie", identity.ExpiredCookie(identity.SessionCookieName).String())
+	h.Set("Content-Type", "application/json")
 	h.Set("Cache-Control", "no-store")
-	w.WriteHeader(http.StatusNoContent)
-	return nil
+	h.Set("Referrer-Policy", "no-referrer")
+	w.WriteHeader(http.StatusOK)
+	_, err := buf.WriteTo(w)
+	return err
 }
 
 var (

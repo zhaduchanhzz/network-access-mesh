@@ -87,6 +87,11 @@ def check_structure(caddyfile: str, params: dict) -> list[str]:
         "handle_errors 502 503 504",
     ]
     errors += [f"missing {m!r}" for m in must if m not in caddyfile]
+    # G2 round 2, A-1: the logout's id_token_hint (an ID token) never reaches the access log CrowdSec reads
+    snippet = re.search(r"\(access_log\) \{\n(.*?)\n\}", caddyfile, re.S)
+    if not snippet or not re.search(r"format filter \{\s*wrap json\s*request>uri query \{\s*delete id_token_hint\s*\}",
+                                    snippet.group(1)):
+        errors.append("access_log does not delete id_token_hint from the logged URI")
     code = "\n".join(line for line in caddyfile.splitlines() if not line.lstrip().startswith("#"))
     block = re.search(r"@tenant \{\n(.*?)\n\t\}", code, re.S)
     tenant_paths = re.search(r"^\s*path (.+)$", block.group(1), re.M) if block else None

@@ -293,6 +293,7 @@ type Session struct {
 	Acr               *string
 	Amr               []string
 	RevokedAt         *time.Time
+	IDTokenHintEnc    []byte
 }
 
 type SystemSetting struct {

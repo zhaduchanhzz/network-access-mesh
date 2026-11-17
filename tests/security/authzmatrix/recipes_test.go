@@ -47,7 +47,7 @@ var recipes = map[string]recipe{
 	}, public: answer{http.StatusBadGateway, gen.ProblemCodeUpstreamRejected}}, // the fixture's IdPs are never reachable
 	"authCallback": {query: func(c *call) string { return "state=" + c.state },
 		public: answer{http.StatusUnauthorized, gen.ProblemCodeUnauthenticated}}, // no such login in progress
-	"authLogout":        {endsSession: true, ok: answer{status: http.StatusNoContent}},
+	"authLogout":        {endsSession: true, ok: answer{status: http.StatusOK}}, // 200 {"redirect_to"} — G2 round 2, A-1
 	"getAuthSession":    {ok: answer{status: http.StatusOK}},
 	"listAuthSessions":  {ok: answer{status: http.StatusOK}},
 	"revokeAuthSession": {ok: answer{status: http.StatusNoContent}},

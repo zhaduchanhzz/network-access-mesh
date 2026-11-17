@@ -58,6 +58,10 @@ for realm, rep in reps.items():
     origin = "admin" if realm == "platform" else "app"
     check(portal["redirectUris"] == [f"https://{origin}.example.com/api/v1/auth/callback/{ids}"],
           f"{realm}: exact Portal callback on {origin}.<domain> with the idpId (§8.3)", str(portal["redirectUris"]))
+    check(portal["attributes"].get("post.logout.redirect.uris") == f"https://{origin}.example.com/",
+          f"{realm}: post-logout redirect = root of {origin}.<domain> (G2 round 2, A-1)")
+    check(rep["passwordPolicy"].endswith(f" and passwordBlacklist({ri.BLOCKLIST_FILE})"),
+          f"{realm}: password blocklist of the idp image (G2 round 2, A-3)", rep["passwordPolicy"])
 check(len(set(ri.issuers(ENV).values())) == 3, "three distinct issuers", str(ri.issuers(ENV)))
 
 # tenant-a == tenant-b modulo name and id; platform differs only by documented keys
@@ -70,6 +74,7 @@ def normalized(rep: dict) -> dict:
     for c in r["clients"]:
         if c["clientId"] == ri.PORTAL:
             c["name"], c["redirectUris"] = "NAME", ["REDIRECT"]
+            c["attributes"]["post.logout.redirect.uris"] = "PLR"
     return r
 
 
@@ -142,6 +147,32 @@ NEG = {
     "SMTP password in the template": lambda r: r.update(smtpServer={**ri.smtp_server("example.com"), "auth": "true",
                                                                      "user": "u", "password": "p"}),
     "SMTP auth on": lambda r: r.update(smtpServer={**ri.smtp_server("example.com"), "auth": "true"}),
+    # G2 round 2
+    "no password blocklist (A-3)": lambda r: r.update(passwordPolicy=r["passwordPolicy"].replace(
+        f" and passwordBlacklist({ri.BLOCKLIST_FILE})", "")),
+    "blocklist file not in the image (A-3)": lambda r: r.update(passwordPolicy=r["passwordPolicy"].replace(
+        ri.BLOCKLIST_FILE, "other.txt")),
+    "no post-logout redirect URI (A-1)": lambda r: client(r, ri.PORTAL)["attributes"].pop("post.logout.redirect.uris"),
+    "post-logout redirect '+' (A-1)": lambda r: client(r, ri.PORTAL)["attributes"].update({"post.logout.redirect.uris": "+"}),
+    "post-logout redirect wildcard (A-1)": lambda r: client(r, ri.PORTAL)["attributes"].update(
+        {"post.logout.redirect.uris": "https://app.example.com/*"}),
+    "post-logout redirect on admin (A-1)": lambda r: client(r, ri.PORTAL)["attributes"].update(
+        {"post.logout.redirect.uris": "https://admin.example.com/"}),
+    "no amr mapper (A-6)": lambda r: client(r, ri.PORTAL).update(protocolMappers=[]),
+    "amr mapper not in the ID token (A-6)": lambda r: client(r, ri.PORTAL)["protocolMappers"][0]["config"].update(
+        {"id.token.claim": "false"}),
+    "extra Portal mapper": lambda r: client(r, ri.PORTAL)["protocolMappers"].append(
+        {"name": "x", "protocolMapper": "oidc-hardcoded-claim-mapper", "config": {}}),
+    "no amr reference on OTP (A-6)": lambda r: flow(r, "mg-browser-forms")["authenticationExecutions"][1].pop(
+        "authenticatorConfig"),
+    "amr reference maxAge 0 (A-6)": lambda r: r["authenticatorConfig"][0]["config"].update({"default.reference.maxAge": "0"}),
+    "OTP step referenced as pwd (A-6)": lambda r: r["authenticatorConfig"][1]["config"].update(
+        {"default.reference.value": "pwd"}),
+    "UPDATE_PASSWORD default max_auth_age (A-4)": lambda r: next(a for a in r["requiredActions"]
+                                                                  if a["alias"] == "UPDATE_PASSWORD").update(config={}),
+    "delete_credential max_auth_age 300 (A-4)": lambda r: next(a for a in r["requiredActions"]
+                                                               if a["alias"] == "delete_credential").update(
+        config={"max_auth_age": "300"}),
 }
 for name, fn in NEG.items():
     probs = mutated(fn)
@@ -159,8 +190,14 @@ check(bool(ri.IMAGE_RE.match("sha256:" + "0" * 64)), "a local image ID (dev/CI s
 c = files["compose.idp.yaml"]
 check("${" not in c and "$" not in c, "compose: no placeholder or $ left (docker compose would interpolate it)")
 check(f"image: {IMG}" in c and "image: docker.io/library/postgres@sha256:" in c, "compose: both images pinned by digest")
-check("KC_HOSTNAME: https://auth.example.com" in c and "KC_PROXY_TRUSTED_ADDRESSES: 10.249.0.2" in c,
-      "compose: hostname auth.<domain>; only the edge (10.249.0.2) is a trusted proxy")
+check("KC_HOSTNAME: https://auth.example.com" in c and "KC_PROXY_TRUSTED_ADDRESSES: 10.249.7.2" in c,
+      "compose: hostname auth.<domain>; only the edge (10.249.7.2 on mg-idp) is a trusted proxy")
+# G2 round 2, A-8: idp is reachable from the edge only — on mg-idp (edge + idp), never on mg-edge
+idp_svc = c.split("\n  idp:\n", 1)[1].split("\nsecrets:\n", 1)[0]
+idp_nets = re.findall(r"^      ([a-z][a-z0-9-]*):", idp_svc.split("    networks:\n", 1)[1].split("    cap_drop:", 1)[0], flags=re.M)
+check(idp_nets == ["mg-idp", "mg-idp-data", "mg-egress"] and "mg-edge" not in c.split("\nnetworks:\n", 1)[1],
+      "compose: idp only on mg-idp (edge + idp), mg-idp-data and mg-egress — not on mg-edge (A-8)", str(idp_nets))
+check(ri.EDGE_IPS["edge_idp_ip"] == "10.249.7.2", "the edge's static address on mg-idp (networks.sh 10.249.7.0/24)")
 check(c.count("read_only: true\n") >= 2 and c.count("cap_drop: [ALL]") == 2 and c.count('"no-new-privileges:true"') == 2,
       "compose: read-only rootfs, cap_drop ALL, no-new-privileges on both services")
 check('user: "1000:1000"' in c and 'user: "999:999"' in c, "compose: non-root users")
@@ -223,6 +260,21 @@ try:
     check(len(sf) == 6, "staging.env renders the IdP")
 except (ri.ParamError, mgenv.EnvError) as e:
     check(False, "staging.env renders the IdP", str(e))
+# G2 round 2, A-3: the image the realms name in passwordBlacklist() builds that very file from the pinned source
+import tomllib  # noqa: E402
+
+docker = (ri.ROOT / "infrastructure" / "docker" / "idp" / "Dockerfile").read_text(encoding="utf-8")
+src = tomllib.loads(ri.VERSIONS.read_text(encoding="utf-8"))["sources"]["password-blocklist"]
+check(f"ADD --checksum=sha256:{src['sha256']} \\\n    {src['url']}" in docker
+      and f"ADD --checksum=sha256:{src['license_sha256']} \\\n    {src['license_url']}" in docker,
+      "idp Dockerfile downloads the blocklist and its licence pinned by versions.lock (sha256 checked in the build)")
+check(f"/out/{ri.BLOCKLIST_FILE}" in docker and docker.count(ri.BLOCKLIST_FILE) >= 3
+      and "KC_SPI_PASSWORD_POLICY__PASSWORD_BLACKLIST__BLACKLISTS_PATH=/opt/keycloak/mg/password-blacklists" in docker,
+      f"idp Dockerfile writes {ri.BLOCKLIST_FILE} outside the tmpfs /opt/keycloak/data and points Keycloak at it")
+words = [w for w in (ri.ROOT / "infrastructure" / "docker" / "idp" / "password-blocklist" / "context-words.txt")
+         .read_text(encoding="utf-8").splitlines() if w and not w.startswith("#")]
+check({"meshguard", "tenant-a", "password"} <= set(words) and all(w == w.lower() and " " not in w for w in words),
+      "documented context words (ASVS 6.1.2) present, lower case", str(len(words)))
 example = mgenv.parse_env_file(ri.ROOT / ".env.example")
 check(all(k in example for k in ("MG_IDP_ID_PLATFORM", "MG_IDP_ID_TENANT_A", "MG_IDP_ID_TENANT_B")),
       ".env.example documents MG_IDP_ID_*")

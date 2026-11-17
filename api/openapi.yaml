@@ -214,8 +214,14 @@ paths:
     post:
       tags: [auth]
       operationId: authLogout
-      summary: Đăng xuất — thu hồi session hiện tại
-      description: Thu hồi phía server có hiệu lực ngay (§8.3 bước 6) và xóa cookie `__Host-mg_session`.
+      summary: Đăng xuất — thu hồi session hiện tại và kết thúc phiên SSO của IdP
+      description: |-
+        Thu hồi phía server có hiệu lực ngay (§8.3 bước 6) và xóa cookie `__Host-mg_session`. Rồi kết thúc cả phiên của
+        IdP (OIDC RP-Initiated Logout 1.0 — G2 vòng 2, A-1): `redirect_to` là `end_session_endpoint` của issuer kèm
+        `client_id`, `post_logout_redirect_uri` (= `https://<origin>/`, đăng ký trong realm) và `id_token_hint` của lần
+        đăng nhập (giữ phía server, đã mã hóa bằng khóa chỉ cookie của session này mở được). Portal điều hướng trình
+        duyệt (top-level, không fetch) tới `redirect_to`; IdP kết thúc phiên SSO rồi trả về `post_logout_redirect_uri`.
+        IdP không có `end_session_endpoint` (hoặc không tới được) ⇒ `redirect_to` = `post_logout_redirect_uri`.
       security:
         - sessionCookie: []
           csrfToken: []
@@ -223,11 +229,15 @@ paths:
       x-task: P2-T06
       x-audit-action: auth.logout
       responses:
-        '204':
-          description: Đã thu hồi session
+        '200':
+          description: Đã thu hồi session; điều hướng trình duyệt tới `redirect_to`
           headers:
             Set-Cookie:
               $ref: '#/components/headers/SetCookie'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogoutResult'
         '401':
           $ref: '#/components/responses/Unauthenticated'
         '403':
@@ -1396,7 +1406,9 @@ components:
     AuthCallbackUnauthenticated:
       description: >-
         Đăng nhập thất bại — `unauthenticated` (state lạ, đã dùng hoặc hết hạn; IdP mix-up; cookie ràng buộc thiếu hoặc
-        không khớp; IdP trả lỗi; token hoặc ID token không hợp lệ); xóa cookie `__Host-mg_authreq`
+        không khớp; IdP trả lỗi; token hoặc ID token không hợp lệ) hoặc `reauth_required` (đăng nhập platform mà ID token
+        không có bằng chứng yếu tố thứ hai trong `amr` — G2 vòng 2 A-6; ví dụ lần đăng nhập vừa đăng ký TOTP: đăng nhập
+        lại với `reauth=true`); xóa cookie `__Host-mg_authreq`
       headers:
         X-Request-Id:
           $ref: '#/components/headers/RequestId'
@@ -1653,6 +1665,19 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/SupportGrantSummary'
+    LogoutResult:
+      type: object
+      description: Kết quả của `POST /auth/logout` (G2 vòng 2, A-1)
+      required: [redirect_to]
+      properties:
+        redirect_to:
+          type: string
+          format: uri
+          maxLength: 20480
+          description: >-
+            URL tuyệt đối (https) trình duyệt phải tới: `end_session_endpoint` của IdP với `client_id`,
+            `post_logout_redirect_uri` và `id_token_hint` (nếu session giữ được), hoặc chính `post_logout_redirect_uri`
+            khi IdP không hỗ trợ đăng xuất. Không lưu, không ghi log giá trị này (chứa ID token).
     SessionSummary:
       type: object
       required: [id, origin, created_at, last_seen_at, auth_time, idle_expires_at, absolute_expires_at, current]

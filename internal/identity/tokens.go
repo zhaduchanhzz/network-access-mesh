@@ -22,6 +22,14 @@ const csrfMessage = "csrf-v1"
 // pkceKeyInfo is the HKDF info string of the key that encrypts the PKCE verifier of an auth request.
 const pkceKeyInfo = "meshguard identity auth_request pkce v1"
 
+// hintKeyInfo is the HKDF info string of the key that encrypts the ID token kept as the logout id_token_hint of a
+// session (sessions.id_token_hint_enc, migration 0008 — G2 round 2, A-1).
+const hintKeyInfo = "meshguard identity session id_token_hint v1"
+
+// maxHintToken bounds the ID token kept as a logout hint (the CHECK of 0008 allows 16 KiB plus nonce and tag); a larger
+// token is not kept and the logout sends client_id only.
+const maxHintToken = 16384
+
 var b64 = base64.RawURLEncoding
 
 // newSecret returns secretLen random bytes. crypto/rand.Read never fails (Go ≥ 1.24 aborts the process instead).
@@ -113,9 +121,61 @@ func pkceAEAD(state, binding []byte) (cipher.AEAD, error) {
 	if err != nil {
 		return nil, err
 	}
+	return aesGCM(key)
+}
+
+func aesGCM(key []byte) (cipher.AEAD, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
 	}
 	return cipher.NewGCM(block)
+}
+
+// hintAEAD is the AES-256-GCM of the logout hint of one session, keyed by HKDF-SHA256 of the raw session id. The raw id
+// lives only in the browser's cookie — the database keeps its SHA-256 (sessions.id_hash) — so neither a copy of the
+// sessions table nor a backup opens the hint: only a request carrying that session's cookie does, at logout.
+func hintAEAD(rawSessionID []byte) (cipher.AEAD, error) {
+	key, err := hkdf.Key(sha256.New, rawSessionID, nil, hintKeyInfo, 32)
+	if err != nil {
+		return nil, err
+	}
+	return aesGCM(key)
+}
+
+// hintAAD binds a sealed hint to its session row and IdP: a ciphertext moved to another row or IdP does not open.
+func hintAAD(idHash []byte, idpID [16]byte) []byte {
+	aad := make([]byte, 0, len(idHash)+len(idpID))
+	aad = append(aad, idHash...)
+	return append(aad, idpID[:]...)
+}
+
+// sealHint encrypts the raw ID token of a login for the logout of the session created with it.
+func sealHint(rawSessionID, aad []byte, idToken string) ([]byte, error) {
+	if idToken == "" || len(idToken) > maxHintToken {
+		return nil, errors.New("id token empty or too large to keep as a logout hint")
+	}
+	gcm, err := hintAEAD(rawSessionID)
+	if err != nil {
+		return nil, err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	_, _ = rand.Read(nonce)
+	return gcm.Seal(nonce, nonce, []byte(idToken), aad), nil
+}
+
+// openHint decrypts a sealed logout hint; the error never carries any part of it.
+func openHint(rawSessionID, aad, sealed []byte) (string, error) {
+	gcm, err := hintAEAD(rawSessionID)
+	if err != nil {
+		return "", err
+	}
+	if len(sealed) < gcm.NonceSize()+gcm.Overhead()+1 {
+		return "", errors.New("sealed hint too short")
+	}
+	plain, err := gcm.Open(nil, sealed[:gcm.NonceSize()], sealed[gcm.NonceSize():], aad)
+	if err != nil {
+		return "", errors.New("sealed hint does not open with this session")
+	}
+	return string(plain), nil
 }

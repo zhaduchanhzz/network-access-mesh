@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"log/slog"
+	"net/url"
 	"time"
 
 	"github.com/google/uuid"
@@ -326,25 +327,102 @@ func decodeCursor(s string) (time.Time, uuid.UUID, bool) {
 	return time.UnixMicro(int64(micros)).UTC(), id, true
 }
 
-// Logout revokes the session (POST /auth/logout); revocation is effective on the next request.
-func (s *Service) Logout(ctx context.Context, sess *Session, info RequestInfo) error {
+// LogoutResult is the answer of Logout: where the browser goes next.
+type LogoutResult struct {
+	// RedirectTo is the end_session_endpoint of the session's IdP (OIDC RP-Initiated Logout 1.0) with client_id, the
+	// registered post_logout_redirect_uri (https://<origin host>/) and, when the session kept it, id_token_hint — or,
+	// when the IdP announces no end_session_endpoint or cannot be reached, the post-logout page itself.
+	RedirectTo string
+	// IdPLogout tells whether RedirectTo ends the IdP session; HintSent whether it carries id_token_hint (without it
+	// Keycloak shows a confirmation page first).
+	IdPLogout, HintSent bool
+}
+
+// Logout revokes the session (POST /auth/logout, §8.3 step 6) — effective on the next request — and returns the
+// redirect that ends the IdP's session too (G2 round 2, A-1, ASVS 7.6.1): without it the next login on the same browser
+// gets a code from the IdP's SSO session without password or OTP. The BFF session is revoked first, in its own
+// transaction, together with the sealed hint (read and cleared under a row lock); building the redirect afterwards
+// needs the IdP's discovery and never undoes the revocation: a failure there falls back to the post-logout page.
+func (s *Service) Logout(ctx context.Context, sess *Session, info RequestInfo) (*LogoutResult, error) {
 	if sess == nil {
-		return ErrUnauthenticated
+		return nil, ErrUnauthenticated
 	}
+	var (
+		sealed []byte
+		row    sqlcdb.IdentityProvider
+	)
 	err := s.store.WithPlatformTx(ctx, func(q *sqlcdb.Queries) error {
-		_, err := q.RevokeSessionByHash(ctx, sqlcdb.RevokeSessionByHashParams{Now: s.now(), IDHash: sess.idHash})
+		h, err := q.GetSessionLogoutHint(ctx, sess.idHash)
+		switch {
+		case errors.Is(err, store.ErrNoRows): // revoked meanwhile: logging out again is harmless
+		case err != nil:
+			return err
+		default:
+			sealed = h
+		}
+		if _, err := q.RevokeSessionByHash(ctx, sqlcdb.RevokeSessionByHashParams{Now: s.now(), IDHash: sess.idHash}); err != nil {
+			return err
+		}
+		row, err = q.GetIdentityProvider(ctx, sess.IdPID)
 		return err
 	})
 	ev := s.sessionEvent(ActionLogout, sess, info)
 	if err != nil {
 		ev.Outcome, ev.Reason = OutcomeFailure, "revoke_failed"
 		s.audit.Record(ctx, ev)
-		return newErr(KindInternal, "logout_failed", err)
+		return nil, newErr(KindInternal, "logout_failed", err)
 	}
 	ev.Outcome = OutcomeSuccess
 	s.audit.Record(ctx, ev)
-	return nil
+	return s.endSession(ctx, sess, row, sealed), nil
 }
+
+// endSession builds the RP-Initiated Logout redirect of a revoked session (best effort, see Logout).
+func (s *Service) endSession(ctx context.Context, sess *Session, row sqlcdb.IdentityProvider, sealed []byte) *LogoutResult {
+	plr := s.postLogoutRedirectURI(sess.Origin)
+	res := &LogoutResult{RedirectTo: plr}
+	p, err := idpFromRow(row)
+	if err != nil {
+		s.log.WarnContext(ctx, "logout: identity provider unusable, no IdP logout", "idp_id", sess.IdPID.String())
+		return res
+	}
+	e, err := s.providers.get(ctx, p)
+	if err != nil {
+		s.log.WarnContext(ctx, "logout: discovery failed, no IdP logout", "idp_id", p.ID.String(), "reason", AsError(err).Reason)
+		return res
+	}
+	if e.meta.EndSessionEndpoint == "" {
+		return res
+	}
+	// An absolute URL of the issuer's own scheme (https: the IdP client refuses anything else), no credentials, no
+	// fragment — the discovery document is the issuer's word, but a malformed value never reaches the browser.
+	iss, _ := url.Parse(p.Issuer)
+	u, err := url.Parse(e.meta.EndSessionEndpoint)
+	if err != nil || iss == nil || u.Scheme != iss.Scheme || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" ||
+		u.User != nil || u.Fragment != "" {
+		s.log.WarnContext(ctx, "logout: end_session_endpoint is not a usable URL, no IdP logout", "idp_id", p.ID.String())
+		return res
+	}
+	q := u.Query()
+	q.Set("client_id", p.ClientID)
+	q.Set("post_logout_redirect_uri", plr)
+	if sealed != nil {
+		hint, err := openHint(sess.raw, hintAAD(sess.idHash, sess.IdPID), sealed)
+		if err != nil {
+			s.log.WarnContext(ctx, "logout: logout hint not usable", "idp_id", p.ID.String(), "reason", err.Error())
+		} else {
+			q.Set("id_token_hint", hint)
+			res.HintSent = true
+		}
+	}
+	u.RawQuery = q.Encode()
+	res.RedirectTo, res.IdPLogout = u.String(), true
+	return res
+}
+
+// postLogoutRedirectURI is the page an IdP sends the browser back to after the logout: the root of the session's
+// origin, registered exactly as post.logout.redirect.uris of mg-portal (infrastructure/idp/realms, check_realm).
+func (s *Service) postLogoutRedirectURI(o Origin) string { return s.hosts.baseURL(o) + "/" }
 
 // RevokeSession revokes one live session of the caller's own identity (DELETE /auth/sessions/{id}); the session of
 // another identity, an unknown or an already ended one answers not_found (§8.4 invariant 6).

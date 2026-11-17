@@ -57,7 +57,7 @@ with tempfile.TemporaryDirectory() as d:
               for t in stack.TENANTS), "tenant networks are /29 inside 10.250.0.0/16")
     check(st.edge_ip == str(next(nets["edge"].hosts()) + 1), "edge at .2 of the edge network", st.edge_ip)
     internal = {n for n, (_, i, _) in st.networks.items() if i}
-    check(internal == {"data", "admin", "obs", "sec", "idp-data", "t-tenant-a", "t-tenant-b"},
+    check(internal == {"data", "admin", "obs", "sec", "idp-data", "idp", "t-tenant-a", "t-tenant-b"},
           "internal networks as on the host (+ tenants)", str(sorted(internal)))
 
     # ---- render with the repository's tools
@@ -92,7 +92,10 @@ with tempfile.TemporaryDirectory() as d:
                  "header_up -X-MG-Token", "path /ts2021 /key /machine/ping-response /derp /derp/*"):
         check(must in caddy, f"edge Caddyfile keeps {must!r}")
     idp = (r / "idp" / "compose.idp.yaml").read_text(encoding="utf-8")
-    check(f"KC_PROXY_TRUSTED_ADDRESSES: {st.edge_ip}" in idp, "idp: trusted proxy = edge IP of the stack")
+    check(f"KC_PROXY_TRUSTED_ADDRESSES: {st.edge_idp_ip}" in idp, "idp: trusted proxy = the edge's IP on the idp network")
+    edge_compose = (r / "edge" / "compose.edge.yaml").read_text(encoding="utf-8")
+    check(f"ipv4_address: {st.edge_idp_ip}" in edge_compose and "mg-edge:" not in idp.split("\nnetworks:\n", 1)[1],
+          "edge on the idp network at .7.2; idp not on the edge network (G2 round 2, A-8)")
     check(len(list((r / "idp" / "idp" / "realms").glob("*.json"))) == 3, "idp: 3 realms rendered")
     # ---- backend (P2-T16): compose.app.yaml rendered by tools/render_app.py with the stack's addresses
     app = (r / "app" / "compose.app.yaml").read_text(encoding="utf-8")

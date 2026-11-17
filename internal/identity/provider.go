@@ -102,6 +102,8 @@ type discoveryMeta struct {
 	IssParameterSupported    bool     `json:"authorization_response_iss_parameter_supported"`
 	TokenEndpointAuthMethods []string `json:"token_endpoint_auth_methods_supported"`
 	CodeChallengeMethods     []string `json:"code_challenge_methods_supported"`
+	// EndSessionEndpoint is the OIDC RP-Initiated Logout endpoint (G2 round 2, A-1); "" = the IdP has none.
+	EndSessionEndpoint string `json:"end_session_endpoint"`
 }
 
 // providerEntry is one discovered IdP.

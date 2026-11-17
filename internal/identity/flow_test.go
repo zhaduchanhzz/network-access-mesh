@@ -602,7 +602,7 @@ func TestCookieFlags(t *testing.T) {
 		t.Fatal("callback response headers")
 	}
 	rec := b.do(http.MethodPost, "https://"+appHost+"/api/v1/auth/logout", unsafeHeaders(appHost, b.csrf(appHost)))
-	wantStatus(t, "logout", rec.Code, http.StatusNoContent, rec.Body.String())
+	wantStatus(t, "logout", rec.Code, http.StatusOK, rec.Body.String())
 	check(t, setCookies(t, rec.Header())[identity.SessionCookieName], -1)
 }
 
@@ -706,7 +706,7 @@ func TestCSRFAndOriginChecks(t *testing.T) {
 	rec := b.do(http.MethodDelete, "https://"+appHost+"/api/v1/auth/sessions/"+uuid.NewString(), http.Header{"Origin": {"https://" + appHost}})
 	wantStatus(t, "revoke without token", rec.Code, http.StatusForbidden, rec.Body.String())
 	rec = b.do(http.MethodPost, logout, http.Header{"Sec-Fetch-Site": {"same-origin"}, "X-Csrf-Token": {tok}})
-	wantStatus(t, "logout", rec.Code, http.StatusNoContent, rec.Body.String())
+	wantStatus(t, "logout", rec.Code, http.StatusOK, rec.Body.String())
 	if r, _ := b.session(appHost); r.Code != http.StatusUnauthorized {
 		t.Fatal("session alive after logout")
 	}

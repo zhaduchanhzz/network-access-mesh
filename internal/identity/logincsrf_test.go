@@ -130,7 +130,7 @@ func TestCallbackKeepsSessionOfAnotherIdentity(t *testing.T) {
 	}
 
 	// The explicit step: log out, then the other identity signs in.
-	if rec := b.do(http.MethodPost, "https://"+appHost+"/api/v1/auth/logout", unsafeHeaders(appHost, b.csrf(appHost))); rec.Code != http.StatusNoContent {
+	if rec := b.do(http.MethodPost, "https://"+appHost+"/api/v1/auth/logout", unsafeHeaders(appHost, b.csrf(appHost))); rec.Code != http.StatusOK {
 		t.Fatalf("logout: HTTP %d", rec.Code)
 	}
 	b.mustLogin(appHost, "scope=tenant&tenant="+attackerTen.Slug)

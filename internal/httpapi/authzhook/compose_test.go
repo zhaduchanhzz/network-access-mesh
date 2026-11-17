@@ -304,7 +304,7 @@ func TestComposedAPI(t *testing.T) {
 	if p.Errors == nil || len(*p.Errors) != 1 || (*p.Errors)[0].Field != "reauth" {
 		t.Errorf("reauth=yes: errors %+v", p.Errors)
 	}
-	if rec := br.do(http.MethodPost, api+"/auth/logout", hdr("https://"+appHost, sess.CsrfToken)); rec.Code != http.StatusNoContent {
+	if rec := br.do(http.MethodPost, api+"/auth/logout", hdr("https://"+appHost, sess.CsrfToken)); rec.Code != http.StatusOK {
 		t.Fatalf("logout: HTTP %d %s", rec.Code, rec.Body.String())
 	}
 	decodeProblem(t, "after logout", br.get(api+"/auth/session"), http.StatusUnauthorized, gen.ProblemCodeUnauthenticated)

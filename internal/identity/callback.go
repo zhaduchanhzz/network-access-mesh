@@ -46,10 +46,11 @@ const maxUserAgent = 512
 
 var oauthErrorRE = regexp.MustCompile(`^[a-z_]{1,64}$`)
 
-// Reasons of the callback refusals added after the G2 review (round 1).
+// Reasons of the callback refusals added after the G2 review (rounds 1 and 2).
 const (
 	reasonSessionIdentityMismatch = "session_identity_mismatch"   // F1: login of another identity over an open session
 	reasonClientSecretRefNotOwned = "client_secret_ref_not_owned" // F3: the IdP's client_secret_ref is not its own
+	reasonMFAEvidenceMissing      = "mfa_evidence_missing"        // A-6: platform login whose ID token shows no 2nd factor
 )
 
 // CompleteLogin finishes a login. Every check that binds the response to this browser and this IdP runs BEFORE the
@@ -229,12 +230,34 @@ func (s *Service) completeLogin(ctx context.Context, in CallbackRequest, ev *Aud
 	if perr != nil {
 		return nil, perr
 	}
+	// Platform staff: the ID token must show the second factor (amr — G2 round 2, A-6, ASVS 6.8.4). The platform realm
+	// requires OTP in its browser flow, but a realm changed through break-glass (OTP made conditional) would still sign
+	// a password-only login; the BFF does not take the realm's word for it. The refusal is 401 reauth_required (no
+	// session, audited with reason mfa_evidence_missing): Keycloak 26.8 also leaves OTP out of amr on the login that
+	// ENROLS it (CONFIGURE_TOTP runs as a required action, not as the OTP step) — a new staff member signs in once more,
+	// now with password + OTP (the Portal's reauth=true; platform logins always prompt=login). Not a security event for
+	// that reason: an enrolment and a downgraded realm look alike here; the realm itself is held by check_realm, the
+	// driver and realm-update.sh. Tenant IdPs: required_claims of the IdP row (e.g. {"amr": ["otp", "mfa", "hwk",
+	// "swk"]}) — off by default, an external IdP may not send amr at all (§8.2).
+	if p.Scope == ScopePlatform && !hasMFAEvidence(prof.AMR) {
+		return nil, newErr(KindReauthRequired, reasonMFAEvidenceMissing, nil)
+	}
 
 	// 5. Identity (idp_id, sub) and session, in one transaction. The session presented on this origin is revoked when it
 	// is the same identity's (rotation); a session of another identity is kept and the login refused (G2 F1): a login
 	// CSRF — a page walking the victim's browser through a login at an IdP of the attacker's — must not silently swap
 	// the victim's session for one of the attacker's identity. The rollback also drops a newly created identity.
 	raw := newSecret()
+	// The ID token is kept — sealed with a key only this session's cookie yields — as the id_token_hint of the logout
+	// (RP-Initiated Logout, G2 round 2, A-1): without it Keycloak asks the user to confirm and a closed tab leaves the
+	// IdP session alive. Never kept in a cookie, never logged; cleared when the session is revoked.
+	var hint []byte
+	if e.meta.EndSessionEndpoint != "" {
+		if hint, err = sealHint(raw, hintAAD(hashSecret(raw), p.ID), rawIDToken); err != nil {
+			s.log.WarnContext(ctx, "login: id token not kept as a logout hint", "idp_id", p.ID.String(), "reason", err.Error())
+			hint = nil
+		}
+	}
 	t := s.timeouts(p.Scope)
 	absolute := now.Add(t.Absolute)
 	idle := minTime(now.Add(t.Idle), absolute)
@@ -271,6 +294,7 @@ func (s *Service) completeLogin(ctx context.Context, in CallbackRequest, ev *Aud
 			IDHash: hashSecret(raw), IdentityID: ident.ID, IdpID: p.ID, Origin: string(in.Origin), Now: now,
 			AuthTime: authTime, IdleExpiresAt: idle, AbsoluteExpiresAt: absolute, Ip: parseAddr(in.ClientIP),
 			UserAgent: nilIfEmpty(truncateUTF8(in.UserAgent, maxUserAgent)), Acr: nilIfEmpty(prof.ACR), Amr: amr,
+			IDTokenHintEnc: hint,
 		})
 		return err
 	})

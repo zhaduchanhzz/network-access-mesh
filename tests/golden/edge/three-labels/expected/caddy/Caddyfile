@@ -1,4 +1,4 @@
-# Sinh bởi tools/render_edge.py từ infrastructure/caddy/Caddyfile.tmpl (template_version 6).
+# Sinh bởi tools/render_edge.py từ infrastructure/caddy/Caddyfile.tmpl (template_version 7).
 # KHÔNG sửa tay — render lại. Edge của MeshGuard (§14.6): mesh domain mesh.example.com, CA staging.
 # - Site public chỉ bind IP tĩnh của edge trên mg-edge (10.249.0.2); cổng publish của host DNAT tới IP này (V-30).
 # - Listener nội bộ: admin trên mg-admin (10.249.2.2:8081), metrics trên mg-obs (10.249.3.2:9091).
@@ -6,7 +6,8 @@
 # - Site của nền tảng (P2-T16, §8.3, §15.4): app.example.com (LAN-direct + tunnel-facing) → api, auth.example.com
 #   (LAN-direct + tunnel-facing) → idp, admin.example.com CHỈ LAN-direct (không bao giờ trên listener tunnel-facing)
 #   và chỉ từ 192.0.2.0/24. Admin REST API và realm master của Keycloak chỉ từ worker (10.249.0.4) trên
-#   listener LAN-direct.
+#   listener LAN-direct. idp chỉ ở network mg-idp cùng edge (10.249.7.2): ngoài edge, không container nào tới thẳng
+#   được idp:8080 (G2 vòng 2, A-8) — mọi lối vào Keycloak đi qua các route dưới đây.
 # - Không có giá trị secret nào trong file: token DNS, khóa bouncer, token admin/metrics chỉ được tham chiếu bằng
 #   placeholder {file.*}, Caddy đọc file lúc provision hoặc lúc so khớp (secret dạng file — §14.2).
 # - CrowdSec ở chế độ chỉ-quan-sát (app crowdsec kết nối LAPI, chưa route nào dùng handler crowdsec; mọi site public
@@ -33,6 +34,8 @@
 	}
 }
 
+# id_token_hint (đăng xuất RP-Initiated Logout tới end_session_endpoint của auth. — G2 vòng 2, A-1) là ID token của
+# người dùng: xóa khỏi URI trong access log (CrowdSec đọc JSON như cũ — filter bọc đúng encoder json).
 (access_log) {
 	log {
 		output file /var/log/caddy/access.log {
@@ -40,7 +43,12 @@
 			roll_size 50MiB
 			roll_keep 5
 		}
-		format json
+		format filter {
+			wrap json
+			request>uri query {
+				delete id_token_hint
+			}
+		}
 	}
 }
 
@@ -194,7 +202,8 @@ admin.example.com {
 # IdP của nền tảng (§8.2): auth.example.com → idp:8080 (Keycloak; cổng quản trị 9000 không bao giờ được định tuyến).
 # Công khai chỉ endpoint OIDC + trang đăng nhập của các realm (/realms/*, /resources/*), TRỪ realm master. Admin REST
 # API (/admin/realms/*) và realm master (token của danh tính provisioning, break-glass) CHỈ từ worker
-# (10.249.0.4 — IdP driver, P2-T05a) và chỉ trên listener LAN-direct này; console /admin/ không bao giờ.
+# (10.249.0.4 — IdP driver, P2-T05a) và chỉ trên listener LAN-direct này; console /admin/ không bao giờ. Điều đó
+# đúng cả ở tầng mạng: idp:8080 chỉ nằm trên mg-idp (edge + idp, G2 vòng 2 A-8); kcadm break-glass chạy TRONG container idp.
 auth.example.com {
 	import access_log
 	import tls_acme

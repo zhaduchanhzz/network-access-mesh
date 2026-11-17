@@ -22,3 +22,4 @@ Caddyfile text eol=lf
 *.mjs           text eol=lf
 # Bản vá Headscale (P2-T10a): giữ nguyên từng byte — sha256 trong patches/series và versions.lock, git am trong build.
 infrastructure/docker/headscale/patches/* -text
+infrastructure/docker/idp/password-blocklist/*.txt text eol=lf

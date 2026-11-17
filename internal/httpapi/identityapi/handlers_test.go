@@ -59,14 +59,26 @@ func TestProblemResponse(t *testing.T) {
 	}
 }
 
+// TestLogoutDeletesTheSessionCookie — the 200 of POST /auth/logout deletes the session cookie and carries where the
+// browser goes next (G2 round 2, A-1); it may hold the id_token_hint: never cached, no Referer.
 func TestLogoutDeletesTheSessionCookie(t *testing.T) {
 	rec := httptest.NewRecorder()
-	if err := (logoutResponse{}).VisitAuthLogoutResponse(rec); err != nil {
+	to := "https://auth.example.test/realms/r/protocol/openid-connect/logout?client_id=mg-portal"
+	if err := (logoutResponse{redirectTo: to}).VisitAuthLogoutResponse(rec); err != nil {
 		t.Fatal(err)
 	}
 	c, err := http.ParseSetCookie(rec.Header().Get("Set-Cookie"))
-	if err != nil || rec.Code != http.StatusNoContent || c.Name != identity.SessionCookieName || c.MaxAge >= 0 {
+	if err != nil || rec.Code != http.StatusOK || c.Name != identity.SessionCookieName || c.MaxAge >= 0 {
 		t.Fatalf("HTTP %d cookie %+v %v", rec.Code, c, err)
+	}
+	var body gen.LogoutResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || body.RedirectTo != to {
+		t.Fatalf("body %q: %v", rec.Body.String(), err)
+	}
+	h := rec.Header()
+	if h.Get("Content-Type") != "application/json" || h.Get("Cache-Control") != "no-store" ||
+		h.Get("Referrer-Policy") != "no-referrer" {
+		t.Fatalf("headers %v", h)
 	}
 }
 
