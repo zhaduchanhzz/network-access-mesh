@@ -17,6 +17,11 @@ import (
 // Bootstrap never grants either (§8.2 (2); the feature is also disabled at the server).
 const impersonationRole = "impersonation"
 
+// ViewEventsRole is the role of a realm's management client that reads its login and admin events — the only role the
+// provisioning identity holds on master-realm and on the realms it audits without managing them (P3-T15,
+// idp.audit_sync).
+const ViewEventsRole = "view-events"
+
 // BootstrapConfig configures Bootstrap.
 type BootstrapConfig struct {
 	// AdminUsername and AdminPassword: the break-glass admin of the master realm (bootstrap-admin-* of keycloak.conf).
@@ -31,6 +36,10 @@ type BootstrapConfig struct {
 	// must manage: it gets the same roles of their management client Keycloak gives a realm creator — all except
 	// impersonation.
 	AdoptRealms []string
+	// AuditRealms are realms the provisioning identity only reads the events of (P3-T15, idp.audit_sync): it gets exactly
+	// view-events of their management client — the platform realm, which it never manages. The master realm is always
+	// audited the same way (console logins: view-events of master-realm). A realm both adopted and audited is managed.
+	AuditRealms []string
 	Logger      *slog.Logger
 	Now         func() time.Time
 }
@@ -41,6 +50,7 @@ type BootstrapResult struct {
 	Created     bool
 	Rotated     bool
 	Adopted     []string
+	Audited     []string // realms read for idp.audit_sync only (view-events), master first
 	Changes     []string
 }
 
@@ -79,9 +89,12 @@ func provisionerClient(clientID string) map[string]any {
 
 // Bootstrap creates — or repairs — the provisioning identity in the master realm, with the break-glass admin read from
 // the SecretStore: client provisionerClient, service-account roles exactly {create-realm} in the master realm plus,
-// per realm it manages, the roles of that realm's management client except impersonation (no admin role, no
-// master-realm role is ever kept). Its secret is generated, stored first (DEK platform_ops), then set; an existing
-// secret that still works is kept. Idempotent.
+// per realm it manages, the roles of that realm's management client except impersonation, plus view-events of
+// master-realm and of every realm it only audits (P3-T15) — no admin role, no other master-realm role is ever kept. A
+// realm counts as managed when the identity holds a role of its management client besides view-events (Keycloak
+// granted them at creation, or an earlier adoption) or it is adopted now; a realm whose mapping is view-events alone
+// stays audit-only (never promoted to managed). Its secret is generated, stored first (DEK platform_ops), then set; an
+// existing secret that still works is kept. Idempotent.
 func Bootstrap(ctx context.Context, route *idp.PlatformRoute, st secrets.SecretStore, cfg BootstrapConfig) (BootstrapResult, error) {
 	const op = "keycloak.Bootstrap"
 	if route == nil || st == nil || cfg.AdminUsername == "" || cfg.AdminPassword.Validate() != nil || !cfg.AdminPassword.IsPlatform() {
@@ -99,6 +112,11 @@ func Bootstrap(ctx context.Context, route *idp.PlatformRoute, st secrets.SecretS
 	for _, r := range cfg.AdoptRealms {
 		if !validRealm(r) {
 			return BootstrapResult{}, idp.NewError(idp.CodeInvalidArgument, op, "adopt_realm", nil)
+		}
+	}
+	for _, r := range cfg.AuditRealms {
+		if !validRealm(r) {
+			return BootstrapResult{}, idp.NewError(idp.CodeInvalidArgument, op, "audit_realm", nil)
 		}
 	}
 	a := newAdmin(route, st, cfg.Logger, cfg.Now)
@@ -144,18 +162,50 @@ func Bootstrap(ctx context.Context, route *idp.PlatformRoute, st secrets.SecretS
 	if _, _, err := a.call(ctx, op, adm, http.MethodGet, base, nil, &live2); err != nil {
 		return res, err
 	}
-	wantClients := map[string][]string{}
+	wantClients := map[string][]string{masterRealm + "-realm": {ViewEventsRole}}
 	managed := map[string]bool{}
-	for c := range live2.ClientMappings {
-		if r, ok := strings.CutSuffix(c, "-realm"); ok && r != masterRealm {
-			managed[r] = true // a realm this identity created (Keycloak granted the roles) or adopted earlier
+	audited := map[string]bool{}
+	for c, m := range live2.ClientMappings {
+		r, ok := strings.CutSuffix(c, "-realm")
+		if !ok || r == masterRealm {
+			continue
 		}
+		if len(m.Mappings) == 1 && str(m.Mappings[0]["name"]) == ViewEventsRole {
+			audited[r] = true // audit-only realm of an earlier bootstrap: never promoted to managed
+			continue
+		}
+		managed[r] = true // a realm this identity created (Keycloak granted the roles) or adopted earlier
 	}
 	for _, r := range cfg.AdoptRealms {
 		if !managed[r] {
 			res.Adopted = append(res.Adopted, r)
 		}
 		managed[r] = true
+	}
+	for _, r := range cfg.AuditRealms {
+		audited[r] = true
+	}
+	res.Audited = append(res.Audited, masterRealm)
+	auditOnly := make([]string, 0, len(audited))
+	for r := range audited {
+		if !managed[r] {
+			auditOnly = append(auditOnly, r)
+		}
+	}
+	sort.Strings(auditOnly)
+	for _, r := range auditOnly {
+		mgmt, err := a.findClient(ctx, op, adm, masterRealm, r+"-realm")
+		if err != nil {
+			return res, err
+		}
+		if mgmt == nil {
+			if slices.Contains(cfg.AuditRealms, r) {
+				return res, idp.NewError(idp.CodeNotFound, op, "audit_realm_missing", nil)
+			}
+			continue // the realm was deleted: its mapping is gone with it
+		}
+		wantClients[r+"-realm"] = []string{ViewEventsRole}
+		res.Audited = append(res.Audited, r)
 	}
 	realms := make([]string, 0, len(managed))
 	for r := range managed {
@@ -217,6 +267,6 @@ func Bootstrap(ctx context.Context, route *idp.PlatformRoute, st secrets.SecretS
 		return res, idp.NewError(idp.CodeCredentials, op, "secret_store_destroy", err)
 	}
 	a.log.Info("keycloak: provisioning identity ready", "client", cid, "created", res.Created, "rotated", res.Rotated,
-		"adopted", strings.Join(res.Adopted, ","), "changes", len(res.Changes))
+		"adopted", strings.Join(res.Adopted, ","), "audited", strings.Join(res.Audited, ","), "changes", len(res.Changes))
 	return res, nil
 }

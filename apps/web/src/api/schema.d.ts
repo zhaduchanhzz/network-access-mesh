@@ -744,6 +744,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/platform/idp-console/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Phiên console quản trị Keycloak — đang chờ duyệt, đang mở, đã kết thúc
+         * @description Mỗi phiên là một yêu cầu dual control `platform.idp.console_session` (§8.6), mới nhất trước. `status`:
+         *     `pending` (chờ người thứ hai), `active` (đã duyệt, trong thời hạn — console mở được cho đúng người yêu cầu, từ
+         *     đúng `source_cidr`), `ended` (hết thời hạn), `rejected`, `expired` (không ai duyệt kịp). Console chỉ phục vụ ở
+         *     origin admin, sau cổng `forward_auth` của edge (`GET /internal/edge/idp-console`, không thuộc hợp đồng public).
+         */
+        get: operations["listIdpConsoleSessions"];
+        put?: never;
+        /**
+         * Xin một phiên console quản trị Keycloak — luôn 2P; 202 + Location của yêu cầu phê duyệt
+         * @description Console quản trị của Keycloak do nền tảng host (realm master) chỉ mở theo phiên có thời hạn đã được người thứ
+         *     hai duyệt (§8.2 (3), như break-glass): người xin phải step-up (đăng nhập trong 15 phút); payload ghi người xin
+         *     (`identity_id`), `source_cidr` (mặc định đúng địa chỉ của người xin, /32 hoặc /128; IPv4 tối đa /24, IPv6 tối
+         *     đa /56) và `duration_minutes` (5–60, mặc định 30). Người duyệt (`POST /platform/approvals/{id}/approve`) phải
+         *     khác người xin, step-up, và cũng giữ `platform.idp:console` — tức một Super Admin thứ hai. Phiên chạy từ lúc
+         *     duyệt tới hết thời hạn; trong phiên, cổng `forward_auth` của edge trên `admin.<domain>` chỉ cho đúng người xin,
+         *     còn phiên Platform Console, từ địa chỉ thuộc `source_cidr`. Mỗi lần đăng nhập console sinh security event
+         *     `idp.console_login` và thông báo cho Super Admin/Platform Operator (job `idp.audit_sync`). Đang có yêu cầu mở
+         *     của chính người xin ⇒ `409`.
+         */
+        post: operations["requestIdpConsoleSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tenants/{tenantId}/invitations": {
         parameters: {
             query?: never;
@@ -1512,6 +1547,53 @@ export interface components {
         ApprovalDecision: {
             payload_sha256: string;
         };
+        /** @description Xin một phiên console quản trị Keycloak (luôn cần người thứ hai duyệt) */
+        IdpConsoleSessionCreate: {
+            /** @description Lý do (ticket, sự cố) — người duyệt đọc trước khi duyệt */
+            reason: string;
+            /**
+             * @description Thời hạn của phiên, tính từ lúc được duyệt
+             * @default 30
+             */
+            duration_minutes: number;
+            /**
+             * @description Mạng nguồn được mở console, dạng chuẩn (`203.0.113.7/32`); IPv4 /24–/32, IPv6 /56–/128. Mặc định: đúng địa chỉ của người xin (/32 hoặc /128)
+             * @example 203.0.113.7/32
+             */
+            source_cidr?: string;
+        };
+        /**
+         * @description `pending` (chờ người thứ hai) → `active` (đã duyệt, trong thời hạn) → `ended` (hết hạn) | `rejected` | `expired` (yêu cầu hết hạn khi chưa ai duyệt)
+         * @enum {string}
+         */
+        IdpConsoleSessionStatus: "pending" | "active" | "ended" | "rejected" | "expired";
+        /** @description Một phiên console quản trị Keycloak = một yêu cầu dual control `platform.idp.console_session` */
+        IdpConsoleSession: {
+            /**
+             * Format: uuid
+             * @description ID của yêu cầu phê duyệt (`/platform/approvals/{id}`)
+             */
+            id: string;
+            status: components["schemas"]["IdpConsoleSessionStatus"];
+            requested_by: components["schemas"]["IdentityRef"];
+            approved_by?: components["schemas"]["IdentityRef"];
+            reason?: string;
+            source_cidr: string;
+            duration_minutes: number;
+            /**
+             * Format: date-time
+             * @description Lúc được duyệt (phiên bắt đầu)
+             */
+            starts_at?: string;
+            /** Format: date-time */
+            ends_at?: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        IdpConsoleSessionList: {
+            items: components["schemas"]["IdpConsoleSession"][];
+            next_cursor: string | null;
+        };
         /**
          * @description `pending` → `accepted` (lần đăng nhập đầu qua đúng IdP, email đã xác minh trùng, còn hạn — một lần) | `revoked` | `expired` (gửi lại đưa lời mời hết hạn về `pending`)
          * @enum {string}
@@ -1762,6 +1844,8 @@ export interface components {
     headers: {
         /** @description Job theo dõi thao tác — `/api/v1/tenants/{tenantId}/jobs/{jobId}` (phạm vi tenant) hoặc `/api/v1/platform/jobs/{jobId}` (phạm vi platform) */
         JobLocation: string;
+        /** @description Yêu cầu phê duyệt của thao tác 2P — `/api/v1/platform/approvals/{approvalId}` (§8.6) */
+        ApprovalLocation: string;
         /** @description URL chuyển hướng */
         RedirectLocation: string;
         /** @description Cookie `__Host-` với `Secure; HttpOnly; SameSite=Lax; Path=/` */
@@ -3109,6 +3193,70 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    listIdpConsoleSessions: {
+        parameters: {
+            query?: {
+                /** @description Số phần tử tối đa của trang */
+                limit?: components["parameters"]["Limit"];
+                /** @description Con trỏ mờ lấy từ `next_cursor` của trang trước */
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Một trang phiên console */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdpConsoleSessionList"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    requestIdpConsoleSession: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IdpConsoleSessionCreate"];
+            };
+        };
+        responses: {
+            /** @description Yêu cầu phê duyệt đã tạo — người thứ hai duyệt ở `Location` */
+            202: {
+                headers: {
+                    Location: components["headers"]["ApprovalLocation"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalRequest"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
             429: components["responses"]["RateLimited"];
             default: components["responses"]["Unexpected"];
         };

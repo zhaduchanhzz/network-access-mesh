@@ -32,6 +32,8 @@ const (
 	KindBreakGlass            Kind = "support.break_glass"      // a grant approved by break-glass (§8.7)
 	KindSupportGrantUsed      Kind = "support.grant_used"       // platform staff acted inside the tenant (§8.7)
 	KindApprovalRequested     Kind = "approval.requested"       // a tenant approval request waits for a decision (P3-T04a)
+	KindIdPAdminChange        Kind = "idp.admin_change"         // a change made at the tenant's IdP through Keycloak's Admin API (P3-T15)
+	KindIdPConsoleLogin       Kind = "idp.console_login"        // platform: a sign-in to the Keycloak administration (P3-T15)
 )
 
 // Tenant and platform role keys of the default recipient rules (§6.3, roles of §8.4).
@@ -94,6 +96,10 @@ var specs = map[Kind]spec{
 		required: []string{"grant_id", "staff"}},
 	KindApprovalRequested: {fields: map[string]fieldType{"approval_id": fUUID, "action": fString,
 		"requested_by": fString, "expires_at": fTime}, required: []string{"approval_id", "action"}},
+	KindIdPAdminChange: {fields: map[string]fieldType{"event_id": fString, "action": fString, "actor": fString,
+		"user": fString, "occurred_at": fTime}, required: []string{"event_id", "action", "actor", "occurred_at"}},
+	KindIdPConsoleLogin: {fields: map[string]fieldType{"event_id": fString, "username": fString, "client": fString,
+		"ip": fString, "occurred_at": fTime}, required: []string{"event_id", "client", "occurred_at"}, platform: true},
 }
 
 // Kinds returns every kind, sorted.
@@ -403,6 +409,37 @@ func SupportGrantUsed(tenantID, grantID uuid.UUID, staff string, firstUsedAt tim
 	return Event{Kind: KindSupportGrantUsed, TenantID: tenantPtr(tenantID), Ref: "grant:" + grantID.String() + ":used",
 		Payload: map[string]any{"grant_id": grantID, "staff": staff, "first_used_at": firstUsedAt},
 		To:      Audience{Roles: []string{RoleTenantOwner}}}
+}
+
+// IdPAdminChange — security notification (§8.2 "không là cửa sau vào tenant", P3-T15): a change was made at the
+// tenant's platform-hosted IdP through Keycloak's Admin API (a credential reset, a user, role mapping or client change,
+// an impersonation attempt…) — every Tenant Owner, cannot be switched off. One notification per Keycloak event
+// (ref = its id): the job that imports the events may run again without notifying twice. action is the audit action
+// (idp.user.credential_reset…), actor who did it as the platform describes it, user the affected member when known.
+func IdPAdminChange(tenantID uuid.UUID, eventID, action, actor, user string, occurredAt time.Time) Event {
+	ev := Event{Kind: KindIdPAdminChange, TenantID: tenantPtr(tenantID), Ref: "idp-event:" + eventID,
+		Payload: map[string]any{"event_id": eventID, "action": action, "actor": actor, "occurred_at": occurredAt},
+		To:      Audience{Roles: []string{RoleTenantOwner}}}
+	if user != "" {
+		ev.Payload["user"] = user
+	}
+	return ev
+}
+
+// IdPConsoleLogin — platform security notification (P3-T15, §16.3 "Bảo mật"): someone signed in to the
+// administration of the platform-hosted Keycloak (its admin console, or the admin CLI with the break-glass account):
+// Super Admins and Platform Operators. One per Keycloak login event.
+func IdPConsoleLogin(eventID, username, client, ip string, occurredAt time.Time) Event {
+	ev := Event{Kind: KindIdPConsoleLogin, Ref: "idp-event:" + eventID,
+		Payload: map[string]any{"event_id": eventID, "client": client, "occurred_at": occurredAt},
+		To:      Audience{PlatformRoles: []string{RoleSuperAdmin, RolePlatformOperator}}}
+	if username != "" {
+		ev.Payload["username"] = username
+	}
+	if ip != "" {
+		ev.Payload["ip"] = ip
+	}
+	return ev
 }
 
 // ApprovalRequested — a tenant approval request (P3-T04a, §8.6) waits for a decision: the members holding the

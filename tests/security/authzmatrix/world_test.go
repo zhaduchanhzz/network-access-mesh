@@ -30,11 +30,13 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/authzhook"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/devicesapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/hostsapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/idpconsoleapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/invitationsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/jobsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/monitoringapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/notificationsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/tenantsapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/idp/console"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/jobs"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/kit/logx"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/kit/requestid"
@@ -108,6 +110,11 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 			func(context.Context, *store.Tx, approvals.Execution, matrixRoute) (*uuid.UUID, error) {
 				return nil, nil
 			}),
+		approvals.Typed(approvals.Spec{Name: console.Action, Scope: authz.ScopePlatform, ResourceType: console.ResourceType,
+			Permission: console.Permission},
+			func(context.Context, *store.Tx, approvals.Execution, console.Payload) (*uuid.UUID, error) {
+				return nil, nil
+			}),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -124,6 +131,7 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 		Monitoring:  monitoringapi.New(mon),
 		Approvals:   approvalsapi.New(appr),
 		Invitations: invitationsapi.New(dir, authz.GuardInvitationRole),
+		IdPConsole:  idpconsoleapi.New(appr), // P3-T15: the Keycloak console session (always 2P)
 
 		// Notifications (P3-T05b, notificationsapi over notifications.Reader — reads the caller's own rows only).
 		Notifications: notificationsapi.New(notifications.NewReader(w.Store)),

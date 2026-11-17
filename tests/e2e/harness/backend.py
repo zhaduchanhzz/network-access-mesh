@@ -382,19 +382,22 @@ def check_idp_bootstrap(r, st: Stack) -> None:
     pw = (st.work / "secrets" / "harness" / "kc_admin_password").read_text(encoding="utf-8")
     p = st.docker("exec", "-i", container(st, "worker"), "/usr/local/bin/meshguard", "admin", "idp-bootstrap",
                   "--admin-username", "mg-bootstrap-admin", "--adopt-realm", "tenant-a", "--adopt-realm", "tenant-b",
-                  check=False, timeout=180, input=pw + "\n")
+                  "--audit-realm", "platform", check=False, timeout=180, input=pw + "\n")
     out = st.redact(p.stdout + p.stderr)
     st.compose("restart", "worker", timeout=120)
     health = wait_healthy(st, "worker")
     logs = st.docker("logs", "--since", "3m", container(st, "worker"), check=False).stdout
     provisioned = '"keycloak_provisioner_bootstrapped":true' in logs
     secret_ref = re.search(r"secret: (mgsec://platform/\S+)", out)
-    ok = p.returncode == 0 and p.stdout.strip().splitlines()[-1:] == ["OK"] and secret_ref is not None and         health == "healthy" and provisioned
+    audited = "events read (view-events only): master, platform" in out   # P3-T15: idp.audit_sync reads them
+    ok = p.returncode == 0 and p.stdout.strip().splitlines()[-1:] == ["OK"] and secret_ref is not None and \
+        health == "healthy" and provisioned and audited
     r.add("E2E-20", "worker `admin idp-bootstrap` (mật khẩu break-glass qua stdin): danh tính provisioning của driver "
-          "keycloak qua edge từ IP tĩnh của worker (/admin/realms, realm master), secret vào SecretStore platform_ops; "
-          "worker khởi động lại với driver đã có danh tính", ok,
+          "keycloak qua edge từ IP tĩnh của worker (/admin/realms, realm master), secret vào SecretStore platform_ops, "
+          "đọc được event của realm master và platform (view-events — P3-T15); worker khởi động lại với driver đã có "
+          "danh tính", ok,
           f"exit {p.returncode}, {secret_ref.group(1) if secret_ref else 'no secret ref'}, worker {health}, "
-          f"provisioned {provisioned}; {out[-300:]}")
+          f"provisioned {provisioned}, audited {audited}; {out[-300:]}")
 
 
 def check_registry(r, st: Stack, state: dict) -> None:
@@ -512,8 +515,9 @@ def check_platform(r, st: Stack, state: dict) -> None:
     sub = kc.create_user("platform", user["username"], user["password"])
     p = admin_cmd(st, ["bootstrap-super-admin", "--subject", sub, "--display-name", "E2E SA"],
                   env={"MG_IDP_ID_PLATFORM": st.env["MG_IDP_ID_PLATFORM"]})
-    b = Browser(st)
-    sess, steps = portal_login(st, b, f"admin.{st.domain}", "scope=platform", user)
+    b, otp = Browser(st), TOTP()
+    sess, steps = portal_login(st, b, f"admin.{st.domain}", "scope=platform", user, otp)
+    st.platform_sa = {**user, "sub": sub, "otp": otp}   # P3-T15 (idpadmin.py): the first Super Admin of the dual control
     api = f"https://admin.{st.domain}/api/v1"
     health = b.get(f"{api}/platform/health")
     h = health.json()

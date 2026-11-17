@@ -40,7 +40,7 @@
 | Relay | Probe STUN hoặc `/derp/probe` fail | High |
 | Enrollment | Log Headscale của một tenant báo từ chối admission vì cache pending-auth đầy (mẫu log chốt ở P6-T02) | High |
 | Public gateway | Tunnel VPS ↔ host LAN rớt; `l4proxy` báo backend down; IP công khai không tới được từ probe ngoài; lưu lượng VPS gần chạm quota | Critical/High |
-| Bảo mật | Node đã thu hồi còn online; policy drift; chuỗi `403/404` chéo tenant bất thường; break-glass được dùng; ghi audit thất bại; số lần giải mã SecretStore theo tenant/thành phần gọi tăng bất thường (chỉ phát hiện lạm dụng qua đường code của ứng dụng, không phát hiện kẻ đã đọc được file KEK) | Critical/High |
+| Bảo mật | Node đã thu hồi còn online; policy drift; chuỗi `403/404` chéo tenant bất thường; break-glass được dùng; đăng nhập console quản trị IdP, impersonation hay reset credential do actor ngoài tenant ở IdP do nền tảng host, event của realm bị tắt (P3-T15 — `security_events` `idp.*`); ghi audit thất bại; số lần giải mã SecretStore theo tenant/thành phần gọi tăng bất thường (chỉ phát hiện lạm dụng qua đường code của ứng dụng, không phát hiện kẻ đã đọc được file KEK) | Critical/High |
 | Credential | API key của instance còn < 14 ngày; chứng chỉ còn < 21 ngày | High |
 | DNS | Bản ghi `*.mesh.<domain>`, `app.`, `auth.` hoặc CAA của zone sản xuất khác giá trị mong đợi (prober truy vấn resolver công cộng) | Critical |
 | Backup | Quá hạn lịch backup của tenant/PostgreSQL; kiểm tra restore định kỳ thất bại | High |
@@ -48,7 +48,7 @@
 | Hạ tầng | Đĩa > 80%; `data/` của một instance vượt ngưỡng dung lượng theo plan; RAM host; PostgreSQL down; tỉ lệ 5xx ở edge (lưu ý: site wildcard đổi 502/503/504 thành 404 nên tenant ngừng **không** làm tăng 5xx — do probe `/key?v=<capver>` phát hiện); container restart loop | High/Critical |
 | Đồng bộ | Độ trễ inventory sync vượt ngưỡng | Medium |
 
-Bộ tối thiểu chạy từ Phase 3 (P3-T16): instance down / probe `/key?v=<capver>` fail, đĩa > 80%, chứng chỉ còn < 21 ngày, quá hạn backup; các rule còn lại của bảng thuộc P6-T01.
+Bộ tối thiểu chạy từ Phase 3 (P3-T16): instance down / probe `/key?v=<capver>` fail, đĩa > 80%, chứng chỉ còn < 21 ngày, quá hạn backup; các rule còn lại của bảng thuộc P6-T01. Cảnh báo IdP của P3-T15 có trước P3-T16: mỗi đăng nhập console là `security_event` high + email `idp.console_login` (outbox → `notification.send` → SMTP) tới SA/PO + metric `meshguard_idp_console_logins_total` (rule Alertmanager: P3-T16/P6-T01).
 
 Alertmanager có **inhibition cho cửa sổ boot của host** (dựa trên thời điểm boot do node_exporter báo): trong cửa sổ này các cảnh báo "instance down"/probe fail theo tenant được nén thành một cảnh báo "host vừa khởi động lại"; độ dài cửa sổ lấy từ số đo reboot thực tế (P1-T21), hết cửa sổ mà instance chưa lên thì cảnh báo Critical như thường.
 

@@ -98,6 +98,13 @@ type HostHandlers interface {
 	UpdatePlatformHost(ctx context.Context, request gen.UpdatePlatformHostRequestObject) (gen.UpdatePlatformHostResponseObject, error)
 }
 
+// IdPConsoleHandlers — P3-T15 (`idp` console session, §8.2 (3)): the Keycloak administration console session — always
+// dual control — and its list.
+type IdPConsoleHandlers interface {
+	ListIdpConsoleSessions(ctx context.Context, request gen.ListIdpConsoleSessionsRequestObject) (gen.ListIdpConsoleSessionsResponseObject, error)
+	RequestIdpConsoleSession(ctx context.Context, request gen.RequestIdpConsoleSessionRequestObject) (gen.RequestIdpConsoleSessionResponseObject, error)
+}
+
 // Handlers is the extension point of the API: one handler set per building task. A nil set answers every operation
 // of its interface with 501 not_implemented. A set may also implement only part of its interface by embedding
 // NotImplemented. Handlers return a *problem.Error for an expected failure (not_found, conflict…); any other error
@@ -113,11 +120,12 @@ type Handlers struct {
 	Approvals     ApprovalHandlers     // P3-T04a
 	Invitations   InvitationHandlers   // P3-T05a
 	Notifications NotificationHandlers // P3-T05b
+	IdPConsole    IdPConsoleHandlers   // P3-T15
 }
 
 func (h Handlers) mounted() bool {
 	return h.Auth != nil || h.Tenants != nil || h.Devices != nil || h.Audit != nil || h.Jobs != nil || h.Monitoring != nil ||
-		h.Notifications != nil || h.Approvals != nil || h.Invitations != nil || h.Hosts != nil
+		h.Notifications != nil || h.Approvals != nil || h.Invitations != nil || h.Hosts != nil || h.IdPConsole != nil
 }
 
 // dispatcher implements gen.StrictServerInterface by promotion from the disjoint interfaces.
@@ -132,17 +140,22 @@ type dispatcher struct {
 	ApprovalHandlers
 	InvitationHandlers
 	HostHandlers
+	IdPConsoleHandlers
 }
 
 var _ gen.StrictServerInterface = dispatcher{}
 
 func newDispatcher(h Handlers) dispatcher {
-	d := dispatcher{h.Auth, h.Tenants, h.Devices, h.Audit, h.Jobs, h.Monitoring, h.Notifications, h.Approvals, h.Invitations, h.Hosts}
+	d := dispatcher{h.Auth, h.Tenants, h.Devices, h.Audit, h.Jobs, h.Monitoring, h.Notifications, h.Approvals, h.Invitations,
+		h.Hosts, h.IdPConsole}
 	if d.ApprovalHandlers == nil {
 		d.ApprovalHandlers = NotImplemented{}
 	}
 	if d.InvitationHandlers == nil {
 		d.InvitationHandlers = NotImplemented{}
+	}
+	if d.IdPConsoleHandlers == nil {
+		d.IdPConsoleHandlers = NotImplemented{}
 	}
 	if d.AuthHandlers == nil {
 		d.AuthHandlers = NotImplemented{}
@@ -355,4 +368,12 @@ func (NotImplemented) CreatePlatformHost(context.Context, gen.CreatePlatformHost
 
 func (NotImplemented) UpdatePlatformHost(context.Context, gen.UpdatePlatformHostRequestObject) (gen.UpdatePlatformHostResponseObject, error) {
 	return nil, problem.NotImplemented("UpdatePlatformHost")
+}
+
+func (NotImplemented) ListIdpConsoleSessions(context.Context, gen.ListIdpConsoleSessionsRequestObject) (gen.ListIdpConsoleSessionsResponseObject, error) {
+	return nil, problem.NotImplemented("ListIdpConsoleSessions")
+}
+
+func (NotImplemented) RequestIdpConsoleSession(context.Context, gen.RequestIdpConsoleSessionRequestObject) (gen.RequestIdpConsoleSessionResponseObject, error) {
+	return nil, problem.NotImplemented("RequestIdpConsoleSession")
 }

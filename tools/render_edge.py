@@ -18,7 +18,9 @@ Params (no secret — secrets are referenced by {file.*} placeholders and compos
                  REQUIRES a PROXY v2 header from the tunnel peer; a header from any other source is rejected and a
                  headerless connection from any other source is closed by the @direct_tunnel guard (GW-02, V-17).
                  app.<base_domain> and auth.<base_domain> are served there too (public through the VPS);
-                 admin.<base_domain>, the Admin REST API and the master realm of the IdP never are (P2-T16).
+                 admin.<base_domain>, the Admin REST API and the master realm of the IdP never are (P2-T16) — nor,
+                 therefore, the Keycloak administration console, served only on admin.<base_domain> behind the
+                 forward_auth of the api (template v8, P3-T15).
 
 Writes <out_dir>/caddy/Caddyfile and <out_dir>/compose.edge.yaml. Output is deterministic — guarded by
 tools/test_render_edge.py (golden files). Standard library only.
@@ -36,7 +38,7 @@ import sys
 import mgenv  # noqa: E402 — tools/mgenv.py: env file of the environment (no secrets)
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-TEMPLATE_VERSION = "7"
+TEMPLATE_VERSION = "8"
 CADDYFILE_TMPL = ROOT / "infrastructure" / "caddy" / "Caddyfile.tmpl"
 COMPOSE_TMPL = ROOT / "infrastructure" / "compose" / "compose.edge.yaml.tmpl"
 

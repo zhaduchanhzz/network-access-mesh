@@ -27,6 +27,7 @@ import (
 	"log/slog"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -40,9 +41,10 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
 )
 
-const adminUsage = `usage: meshguard-worker admin idp-bootstrap --admin-username <name> [--adopt-realm <realm>]...
+const adminUsage = `usage: meshguard-worker admin idp-bootstrap --admin-username <name> [--adopt-realm <realm>]... [--audit-realm <realm>]...
   stdin: the break-glass admin password of the master realm (bootstrap-admin-password of keycloak.conf), piped
   runs inside the worker container: docker compose -p mg-app exec -T worker /usr/local/bin/meshguard admin idp-bootstrap …
+  --audit-realm: a realm whose events idp.audit_sync reads without managing it (view-events only — the platform realm)
 `
 
 // breakGlassRef is the name of the transient platform_ops secret holding the break-glass password during a bootstrap.
@@ -71,19 +73,23 @@ func (r *realmList) Set(v string) error {
 func admin(ctx context.Context, args []string, stdin stdinFile, stdout, stderr io.Writer, getenv func(string) string,
 	environ []string,
 ) int {
+	if len(args) > 0 && args[0] == "idp-audit-sync" {
+		return idpAuditSync(ctx, args[1:], stdout, stderr, getenv, environ)
+	}
 	if len(args) > 0 && args[0] == "policy-apply" {
 		return policyApply(ctx, args[1:], stdin, stdout, stderr, policyApplyEnv{getenv: getenv, environ: environ,
 			open: openPolicyCore})
 	}
 	if len(args) == 0 || args[0] != "idp-bootstrap" {
-		_, _ = io.WriteString(stderr, "meshguard-worker admin: unknown command\n"+adminUsage+policyApplyUsage)
+		_, _ = io.WriteString(stderr, "meshguard-worker admin: unknown command\n"+adminUsage+policyApplyUsage+auditSyncUsage)
 		return 2
 	}
 	fset := flag.NewFlagSet("idp-bootstrap", flag.ContinueOnError)
 	fset.SetOutput(io.Discard) // flag errors may quote a value
 	username := fset.String("admin-username", "", "")
-	var realms realmList
+	var realms, audits realmList
 	fset.Var(&realms, "adopt-realm", "")
+	fset.Var(&audits, "audit-realm", "")
 	if err := fset.Parse(args[1:]); err != nil || fset.NArg() != 0 {
 		_, _ = io.WriteString(stderr, "meshguard-worker admin idp-bootstrap: invalid flags\n"+adminUsage)
 		return 2
@@ -92,9 +98,9 @@ func admin(ctx context.Context, args []string, stdin stdinFile, stdout, stderr i
 		_, _ = io.WriteString(stderr, "meshguard-worker admin idp-bootstrap: --admin-username is required\n"+adminUsage)
 		return 2
 	}
-	for _, r := range realms {
+	for _, r := range slices.Concat(realms, audits) {
 		if !realmRE.MatchString(r) || r == "master" {
-			_, _ = io.WriteString(stderr, "meshguard-worker admin idp-bootstrap: --adopt-realm takes realm names other than master\n")
+			_, _ = io.WriteString(stderr, "meshguard-worker admin idp-bootstrap: --adopt-realm and --audit-realm take realm names other than master\n")
 			return 2
 		}
 	}
@@ -124,7 +130,7 @@ func admin(ctx context.Context, args []string, stdin stdinFile, stdout, stderr i
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
 	log := logx.New(stderr, cfg.LogLevel, "admin")
-	ss, closeStore, err := openSecretStore(ctx, cfg, log)
+	ss, _, closeStore, err := openStores(ctx, cfg, log)
 	if err != nil {
 		return fail(err)
 	}
@@ -151,13 +157,14 @@ func admin(ctx context.Context, args []string, stdin stdinFile, stdout, stderr i
 		return fail(err)
 	}
 	res, err := keycloak.Bootstrap(ctx, route, ss, keycloak.BootstrapConfig{AdminUsername: *username, AdminPassword: pwRef,
-		Provisioner: prov, AdoptRealms: realms, Logger: log})
+		Provisioner: prov, AdoptRealms: realms, AuditRealms: audits, Logger: log})
 	p := func(format string, a ...any) { _, _ = fmt.Fprintf(stdout, format+"\n", a...) }
 	p("idp-bootstrap: platform IdP %s, provisioning identity %s", cfg.IdPPlatformHost(), res.Provisioner.ClientID)
 	if res.Provisioner.Secret.Name != "" {
 		p("  secret: %s (platform_ops — worker only)", res.Provisioner.Secret)
 	}
-	p("  created: %v, secret rotated: %v, realms adopted: %s", res.Created, res.Rotated, list(res.Adopted))
+	p("  created: %v, secret rotated: %v, realms adopted: %s, events read (view-events only): %s", res.Created,
+		res.Rotated, list(res.Adopted), list(res.Audited))
 	for _, c := range res.Changes {
 		p("  change: %s", c)
 	}
@@ -190,29 +197,29 @@ func storeBreakGlass(ctx context.Context, ss *secrets.Store, value []byte) (secr
 	return ss.Rotate(ctx, latest, value, secrets.WithPlatformOps())
 }
 
-// openSecretStore opens the worker's pools and its SecretStore (kek-app + kek-ops).
-func openSecretStore(ctx context.Context, cfg config.Config, log *slog.Logger) (*secrets.Store, func(), error) {
+// openStores opens the worker's pools and its SecretStore (kek-app + kek-ops).
+func openStores(ctx context.Context, cfg config.Config, log *slog.Logger) (*secrets.Store, *store.Store, func(), error) {
 	app, err := secrets.LoadKeyring(secrets.KEKApp, cfg.KEKAppDir)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	ops, err := secrets.LoadKeyring(secrets.KEKOps, cfg.KEKOpsDir)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	st, err := store.Open(ctx, store.Config{URL: cfg.DB.URL,
 		Tenant:   store.Credentials{User: cfg.DB.TenantUser, PasswordFile: cfg.DB.TenantPasswordFile},
 		Platform: store.Credentials{User: cfg.DB.PlatformUser, PasswordFile: cfg.DB.PlatformPasswordFile}, MaxConns: 2})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	ss, err := secrets.New(st, secrets.Options{App: app, Ops: ops})
 	if err != nil {
 		st.Close()
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	log.Info("keyrings loaded", "kek_app", app.Active(), "kek_ops", ops.Active())
-	return ss, st.Close, nil
+	return ss, st, st.Close, nil
 }
 
 const maxStdin = 4096

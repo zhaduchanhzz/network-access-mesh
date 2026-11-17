@@ -223,6 +223,72 @@ def check_platform_sites(caddyfile: str, params: dict) -> list[str]:
     return errors
 
 
+CONSOLE_PATHS = {"/admin", "/admin/*", "/realms/master", "/realms/master/*", "/resources/*"}
+
+
+def check_idp_console(caddyfile: str, params: dict) -> list[str]:
+    """P3-T15 (§8.2 (3), template v8): the Keycloak administration console is served on admin.<domain> only, every
+    request of it behind the forward_auth of the api (GET /internal/edge/idp-console); impersonation is refused on
+    admin. and auth.; the console never on auth. nor on the tunnel-facing listener; /internal/* never on a public site."""
+    errors = []
+    code = "\n".join(line for line in caddyfile.splitlines() if not line.lstrip().startswith("#")) + "\n"
+    d = params["base_domain"]
+    tunnel = params.get("tunnel")
+    tport = tunnel["https_port"] if tunnel else None
+    app = site_block(code, f"app.{d}" + (f", app.{d}:{tport}" if tunnel else ""))
+    admin, auth = site_block(code, f"admin.{d}"), site_block(code, f"auth.{d}")
+    console = re.search(r"@idp_console path (.+)", admin)
+    if not console or set(console.group(1).split()) != CONSOLE_PATHS:
+        errors.append(f"admin: @idp_console paths are not exactly {sorted(CONSOLE_PATHS)}")
+    portal = re.search(r"@portal not path (.+)", admin)
+    if not portal or set(portal.group(1).split()) != CONSOLE_PATHS or "import portal_headers @portal" not in admin:
+        errors.append("admin: the portal headers are not limited to the non-console paths")
+    if "import portal_headers *" not in app:
+        errors.append("app: the portal headers do not apply to every response")
+    route = re.search(r"\t\troute @idp_console \{\n(.*?)\n\t\t\}\n", admin, re.S)
+    if not route:
+        errors.append("admin: no `route @idp_console` block")
+    else:
+        body = route.group(1)
+        steps = re.findall(r"(?m)^\t\t\t(\S+(?: \S+)*)", body)
+        want = ["forward_auth api.:8080 {", "respond @idp_impersonation 403", "reverse_proxy idp.:8080 {"]
+        if steps[:1] != want[:1] or [x for x in steps if not x.startswith(("import", "header_up", "uri", "}"))] != want:
+            errors.append(f"admin: the console route is not forward_auth → impersonation 403 → idp (got {steps})")
+        fa = re.search(r"forward_auth api\.:8080 \{\n(.*?)\n\t\t\t\}", body, re.S)
+        fab = fa.group(1) if fa else ""
+        for must in ("uri /internal/edge/idp-console", "import upstream_headers", "header_up -Authorization"):
+            if must not in fab:
+                errors.append(f"admin: forward_auth misses {must!r}")
+        if "header_up -Cookie" in fab:
+            errors.append("admin: forward_auth strips the Cookie the gate needs (Platform Console session)")
+    # idp:8080 is reached from admin. ONLY inside the console route (behind forward_auth)
+    outside = admin.replace(route.group(0), "") if route else admin
+    if "idp.:8080" in outside:
+        errors.append("admin: idp.:8080 is proxied outside the forward_auth route")
+    if admin.find("abort @outside_admin") > admin.find("route @idp_console"):
+        errors.append("admin: the console route comes before the IP allow-list")
+    imp = "@idp_impersonation path_regexp impersonation (?i)^/admin/realms/[^/]+/users/[^/]+/impersonation/?$"
+    for name, body in (("admin", admin), ("auth", auth)):
+        if imp not in body:
+            errors.append(f"{name}: impersonation matcher missing")
+    if auth.find("respond @idp_impersonation 403") < 0 or \
+            auth.find("respond @idp_impersonation 403") > auth.find("reverse_proxy @idp_worker"):
+        errors.append("auth: impersonation is not refused before the worker's Admin API route")
+    # the console is not routed anywhere else: no forward_auth or console paths on app./auth./tunnel, no /internal
+    for name, body in (("app", app), ("auth", auth)):
+        if "forward_auth" in body or "@idp_console" in body or "/admin/master" in body:
+            errors.append(f"{name}: console routing outside admin.")
+    if tunnel:
+        auth_tunnel = site_block(code, f"auth.{d}:{tport}")
+        if "/admin" in auth_tunnel or "forward_auth" in auth_tunnel:
+            errors.append("auth (tunnel): the console or the Admin API is reachable through the VPS")
+    if code.count("forward_auth ") != 1 or code.count("/internal/edge/idp-console") != 1:
+        errors.append("exactly one forward_auth (the console gate) expected")
+    if re.search(r"reverse_proxy /internal|path /internal", code):
+        errors.append("/internal/* routed by a public site")
+    return errors
+
+
 def main() -> int:
     update = "--update" in sys.argv
     failures = 0
@@ -265,6 +331,12 @@ def main() -> int:
             failures += 1
         else:
             print(f"PASS {case.name}: app./admin./auth. invariants hold (admin LAN-only, Admin API worker-only — P2-T16)")
+        errors = check_idp_console(files["caddy/Caddyfile"], params)
+        if errors:
+            print(f"FAIL {case.name}: idp console: " + "; ".join(errors))
+            failures += 1
+        else:
+            print(f"PASS {case.name}: Keycloak console only on admin. behind forward_auth, impersonation refused (P3-T15)")
         for name, override in BAD.items():
             try:
                 re_.render({**params, **override})

@@ -81,6 +81,7 @@ var platformMatrix = map[string][]string{
 	"platform.settings:update":          {Y, N, N, N},
 	"platform.idp:read":                 {Y, Y, N, Y},
 	"platform.idp:manage":               {condTenantIdP2P, N, N, N},
+	"platform.idp:console":              {P2, N, N, N}, // P3-T15: Keycloak console session, always a second Super Admin
 	"platform.user:read":                {Y, Y, N, Y},
 	"platform.user:assign":              {condNoSA, N, N, N},
 	"platform.user:assign_super_admin":  {P2, N, N, N},

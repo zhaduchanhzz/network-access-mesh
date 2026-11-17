@@ -74,6 +74,8 @@ var operations = []struct {
 	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/invitations", `{"email":"a@example.test","role":"tenant_viewer"}`, "CreateTenantInvitation", []func(*http.Request){idempotency}},
 	{http.MethodDelete, "/api/v1/tenants/" + tenantID + "/invitations/" + itemID, "", "RevokeTenantInvitation", nil},
 	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/invitations/" + itemID + "/resend", "", "ResendTenantInvitation", nil},
+	{http.MethodGet, "/api/v1/platform/idp-console/sessions?limit=5", "", "ListIdpConsoleSessions", nil},
+	{http.MethodPost, "/api/v1/platform/idp-console/sessions", `{"reason":"ticket 1","duration_minutes":15}`, "RequestIdpConsoleSession", []func(*http.Request){idempotency}},
 }
 
 // TestEveryOperationAnswers501: with no handler set mounted, every operation of the spec is routed under /api/v1

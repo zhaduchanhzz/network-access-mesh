@@ -9,7 +9,14 @@
 #     CONFIGURE_RECOVERY_AUTHN_CODES: config max_auth_age = 0 (A-4)
 #   realm master (A-8): brute force bật (khóa TẠM như realm khác), passwordPolicy như realm khác, login/admin event bật.
 #     Giữ nguyên: sslRequired=external (kcadm gọi http://localhost:8080 trong container), admin-cli + password grant (kcadm
-#     dùng nó), admin khởi tạo (thay bằng admin có OTP: P3-T15 — rủi ro còn lại ghi ở evidence).
+#     dùng nó), admin khởi tạo (thay bằng admin có OTP: việc còn mở của P3-T15 — rủi ro còn lại ghi ở evidence).
+#   P3-T15 (console quản trị chỉ ở origin admin, job idp.audit_sync):
+#     realm master: attributes.frontendUrl = https://admin.<domain> — console, trang đăng nhập và token của realm master
+#       phát URL của origin admin (edge chỉ phục vụ console ở đó, sau forward_auth); issuer của token master đổi theo
+#       (token cũ bị Admin API từ chối 401 một lần, driver tự lấy token mới);
+#     danh tính provisioning (client mg-provisioner, MG_IDP_PROVISIONER_CLIENT): thêm đúng role view-events của
+#       master-realm và của realm platform (đọc login/admin event cho idp.audit_sync) — không gỡ role nào; chưa có
+#       client (idp-bootstrap chưa chạy) ⇒ bỏ qua.
 # Giá trị muốn có đọc từ realm ĐÃ RENDER bằng tools/render_idp.py của commit mới (/opt/meshguard/core/idp/realms/<realm>.json,
 # đã qua check_realm lúc render); domain, idp id… không nằm trong script. Sau khi áp: in diff trước → sau (không có
 # secret nào trong các khóa này) rồi chạy check_realm (tools/render_idp.py) trên bản export của chính Keycloak.
@@ -39,6 +46,8 @@ sys.path.insert(0, "tools")
 import render_idp  # noqa: E402 — check_realm, BLOCKLIST_FILE, REAUTH_ACTIONS
 
 PROJECT = os.environ.get("MG_IDP_PROJECT", "mg-idp")
+PROVISIONER = os.environ.get("MG_IDP_PROVISIONER_CLIENT", "mg-provisioner")
+VIEW_EVENTS = "view-events"
 REALMS_DIR = pathlib.Path(os.environ.get("MG_IDP_REALMS", "/opt/meshguard/core/idp/realms"))
 DOCKER = shlex.split(os.environ.get("DOCKER", "docker"))
 FORMS = "mg-browser-forms"
@@ -57,8 +66,9 @@ def die(msg: str, code: int = 1) -> None:
 args = sys.argv[1:]
 check_only = "--check" in args
 realms = [a for a in args if a != "--check"]
-if any(not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,62}", r) for r in realms) or not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", PROJECT):
-    die("tham số không hợp lệ (realm: [a-z0-9-]; MG_IDP_PROJECT: [a-z0-9_-])", 2)
+if any(not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,62}", r) for r in realms) or not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", PROJECT) \
+        or not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", PROVISIONER):
+    die("tham số không hợp lệ (realm: [a-z0-9-]; MG_IDP_PROJECT, MG_IDP_PROVISIONER_CLIENT: [a-z0-9_-])", 2)
 if not realms:
     realms = sorted(p.stem for p in REALMS_DIR.glob("*.json"))
 want = {}
@@ -97,10 +107,10 @@ def kc_session(body: str) -> str:
     return p.stdout
 
 
-def get_many(reqs: dict[str, str]) -> dict:
-    """reqs: key → kcadm arguments of a GET; returns key → parsed JSON."""
+def get_many(reqs: dict[str, str], verb: str = "get") -> dict:
+    """reqs: key → kcadm arguments of a GET (or of `verb`, e.g. get-roles); returns key → parsed JSON."""
     # kcadm prints JSON without a final newline: each marker starts on a line of its own
-    body = "".join(f"echo; echo '@@{k}'\nkc get {a} </dev/null\n" for k, a in reqs.items())
+    body = "".join(f"echo; echo '@@{k}'\nkc {verb} {a} </dev/null\n" for k, a in reqs.items())
     out, cur, res = kc_session(body), None, {}
     for line in out.splitlines(keepends=True):
         if line.startswith("@@") and line.strip()[2:] in reqs:
@@ -229,14 +239,43 @@ def plan(r: str, live: dict, d: dict) -> tuple[list[str], str]:
     return changes, body
 
 
+def admin_url() -> str:
+    """https://admin.<domain> (P3-T15): the frontend URL of the master realm — the domain read from the Portal redirect
+    URI of a rendered realm (https://app|admin.<domain>/api/v1/auth/callback/<idp id>)."""
+    portal = next(c for c in want[realms[0]]["clients"] if c["clientId"] == render_idp.PORTAL)
+    host = portal["redirectUris"][0].split("/")[2]
+    return "https://admin." + host.split(".", 1)[1]
+
+
 def master_plan() -> tuple[dict, list[str], str]:
     m = get_many({"m": "realms/master"})["m"]
+    attrs = m.get("attributes") or {}
     live = {k: m.get(k) for k in MASTER}
     live["passwordPolicy"] = m.get("passwordPolicy")
-    d = {**MASTER, "passwordPolicy": want[realms[0]]["passwordPolicy"]}
-    upd = {k: v for k, v in d.items() if live.get(k) != v}
+    live["attributes.frontendUrl"] = attrs.get("frontendUrl") or None
+    d = {**MASTER, "passwordPolicy": want[realms[0]]["passwordPolicy"], "attributes.frontendUrl": admin_url()}
+    changed = sorted(k for k, v in d.items() if live.get(k) != v)
+    upd = {k: v for k, v in d.items() if live.get(k) != v and k != "attributes.frontendUrl"}
+    if live["attributes.frontendUrl"] != d["attributes.frontendUrl"]:
+        upd["attributes"] = {**attrs, "frontendUrl": d["attributes.frontendUrl"]}
     body = payload("update realms/master", upd) if upd else ""
-    return {"before": live, "after": d}, sorted(upd), body
+    return {"before": live, "after": d}, changed, body
+
+
+def provisioner_plan() -> tuple[dict | None, list[str], str]:
+    """P3-T15: the provisioning identity reads the login and admin events of master (console sign-ins) and of the
+    platform realm(s) for idp.audit_sync — exactly view-events of their management clients, added, never removed
+    (Bootstrap keeps them). None when the client does not exist (idp-bootstrap not run yet)."""
+    if not get_many({"c": f"clients -r master -q clientId={q(PROVISIONER)}"})["c"]:
+        return None, [], ""
+    user = f"service-account-{PROVISIONER}"
+    clients = ["master-realm"] + [f"{r}-realm" for r in realms if (render_idp.REALMS.get(r) or {}).get("scope") == "platform"]
+    live = get_many({c: f"-r master --uusername {q(user)} --cclientid {q(c)}" for c in clients}, verb="get-roles")
+    have = {c: sorted(x["name"] for x in (live.get(c) or [])) for c in clients}
+    missing = [c for c in clients if VIEW_EVENTS not in have[c]]
+    body = "".join(f"kc add-roles -r master --uusername {q(user)} --cclientid {q(c)} --rolename {VIEW_EVENTS} </dev/null\n"
+                   for c in missing)
+    return have, missing, body
 
 
 def live_rep(r: str) -> dict:
@@ -289,6 +328,19 @@ if mk and not check_only:
     again, left, _ = master_plan()
     if left:
         die(f"master: sau khi áp vẫn lệch {left}")
+ph, pk, pbody = provisioner_plan()
+if ph is None:
+    print(f"danh tính provisioning {PROVISIONER}: chưa có (idp-bootstrap chưa chạy) — bỏ qua view-events")
+else:
+    print(f"danh tính provisioning {PROVISIONER}: {len(pk)} thay đổi{'' if pk else ' (đã đọc được event)'}")
+    for c in pk:
+        show(f"{c} role", ph[c], sorted([*ph[c], VIEW_EVENTS]))
+    pending += len(pk)
+    if pk and not check_only:
+        kc_session(pbody)
+        _, left, _ = provisioner_plan()
+        if left:
+            die(f"provisioning: sau khi áp vẫn thiếu view-events của {left}")
 if check_only:
     print(f"--check: {pending} thay đổi chờ áp")
     sys.exit(3 if pending else 0)

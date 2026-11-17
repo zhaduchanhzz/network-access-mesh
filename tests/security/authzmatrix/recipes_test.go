@@ -103,6 +103,10 @@ var recipes = map[string]recipe{
 		`"run_uid_range":{"first":50000,"last":50099},"tenant_net_pool":"10.251.0.0/24"}`},
 	"updatePlatformHost": {body: `{"status":"active"}`,
 		ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
+	// Keycloak console session (P3-T15, idpconsoleapi — mounted with the console action, world_test.go): the request is
+	// always 2P (Super Admin only); granted callers race on one open request per person (202, then 409)
+	"listIdpConsoleSessions":   {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
+	"requestIdpConsoleSession": {idempotent: true, body: `{"reason":"matrix","duration_minutes":10,"source_cidr":"192.0.2.0/24"}`},
 }
 
 // objectKind is what a path parameter (other than the {tenantId} context of a tenant route) designates.

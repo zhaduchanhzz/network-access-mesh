@@ -17,6 +17,7 @@ import (
 
 	"github.com/zhaduchanhzz/network-access-mesh/internal/audit"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/authz"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/jobs"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store/sqlcdb"
 )
@@ -86,6 +87,10 @@ const (
 	ReasonInvalidPayload    = "invalid_payload"
 	ReasonInvalidInput      = "invalid_input"
 	ReasonScopeMismatch     = "scope_mismatch"
+	// Idempotency-Key of a 2P operation (§13.1, P3-T15): the same key is still being served (409 + Retry-After), or
+	// was used for another request (422 idempotency_key_reuse).
+	ReasonIdempotencyInProgress = "idempotency_in_progress"
+	ReasonIdempotencyKeyReuse   = "idempotency_key_reuse"
 )
 
 // Error is a refusal of the service.
@@ -94,7 +99,9 @@ type Error struct {
 	Reason string
 	// Existing names the open request of the same action and resource (ReasonOpenRequest).
 	Existing uuid.UUID
-	cause    error
+	// RetryAfter is the wait of ReasonIdempotencyInProgress.
+	RetryAfter time.Duration
+	cause      error
 }
 
 func (e *Error) Error() string {
@@ -316,11 +323,95 @@ func (s *Service) ttl(ctx context.Context) time.Duration {
 	return time.Duration(h) * time.Hour
 }
 
+// Idempotency is the Idempotency-Key of the 2P operation that creates a request (§13.1: a POST answering 202 takes
+// one): the operationId, the key and jobs.RequestHash of the request.
+type Idempotency struct {
+	Operation string
+	Key       string
+	Hash      []byte
+}
+
+// idempotencyLock bounds how long a request holds its key while in progress.
+const idempotencyLock = 30 * time.Second
+
+// RequestIdempotent is Request under an Idempotency-Key: a replay of the same request returns the request the first
+// one created (as it is now), the key used for another request is refused (ReasonIdempotencyKeyReuse), a request still
+// in progress answers ReasonIdempotencyInProgress. The key is taken in a transaction of its own, completed in the
+// transaction that creates the request, released when creating it fails.
+func (s *Service) RequestIdempotent(ctx context.Context, actor Actor, in NewRequest, idem Idempotency) (Request, error) {
+	if err := s.stepUp(actor); err != nil {
+		return Request{}, err
+	}
+	act, ok := s.cfg.Registry.Lookup(in.Action)
+	if !ok {
+		return Request{}, refuse(ErrUnavailable, ReasonActionUnavailable)
+	}
+	ref := Ref{Scope: act.Spec().Scope, TenantID: in.TenantID}
+	if err := checkRef(ref); err != nil {
+		return Request{}, refuse(ErrInvalid, ReasonScopeMismatch)
+	}
+	key := jobs.IdempotencyKey{TenantID: ref.tenantPtr(), IdentityID: actor.IdentityID, OperationID: idem.Operation,
+		Key: idem.Key}
+	var replay uuid.UUID
+	err := s.tx(ctx, ref, func(q *sqlcdb.Queries) error {
+		d, err := jobs.BeginIdempotent(ctx, q, key, idem.Hash, idempotencyLock)
+		if errors.Is(err, jobs.ErrInvalidIdempotencyKey) {
+			return refuse(ErrInvalid, ReasonInvalidInput)
+		}
+		if err != nil {
+			return err
+		}
+		switch d.Outcome {
+		case jobs.IdempotencyReplay:
+			var stored struct {
+				ID uuid.UUID `json:"id"`
+			}
+			if d.Response == nil || json.Unmarshal(d.Response.Body, &stored) != nil || stored.ID == uuid.Nil {
+				return errors.New("approvals: stored response of the Idempotency-Key unreadable")
+			}
+			replay = stored.ID
+		case jobs.IdempotencyInProgress:
+			return &Error{Kind: ErrConflict, Reason: ReasonIdempotencyInProgress, RetryAfter: d.RetryAfter}
+		case jobs.IdempotencyKeyReuse:
+			return refuse(ErrInvalid, ReasonIdempotencyKeyReuse)
+		}
+		return nil
+	})
+	if err != nil {
+		return Request{}, s.fail(err)
+	}
+	if replay != uuid.Nil {
+		return s.Get(ctx, Ref{Scope: ref.Scope, TenantID: ref.TenantID, ID: replay})
+	}
+	r, err := s.request(ctx, actor, in, func(q *sqlcdb.Queries, id uuid.UUID) error {
+		body, err := json.Marshal(map[string]uuid.UUID{"id": id})
+		if err != nil {
+			return err
+		}
+		return jobs.CompleteIdempotent(ctx, q, key, idem.Hash, jobs.StoredResponse{Status: 202, Body: body,
+			Resource: &jobs.Resource{Type: "approval", ID: id.String()}})
+	})
+	if err != nil {
+		if ferr := s.tx(context.WithoutCancel(ctx), ref, func(q *sqlcdb.Queries) error {
+			return jobs.FailIdempotent(ctx, q, key, idem.Hash)
+		}); ferr != nil && !errors.Is(ferr, jobs.ErrIdempotencyLost) {
+			s.log.WarnContext(ctx, "approval request: Idempotency-Key not released", "error", ferr.Error())
+		}
+		return Request{}, err
+	}
+	return r, nil
+}
+
 // Request turns a 2P operation into an approval request (§8.6): the requester must have stepped up; the payload is
 // validated by the action and stored in canonical form with its SHA-256; an open request of the same action on the
 // same resource is not duplicated (ReasonOpenRequest, Error.Existing). The calling operation has authorized the
 // requester already (layer 1 with x-dual-control). The success event is written in the same transaction.
 func (s *Service) Request(ctx context.Context, actor Actor, in NewRequest) (Request, error) {
+	return s.request(ctx, actor, in, nil)
+}
+
+// request is Request; done (when set) runs in the creating transaction with the new request's id.
+func (s *Service) request(ctx context.Context, actor Actor, in NewRequest, done func(q *sqlcdb.Queries, id uuid.UUID) error) (Request, error) {
 	if err := s.stepUp(actor); err != nil {
 		return Request{}, err
 	}
@@ -377,12 +468,18 @@ func (s *Service) Request(ctx context.Context, actor Actor, in NewRequest) (Requ
 			}
 		}
 		id := actor.IdentityID
-		return audit.Record(ctx, q, audit.Event{Action: action, TenantID: ref.tenantPtr(), ActorIdentityID: &id,
+		if err := audit.Record(ctx, q, audit.Event{Action: action, TenantID: ref.tenantPtr(), ActorIdentityID: &id,
 			ResourceType: "approval", ResourceID: row.ID.String(), Details: audit.Details{
 				"approval_id": row.ID, "approval_action": spec.Name, "target_type": spec.ResourceType,
 				"target_id": in.ResourceID, "payload_sha256": sum, "expires_at": expires, "status": StatusPending,
 				"requested_by_identity_id": actor.IdentityID,
-			}})
+			}}); err != nil {
+			return err
+		}
+		if done != nil {
+			return done(q, row.ID)
+		}
+		return nil
 	})
 	if err != nil {
 		return Request{}, s.fail(err)

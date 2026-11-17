@@ -107,6 +107,22 @@ var catalog = map[Kind]map[string]mailTemplate{
 			"An operation needs a second approver in tenant {{.tenant_name}}: {{.action}}{{with .requested_by}} (requested by {{.}}){{end}}{{with .expires_at}}. The request expires at {{.}} (UTC){{end}}.\n\n" +
 				"Review it and decide in the Portal (Approvals). Request ID: {{.approval_id}}"},
 	},
+	KindIdPAdminChange: {
+		LocaleVI: {"[MeshGuard] CẢNH BÁO: thay đổi quản trị tại nhà cung cấp danh tính của tenant {{.tenant_name}}",
+			"Một thao tác quản trị đã được thực hiện trực tiếp tại nhà cung cấp danh tính (Keycloak) của tenant {{.tenant_name}}: {{.action}}{{with .user}}, người dùng: {{.}}{{end}}. Người thực hiện: {{.actor}}, lúc {{.occurred_at}} (UTC).\n\n" +
+				"Thao tác này không đi qua Portal của bạn. Xem chi tiết trong nhật ký audit của tenant; nếu bạn không mong đợi thay đổi này, hãy liên hệ nhà vận hành nền tảng ngay.\n\nMã sự kiện: {{.event_id}}"},
+		LocaleEN: {"[MeshGuard] ALERT: administrative change at the identity provider of tenant {{.tenant_name}}",
+			"An administrative operation was performed directly at the identity provider (Keycloak) of tenant {{.tenant_name}}: {{.action}}{{with .user}}, user: {{.}}{{end}}. Performed by: {{.actor}}, at {{.occurred_at}} (UTC).\n\n" +
+				"This operation did not go through your Portal. See the tenant's audit log for details; if you did not expect this change, contact the platform operator at once.\n\nEvent ID: {{.event_id}}"},
+	},
+	KindIdPConsoleLogin: {
+		LocaleVI: {"[MeshGuard] CẢNH BÁO: đăng nhập quản trị Keycloak ({{.client}})",
+			"Có một lần đăng nhập vào khu quản trị của Keycloak do nền tảng host: client {{.client}}{{with .username}}, tài khoản {{.}}{{end}}{{with .ip}}, từ {{.}}{{end}}, lúc {{.occurred_at}} (UTC).\n\n" +
+				"Mỗi lần đăng nhập console cần một phiên đã được hai Super Admin duyệt; nếu không có phiên nào như vậy, hãy xử lý như sự cố bảo mật. Xem security event trong Platform Console: {{.console_url}}\n\nMã sự kiện: {{.event_id}}"},
+		LocaleEN: {"[MeshGuard] ALERT: Keycloak administration sign-in ({{.client}})",
+			"Someone signed in to the administration of the platform-hosted Keycloak: client {{.client}}{{with .username}}, account {{.}}{{end}}{{with .ip}}, from {{.}}{{end}}, at {{.occurred_at}} (UTC).\n\n" +
+				"Every console sign-in needs a session approved by two Super Admins; if there is no such session, handle it as a security incident. See the security events in the Platform Console: {{.console_url}}\n\nEvent ID: {{.event_id}}"},
+	},
 }
 
 // templates are the parsed catalog.
