@@ -59,6 +59,8 @@ Xem nhanh trên host: `sudo docker compose -p mg-backup -f /opt/meshguard/core/c
 | `scheduled` | mọi bộ trong **14 ngày**, và luôn ≥ **7** bộ mới nhất | `MG_BACKUP_KEEP_DAYS`, `MG_BACKUP_KEEP_MIN` |
 | `pre-migration`, `manual` | **5** bộ mới nhất của mỗi nhãn (không xóa theo tuổi) | `MG_BACKUP_KEEP_ONDEMAND` |
 
+Các con số trên được chủ dự án duyệt ngày 2026-11-17 (§17.1 không nêu số); đổi chúng là thay đổi cần duyệt lại.
+
 Retention chỉ chạy **sau một lượt thành công** (dịch vụ đang lỗi không làm mòn các bộ đang có), chỉ xóa file đúng mẫu tên của target đó, xóa manifest trước (gián đoạn giữa chừng để lại bộ dở, bị dọn ở lượt sau — không bao giờ để lại manifest trỏ tới file đã mất). Đây là retention **cục bộ**; offsite và retention dài hơn do `backup-shipper` (P6-T03/P6-T04). Hệ quả cần biết (§6.1 "Retention"): wrapped DEK của tenant đã xóa còn trong dump PostgreSQL tới hết retention này (14 ngày cục bộ + retention offsite). Dung lượng: `backups/` phải là filesystem riêng hoặc có quota + cảnh báo (§14.2).
 
 ## 4. Kích hoạt trên host (P2-T16)
