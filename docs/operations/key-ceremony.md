@@ -186,7 +186,8 @@ Không bao giờ ghi: giá trị KEK, identity khôi phục, khóa ký manifest,
 Host không có `age`. Chọn **build từ mã nguồn** thay vì gói Ubuntu:
 
 - `build-age.sh` chạy `go install filippo.io/age/cmd/{age,age-keygen}@v1.3.2` trong image golang **pin theo digest**, `CGO_ENABLED=0`, `-trimpath`; Go tải mã qua proxy.golang.org và kiểm từng module với **checksum DB** (sum.golang.org) — `GOPROXY`/`GOSUMDB` đặt tường minh. Không chạy script bên thứ ba nào.
-- Build **tái lập**: 3 lần build (cache trống, 2 cách gọi) cho cùng sha256; giá trị ghi ở `versions.lock` `[sources.age]` cùng commit tag và hash module `h1:`.
+- Build **tái lập**: 4 lần build (cache trống, 2 cách gọi, 2 cây khác nhau) cho cùng sha256; giá trị ghi ở `versions.lock` `[sources.age]` cùng commit tag và hash module `h1:`.
+- `govulncheck -mode=binary` (v1.9.0) trên hai binary: **0** lỗ hổng gọi tới được; còn báo ở mức package/module của `golang.org/x/crypto` v0.55.0 (DoS kênh `x/crypto/ssh` GO-2026-6354/6355 — age chỉ phân tích khóa SSH, không mở kênh; `openpgp` GO-2026-5932 — không dùng). age chỉ chạy offline trên tmpfs trong nghi thức; nâng khi age phát hành bản dùng x/crypto ≥ v0.56.0.
 - Binary tĩnh được chép sang host qua SSH; `ceremony.sh` kiểm sha256 + phiên bản ở `preflight` và chép vào tmpfs (đã kiểm lại sha256) trước mỗi lần dùng.
 - Không dùng gói `age` của Ubuntu 24.04: bản 1.1.1 build bằng Go 1.22 của distro, và cài gói lên host là loại thay đổi cần duyệt riêng (quy tắc dự án); bản build của ta dùng toolchain Go 1.27.4 đã pin, giống phần còn lại của nền tảng.
 
