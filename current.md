@@ -118,7 +118,7 @@ Chỉ sửa `staging.env`, rồi thực hiện:
 ## 7. Việc tiếp theo
 
 1. ~~Ký G1~~ — **Go** 2026-11-16.
-2. Phase 2 (không đụng host, chạy song song): P2-T02 (OpenAPI v1), P2-T03 (migration + RLS), P2-T04 (SecretStore), …. Triển khai backend lên host sau G1 (P2-T16).
+2. Phase 2 (không đụng host, chạy song song): đã xong P2-T01, T02, T03, T04, T05, T06, T07, T12, T14 (9/24); đang làm P2-T05a, P2-T09/T10; kế tiếp P2-T08, P2-T11, P2-T13, P2-T15a. Nghi thức khóa P2-T04a cần chủ dự án có mặt (chặn P2-T03a và P2-T16). Triển khai backend lên host ở P2-T16 (cần duyệt).
 3. Việc của chủ dự án:
    - ~~Ý kiến pháp lý sơ bộ R-01~~ — xong 2026-11-16 (thông qua).
    - Token Cloudflare hẹp.
@@ -141,3 +141,5 @@ Chỉ sửa `staging.env`, rồi thực hiện:
 | 2026-11-16 | P2-T03: schema PostgreSQL (migration 0001–0006, RLS, role, partition audit) + `internal/store` — chưa triển khai lên host | [P2-T03](docs/planning/evidence/P2-T03.md) |
 | 2026-11-16 | P2-T05: Keycloak 26.8.2 + 3 realm (MFA bắt buộc) dựng và thử trên VM build — chưa lên host; thêm `MG_IDP_ID_*` vào env file | [P2-T05](docs/planning/evidence/P2-T05.md) |
 | 2026-11-17 | Image `idp`: gỡ root emSign Root CA - G1 khỏi kho CA của JVM (CVE-2026-91403), ngoại lệ grype chỉ cho image này, hết hạn **2027-02-16** (quá hạn ⇒ CI chặn); image `idp` vào workflow `images` — chưa lên host | [P2-T05](docs/planning/evidence/P2-T05.md) mục 7 |
+| 2026-11-17 | Pin image `idp` trong `versions.lock` (GHCR `sha256:a0191d54…`) — `render_idp.py` dùng mặc định, không cần `--image` | `versions.lock` `[images.mg-idp]` |
+| 2026-11-17 | Hợp nhất P2-T04/T06/T07/T12/T14 vào main (SecretStore, đăng nhập/session, phân quyền, khung job, middleware) + lắp đăng nhập/phân quyền vào API; CI thêm kiểm `go mod tidy -diff` — chưa triển khai lên host | [P2-T04](docs/planning/evidence/P2-T04.md), [P2-T06](docs/planning/evidence/P2-T06.md), [P2-T07](docs/planning/evidence/P2-T07.md), [P2-T12](docs/planning/evidence/P2-T12.md), [P2-T14](docs/planning/evidence/P2-T14.md) |

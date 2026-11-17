@@ -51,6 +51,8 @@ jobs:
           persist-credentials: false
       - name: go mod verify
         run: go mod verify
+      - name: go mod tidy không làm đổi go.mod/go.sum (bắt require/indirect sai — phát hiện khi hợp nhất Phase 2)
+        run: go mod tidy -diff
       - name: gofmt
         run: |
           unformatted=$(gofmt -l .)
