@@ -1,6 +1,8 @@
-# Build image tự làm (P1-T04, P2-T01): edge (Caddy + module), stund, api, worker. Mỗi image: build từ base pin theo digest, kiểm nội dung,
-# sinh SBOM (syft), quét lỗ hổng (grype — chặn nếu có mức Critical), rồi mới push lên GHCR. Digest đưa vào
-# versions.lock bằng commit riêng. Action và công cụ pin theo commit SHA / SHA-256, chọn bản đã ≥ 14 ngày tuổi.
+# Build image tự làm (P1-T04, P2-T01, P2-T05): edge (Caddy + module), stund, api, worker, idp (Keycloak). Mỗi image:
+# build từ base pin theo digest, kiểm nội dung, sinh SBOM (syft), quét lỗ hổng (grype — chặn nếu có mức Critical), rồi
+# mới push lên GHCR. Digest đưa vào versions.lock bằng commit riêng. Action và công cụ pin theo commit SHA / SHA-256,
+# chọn bản đã ≥ 14 ngày tuổi. Ngoại lệ grype chỉ qua file riêng của từng image (cột grype_config — hiện chỉ idp), bắt
+# buộc có hạn dùng; quá hạn thì job của image đó fail. Không có .grype.yaml ở gốc repo (grype tự nạp file đó cho mọi image).
 name: images
 
 on:
@@ -21,10 +23,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {image: edge,   dockerfile: infrastructure/docker/edge/Dockerfile,  context: infrastructure/docker/edge,  app: ""}
-          - {image: stund,  dockerfile: infrastructure/docker/stund/Dockerfile, context: infrastructure/docker/stund, app: ""}
-          - {image: api,    dockerfile: infrastructure/docker/app/Dockerfile,   context: ".",                         app: api}
-          - {image: worker, dockerfile: infrastructure/docker/app/Dockerfile,   context: ".",                         app: worker}
+          - {image: edge,   dockerfile: infrastructure/docker/edge/Dockerfile,  context: infrastructure/docker/edge,  app: "",     grype_config: ""}
+          - {image: stund,  dockerfile: infrastructure/docker/stund/Dockerfile, context: infrastructure/docker/stund, app: "",     grype_config: ""}
+          - {image: api,    dockerfile: infrastructure/docker/app/Dockerfile,   context: ".",                         app: api,    grype_config: ""}
+          - {image: worker, dockerfile: infrastructure/docker/app/Dockerfile,   context: ".",                         app: worker, grype_config: ""}
+          # idp: ngoại lệ CVE-2026-91403 có hạn — P2-T05 mục 7
+          - {image: idp,    dockerfile: infrastructure/docker/idp/Dockerfile,   context: infrastructure/docker/idp,   app: "",     grype_config: infrastructure/docker/idp/grype.yaml}
     env:
       IMAGE: ghcr.io/${{ github.repository }}/${{ matrix.image }}
       SYFT_VERSION: "1.56.0"
@@ -84,6 +88,29 @@ jobs:
               curl -fsS http://127.0.0.1:19090/metrics | grep -q '^meshguard_build_info{'
               docker logs smoke 2>&1 | tail -3
               docker rm -f smoke >/dev/null ;;
+            idp)
+              test "$user" = "1000"
+              # CVE-2026-91403 (P2-T05 mục 7): TrustManager mặc định của JVM không được tin root nào trong 4 root OpenJDK yêu
+              # cầu gỡ (openjdk.org/emudhra). grype không thấy việc gỡ này (ngoại lệ ở bước quét dựa vào kiểm tra ở đây).
+              docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+                -v "${GITHUB_WORKSPACE}/infrastructure/docker/idp/TrustCheck.java:/check/TrustCheck.java:ro" \
+                --entrypoint java "${IMAGE}:${GITHUB_SHA}" -XX:-UsePerfData /check/TrustCheck.java > "${RUNNER_TEMP}/idp-trust.txt"
+              head -1 "${RUNNER_TEMP}/idp-trust.txt"
+              n=$(grep -vc '^#' "${RUNNER_TEMP}/idp-trust.txt"); echo "JVM tin ${n} CA"; test "$n" -ge 100
+              if grep -E 'CN=(emSign Root CA - G[12]|emSign ECC Root CA - G3|AAA Certificate Services)(,|$)' "${RUNNER_TEMP}/idp-trust.txt"; then
+                echo "::error::JVM của image idp vẫn tin root eMudhra/Comodo AAA (CVE-2026-91403)"; exit 1
+              fi
+              # tùy chọn build-time đã nướng sẵn (kc.sh show-config, rootfs chỉ đọc như compose) và đúng bản Keycloak của Dockerfile
+              docker run --rm --network none --read-only --cap-drop ALL "${IMAGE}:${GITHUB_SHA}" show-config > "${RUNNER_TEMP}/idp-config.txt"
+              grep -Eq 'kc\.db +[=:] +postgres' "${RUNNER_TEMP}/idp-config.txt"
+              grep -Eq 'kc\.features-disabled +[=:] +impersonation,kerberos,ciba,device-flow,token-exchange-standard' "${RUNNER_TEMP}/idp-config.txt"
+              grep -Eq 'kc\.health-enabled +[=:] +true' "${RUNNER_TEMP}/idp-config.txt"
+              grep -Eq 'kc\.metrics-enabled +[=:] +true' "${RUNNER_TEMP}/idp-config.txt"
+              kc=$(sed -n 's|^ARG KEYCLOAK=quay\.io/keycloak/keycloak:\([^@]*\)@sha256:.*|\1|p' "${{ matrix.dockerfile }}")
+              test -n "$kc"
+              docker run --rm --network none --read-only --cap-drop ALL "${IMAGE}:${GITHUB_SHA}" --version > "${RUNNER_TEMP}/idp-version.txt"
+              cat "${RUNNER_TEMP}/idp-version.txt"
+              grep -qxF "Keycloak ${kc}" "${RUNNER_TEMP}/idp-version.txt" ;;
           esac
           echo "user=$user OK"
 
@@ -92,8 +119,24 @@ jobs:
           "${RUNNER_TEMP}/syft" "${IMAGE}:${GITHUB_SHA}" -q -o spdx-json="${RUNNER_TEMP}/sbom-${{ matrix.image }}.spdx.json"
           echo "packages in SBOM: $(jq '.packages | length' "${RUNNER_TEMP}/sbom-${{ matrix.image }}.spdx.json")"
 
-      - name: Quét lỗ hổng (grype) — chặn nếu có mức Critical
-        run: '"${RUNNER_TEMP}/grype" "sbom:${RUNNER_TEMP}/sbom-${{ matrix.image }}.spdx.json" --fail-on critical'
+      - name: Quét lỗ hổng (grype) — chặn nếu có mức Critical; ngoại lệ quá hạn cũng chặn
+        run: |
+          args=()
+          cfg="${{ matrix.grype_config }}"
+          if [ -n "$cfg" ]; then
+            # ngoại lệ chỉ từ file riêng của image này; file phải có đúng một dòng "# expires: YYYY-MM-DD" — quá ngày đó (UTC) ⇒ fail
+            exp=$(sed -n 's/^# expires: \([0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}\)$/\1/p' "$cfg")
+            if [ "$(printf '%s' "$exp" | grep -c '^')" != 1 ] || [ "$(date -u -d "$exp" +%F 2>/dev/null)" != "$exp" ]; then
+              echo "::error file=${cfg}::cần đúng một dòng '# expires: YYYY-MM-DD' (ngày hợp lệ)"; exit 1
+            fi
+            if [[ "$(date -u +%F)" > "$exp" ]]; then
+              echo "::error file=${cfg}::ngoại lệ grype đã hết hạn (${exp}) — chủ dự án quyết định gia hạn hoặc gỡ ngoại lệ"; exit 1
+            fi
+            echo "ngoại lệ grype ${cfg}: còn hiệu lực tới hết ${exp} (UTC)"
+            echo "- ${{ matrix.image }}: ngoại lệ grype \`${cfg}\`, hết hạn ${exp}" >> "$GITHUB_STEP_SUMMARY"
+            args+=(--config "$cfg" --show-suppressed)
+          fi
+          "${RUNNER_TEMP}/grype" "sbom:${RUNNER_TEMP}/sbom-${{ matrix.image }}.spdx.json" "${args[@]}" --fail-on critical
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
