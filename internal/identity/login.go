@@ -26,7 +26,10 @@ type LoginRequest struct {
 	// re-authentication (step-up, §8.3 step 7) and asks the IdP for prompt=login and max_age=0.
 	Current *Session
 	// Reauth asks for that re-authentication explicitly (reauth=true of GET /auth/login), with or without a session.
-	Reauth    bool
+	Reauth bool
+	// FetchSite is RequestInfo.FetchSite (Sec-Fetch-Site of the request): a login start is refused unless it is
+	// same-origin (the Portal's own page), none (typed address, bookmark) or absent (G2 F1, see BeginLogin).
+	FetchSite string
 	ClientIP  string
 	RequestID string
 }
@@ -46,12 +49,26 @@ var (
 
 const maxReturnTo = 512
 
+// Sec-Fetch-Site values a login start accepts (BeginLogin): a request of the Portal's own pages, and a navigation the
+// user started (address bar, bookmark).
+const (
+	fetchSiteSameOrigin = "same-origin"
+	fetchSiteNone       = "none"
+)
+
 // loginTenantStatuses are the tenant states in which members can sign in (a suspended tenant still lets its Owner
 // read billing and audit — §8.4 invariant 5).
 var loginTenantStatuses = map[string]bool{"provisioning": true, "active": true, "suspended": true}
 
 // BeginLogin selects the IdP from the database (never from the client), records the auth request and returns the
 // redirect to the IdP's authorization endpoint (Authorization Code + PKCE S256).
+//
+// Login CSRF (G2 F1): a login started by another site — Sec-Fetch-Site cross-site, or same-site (a sibling subdomain:
+// another origin of the platform, a tenant's page) — is refused 403 before anything is stored, so that no page can walk
+// a browser into a login of the attacker's choosing (an attacker-run external IdP would sign the victim in as the
+// attacker). A request without Sec-Fetch-Site is allowed: non-browser clients and browsers without Fetch Metadata send
+// none, and the login CSRF it leaves open is closed in the callback, which never replaces the open session of another
+// identity (CompleteLogin).
 func (s *Service) BeginLogin(ctx context.Context, in LoginRequest) (*LoginRedirect, error) {
 	ev := AuditEvent{Action: ActionLoginStart, Origin: in.Origin, ClientIP: in.ClientIP, RequestID: in.RequestID}
 	out, err := s.beginLogin(ctx, in, &ev)
@@ -70,6 +87,11 @@ func (s *Service) BeginLogin(ctx context.Context, in LoginRequest) (*LoginRedire
 func (s *Service) beginLogin(ctx context.Context, in LoginRequest, ev *AuditEvent) (*LoginRedirect, error) {
 	if in.Origin != OriginApp && in.Origin != OriginAdmin {
 		return nil, newErr(KindInternal, "origin_unknown", errors.New("no origin in the request (middleware missing?)"))
+	}
+	switch in.FetchSite {
+	case "", fetchSiteSameOrigin, fetchSiteNone:
+	default: // cross-site, same-site, or a form no browser sends
+		return nil, forbidden("sec_fetch_site_cross_origin")
 	}
 	switch in.Scope {
 	case ScopeTenant:

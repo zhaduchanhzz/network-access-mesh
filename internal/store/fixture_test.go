@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// fixture holds one row per scope (tenant A, tenant B, platform) in every table of migrations 0001–0006, inserted
+// fixture holds one row per scope (tenant A, tenant B, platform) in every table of migrations 0001–0007, inserted
 // by the superuser (bypassing RLS) so the tests can check what each role and scope sees. Every identifier is random,
 // so fixtures of parallel tests share a database without colliding.
 type fixture struct {
@@ -56,11 +56,16 @@ func newFixture() *fixture {
 // migrations; insertAll runs them all on a fully migrated database).
 var fixtureSteps = map[int64]func(f *fixture, t *testing.T, c *pgx.Conn){
 	1: (*fixture).step1, 2: (*fixture).step2, 3: (*fixture).step3, 4: (*fixture).step4, 5: (*fixture).step5, 6: (*fixture).step6,
+	7: (*fixture).step7,
 }
+
+// latestMigration is the number of the last migration of database/migrations (TestMigrationsUpWithData,
+// TestMigrationsShareClusterRoles).
+const latestMigration = 7
 
 func (f *fixture) insertAll(t *testing.T, c *pgx.Conn) {
 	t.Helper()
-	for v := int64(1); v <= 6; v++ {
+	for v := int64(1); v <= latestMigration; v++ {
 		fixtureSteps[v](f, t, c)
 	}
 }
@@ -101,14 +106,22 @@ func (f *fixture) step2(t *testing.T, c *pgx.Conn) {
 	exec(t, c, `INSERT INTO permissions (key, scope) VALUES ($1, 'tenant')`, f.permission)
 	exec(t, c, `INSERT INTO role_permissions (role_id, role_scope, permission_key, permission_scope)
 		VALUES ($1, 'tenant', $2, 'tenant')`, f.tenantRole, f.permission)
-	exec(t, c, `INSERT INTO identity_providers (id, scope, issuer, client_id, driver, status)
-		VALUES ($1, 'platform', 'https://idp.test/realms/platform-'||$2, 'portal', 'keycloak', 'active')`, f.platformIdP, f.sfx)
+	// client secrets: the platform IdP's under the name of `meshguard admin set-idp-client-secret`, tenant A's under the
+	// drivers' name, tenant B a public client — the three forms 0007 (owner CHECK) must keep
+	exec(t, c, `INSERT INTO identity_providers (id, scope, issuer, client_id, client_secret_ref, driver, status)
+		VALUES ($1, 'platform', 'https://idp.test/realms/platform-'||$2, 'portal', $3, 'keycloak', 'active')`,
+		f.platformIdP, f.sfx, "mgsec://platform/idp-client-secret."+f.platformIdP.String()+"#1")
 	exec(t, c, `INSERT INTO identities (id, idp_id, scope, subject, email) VALUES ($1, $2, 'platform', 'sa-'||$3, 'sa@example.test')`,
 		f.platformUser, f.platformIdP, f.sfx)
 	exec(t, c, `INSERT INTO platform_users (identity_id, role_id) VALUES ($1, $2)`, f.platformUser, f.platformRole)
-	for _, tr := range f.tenants() {
-		exec(t, c, `INSERT INTO identity_providers (id, scope, tenant_id, issuer, client_id, driver, status)
-			VALUES ($1, 'tenant', $2, 'https://idp.test/realms/'||$3, 'portal', 'keycloak', 'active')`, tr.idp, tr.id, tr.slug)
+	for i, tr := range f.tenants() {
+		var ref *string
+		if i == 0 {
+			r := "mgsec://" + tr.id.String() + "/idp." + tr.idp.String() + ".client#1"
+			ref = &r
+		}
+		exec(t, c, `INSERT INTO identity_providers (id, scope, tenant_id, issuer, client_id, client_secret_ref, driver, status)
+			VALUES ($1, 'tenant', $2, 'https://idp.test/realms/'||$3, 'portal', $4, 'keycloak', 'active')`, tr.idp, tr.id, tr.slug, ref)
 		exec(t, c, `INSERT INTO identities (id, idp_id, tenant_id, scope, subject, email)
 			VALUES ($1, $2, $3, 'tenant', 'user-'||$4, 'user@'||$4||'.test')`, tr.identity, tr.idp, tr.id, tr.slug)
 		exec(t, c, `INSERT INTO tenant_memberships (id, tenant_id, identity_id, role_id) VALUES ($1, $2, $3, $4)`,
@@ -167,6 +180,9 @@ func (f *fixture) step5(t *testing.T, c *pgx.Conn) {
 			VALUES ($1, $2, 1, now(), 1)`, tr.instance, tr.id)
 	}
 }
+
+// 0007: no table — the owner CHECK of identity_providers.client_secret_ref; the references written by step2 must pass.
+func (f *fixture) step7(*testing.T, *pgx.Conn) {}
 
 // 0006: provisioning_jobs (+steps), idempotency_keys; links device A to its revocation job (FK added by 0006).
 func (f *fixture) step6(t *testing.T, c *pgx.Conn) {

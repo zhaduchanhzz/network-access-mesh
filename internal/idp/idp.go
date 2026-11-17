@@ -58,7 +58,7 @@ func (r Registration) Validate(op string) error {
 // ClientSecretOwner returns the SecretStore reference of version v of the client secret of r: a tenant secret for a
 // tenant IdP, a platform secret (DEK platform — the api reads it for the token request) for the platform IdP.
 func (r Registration) ClientSecretOwner(v int32) secrets.Ref {
-	name := "idp." + r.IdPID.String() + ".client"
+	name := ClientSecretName(r.IdPID)
 	if r.Scope == ScopePlatform {
 		return secrets.PlatformRef(name, v)
 	}

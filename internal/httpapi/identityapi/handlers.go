@@ -62,6 +62,7 @@ func (h *Handlers) AuthLogin(ctx context.Context, req gen.AuthLoginRequestObject
 	}
 	in := identity.LoginRequest{
 		Scope: identity.Scope(req.Params.Scope), Origin: info.Origin, ClientIP: info.ClientIP, RequestID: info.RequestID,
+		FetchSite: info.FetchSite,
 	}
 	if req.Params.Tenant != nil {
 		in.TenantSlug = *req.Params.Tenant

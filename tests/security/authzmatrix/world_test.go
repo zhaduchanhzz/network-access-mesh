@@ -248,7 +248,7 @@ func (m *matrixWorld) createObjects(t *testing.T) objects {
 		VALUES ($1, 'host-matrix', 'lab', int4range(30000, 40000), '10.250.0.0/16')`, host)
 	for i, ten := range []*sessionfixture.Tenant{m.A, m.B} {
 		apiKey := secrets.TenantRef(ten.ID, "headscale-api-key", 1)
-		clientSecret := secrets.TenantRef(ten.ID, "idp-client-secret", 1)
+		clientSecret := secrets.TenantRef(ten.ID, "idp-client-secret."+ten.IdP.String(), 1) // the IdP's own name (G2 F3)
 		for ref, value := range map[secrets.Ref]string{
 			apiKey:       "hskey-api-" + randomHex(6) + "-" + randomHex(24), // the shape of a Headscale API key
 			clientSecret: "mg-canary-client-secret-" + randomHex(16),

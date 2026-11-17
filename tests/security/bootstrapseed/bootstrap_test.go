@@ -158,9 +158,10 @@ func TestSeededIdentitiesThroughTheComposedAPI(t *testing.T) {
 		ref  string
 		host string
 	}{
-		{w.PlatformIdP, fakeP, "mgsec://platform/idp-platform#1", w.AdminHost},
-		{w.A.IdP, fakeA, "mgsec://" + w.A.ID.String() + "/idp-a#1", w.AppHost},
-		{w.B.IdP, fakeB, "mgsec://" + w.B.ID.String() + "/idp-b#1", w.AppHost},
+		// the IdPs' own secrets (G2 F3: owner = the IdP's tenant or platform, name idp.<idp id>.client)
+		{w.PlatformIdP, fakeP, "mgsec://platform/idp." + w.PlatformIdP.String() + ".client#1", w.AdminHost},
+		{w.A.IdP, fakeA, "mgsec://" + w.A.ID.String() + "/idp." + w.A.IdP.String() + ".client#1", w.AppHost},
+		{w.B.IdP, fakeB, "mgsec://" + w.B.ID.String() + "/idp." + w.B.IdP.String() + ".client#1", w.AppHost},
 	} {
 		secrets[x.ref] = "client-" + uuid.NewString()
 		w.Exec(t, `UPDATE identity_providers SET issuer = $2, client_secret_ref = $3 WHERE id = $1`, x.idp,

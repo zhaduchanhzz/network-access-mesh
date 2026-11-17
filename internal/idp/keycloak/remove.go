@@ -13,7 +13,9 @@ import (
 
 // RemoveIssuer disables the realm (RemoveDisable: every login and token request is refused, users are kept) or
 // deletes it (RemovePurge) and then destroys every version of the secrets the IdP used: the mg-idp-driver secret and
-// the Portal client secret. Both modes are idempotent: a realm already disabled or already deleted is a success.
+// the Portal client secret. Both modes are idempotent: a realm already disabled or already deleted is a success. A
+// purge whose client_secret_ref is not the IdP's own client secret is refused before anything is called or destroyed
+// (CodeSecretRefNotOwned, G2 F3).
 func (d *Driver) RemoveIssuer(ctx context.Context, reg idp.Registration, mode idp.RemoveMode) (idp.RemoveResult, error) {
 	const op = "keycloak.RemoveIssuer"
 	if err := reg.Validate(op); err != nil {
@@ -22,6 +24,14 @@ func (d *Driver) RemoveIssuer(ctx context.Context, reg idp.Registration, mode id
 	ref, sref, err := ParseDriverRef(reg.DriverRef)
 	if err != nil {
 		return idp.RemoveResult{}, err
+	}
+	refs := []secrets.Ref{sref}
+	if mode == idp.RemovePurge && reg.ClientSecretRef != "" {
+		cr, err := idp.DriverClientSecretRef(ctx, d.security, reg, op)
+		if err != nil {
+			return idp.RemoveResult{}, err
+		}
+		refs = append(refs, cr)
 	}
 	res := idp.RemoveResult{Mode: mode}
 	ts := d.provisioner()
@@ -69,12 +79,6 @@ func (d *Driver) RemoveIssuer(ctx context.Context, reg idp.Registration, mode id
 			}
 			res.AlreadyAbsent = st == http.StatusNotFound
 			res.Changed = st != http.StatusNotFound
-		}
-		refs := []secrets.Ref{sref}
-		if reg.ClientSecretRef != "" {
-			if cr, err := secrets.ParseRef(reg.ClientSecretRef); err == nil {
-				refs = append(refs, cr)
-			}
 		}
 		for _, r := range refs {
 			if err := destroyAll(ctx, d.secrets, r); err != nil {

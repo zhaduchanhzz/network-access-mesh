@@ -36,7 +36,7 @@ func TestIdentityProblemsThroughTheChain(t *testing.T) {
 
 	fake := identitytest.NewFakeIdP(t, time.Now)
 	tenant, idp := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	ref := "mgsec://" + tenant.String() + "/idp-client#1"
+	ref := "mgsec://" + tenant.String() + "/idp." + idp.String() + ".client#1" // the IdP's own secret (G2 F3)
 	secret := "secret-" + uuid.NewString()
 	for _, q := range []struct {
 		sql  string

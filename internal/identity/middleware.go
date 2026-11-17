@@ -15,6 +15,9 @@ type RequestInfo struct {
 	UserAgent string
 	RequestID string // X-Request-Id set by the request-id middleware (runs first)
 	Path      string // URL path only — never the query, which may carry a code or a state
+	// FetchSite is the Sec-Fetch-Site header of the request (Fetch Metadata): "" when absent; "invalid" when present
+	// in a form no browser sends (empty or repeated). BeginLogin refuses any value but same-origin and none (G2 F1).
+	FetchSite string
 }
 
 type ctxKey int
@@ -83,7 +86,7 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 		}
 		info := RequestInfo{
 			Origin: origin, ClientIP: s.cfg.ClientIP(r), UserAgent: truncateUTF8(r.UserAgent(), maxUserAgent),
-			RequestID: reqID, Path: r.URL.Path,
+			RequestID: reqID, Path: r.URL.Path, FetchSite: fetchSite(r),
 		}
 		ctx := WithRequestInfo(r.Context(), info)
 		w.Header().Set("Cache-Control", "no-store")
@@ -134,6 +137,19 @@ func (s *Service) writeProblem(w http.ResponseWriter, r *http.Request, reqID str
 		return
 	}
 	WriteProblem(w, err, reqID, r.URL.Path)
+}
+
+// fetchSite returns the Sec-Fetch-Site header of r: "" when absent, the value when sent once and non-empty, "invalid"
+// otherwise (no browser sends an empty or a repeated Sec-Fetch-Site) — RequestInfo.FetchSite.
+func fetchSite(r *http.Request) string {
+	vs := r.Header.Values("Sec-Fetch-Site")
+	switch {
+	case len(vs) == 0:
+		return ""
+	case len(vs) == 1 && vs[0] != "":
+		return truncateUTF8(vs[0], 32)
+	}
+	return "invalid"
 }
 
 // checkFetchOrigin returns "" when a state-changing request comes from this origin's own pages.

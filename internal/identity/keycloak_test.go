@@ -402,7 +402,7 @@ func TestKeycloakTenantLoginEndToEnd(t *testing.T) {
 	tenantID := uuid.Must(uuid.NewV7())
 	slug := "kc" + identity.RandomHex(4)
 	identity.Exec(t, db, `INSERT INTO tenants (id, slug, name, status) VALUES ($1, $2, 'Keycloak tenant-a', 'active')`, tenantID, slug)
-	ref := "mgsec://" + tenantID.String() + "/idp-client#1"
+	ref := "mgsec://" + tenantID.String() + "/idp." + idpID.String() + ".client#1" // the IdP's own secret (G2 F3)
 	identity.Exec(t, db, `INSERT INTO identity_providers (id, scope, tenant_id, issuer, client_id, client_secret_ref, driver, status)
 		VALUES ($1, 'tenant', $2, $3, 'mg-portal', $4, 'keycloak', 'active')`, idpID, tenantID, issuer, ref)
 	e := kc.kcService(t, pg, ref, secret)
@@ -491,7 +491,7 @@ func TestKeycloakPlatformLoginOriginBound(t *testing.T) {
 	defer platformMu.Unlock()
 	db := pg.Admin(t)
 	identity.Exec(t, db, `UPDATE identity_providers SET status = 'disabled' WHERE scope = 'platform' AND status = 'active'`)
-	ref := "mgsec://platform/idp-client-kc#1"
+	ref := "mgsec://platform/idp." + idpID.String() + ".client#1" // the IdP's own secret (G2 F3)
 	identity.Exec(t, db, `INSERT INTO identity_providers (id, scope, issuer, client_id, client_secret_ref, driver, status)
 		VALUES ($1, 'platform', $2, 'mg-portal', $3, 'keycloak', 'active')`, idpID, issuer, ref)
 	defer identity.Exec(t, db, `UPDATE identity_providers SET status = 'disabled' WHERE id = $1`, idpID)

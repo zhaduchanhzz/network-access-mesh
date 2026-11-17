@@ -72,8 +72,11 @@ type Config struct {
 	// AppHost and AdminHost are the Portal origins (app./admin. + MG_BASE_DOMAIN): the redirect URI of a tenant IdP is
 	// on AppHost, the platform IdP's on AdminHost (§8.3 step 3).
 	AppHost, AdminHost string
-	Logger             *slog.Logger
-	Now                func() time.Time
+	// Security receives the security event of a registration whose client_secret_ref is not the IdP's own (G2 F3,
+	// idp.KindClientSecretRefNotOwned); production: the audit.Logger of the process. nil: the refusal stands, no event.
+	Security idp.SecurityRecorder
+	Logger   *slog.Logger
+	Now      func() time.Time
 }
 
 // Driver is the keycloak IdP driver.
@@ -82,6 +85,7 @@ type Driver struct {
 	prov      Credentials
 	appHost   string
 	adminHost string
+	security  idp.SecurityRecorder
 }
 
 var _ idp.IdPDriver = (*Driver)(nil)
@@ -108,7 +112,7 @@ func New(cfg Config) (*Driver, error) {
 		return nil, errors.Join(errors.New("keycloak: invalid configuration"), err)
 	}
 	return &Driver{admin: newAdmin(cfg.Route, cfg.Secrets, cfg.Logger, cfg.Now), prov: cfg.Provisioner,
-		appHost: app, adminHost: adm}, nil
+		appHost: app, adminHost: adm, security: cfg.Security}, nil
 }
 
 // Name implements idp.IdPDriver.

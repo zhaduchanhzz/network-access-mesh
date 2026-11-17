@@ -305,6 +305,53 @@ func TestKeyRotationRelocates(t *testing.T) {
 	}
 }
 
+// TestLifecycleChangeSeenWithinTTL — G2 L1: with a one-hour cache TTL, a tenant suspended and an instance quarantined in
+// the registry (plain SQL — no lifecycle code calls Invalidate) are refused by the very next ForTenant: ErrNoInstance
+// (instance_unavailable) and no request reaches the edge. Restored, they are reachable again without a restart.
+func TestLifecycleChangeSeenWithinTTL(t *testing.T) {
+	e := newEnv(t)
+	a := e.addTenant("tenant-a", "active", "running")
+	b := e.addTenant("tenant-b", "active", "running")
+	loc := e.locator(locator.Options{})
+	reg := headscale.NewRegistry(loc, headscale.Options{CacheTTL: time.Hour})
+	// The re-check itself: the live instance of an active tenant passes; a target of another instance is stale.
+	if err := loc.CheckTarget(t.Context(), a.id, headscale.Target{InstanceID: a.instance}); err != nil {
+		t.Fatalf("CheckTarget of the live instance: %v", err)
+	}
+	if err := loc.CheckTarget(t.Context(), a.id, headscale.Target{InstanceID: b.instance}); !errors.Is(err, headscale.ErrTargetStale) {
+		t.Fatalf("CheckTarget of another instance: %v, want ErrTargetStale", err)
+	}
+	for _, tn := range []*tenant{a, b} {
+		inst, err := reg.ForTenant(t.Context(), tn.id)
+		if err != nil {
+			t.Fatalf("ForTenant(%s): %v", tn.slug, err)
+		}
+		if _, err := inst.ListAPIKeys(t.Context()); err != nil {
+			t.Fatalf("ListAPIKeys(%s): %v", tn.slug, err)
+		}
+	}
+	e.exec(`UPDATE tenants SET status = 'suspended' WHERE id = $1`, a.id)
+	e.exec(`UPDATE tenant_instances SET status = 'quarantined' WHERE id = $1`, b.instance)
+	before := len(e.edge.Requests())
+	for _, tn := range []*tenant{a, b} {
+		_, err := reg.ForTenant(t.Context(), tn.id)
+		var he *headscale.Error
+		if !errors.Is(err, headscale.ErrNoInstance) || !errors.As(err, &he) || he.Kind != headscale.KindUnavailable {
+			t.Errorf("%s within the TTL: %v, want instance_unavailable wrapping ErrNoInstance", tn.slug, err)
+		}
+	}
+	if n := len(e.edge.Requests()); n != before {
+		t.Fatalf("%d requests reached the edge for a suspended tenant or a quarantined instance", n-before)
+	}
+	e.exec(`UPDATE tenants SET status = 'active' WHERE id = $1`, a.id)
+	e.exec(`UPDATE tenant_instances SET status = 'running' WHERE id = $1`, b.instance)
+	for _, tn := range []*tenant{a, b} {
+		if _, err := reg.ForTenant(t.Context(), tn.id); err != nil {
+			t.Errorf("%s restored: %v", tn.slug, err)
+		}
+	}
+}
+
 // TestEdgeTokenRotation — the token file is read at every Locate: after a rotation the edge answers 403 once, the
 // registry locates again and the call succeeds.
 func TestEdgeTokenRotation(t *testing.T) {

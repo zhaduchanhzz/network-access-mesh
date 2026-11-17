@@ -74,7 +74,8 @@ var edgeTokenRE = regexp.MustCompile(`^[A-Za-z0-9]{40}$`)
 
 // Locator resolves a tenant to its instance from the registry. It keeps no cache: headscale.CachingRegistry caches
 // the located target and calls Locate again after its TTL and — bypassing the cache — after a 401/403, so a rotated
-// API key (adopt-instance, apikey.rotate) or edge token is picked up without a restart.
+// API key (adopt-instance, apikey.rotate) or edge token is picked up without a restart. As a headscale.StatusChecker
+// it re-checks the tenant and instance status of a cached target at every ForTenant (G2 L1).
 type Locator struct {
 	dir      InstanceDirectory
 	secrets  SecretReader
@@ -85,7 +86,10 @@ type Locator struct {
 	log      *slog.Logger
 }
 
-var _ headscale.Locator = (*Locator)(nil)
+var (
+	_ headscale.Locator       = (*Locator)(nil)
+	_ headscale.StatusChecker = (*Locator)(nil)
+)
 
 // New checks the options and returns the locator.
 func New(dir InstanceDirectory, sec SecretReader, o Options) (*Locator, error) {
@@ -123,18 +127,8 @@ func (l *Locator) Locate(ctx context.Context, tenantID uuid.UUID) (headscale.Tar
 	if err != nil {
 		return headscale.Target{}, fmt.Errorf("tenant %s: read the registry: %w", tenantID, err)
 	}
-	switch {
-	case rec.TenantID != tenantID:
-		l.log.Error("headscale locator: the registry returned another tenant", "tenant_id", tenantID.String())
-		return headscale.Target{}, fmt.Errorf("tenant %s: the registry returned a record of another tenant", tenantID)
-	case !slices.Contains(l.statuses, rec.TenantStatus):
-		return headscale.Target{}, fmt.Errorf("tenant %s is %s: %w", tenantID, rec.TenantStatus, headscale.ErrNoInstance)
-	case !slices.Contains(runnableInstance, rec.Status):
-		return headscale.Target{}, fmt.Errorf("instance %s of tenant %s is %s: %w", rec.InstanceID, tenantID, rec.Status,
-			headscale.ErrNoInstance)
-	case rec.APIKeyRef == "":
-		return headscale.Target{}, fmt.Errorf("instance %s of tenant %s has no API key registered: %w", rec.InstanceID,
-			tenantID, headscale.ErrNoInstance)
+	if err := l.callable(tenantID, rec); err != nil {
+		return headscale.Target{}, err
 	}
 	ref, err := secrets.ParseRef(rec.APIKeyRef)
 	if err != nil {
@@ -162,6 +156,45 @@ func (l *Locator) Locate(ctx context.Context, tenantID uuid.UUID) (headscale.Tar
 		return headscale.Target{}, fmt.Errorf("instance %s: %w", rec.InstanceID, err)
 	}
 	return t, nil
+}
+
+// CheckTarget implements headscale.StatusChecker (G2 L1): one read of the registry in the tenant's scope — no secret,
+// no token file — tells whether a target located earlier may still be called: the same rules as Locate (tenant status
+// in the allowed list, instance starting or running, an API key registered), and the live instance must still be the
+// target's (ErrTargetStale otherwise: re-provisioned, adopted again).
+func (l *Locator) CheckTarget(ctx context.Context, tenantID uuid.UUID, t headscale.Target) error {
+	rec, err := l.dir.LocateInstance(ctx, tenantID)
+	if errors.Is(err, tenants.ErrNotFound) {
+		return fmt.Errorf("tenant %s: %w", tenantID, headscale.ErrNoInstance)
+	}
+	if err != nil {
+		return fmt.Errorf("tenant %s: read the registry: %w", tenantID, err)
+	}
+	if err := l.callable(tenantID, rec); err != nil {
+		return err
+	}
+	if rec.InstanceID != t.InstanceID {
+		return fmt.Errorf("tenant %s: live instance %s, cached %s: %w", tenantID, rec.InstanceID, t.InstanceID,
+			headscale.ErrTargetStale)
+	}
+	return nil
+}
+
+// callable applies the status rules of Locate and CheckTarget to a registry record.
+func (l *Locator) callable(tenantID uuid.UUID, rec tenants.InstanceRecord) error {
+	switch {
+	case rec.TenantID != tenantID:
+		l.log.Error("headscale locator: the registry returned another tenant", "tenant_id", tenantID.String())
+		return fmt.Errorf("tenant %s: the registry returned a record of another tenant", tenantID)
+	case !slices.Contains(l.statuses, rec.TenantStatus):
+		return fmt.Errorf("tenant %s is %s: %w", tenantID, rec.TenantStatus, headscale.ErrNoInstance)
+	case !slices.Contains(runnableInstance, rec.Status):
+		return fmt.Errorf("instance %s of tenant %s is %s: %w", rec.InstanceID, tenantID, rec.Status, headscale.ErrNoInstance)
+	case rec.APIKeyRef == "":
+		return fmt.Errorf("instance %s of tenant %s has no API key registered: %w", rec.InstanceID, tenantID,
+			headscale.ErrNoInstance)
+	}
+	return nil
 }
 
 // Candidate is the target of an instance that is not registered (yet), with the locator's edge admin listener and

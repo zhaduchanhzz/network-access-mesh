@@ -116,7 +116,7 @@ func TestIT01IdentityIsolation(t *testing.T) {
 	}{{w.A.IdP, w.A.ID.String(), w.AppHost}, {w.B.IdP, w.B.ID.String(), w.AppHost}, {w.PlatformIdP, "platform", w.AdminHost}} {
 		f := identitytest.NewFakeIdP(t, time.Now)
 		client := "portal-" + idp.id.String()[:8]
-		ref := "mgsec://" + idp.owner + "/idp-client#1"
+		ref := "mgsec://" + idp.owner + "/idp." + idp.id.String() + ".client#1" // the IdP's own secret (G2 F3)
 		secretOf[ref] = "secret-" + uuid.NewString()
 		f.AddClient(client, secretOf[ref], "https://"+idp.host+"/api/v1/auth/callback/"+idp.id.String())
 		w.Exec(t, `UPDATE identity_providers SET issuer = $1, client_id = $2, client_secret_ref = $3, driver = 'external'

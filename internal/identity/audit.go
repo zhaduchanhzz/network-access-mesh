@@ -37,6 +37,10 @@ type AuditEvent struct {
 	Origin     Origin
 	ClientIP   string
 	RequestID  string
+	// Security, when set, is the kind of a security event (security_events, severity high) the Auditor raises besides
+	// the audit event: a refusal that reveals a broken invariant of the platform's own records rather than a mistake
+	// of the user — a client_secret_ref that is not the IdP's own (idp.KindClientSecretRefNotOwned, G2 F3).
+	Security string
 }
 
 // Auditor receives the module's audit events. Record must not block for long and must not fail the request.
@@ -76,6 +80,10 @@ func (a logAuditor) Record(ctx context.Context, ev AuditEvent) {
 	}
 	if ev.SessionID != uuid.Nil {
 		attrs = append(attrs, slog.String("session_public_id", ev.SessionID.String()))
+	}
+	if ev.Security != "" {
+		level = slog.LevelError
+		attrs = append(attrs, slog.String("security_event", ev.Security))
 	}
 	a.log.LogAttrs(ctx, level, "audit", attrs...)
 }

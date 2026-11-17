@@ -265,7 +265,7 @@ func TestAuditThroughTheAPI(t *testing.T) {
 		if tenant != nil {
 			scope, owner = "tenant", tenant.String()
 		}
-		ref := "mgsec://" + owner + "/idp-client#1"
+		ref := "mgsec://" + owner + "/idp." + id.String() + ".client#1" // the IdP's own secret (G2 F3)
 		exec(`INSERT INTO identity_providers (id, scope, tenant_id, issuer, client_id, client_secret_ref, driver, status)
 			VALUES ($1, $2, $3, $4, $5, $6, 'external', 'active')`, id, scope, tenant, fake.Issuer, client, ref)
 		secrets[ref] = "secret-" + uuid.NewString()
