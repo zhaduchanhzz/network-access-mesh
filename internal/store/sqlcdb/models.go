@@ -81,6 +81,14 @@ type DeviceInventoryCache struct {
 	RevocationJobID       *uuid.UUID
 }
 
+type DeviceInventorySyncState struct {
+	InstanceID uuid.UUID
+	TenantID   uuid.UUID
+	Generation int64
+	SyncedAt   *time.Time
+	NodeCount  int32
+}
+
 type Host struct {
 	ID              uuid.UUID
 	Name            string

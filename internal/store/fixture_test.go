@@ -156,13 +156,15 @@ func (f *fixture) step4(t *testing.T, c *pgx.Conn) {
 	}
 }
 
-// 0005: device_inventory_cache.
+// 0005: device_inventory_cache, device_inventory_sync_state.
 func (f *fixture) step5(t *testing.T, c *pgx.Conn) {
 	for i, tr := range f.tenants() {
 		exec(t, c, `INSERT INTO device_inventory_cache (id, tenant_id, instance_id, headscale_node_id, machine_key, name,
 				owner_membership_id, ip_addresses)
 			VALUES ($1, $2, $3, $4, 'mkey:'||$5, 'laptop', $6, ARRAY['100.64.0.1'::inet])`,
 			tr.device, tr.id, tr.instance, i+1, randomHex(8), tr.membership)
+		exec(t, c, `INSERT INTO device_inventory_sync_state (instance_id, tenant_id, generation, synced_at, node_count)
+			VALUES ($1, $2, 1, now(), 1)`, tr.instance, tr.id)
 	}
 }
 

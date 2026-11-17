@@ -29,6 +29,7 @@ var rlsTables = []struct{ name, kind, col string }{
 	{"audit_events", "T/P", "tenant_id"},
 	{"security_events", "T+P", "tenant_id"},
 	{"device_inventory_cache", "T", "tenant_id"},
+	{"device_inventory_sync_state", "T", "tenant_id"},
 	{"provisioning_jobs", "T+P", "tenant_id"},
 	{"provisioning_job_steps", "T+P", "tenant_id"},
 	{"idempotency_keys", "T+P", "tenant_id"},

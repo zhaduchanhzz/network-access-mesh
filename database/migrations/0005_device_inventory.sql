@@ -1,6 +1,7 @@
--- 0005 — Sổ thiết bị + cache node từ Headscale (bản đồ migration §6.3, §6.4): device_inventory_cache.
--- Cột id, owner_membership_id, enrollment_request_id, first_seen_at, revocation_* là dữ liệu authoritative của nền
--- tảng (không truncate/dựng lại); các cột còn lại là cache dựng lại được từ Headscale. Forward-only.
+-- 0005 — Sổ thiết bị + cache node từ Headscale (bản đồ migration §6.3, §6.4): device_inventory_cache,
+-- device_inventory_sync_state (P2-T13). Cột id, owner_membership_id, enrollment_request_id, first_seen_at, revocation_*
+-- là dữ liệu authoritative của nền tảng (không truncate/dựng lại); các cột còn lại là cache dựng lại được từ Headscale.
+-- Forward-only.
 
 -- +goose Up
 
@@ -61,3 +62,27 @@ GRANT UPDATE (node_key, name, given_name, ip_addresses, headscale_user_id, owner
               revocation_requested_at, revocation_verified_at, revocation_job_id)
     ON device_inventory_cache TO mg_api_tenant, mg_worker_tenant;
 GRANT DELETE ON device_inventory_cache TO mg_worker_tenant;
+
+-- Trạng thái đồng bộ theo instance (P2-T13): thế hệ và thời điểm snapshot (đồng hồ DB lúc ngay trước ListNodes) của
+-- lần inventory.sync gần nhất ĐÃ ÁP DỤNG. Lần sync khóa hàng này (FOR UPDATE) rồi bỏ qua snapshot không mới hơn
+-- synced_at — snapshot cũ không bao giờ đè snapshot mới (sync theo lịch, POST …/devices/sync và ?fresh=true chạy song
+-- song được); synced_at là nguồn "lần sync gần nhất" của dashboard kể cả khi tailnet chưa có node nào (P2-T13a). Cache:
+-- dựng lại được.
+CREATE TABLE device_inventory_sync_state (
+    instance_id uuid        PRIMARY KEY,
+    tenant_id   uuid        NOT NULL REFERENCES tenants (id),
+    generation  bigint      NOT NULL DEFAULT 0 CHECK (generation >= 0),
+    synced_at   timestamptz,  -- NULL = chưa có lần sync nào được áp dụng
+    node_count  integer     NOT NULL DEFAULT 0 CHECK (node_count >= 0),
+    FOREIGN KEY (tenant_id, instance_id) REFERENCES tenant_instances (tenant_id, id)
+);
+
+ALTER TABLE device_inventory_sync_state ENABLE ROW LEVEL SECURITY;
+ALTER TABLE device_inventory_sync_state FORCE ROW LEVEL SECURITY;
+CREATE POLICY device_inventory_sync_state_tenant ON device_inventory_sync_state TO mg_app_tenant
+    USING (tenant_id = app_tenant_id()) WITH CHECK (tenant_id = app_tenant_id());
+
+-- instance_id, tenant_id bất biến.
+REVOKE ALL ON device_inventory_sync_state FROM PUBLIC;
+GRANT SELECT, INSERT ON device_inventory_sync_state TO mg_api_tenant, mg_worker_tenant;
+GRANT UPDATE (generation, synced_at, node_count) ON device_inventory_sync_state TO mg_api_tenant, mg_worker_tenant;

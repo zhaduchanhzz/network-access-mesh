@@ -10,9 +10,11 @@
 #     compose của tenant: user 30001, rootfs chỉ đọc, cap_drop ALL, no-new-privileges; data trên volume tmpfs 32 MiB
 #     (để pha 4 làm đầy được); một container "giữ volume" để dữ liệu sống qua các lần restart;
 #   - edge: Caddy [images.caddy] chạy ĐÚNG khối listener admin trích từ infrastructure/caddy/Caddyfile.tmpl;
-#   - client chính thức [images.tailscale] (pha 2); binary test build trong [images.golang].
-# API key của instance và token của listener admin sinh mới mỗi lần chạy, nằm trong thư mục tạm 0700, không in ra.
-# Các pha (TestP1_ … TestP6_) và việc runner làm giữa các pha: xem doc.go. Kết quả: $HSCT_OUT/observations.jsonl,
+#   - client chính thức [images.tailscale] (pha 2); binary test build trong [images.golang];
+#   - PostgreSQL [images.postgres] cho sổ thiết bị của pha 7–9 (P2-T13, internal/devices) — chỉ trên mạng admin thử.
+# API key của instance, token của listener admin và mật khẩu superuser PostgreSQL sinh mới mỗi lần chạy, nằm trong thư
+# mục tạm 0700, không in ra.
+# Các pha (TestP1_ … TestP9_) và việc runner làm giữa các pha: xem doc.go. Kết quả: $HSCT_OUT/observations.jsonl,
 # phase-<n>.log, headscale-crash.log. Mọi container/network/volume mang tiền tố $HSCT_PREFIX và bị xóa khi thoát
 # (giữ lại hai volume cache Go <prefix>-gomod, <prefix>-gocache; HSCT_KEEP_CACHE=0 để xóa).
 set -euo pipefail
@@ -40,7 +42,7 @@ print(f"{img['image']}@{img['index']}")
 PY
 }
 HS_IMAGE=$(lock headscale); CADDY_IMAGE=$(lock caddy); GO_IMAGE=$(lock golang)
-TS_IMAGE=$(lock tailscale); ALPINE_IMAGE=$(lock alpine)
+TS_IMAGE=$(lock tailscale); ALPINE_IMAGE=$(lock alpine); PG_IMAGE=$(lock postgres)
 
 PARAMS="$HERE/testdata/params.json"
 read -r SLUG NET_CIDR RUN_UID NODE_EXPIRY PARAM_IMAGE < <(python3 - "$PARAMS" <<'PY'
@@ -54,7 +56,7 @@ PY
 cleanup() {
   local rc=$?
   set +e
-  for c in "$P-ts" "$P-edge" "$P-hs" "$P-hold" "$P-run"; do d rm -f "$c" >/dev/null 2>&1; done
+  for c in "$P-ts" "$P-edge" "$P-hs" "$P-hold" "$P-run" "$P-pg"; do d rm -f "$c" >/dev/null 2>&1; done
   for n in "$P-tenant" "$P-admin"; do d network rm "$n" >/dev/null 2>&1; done
   d volume rm -f "$P-hsdata" >/dev/null 2>&1
   [ "$KEEP_CACHE" = 1 ] || d volume rm -f "$P-gomod" "$P-gocache" >/dev/null 2>&1
@@ -144,6 +146,20 @@ sleep 2
 
 obs "env" "môi trường" "headscale=$HS_IMAGE config_sha256=$CONFIG_SHA node.expiry=$NODE_EXPIRY; edge=$CADDY_IMAGE (khối admin của Caddyfile.tmpl); client=$TS_IMAGE; test build=$GO_IMAGE"
 
+# PostgreSQL của sổ thiết bị (pha 7–9): mật khẩu superuser một lần, chỉ trong hai env-file 0600 (server, test).
+log "PostgreSQL $PG_IMAGE (sổ thiết bị P2-T13)"
+( umask 077
+  PGPW=$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')
+  printf 'POSTGRES_PASSWORD=%s\n' "$PGPW" > "$WORK/secrets/pg-server.env"
+  printf 'MG_TEST_PG_ADMIN_URL=postgres://postgres:%s@%s-pg:5432/postgres?sslmode=disable\nMG_TEST_PG_REQUIRED=1\n' "$PGPW" "$P" \
+    > "$WORK/secrets/pg.env" )
+d run -d --name "$P-pg" --network "$P-admin" --env-file "$WORK/secrets/pg-server.env" "$PG_IMAGE" >/dev/null
+for _ in $(seq 1 60); do
+  d exec "$P-pg" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1 && break
+  sleep 1
+done
+d exec "$P-pg" pg_isready -h 127.0.0.1 -U postgres >/dev/null || { d logs --tail 30 "$P-pg"; exit 1; }
+
 run_phase() {
   local n=$1 rc
   log "pha $n"
@@ -151,7 +167,7 @@ run_phase() {
     -v "$WORK/bin:/hsct:ro" -v "$WORK/secrets:/secrets:ro" -v "$WORK/state:/state" \
     -e "HSCT_ADMIN_URL=http://$EDGE_IP:$ADMIN_PORT" -e "HSCT_SLUG=$SLUG" -e "HSCT_CONTROL_URL=http://hs-$SLUG:8080" \
     -e HSCT_SECRETS_DIR=/secrets -e HSCT_STATE_DIR=/state -e HSCT_OBS_FILE=/state/observations.jsonl \
-    -e "HSCT_NODE_EXPIRY=$NODE_EXPIRY" \
+    -e "HSCT_NODE_EXPIRY=$NODE_EXPIRY" --env-file "$WORK/secrets/pg.env" \
     "$ALPINE_IMAGE" /hsct/hsct.test -test.v -test.count=1 -test.timeout=20m -test.run "^TestP${n}_" >/dev/null
   d network connect "$P-tenant" "$P-run"
   set +e
@@ -222,6 +238,24 @@ log "container Headscale: $STATE"
 log "khởi động lại Headscale sau crash"
 d start "$P-hs" >/dev/null; wait_healthy
 run_phase 6 || { finish; exit 1; }
+
+# Pha 7–9: sổ thiết bị (P2-T13). Giữa 7 và 8 runner chụp DB của Headscale (dừng sạch: WAL đã checkpoint), giữa 8 và 9
+# khôi phục bản chụp — như restore một bản SQLite cũ hơn (§17.2): node đăng ký ở pha 8 biến mất, bộ đếm ID lùi lại.
+hs_db() {  # hs_db snapshot|restore — chạy trong container giữ volume (cùng UID với Headscale)
+  d stop -t 60 "$P-hs" >/dev/null
+  if [ "$1" = snapshot ]; then
+    d exec "$P-hold" sh -c 'cd /data && for f in db.sqlite db.sqlite-wal db.sqlite-shm; do rm -f "snap-$f"; [ -f "$f" ] && cp "$f" "snap-$f"; done; true'
+  else
+    d exec "$P-hold" sh -c 'cd /data && for f in db.sqlite db.sqlite-wal db.sqlite-shm; do rm -f "$f"; [ -f "snap-$f" ] && cp "snap-$f" "$f"; done; true'
+  fi
+  d start "$P-hs" >/dev/null; wait_healthy
+}
+run_phase 7 || { finish; exit 1; }
+log "chụp database của Headscale"; hs_db snapshot
+run_phase 8 || { finish; exit 1; }
+log "khôi phục bản chụp database của Headscale"; hs_db restore
+obs "§6.3" "khôi phục SQLite cũ hơn" "Headscale dừng, db.sqlite thay bằng bản chụp sau pha 7, khởi động lại"
+run_phase 9 || { finish; exit 1; }
 
 finish
 python3 - "$OUT/observations.jsonl" <<'PY'
