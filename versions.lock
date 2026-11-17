@@ -351,4 +351,4 @@ docker_compose = "5.7.1"    # 2026-11-11
 
 [pending]
 monitoring = "Prometheus, Alertmanager, Grafana, Loki, Alloy, exporters — pin ở P6-T01"
-own_images = "edge và stund đã pin (P1-T04), idp đã pin (P2-T05, 2026-11-17); headscale (bản vá V-26, P2-T10a) pin sau lần build xanh đầu tiên trên main — mẫu [images.mg-headscale] ở trên; api, worker, backup (P2-T03a — [images.mg-backup], cần trước khi render compose mg-backup), agent, web pin khi build ở Phase 2–4. Quy ước: tag = commit SHA, pin theo digest lấy từ GHCR sau khi workflow images xanh"
+own_images = "edge và stund đã pin (P1-T04), idp đã pin (P2-T05, 2026-11-17); headscale (bản vá V-26, P2-T10a) đã pin — [images.mg-headscale] ở trên (2026-11-17, workflow images run 44023754630); api, worker, backup (P2-T03a — [images.mg-backup], cần trước khi render compose mg-backup), agent, web pin khi build ở Phase 2–4. Quy ước: tag = commit SHA, pin theo digest lấy từ GHCR sau khi workflow images xanh"
