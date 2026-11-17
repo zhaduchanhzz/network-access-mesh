@@ -521,6 +521,7 @@ def check_platform(r, st: Stack, state: dict) -> None:
     jobs = b.get(f"{api}/platform/jobs?kind=inventory.sync")
     pj = b.get(f"{api}/platform/jobs/{state.get('sync_job')}")
     tenant_route = b.get(f"{api}/tenants/{state['tenant_ids']['tenant-a']}/devices")
+    state["sa"] = {"browser": b, "session": sess}   # the Super Admin session of the Phase 3 platform cases (E2E-46, 47)
     ok = (p.returncode == 0 and sess.get("origin") == "admin" and health.status == 200
           and h.get("tenants", {}).get("total") == 2 and h.get("instances", {}).get("total") == 2
           and sorted(t.get("slug") for t in tenants.get("items", [])) == ["tenant-a", "tenant-b"]
@@ -552,6 +553,7 @@ def check_audit(r, st: Stack) -> None:
 def run_all(r, st: Stack, guarded) -> None:
     """Run E2E-17 … E2E-31 in order (each later check builds on the state of the earlier ones)."""
     import asvs2  # noqa: PLC0415 — imports this module
+    import orchestrator  # noqa: PLC0415 — imports this module
     state = json.loads((st.work / "state" / "backend.json").read_text(encoding="utf-8")) \
         if (st.work / "state" / "backend.json").exists() else {}
     guarded(r, "E2E-17", check_ready, st, state)
@@ -562,6 +564,7 @@ def run_all(r, st: Stack, guarded) -> None:
         if guarded(r, "E2E-22", check_tenant_login, st, state) is None and "browser" in state:
             guarded(r, "E2E-23", check_devices, st, state)
         guarded(r, "E2E-24", check_platform, st, state)
+        orchestrator.run_all(r, st, guarded, state)   # E2E-46, E2E-47: Tenant Orchestrator API (P3-T05)
         asvs2.run_all(r, st, guarded)        # E2E-26 … E2E-31: fixes of the G2 review, round 2 (OWASP ASVS)
     guarded(r, "E2E-25", check_audit, st)
 

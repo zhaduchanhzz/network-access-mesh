@@ -95,6 +95,14 @@ var recipes = map[string]recipe{
 	"createTenantInvitation": {idempotent: true, body: `{"email":"matrix-invitee@example.test","role":"tenant_viewer"}`},
 	"revokeTenantInvitation": {},
 	"resendTenantInvitation": {},
+	// Tenant Orchestrator (P3-T05, provisioningapi — mounted): the same slug from every granted caller (202, then 409);
+	// the controls on the matrix's platform job — any answer that is not a refusal (409 for a job that is not a
+	// failed_resumable lifecycle job)
+	"createPlatformTenant": {idempotent: true, body: `{"slug":"matrix-new","name":"Matrix","plan_key":"standard",` +
+		`"owner_email":"owner@matrix.example","identity_provider":{"driver":"keycloak"}}`},
+	"retryPlatformJob":    {idempotent: true},
+	"cancelPlatformJob":   {idempotent: true},
+	"rollbackPlatformJob": {idempotent: true},
 }
 
 // objectKind is what a path parameter (other than the {tenantId} context of a tenant route) designates.

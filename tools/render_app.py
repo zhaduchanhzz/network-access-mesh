@@ -22,6 +22,13 @@ the worker's static address on mg-edge is render_edge.APP_IPS (the only source t
 API); MG_EGRESS_DENY_CIDRS = the Docker address pool of daemon.json, the platform and tenant pools of versions.lock
 [ids], plus the environment's LAN, tunnel and public addresses.
 
+Outside the ci stack (no Host Agent there) the worker also gets the Host Agent and the Tenant Orchestrator (P3-T05):
+the agent's socket directory /opt/meshguard/run mounted read-only at /run/meshguard, the agent token
+(secrets/worker/agent_token, root:mg-sec-worker 0440 — group 20003 the worker already has), MG_AGENT_SOCKET/
+MG_AGENT_TOKEN_FILE, and MG_PROVISION_* — the Headscale image of new instances ([images.mg-headscale] digest,
+[images.headscale] tag as version), MG_TENANT_NAMESERVERS of the environment, the edge's public listener on mg-edge
+(render_edge.EDGE_IPS:443) — plus MG_PROBER_URL when the environment file sets it (the prober of P3-T03a/P3-T16).
+
 Writes compose.app.yaml into <out_dir> (on the host: /opt/meshguard/core/compose.app.yaml). tools/test_render_app.py
 checks the invariants. Standard library only.
 """
@@ -40,7 +47,7 @@ import mgenv  # noqa: E402 — env file of the environment (no secrets)
 from render_edge import APP_IPS, DOMAIN_RE, EDGE_IPS, INTERNAL  # noqa: E402 — the edge's and the worker's addresses
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-TEMPLATE_VERSION = "1"
+TEMPLATE_VERSION = "2"   # 2: Host Agent + Tenant Orchestrator in the worker (P3-T05)
 COMPOSE_TMPL = ROOT / "infrastructure" / "compose" / "compose.app.yaml.tmpl"
 VERSIONS = ROOT / "versions.lock"
 IMAGE_RE = re.compile(r"^(?:[a-z0-9][a-z0-9._/:-]*@)?sha256:[0-9a-f]{64}$")   # name@sha256:… or a local image ID
@@ -96,6 +103,53 @@ def pinned_images() -> tuple[str, str]:
     return f"{api['image']}@{api['index']}", f"{worker['image']}@{worker['index']}"
 
 
+def headscale_runtime() -> tuple[str, str]:
+    """The image of new tenant instances: [images.mg-headscale] (digest) and the Headscale version it patches."""
+    images = tomllib.loads(VERSIONS.read_text(encoding="utf-8")).get("images", {})
+    hs, upstream = images.get("mg-headscale", {}), images.get("headscale", {})
+    digest, version = hs.get("index", ""), upstream.get("tag", "")
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest) or not re.fullmatch(r"v\d+\.\d+\.\d+", version):
+        raise ParamError("versions.lock: [images.mg-headscale].index và [images.headscale].tag là image/phiên bản của "
+                         "instance mới (P3-T05)")
+    return digest, version
+
+
+def agent_blocks(env: dict[str, str]) -> dict[str, str]:
+    """The worker's Host Agent and Tenant Orchestrator (P3-T05) — empty on the ci stack, which has no agent."""
+    keys = ("worker_agent_env", "worker_agent_secret", "worker_agent_volume", "agent_secret_def")
+    if env.get("MG_ENV") == "ci":
+        return dict.fromkeys(keys, "")
+    ns = [x.strip() for x in env.get("MG_TENANT_NAMESERVERS", "").split(",") if x.strip()]
+    try:
+        if not 1 <= len(ns) <= 8 or not all(ipaddress.ip_address(x).is_global for x in ns):
+            raise ValueError
+    except ValueError as e:
+        raise ParamError("MG_TENANT_NAMESERVERS: 1–8 địa chỉ IP công khai (dns.nameservers của instance — RT-07)") from e
+    digest, version = headscale_runtime()
+    lines = ["MG_AGENT_SOCKET: /run/meshguard/agent.sock          # Host Agent (§11.1) — chỉ worker thấy socket",
+             "MG_AGENT_TOKEN_FILE: /run/secrets/agent_token",
+             f"MG_PROVISION_HEADSCALE_DIGEST: {digest}",
+             f"MG_PROVISION_HEADSCALE_VERSION: {version}",
+             f"MG_PROVISION_NAMESERVERS: {','.join(ns)}",
+             f"MG_PROVISION_EDGE_ADDR: {EDGE_IPS['edge_ip']}:443   # listener công khai của edge (bước 17/18)"]
+    prober = env.get("MG_PROBER_URL", "").strip()
+    if prober:
+        if not re.fullmatch(r"https?://[a-z0-9.-]+(:\d+)?/?", prober):
+            raise ParamError("MG_PROBER_URL phải là http(s)://host[:port]")
+        lines.append(f"MG_PROBER_URL: {prober}")
+    return {
+        "worker_agent_env": "".join("\n      " + x for x in lines),
+        "worker_agent_secret": "\n      - {source: app_agent_token, target: agent_token}",
+        "worker_agent_volume": ("\n      - type: bind"
+                                "\n        source: /opt/meshguard/run              # root:mg-sec-worker 0750: agent.sock 0660"
+                                "\n        target: /run/meshguard"
+                                "\n        read_only: true"
+                                "\n        bind:"
+                                "\n          create_host_path: false"),
+        "agent_secret_def": "\n  app_agent_token: {file: /opt/meshguard/secrets/worker/agent_token}",
+    }
+
+
 def render(env: dict[str, str], api_image: str, worker_image: str) -> dict[str, str]:
     for name, ref in (("api", api_image), ("worker", worker_image)):
         if not IMAGE_RE.match(ref):
@@ -117,6 +171,7 @@ def render(env: dict[str, str], api_image: str, worker_image: str) -> dict[str, 
         "idp_platform_addr": f"{EDGE_IPS['edge_ip']}:443",
         "worker_edge_ip": APP_IPS["worker_edge_ip"],
         "egress_deny": egress_deny(env),
+        **agent_blocks(env),
     }
     return {"compose.app.yaml": string.Template(COMPOSE_TMPL.read_text(encoding="utf-8")).substitute(values)}
 

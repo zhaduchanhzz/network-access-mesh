@@ -69,6 +69,10 @@ var operations = []struct {
 	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/invitations", `{"email":"a@example.test","role":"tenant_viewer"}`, "CreateTenantInvitation", []func(*http.Request){idempotency}},
 	{http.MethodDelete, "/api/v1/tenants/" + tenantID + "/invitations/" + itemID, "", "RevokeTenantInvitation", nil},
 	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/invitations/" + itemID + "/resend", "", "ResendTenantInvitation", nil},
+	{http.MethodPost, "/api/v1/platform/tenants", `{"slug":"acme","name":"Acme","plan_key":"standard","owner_email":"owner@acme.example","identity_provider":{"driver":"keycloak"}}`, "CreatePlatformTenant", []func(*http.Request){idempotency}},
+	{http.MethodPost, "/api/v1/platform/jobs/" + itemID + "/retry", "", "RetryPlatformJob", []func(*http.Request){idempotency}},
+	{http.MethodPost, "/api/v1/platform/jobs/" + itemID + "/cancel", "", "CancelPlatformJob", []func(*http.Request){idempotency}},
+	{http.MethodPost, "/api/v1/platform/jobs/" + itemID + "/rollback", "", "RollbackPlatformJob", []func(*http.Request){idempotency}},
 }
 
 // TestEveryOperationAnswers501: with no handler set mounted, every operation of the spec is routed under /api/v1

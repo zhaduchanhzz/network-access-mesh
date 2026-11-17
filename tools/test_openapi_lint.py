@@ -452,7 +452,9 @@ check(any("tenant.user:read" in e for e in ol.lint(no_users, with_done("P2-T11")
 check(not any("platform.tenant:suspend" in e for e in ol.row_coverage(spec, with_done("P3-T05"))[0]),
       "row of several tasks: no error while one of them is pending")
 three = ol.row_coverage(spec, with_done("P3-T05", "P3-T08", "P3-T09"))[0]
-check(sum(any(k in e for e in three) for k in ("platform.tenant:create", "platform.tenant:suspend", "platform.tenant:delete")) == 3,
+# platform.tenant:create has its operation since P3-T05 (createPlatformTenant): only the two rows without one fail
+check(sum(any(k in e for e in three) for k in ("platform.tenant:suspend", "platform.tenant:delete")) == 2 and
+      not any("platform.tenant:create" in e for e in three),
       "row of several tasks: error once all of them are done", str(three))
 
 # the RBAC model of the real master

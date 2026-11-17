@@ -222,6 +222,9 @@ func jobList(l jobs.JobList) gen.JobList {
 	return out
 }
 
+// ToAPI maps the safe projection of a job to schema Job (the body of 202 answers of other handler sets).
+func ToAPI(j jobs.Job) gen.Job { return job(j) }
+
 // job maps the safe projection (schema Job): steps with their catalog message, the error code only.
 func job(j jobs.Job) gen.Job {
 	out := gen.Job{Id: j.ID, Kind: j.Kind, TenantId: j.TenantID, Status: gen.JobStatus(j.Status),
@@ -245,6 +248,10 @@ func platformJob(j jobs.PlatformJob) gen.PlatformJob {
 		ps := step(s.Step)
 		p := gen.PlatformJobStep{Name: ps.Name, Status: ps.Status, Attempt: ps.Attempt, StartedAt: ps.StartedAt,
 			FinishedAt: ps.FinishedAt, Message: ps.Message}
+		if s.CompensationStatus != nil {
+			c := gen.JobStepStatus(*s.CompensationStatus)
+			p.CompensationStatus = &c
+		}
 		if len(s.Detail) > 0 {
 			d := s.Detail
 			p.Detail = &d

@@ -10,6 +10,8 @@ var specOperations = []Operation{
 	{ID: "authCallback", Method: "GET", Path: "/auth/callback/{idpId}", Permission: "public", AuditAction: "auth.login"},
 	{ID: "authLogin", Method: "GET", Path: "/auth/login", Permission: "public", AuditAction: "auth.login_start"},
 	{ID: "authLogout", Method: "POST", Path: "/auth/logout", Permission: "authenticated", AuditAction: "auth.logout"},
+	{ID: "cancelPlatformJob", Method: "POST", Path: "/platform/jobs/{jobId}/cancel", Permission: "platform.job:control", AuditAction: "platform.job.cancel"},
+	{ID: "createPlatformTenant", Method: "POST", Path: "/platform/tenants", Permission: "platform.tenant:create", AuditAction: "platform.tenant.create"},
 	{ID: "createTenantInvitation", Method: "POST", Path: "/tenants/{tenantId}/invitations", Permission: "tenant.invitation:manage", AuditAction: "invitation.create"},
 	{ID: "deleteDevice", Method: "DELETE", Path: "/tenants/{tenantId}/devices/{deviceId}", Permission: "tenant.device:delete", AuditAction: "device.delete", OwnResource: true},
 	{ID: "expireDevice", Method: "POST", Path: "/tenants/{tenantId}/devices/{deviceId}/expire", Permission: "tenant.device:expire", AuditAction: "device.expire", OwnResource: true},
@@ -43,7 +45,9 @@ var specOperations = []Operation{
 	{ID: "rejectTenantApproval", Method: "POST", Path: "/tenants/{tenantId}/approvals/{approvalId}/reject", Permission: "tenant.approval:decide", AuditAction: "approval.reject"},
 	{ID: "renameDevice", Method: "PATCH", Path: "/tenants/{tenantId}/devices/{deviceId}", Permission: "tenant.device:rename", AuditAction: "device.rename", OwnResource: true},
 	{ID: "resendTenantInvitation", Method: "POST", Path: "/tenants/{tenantId}/invitations/{invitationId}/resend", Permission: "tenant.invitation:manage", AuditAction: "invitation.resend"},
+	{ID: "retryPlatformJob", Method: "POST", Path: "/platform/jobs/{jobId}/retry", Permission: "platform.job:control", AuditAction: "platform.job.retry"},
 	{ID: "revokeAuthSession", Method: "DELETE", Path: "/auth/sessions/{sessionId}", Permission: "authenticated", AuditAction: "auth.session.revoke"},
 	{ID: "revokeTenantInvitation", Method: "DELETE", Path: "/tenants/{tenantId}/invitations/{invitationId}", Permission: "tenant.invitation:manage", AuditAction: "invitation.revoke"},
+	{ID: "rollbackPlatformJob", Method: "POST", Path: "/platform/jobs/{jobId}/rollback", Permission: "platform.job:control", AuditAction: "platform.job.rollback"},
 	{ID: "syncDevices", Method: "POST", Path: "/tenants/{tenantId}/devices/sync", Permission: "tenant.device:sync", AuditAction: "device.sync"},
 }

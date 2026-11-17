@@ -43,6 +43,8 @@ const partitionRole = "mg_partition_maint"
 //	notifications    notification.send over the SMTP relay of MG_SMTP_* (none configured ⇒ e-mail rows cancelled,
 //	                 Portal records kept — refused in production by config) — P3-T05b
 //	reconcile        instance.reconcile + host.reconcile, report only, and their schedule (P3-T12; agent: MG_AGENT_*)
+//	orchestrator     tenant.provision — the 19 steps of §11.3 with compensation (P3-T05; MG_PROVISION_*, MG_PROBER_URL,
+//	                 the same agent client as reconcile)
 //	idp              driver registry keycloak (narrow route to auth.<domain> incl. /admin/realms, provisioning identity
 //	                 from the SecretStore — platform_ops) + external (hardened client) — P2-T05a
 //	readiness        postgres, secretstore, edge_admin (§16.2)
@@ -92,7 +94,11 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 	if err := sender.Register(w); err != nil {
 		return nil, err
 	}
-	rec, err := newReconcile(cfg, d, reg) // P3-T12: instance.reconcile + host.reconcile, report only
+	agent, err := newAgent(cfg, d) // one client of the Host Agent: reconcile + orchestrator
+	if err != nil {
+		return nil, err
+	}
+	rec, err := newReconcile(d, agent, reg) // P3-T12: instance.reconcile + host.reconcile, report only
 	if err != nil {
 		return nil, err
 	}
@@ -102,6 +108,15 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 	drivers, provisioned, err := idpDrivers(ctx, cfg, d)
 	if err != nil {
 		return nil, err
+	}
+	prov, err := newProvisioner(cfg, d, agent, drivers) // P3-T05: tenant.provision (19 steps of §11.3)
+	if err != nil {
+		return nil, err
+	}
+	if prov != nil {
+		if err := prov.Register(w); err != nil {
+			return nil, err
+		}
 	}
 	log.Info("worker wired", "idp_drivers", drivers.Names(), "keycloak_provisioner_bootstrapped", provisioned)
 	if !provisioned {

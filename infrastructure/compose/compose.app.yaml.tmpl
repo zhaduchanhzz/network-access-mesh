@@ -115,12 +115,12 @@ services:
       MG_DB_TENANT_PASSWORD_FILE: /run/secrets/db_worker_tenant_password
       MG_DB_PLATFORM_USER: mg_worker_platform
       MG_DB_PLATFORM_PASSWORD_FILE: /run/secrets/db_worker_platform_password
-      MG_DB_PARTITION_PASSWORD_FILE: /run/secrets/db_partition_password
+      MG_DB_PARTITION_PASSWORD_FILE: /run/secrets/db_partition_password${worker_agent_env}
     secrets:
       - {source: app_db_worker_tenant_password, target: db_worker_tenant_password}
       - {source: app_db_worker_platform_password, target: db_worker_platform_password}
       - {source: app_db_partition_password, target: db_partition_password}
-      - {source: app_edge_admin_token, target: edge_admin_token}
+      - {source: app_edge_admin_token, target: edge_admin_token}${worker_agent_secret}
     volumes:
       - *keyring-app
       - type: bind
@@ -128,7 +128,7 @@ services:
         target: /run/secrets/kek-ops
         read_only: true
         bind:
-          create_host_path: false
+          create_host_path: false${worker_agent_volume}
     networks:
       mg-edge:
         ipv4_address: ${worker_edge_ip}           # nguồn DUY NHẤT edge cho tới Admin API/realm master của auth. (P2-T05a)
@@ -206,7 +206,7 @@ secrets:
   app_db_worker_platform_password: {file: /opt/meshguard/secrets/worker/db_worker_platform_password}
   app_db_partition_password: {file: /opt/meshguard/secrets/worker/db_partition_password}
   app_pg_superuser_password: {file: /opt/meshguard/secrets/postgres/superuser_password}
-  app_pg_backup_password: {file: /opt/meshguard/secrets/backup/pg_backup_password}
+  app_pg_backup_password: {file: /opt/meshguard/secrets/backup/pg_backup_password}${agent_secret_def}
 
 networks:
   mg-edge:
