@@ -156,33 +156,33 @@ note = "tailscale.com/cmd/stund tại tag v1.104.7 (commit cbc74fe…), Go 1.27.
 
 [images.mg-api]
 image = "ghcr.io/zhaduchanhzz/network-access-mesh/api"
-tag = "cbb91d5ac4cbe304bc072feaa06888097e5795eb"
-index = "sha256:9b79adbde2085931a23b38030809bc9525f36b63a1e630ede3a3b3241fa89f29"   # một manifest linux/amd64 (docker v2 schema 2)
-amd64 = "sha256:9b79adbde2085931a23b38030809bc9525f36b63a1e630ede3a3b3241fa89f29"
+tag = "391ad74ac2c1ef3eb99e7c8447c1d0ec84d44b26"
+index = "sha256:87f2a46f5c2388564c6842e96b91bbaa627f6d39db9bf953b03ece51b4fb9fe3"   # một manifest linux/amd64 (docker v2 schema 2)
+amd64 = "sha256:87f2a46f5c2388564c6842e96b91bbaa627f6d39db9bf953b03ece51b4fb9fe3"
 user = "65532:65532"
 run_as = "65532:65532 + nhóm mg-sec-app (20001) / mg-sec-api (20002); job migrate 20004; rootfs chỉ đọc, cap_drop ALL; project mg-app (P2-T16)"
-released = "2026-11-17"
-note = "meshguard-api build từ cbb91d5 (Phase 3 đợt 1: migration 0009–0013, P3-T01/T03a/T06; trước đó 129b202, 03509d3); workflow images run 44135009137 xanh; digest, user và label org.opencontainers.image.revision đọc từ GHCR (package công khai) ngày 2026-11-17. CÙNG commit với [images.mg-worker] (tools/render_app.py từ chối nếu khác)"
+released = "2026-11-18"
+note = "meshguard-api build từ 391ad74 (Phase 3: migration 0014, P3-T02/T03/T04/T04a/T05a/T05b/T06a/T08a/T12; trước đó cbb91d5, 129b202, 03509d3); workflow images run 44173654504 — job api xanh (job stund hỏng vì grype không tải được DB, lỗi mạng của runner, không liên quan); digest, user và label org.opencontainers.image.revision đọc từ GHCR ngày 2026-11-18. CÙNG commit với [images.mg-worker] (tools/render_app.py từ chối nếu khác)"
 
 [images.mg-worker]
 image = "ghcr.io/zhaduchanhzz/network-access-mesh/worker"
-tag = "cbb91d5ac4cbe304bc072feaa06888097e5795eb"
-index = "sha256:f3091b90857c13bdaa7053341499d6927705946f7a2e3306d056e1f395940ad5"   # một manifest linux/amd64 (docker v2 schema 2)
-amd64 = "sha256:f3091b90857c13bdaa7053341499d6927705946f7a2e3306d056e1f395940ad5"
+tag = "391ad74ac2c1ef3eb99e7c8447c1d0ec84d44b26"
+index = "sha256:1a9f1f55eaf7c8f985c2b9e5c6b2372d16221315a24aec259e8a4ec68b74cf4d"   # một manifest linux/amd64 (docker v2 schema 2)
+amd64 = "sha256:1a9f1f55eaf7c8f985c2b9e5c6b2372d16221315a24aec259e8a4ec68b74cf4d"
 user = "65532:65532"
 run_as = "65532:65532 + nhóm mg-sec-app (20001) / mg-sec-worker (20003); rootfs chỉ đọc, cap_drop ALL; project mg-app (P2-T16)"
-released = "2026-11-17"
-note = "meshguard-worker build từ cbb91d5 (Phase 3 đợt 1: migration 0009–0013, P3-T01/T03a/T06; trước đó 129b202, 03509d3); workflow images run 44135009137 xanh; digest, user và label org.opencontainers.image.revision đọc từ GHCR (package công khai) ngày 2026-11-17. Bản trước (82cf216, chỉ dùng cho kek-drill của nghi thức P2-T04a) được thay"
+released = "2026-11-18"
+note = "meshguard-worker build từ 391ad74 (Phase 3: migration 0014, P3-T02/T03/T04/T04a/T05a/T05b/T06a/T08a/T12; trước đó cbb91d5); workflow images run 44173654504 — job worker xanh (job stund hỏng vì grype không tải được DB, lỗi mạng của runner, không liên quan); digest, user và label revision đọc từ GHCR ngày 2026-11-18. CÙNG commit với [images.mg-api]"
 
 [images.mg-agent]
 image = "ghcr.io/zhaduchanhzz/network-access-mesh/agent"
-tag = "b6cb4308f06ca9eb3aad66f9a35021efa028a550"
-index = "sha256:a748d966164246f98b136385fd138bfef2369682b84f5bd4191dca08129f4920"   # một manifest linux/amd64 (docker v2 schema 2)
-amd64 = "sha256:a748d966164246f98b136385fd138bfef2369682b84f5bd4191dca08129f4920"
+tag = "391ad74ac2c1ef3eb99e7c8447c1d0ec84d44b26"
+index = "sha256:a40aa67117b42da68ede9f6ac47d25e713c21887bcfb682118f34c0a5f888f9c"   # một manifest linux/amd64 (docker v2 schema 2)
+amd64 = "sha256:a40aa67117b42da68ede9f6ac47d25e713c21887bcfb682118f34c0a5f888f9c"
 user = "0:0"
 run_as = "root (Host Agent — thành phần DUY NHẤT có Docker socket, ADR-05); compose: network_mode none, cap_drop ALL + CHOWN/FOWNER/DAC_OVERRIDE, rootfs chỉ đọc; chỉ Unix socket 0660 nhóm mg-sec-worker (P3-T01/P3-T02)"
 released = "2026-11-18"
-note = "meshguard-agent build từ b6cb430 (P3-T01 khung + lớp kiểm tra, P3-T02 driver compose + docker-compose v5.7.0 build lại từ nguồn); workflow images run 44151631931 xanh (gồm bước kiểm image riêng: sha256 + version của docker-compose, driver compose trong healthcheck); digest, user và label revision đọc từ GHCR ngày 2026-11-18"
+note = "meshguard-agent build từ 391ad74 (P3-T01 khung + lớp kiểm tra, P3-T02 driver compose + docker-compose v5.7.0 build lại từ nguồn, P3-T03 thao tác + edge supervisor + start guard + helper noise-fingerprint, P3-T12 edge_aliases); workflow images run 44173654504 — job agent xanh (gồm bước kiểm image: noise-fingerprint, MG_AGENT_HELPER_IMAGE); digest, user và label revision đọc từ GHCR ngày 2026-11-18"
 
 [images.mg-probe]
 image = "ghcr.io/zhaduchanhzz/network-access-mesh/probe"
