@@ -421,9 +421,16 @@ def with_done(*tasks: str) -> ol.Master:
     return m
 
 
+def without_done(*tasks: str) -> ol.Master:
+    m = copy.copy(master)
+    m.done = set(master.done) - set(tasks)
+    return m
+
+
 no_users = copy.deepcopy(spec)
 del no_users["paths"]["/tenants/{tenantId}/users"], no_users["paths"]["/tenants/{tenantId}/users/{membershipId}"]
-check(not ol.row_coverage(no_users, master)[0], "row without operation, task P2-T11 not done: coverage only")
+# P2-T11 is done in the real master (2026-11-17): the "not done" case takes it out of the done set explicitly
+check(not ol.row_coverage(no_users, without_done("P2-T11"))[0], "row without operation, task P2-T11 not done: coverage only")
 errs_done = ol.row_coverage(no_users, with_done("P2-T11"))[0]
 check(len(errs_done) == 1 and "tenant.user:read" in errs_done[0] and "P2-T11" in errs_done[0],
       "row without operation fails once its task is done", str(errs_done))

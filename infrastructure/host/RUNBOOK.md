@@ -1,6 +1,6 @@
 # Runbook Phase 1 — dựng lại tenant thử, edge và gateway VPS của staging
 
-> **File viết tay.** Quy trình dựng (lại) Headscale của các tenant thử A/B theo đúng thứ tự §11.3 của [bản master](../../docs/planning/implementation-master-plan.md), chỉ bằng script trong repo — dùng cho P1-T08/P1-T09 và diễn tập P1-T19; thêm đổi cấu hình tenant/edge và dựng lại gateway VPS (P1-T18). Từ Phase 3, Orchestrator thay thế phần tenant của runbook này.
+> **File viết tay.** Quy trình dựng (lại) Headscale của các tenant thử A/B theo đúng thứ tự §11.3 của [bản master](../../docs/planning/implementation-master-plan.md), chỉ bằng script trong repo — dùng cho P1-T08/P1-T09 và diễn tập P1-T19; thêm đổi cấu hình tenant/edge, đưa A/B vào registry của nền tảng (`meshguard admin adopt-instance` — P2-T11, chạy ở P2-T16) và dựng lại gateway VPS (P1-T18). Từ Phase 3, Orchestrator thay thế phần tenant của runbook này.
 
 ## Điều kiện
 
@@ -67,6 +67,109 @@ Ví dụ đổi `derp_ipv4` khi chuyển điểm vào ([P1-T18](../../docs/plann
    - `tests/isolation/it14_probe.sh` ở hai chế độ ([P1-T12c](../../docs/planning/evidence/P1-T12c.md));
    - `tests/security/edge/external.py` từ một máy ngoài.
 6. Hoàn tác: cài lại bản sao lưu rồi reload.
+
+## Đưa tenant A/B vào registry — `meshguard admin adopt-instance` (P2-T11, chạy ở P2-T16)
+
+Chuyển quyền quản lý hai instance dựng tay ở Phase 1 sang nền tảng: đăng ký tenant, host, instance (từ `meta/instance.json`) và IdP của tenant; giao cho nền tảng một API key **mới**; expire **mọi** key khác của instance (gồm key hạn ngắn của Phase 1). Chỉ adopt đúng instance được chỉ định — **không** adopt `tenant-c` (tenant demo; `staging.env` không có `MG_IDP_ID_TENANT_C` nên lệnh cũng tự từ chối). Thiết kế và phép thử: [P2-T11](../../docs/planning/evidence/P2-T11.md).
+
+**Ngoại lệ có chủ đích (§25.1 quy tắc 7, Phase 1–2):** key mới được tạo bằng CLI trong container (`docker exec … headscale apikeys create`) vì chưa có Agent (`apikey.bootstrap` — P3). Key đi **thẳng** từ stdout của `docker exec` qua pipe vào stdin của lệnh: không gõ, không dán, không nằm trong file, tham số dòng lệnh, biến môi trường, lịch sử shell hay log. Lệnh từ chối stdin là terminal hoặc file thường, và từ chối mọi tham số trông như key.
+
+### Điều kiện
+
+- Core compose của P2-T16 đã có service `api` (image của `apps/api`; lệnh chạy bằng `docker compose run` nên dùng **nguyên** cấu hình của service: network `mg-data` + `mg-admin`, user 65532, rootfs chỉ đọc, secret dạng file) và migration đã chạy. Biến môi trường mà lệnh đọc từ service (đặt ở P2-T16, không có giá trị secret nào):
+  - `MG_ENV`, `MG_BASE_DOMAIN`, `MG_LOG_LEVEL`;
+  - `MG_DB_URL` (không user/mật khẩu), `MG_DB_TENANT_USER=mg_api_tenant`, `MG_DB_PLATFORM_USER=mg_api_platform`, `MG_DB_TENANT_PASSWORD_FILE`, `MG_DB_PLATFORM_PASSWORD_FILE`;
+  - `MG_KEK_APP_DIR` (keyring `kek-app` — P2-T04a);
+  - `MG_EDGE_ADMIN_URL=http://<edge_admin_ip>:<admin_port>` (giá trị của listener admin trong `tools/render_edge.py`: `EDGE_IPS`, `INTERNAL`) và `MG_EDGE_ADMIN_TOKEN_FILE` trỏ tới bản mount của `/opt/meshguard/secrets/app/edge_admin_token` (`root:mg-sec-app 0440`; service thêm `group_add` nhóm `mg-sec-app`).
+- Edge đã gắn vào network của tenant (`reattach-edge.sh`), instance healthy.
+- Đứng trong bản sao repo trên host, nạp tham số: `cd ~/mg && eval "$(python3 tools/mgenv.py export infrastructure/environments/staging/staging.env)"` (cho `MG_IDP_ID_*`); `sudo -v` một lần trước để `sudo` không hỏi mật khẩu giữa pipe.
+
+### Các bước
+
+```bash
+cd ~/mg && eval "$(python3 tools/mgenv.py export infrastructure/environments/staging/staging.env)" && sudo -v
+CORE="sudo docker compose -p mg-core -f /opt/meshguard/core/compose.core.yaml"   # tên file/service theo P2-T16
+RANGE=$(python3 -c 'import tomllib; print(tomllib.load(open("versions.lock","rb"))["ids"]["tenant_run_uid_range"])')
+POOL=$(python3 -c 'import tomllib; print(tomllib.load(open("versions.lock","rb"))["ids"]["tenant_net_pool"])')
+
+# 0. IdP của nền tảng (một lần; chạy lại vô hại)
+$CORE run --rm --no-deps -T -e MG_IDP_ID_PLATFORM api admin register-platform-idp
+
+# 1. mỗi tenant: S=tenant-a, rồi S=tenant-b (lần đầu kèm vùng/dải của host; lần sau chỉ --host)
+S=tenant-a; NAME="Tenant A"
+IID=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["instance_id"])' infrastructure/environments/staging/tenants/$S.json)
+sudo docker exec mg-hs-$S headscale apikeys list            # ghi lại các prefix hiện có (prefix không phải secret)
+T=$(sudo mktemp -d)                                         # meta không chứa secret; bản 0444 cho uid 65532 của api
+sudo install -m 0444 /opt/meshguard/tenants/$IID/meta/instance.json "$T/instance.json"
+sudo docker exec mg-hs-$S headscale apikeys create -e 2160h -o json \
+  | $CORE run --rm --no-deps -T -e MG_IDP_ID_TENANT_A -e MG_IDP_ID_TENANT_B \
+      -v "$T/instance.json:/run/mg-adopt/instance.json:ro" \
+      api admin adopt-instance --host mg-staging --host-region lab --run-uid-range "$RANGE" --tenant-net-pool "$POOL" \
+      --name "$NAME" /run/mg-adopt/instance.json
+sudo rm -rf "$T"
+```
+
+Lệnh kiểm theo thứ tự, và **không ghi gì** nếu một bước kiểm trước khi ghi thất bại:
+
+1. `meta/instance.json` đúng định dạng của `render_instance.py`; host đã đăng ký thì vùng/dải phải khớp; `run_uid`/`net_cidr` nằm trong dải của host; registry không mâu thuẫn — slug của tenant khác, tenant đã có instance **khác** (instance thứ hai bị từ chối), instance của tenant khác, IdP mang issuer/client khác, tenant `suspended`/`deleted`.
+2. **Pre-flight qua listener admin của edge** bằng chính key mới: `GET /version` trong dải hỗ trợ, `ListAPIKeys` thành công (key thuộc đúng `hs-<slug>`), hạn còn ≥ 14 ngày.
+3. Ghi registry (tenant `provisioning`, instance `starting`, IdP `active` với id `MG_IDP_ID_<SLUG>`, issuer `https://auth.<domain>/realms/<slug>`, client `mg-portal`), ghi key vào SecretStore (`mgsec://<tenant_id>/headscale-api-key#<n>`), trỏ instance tới reference đó.
+4. **Kiểm qua `Registry.ForTenant`** (registry + SecretStore + edge — đúng đường của api); lỗi ⇒ trả reference cũ, hủy phiên bản vừa ghi, không expire gì.
+5. Expire mọi key **khác** còn hạn của instance, liệt kê lại: chỉ còn key mới; kích hoạt (tenant `active`, instance `running`); hủy phiên bản secret cũ.
+
+Kết quả mong đợi (không có secret — chỉ reference và prefix công khai):
+
+```text
+  registry: host created, tenant created, instance created, identity provider created
+  secret: mgsec://<tenant_id>/headscale-api-key#1 (previous: none)
+  verified: ListAPIKeys through Registry.ForTenant (registry + SecretStore + edge)
+  expired: <n> other API key(s) (<prefix>, …); valid keys now: 1
+  activated: tenant provisioning→active, instance starting→running
+OK
+```
+
+Mã thoát: `0` đạt; `1` lỗi (thông báo nói rõ bước; `refused`/`API key check failed` ⇒ chưa ghi gì); `2` sai cú pháp. Sự kiện audit (`platform.instance.adopt.requested` → `.succeeded`/`.failed`, `actor_type=system`) ra stderr dạng JSON cho tới khi P2-T16 nối `internal/audit` (P2-T08) — lưu kèm hồ sơ thay đổi.
+
+### Kiểm
+
+```bash
+sudo docker exec mg-hs-$S headscale apikeys list    # đúng MỘT key còn hạn = prefix lệnh in ra; key Phase 1 đã hết hạn
+$CORE exec postgres psql -U postgres -d meshguard -c \
+  "SELECT t.slug, t.status, i.status, i.api_key_prefix, i.api_key_expires_at, p.issuer
+     FROM tenants t JOIN tenant_instances i ON i.tenant_id = t.id JOIN identity_providers p ON p.tenant_id = t.id"
+```
+
+Chạy lại lệnh (với một key mới khác) là idempotent: registry giữ nguyên, secret lên phiên bản kế tiếp, key nền tảng cũ bị expire — cũng là cách xoay key thủ công tới khi có job `apikey.rotate` (P3).
+
+### Client secret của `mg-portal` (sau adopt, trước khi mở đăng nhập)
+
+Keycloak sinh secret của client lúc import realm (P2-T05). Đưa secret vào SecretStore cũng chỉ qua pipe (cách đọc secret từ Admin API của Keycloak bằng admin khởi tạo chốt ở P2-T16/P2-T05a; không đặt mật khẩu admin trên dòng lệnh):
+
+```bash
+<lệnh in ra client secret của mg-portal trong realm $S> \
+  | $CORE run --rm --no-deps -T api admin set-idp-client-secret "$MG_IDP_ID_TENANT_A"    # và _TENANT_B, _PLATFORM
+```
+
+### Hoàn tác (chỉ trước go-live)
+
+Key Phase 1 đã expire không khôi phục được (không cần: CLI trong container — `docker exec mg-hs-<slug> headscale …` — luôn dùng được qua Unix socket). Gỡ đăng ký một tenant khi chưa có ai đăng nhập (FK từ chối nếu đã có `identities`/membership — khi đó dùng luồng deprovision, không xóa tay):
+
+```bash
+sudo docker exec mg-hs-$S headscale apikeys expire --prefix <prefix nền tảng>   # key nền tảng không còn ai giữ
+TID=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["tenant_id"])' infrastructure/environments/staging/tenants/$S.json)
+$CORE exec -T postgres psql -U postgres -d meshguard -v ON_ERROR_STOP=1 -v tid="$TID" <<'SQL'
+BEGIN;
+DELETE FROM secrets WHERE tenant_id = :'tid';
+DELETE FROM tenant_keys WHERE tenant_id = :'tid';
+DELETE FROM tenant_instances WHERE tenant_id = :'tid';
+DELETE FROM identity_providers WHERE tenant_id = :'tid';
+DELETE FROM tenants WHERE id = :'tid';
+DELETE FROM hosts h WHERE h.name = 'mg-staging' AND NOT EXISTS (SELECT 1 FROM tenant_instances i WHERE i.host_id = h.id);
+COMMIT;
+SQL
+```
+
+Sự kiện audit đã ghi được giữ nguyên (append-only).
 
 ## VPS gateway `mg-gateway` — dựng lại từ repo (ADR-25, T-19)
 
