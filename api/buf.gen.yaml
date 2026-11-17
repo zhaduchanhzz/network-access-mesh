@@ -1,0 +1,12 @@
+# Sinh mã Go của api/agent/v1/agent.proto (P3-T01). Plugin chạy cục bộ bằng `go run` (không BSR):
+#   - protoc-gen-go: đúng phiên bản google.golang.org/protobuf trong go.mod (runtime và generator cùng một bản);
+#   - protoc-gen-go-grpc: phiên bản pin ở đây và trong versions.lock [ci], kiểm qua checksum DB của Go.
+# Chạy: go generate ./api/agent/v1 (make agent-gen). CI sinh lại và fail nếu bản đã commit lệch .proto.
+version: v2
+plugins:
+  - local: ["go", "run", "google.golang.org/protobuf/cmd/protoc-gen-go"]
+    out: .
+    opt: [paths=source_relative]
+  - local: ["go", "run", "google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.2"]
+    out: .
+    opt: [paths=source_relative, require_unimplemented_servers=true]

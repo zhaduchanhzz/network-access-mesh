@@ -337,6 +337,8 @@ golangci_lint = "v2.15.0"   # 2026-10-16
 golangci_lint_linux_amd64_sha256 = "9b7fe6a6bf6334b98decf8d86b11415ea7889afdabdd1959fdce23af2a9ebcea"
 govulncheck = "golang.org/x/vuln/cmd/govulncheck@v1.9.0"   # 2026-10-11, kiểm qua checksum DB của Go
 sqlc = "github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1"   # 2026-04-22 (P2-T03), commit a95e91d; chạy bằng `go run` (CGO, pg_query_go v6), kiểm qua checksum DB của Go
+buf = "github.com/bufbuild/buf/cmd/buf@v1.75.0"   # 2026-10-21 (P3-T01): lint + sinh api/agent/v1 bằng `go run` (go generate ./api/agent/v1), kiểm qua checksum DB của Go; không BSR, không plugin từ xa
+protoc_gen_go_grpc = "google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.2"   # 2026-05-07 (P3-T01): plugin cục bộ của buf (api/buf.gen.yaml); protoc-gen-go = đúng bản google.golang.org/protobuf trong go.mod
 
 [ids]   # UID/GID số cố định (§14.2, P1-T03) — compose dùng `user:` và `group_add:` theo các số này
 edge_uid = 10001                  # image edge tự build chạy non-root với UID này (P1-T04)
@@ -371,6 +373,8 @@ go = "1.27.4"
 "golang.org/x/mod" = "v0.42.0"                 # 2026-10-09 — gián tiếp; rivershared v0.51.0 yêu cầu ≥ v0.42.0 (trước là v0.41.0 qua oapi-codegen)
 "github.com/coreos/go-oidc/v3" = "v3.21.0"     # 2026-09-01 (P2-T06): OIDC RP — discovery, JWKS, xác minh ID token (internal/identity); kéo theo go-jose/v4 v4.1.4 (indirect, đã gồm bản vá GO-2026-4945)
 "golang.org/x/oauth2" = "v0.37.0"              # 2026-08-25 (P2-T06): Authorization Code + PKCE S256; v0.38.0 (2026-11-06) chưa đủ 14 ngày
+"google.golang.org/grpc" = "v1.85.0"          # 2026-10-27 (P3-T01): gRPC worker ↔ Host Agent qua Unix socket (§11.1 — master chọn gRPC; mTLS qua TCP khi multi-host). Bản mới nhất đã ≥ 14 ngày (v1.74.x bị retract). Chỉ apps/agent và internal/agentclient import; kéo theo golang.org/x/net (pin v0.62.0 — bản vá GO-2026-6860/6866 của x/net/html, govulncheck: không gọi tới) và google.golang.org/genproto/googleapis/rpc (status)
+"google.golang.org/protobuf" = "v1.36.12"     # 2026-08-10 — trước là indirect (client_model của Prometheus); từ P3-T01 trực tiếp: runtime của api/agent/v1, cùng bản với protoc-gen-go
 
 [go_test_modules]   # module Go riêng chỉ cho test (go.mod/go.sum của từng module là nguồn sự thật; không vào binary api/worker)
 "tests/integration/headscale" = "tailscale.com v1.104.7 (control/tsp + control/ts2021: client giao thức Tailscale để gửi RegisterRequest/MapRequest thật, kể cả RegisterRequest.Expiry mà client chính thức không gửi — P2-T10); main module qua replace ../../.. (adapter internal/headscale). Cùng bản với tests/isolation/derpprobe và [sources.tailscale]"

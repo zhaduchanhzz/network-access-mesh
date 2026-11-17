@@ -3,7 +3,7 @@ PYTHON ?= python3
 
 SQLC_VERSION ?= v1.31.1
 
-.PHONY: help docs docs-check render-test lint secret-scan api-lint api-gen authz-gen go-test go-lint go-build sqlc sqlc-diff e2e-functional isolation isolation-headscale
+.PHONY: help docs docs-check render-test lint secret-scan api-lint api-gen agent-gen authz-gen go-test go-lint go-build sqlc sqlc-diff e2e-functional isolation isolation-headscale
 
 help: ## Liệt kê các target
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-14s %s\n", $$1, $$2}'
@@ -23,6 +23,9 @@ render-test: ## Test tham số môi trường (mgenv) + golden test của tool r
 
 api-lint: ## Spec-lint api/openapi.yaml (x-permission hai chiều với §8.5/§8.6, x-task, tenant chỉ từ path, action path, problem+json) + seed RBAC/bảng authz đã sinh + test của lint
 	$(PYTHON) tools/openapi_lint.py && $(PYTHON) tools/test_openapi_lint.py
+
+agent-gen: ## Lint (buf) và sinh lại api/agent/v1 (Go + gRPC) từ api/agent/v1/agent.proto — buf và protoc-gen-go-grpc pin trong api/agent/v1/generate.go, api/buf.gen.yaml
+	go generate ./api/agent/v1
 
 authz-gen: ## Sinh lại database/seeds/rbac.sql (từ §8.4–§8.6) và internal/authz/operations_gen.go (từ api/openapi.yaml)
 	$(PYTHON) tools/openapi_lint.py --write
@@ -60,5 +63,5 @@ go-lint: ## golangci-lint (phiên bản pin trong versions.lock)
 e2e-functional: ## Stack dev/CI P2-T01a (compose.yaml): tự kiểm harness, dựng, chạy E2E-01…16, gỡ — kết quả chỉ "functional" (cần Docker, openssl; DOCKER="sudo docker" nếu cần)
 	$(PYTHON) tests/e2e/harness/test_stack.py && $(PYTHON) tests/e2e/harness/e2e.py all
 
-go-build: ## Build meshguard api và worker vào bin/
-	CGO_ENABLED=0 go build -trimpath -o bin/meshguard-api ./apps/api && CGO_ENABLED=0 go build -trimpath -o bin/meshguard-worker ./apps/worker
+go-build: ## Build meshguard api, worker và agent vào bin/
+	CGO_ENABLED=0 go build -trimpath -o bin/meshguard-api ./apps/api && CGO_ENABLED=0 go build -trimpath -o bin/meshguard-worker ./apps/worker && CGO_ENABLED=0 go build -trimpath -o bin/meshguard-agent ./apps/agent

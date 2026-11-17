@@ -1,4 +1,5 @@
-# CI cho mã Go (P2-T01): kiểm checksum module, gofmt, code sinh từ api/openapi.yaml khớp bản đã commit (P2-T02),
+# CI cho mã Go (P2-T01): kiểm checksum module, gofmt, code sinh từ api/openapi.yaml khớp bản đã commit (P2-T02) và
+# từ api/agent/v1/agent.proto (buf, P3-T01),
 # `sqlc diff` (mã sinh khớp database/migrations + database/queries — P2-T03), go vet, test có race detector (gồm
 # test kiến trúc §13.6, test "canary secret", test định tuyến của mọi operation và test tích hợp internal/store trên
 # PostgreSQL thật: IT-17, RLS, partition, migration trên DB có dữ liệu, truy vấn CI về quyền trên partition), test
@@ -14,11 +15,11 @@ on:
   push:
     branches: [main]
     paths: ["**/*.go", "go.mod", "go.sum", ".golangci.yml", ".github/workflows/go.yml", "api/openapi.yaml",
-            "internal/httpapi/gen/config.yaml", "database/**",
+            "internal/httpapi/gen/config.yaml", "api/agent/**", "api/buf.yaml", "api/buf.gen.yaml", "database/**",
             "docs/planning/implementation-master-plan.md"]
   pull_request:
     paths: ["**/*.go", "go.mod", "go.sum", ".golangci.yml", ".github/workflows/go.yml", "api/openapi.yaml",
-            "internal/httpapi/gen/config.yaml", "database/**",
+            "internal/httpapi/gen/config.yaml", "api/agent/**", "api/buf.yaml", "api/buf.gen.yaml", "database/**",
             "docs/planning/implementation-master-plan.md"]
 
 permissions:
@@ -66,6 +67,11 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           go generate ./internal/httpapi/gen
           git diff --exit-code -- internal/httpapi/gen || { echo "::error::internal/httpapi/gen lệch spec — chạy 'make api-gen' rồi commit"; exit 1; }
+      - name: Code sinh từ api/agent/v1/agent.proto khớp bản đã commit (buf lint + protoc-gen-go/-grpc, P3-T01)
+        run: |
+          go generate ./api/agent/v1
+          git diff --exit-code -- api/agent/v1 || { echo "::error::api/agent/v1 lệch agent.proto — chạy 'make agent-gen' rồi commit"; exit 1; }
+          test -z "$(git status --porcelain -- api/agent/v1)" || { echo "::error::file sinh mới chưa commit trong api/agent/v1"; exit 1; }
       - name: go vet
         run: go vet ./...
       - name: sqlc diff (mã sinh khớp schema + queries)

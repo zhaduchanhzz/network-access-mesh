@@ -1,0 +1,641 @@
+// MeshGuard Host Agent protocol, v1 (P3-T01; master plan §11.1, §11.5, ADR-05).
+//
+// The Host Agent is the ONLY component with the Docker socket: it is equivalent to root on the host (R-15). It
+// therefore accepts closed, typed, declarative parameters only:
+//
+//   - no request carries a command, a path, a mount, a capability, an image name, a network name or a YAML/JSON
+//     document to execute; the agent derives every path from instance_id (/opt/meshguard/tenants/<instance_id>)
+//     and every Docker name from slug (project and network mg-t-<slug>, container mg-hs-<slug>, alias hs-<slug>);
+//   - an image is a digest that must be in the agent's own allowlist (generated from versions.lock, not writable by
+//     the worker); the agent maps it to the repository;
+//   - run_uid, net_cidr and the optional fallback STUN port must lie in the host's locally configured ranges;
+//   - before touching an existing directory, network or container the agent checks that it belongs to the same
+//     instance (meta/instance.json, labels meshguard.instance_id / meshguard.tenant_id) — never adopts;
+//   - a field the agent does not know (unknown field, unknown enum value) is a refusal, never ignored.
+//
+// Transport: gRPC over the Unix socket /run/meshguard/agent.sock (host: /opt/meshguard/run/agent.sock), no TCP.
+// Every call is authenticated twice: the kernel-attested peer credentials (SO_PEERCRED, worker UID allowlist) and
+// the agent token (metadata "authorization: Bearer <token>", a file secret). A refusal is a gRPC status
+// (INVALID_ARGUMENT, FAILED_PRECONDITION, NOT_FOUND, ABORTED, UNAUTHENTICATED, PERMISSION_DENIED) carrying one
+// Refusal detail (reason + field path, never the refused value).
+//
+// Fields marked [debug_redact = true] carry secrets: never log them, nor any message that contains them
+// (protobuf-go's String() does not honour debug_redact; the marker is for reviewers and tools that do).
+syntax = "proto3";
+
+package meshguard.agent.v1;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/zhaduchanhzz/network-access-mesh/api/agent/v1;agentv1";
+
+// AgentService is served by `meshguard-agent` (apps/agent), one per host; the worker is the only client
+// (internal/agentclient). One RPC per method of the InfrastructureDriver interface (§11.5), plus Health, GetHostInfo
+// and ListInstances.
+service AgentService {
+  // Health is the liveness/readiness check of the agent process (the container healthcheck may call it with the
+  // agent's own UID; every other method requires a worker UID).
+  rpc Health(HealthRequest) returns (HealthResponse);
+  // GetHostInfo returns the host-local limits the agent enforces (placement must stay within them — P3-T04).
+  rpc GetHostInfo(GetHostInfoRequest) returns (GetHostInfoResponse);
+  // ValidateConfig renders the configuration of spec into config.next/ and runs `headscale configtest` in a
+  // throw-away container with a scratch data directory (§11.5). A syntax gate only: the health gate decides.
+  rpc ValidateConfig(ValidateConfigRequest) returns (ValidateConfigResponse);
+  // EnsureInstance runs the instance up to target_phase (storage → config → network → container — steps 7–10 of
+  // §11.3); idempotent. dry_run returns the planned actions without touching anything.
+  rpc EnsureInstance(EnsureInstanceRequest) returns (EnsureInstanceResponse);
+  // GetInstanceStatus reports the actual state for the health gate, the start guard and reconcile (P3-T12).
+  rpc GetInstanceStatus(GetInstanceStatusRequest) returns (GetInstanceStatusResponse);
+  // ListInstances lists what exists on the host (directories with meta/instance.json, containers and networks
+  // labelled meshguard.instance_id) — the inventory of reconcile and of §17.2 (orphans are reported, never adopted).
+  rpc ListInstances(ListInstancesRequest) returns (ListInstancesResponse);
+  rpc StartInstance(StartInstanceRequest) returns (StartInstanceResponse);
+  rpc StopInstance(StopInstanceRequest) returns (StopInstanceResponse);
+  rpc RestartInstance(RestartInstanceRequest) returns (RestartInstanceResponse);
+  // RemoveInstance: compose down, remove the network and — per data — the directory (§11.3 steps 7/9/10, §11.4).
+  rpc RemoveInstance(RemoveInstanceRequest) returns (RemoveInstanceResponse);
+  // UpgradeInstance swaps the image digest (compare-and-swap on from_image_digest; §11.4 Upgrade).
+  rpc UpgradeInstance(UpgradeInstanceRequest) returns (UpgradeInstanceResponse);
+  // WriteDnsRecords writes records/extra-records.json atomically from typed records (sorted, [] when empty).
+  rpc WriteDnsRecords(WriteDnsRecordsRequest) returns (WriteDnsRecordsResponse);
+  // BootstrapPolicy sets the baseline deny-all policy through the CLI inside the container (§11.3 step 12).
+  rpc BootstrapPolicy(BootstrapPolicyRequest) returns (BootstrapPolicyResponse);
+  // BootstrapApiKey expires every API key whose prefix differs from keep_prefix, then creates one (§11.3 step 13).
+  rpc BootstrapApiKey(BootstrapApiKeyRequest) returns (BootstrapApiKeyResponse);
+  // Backup writes an encrypted archive + signed manifest to /opt/meshguard/backups/tenants/<instance_id>/ (§17.1).
+  rpc Backup(BackupRequest) returns (BackupResponse);
+  // Restore verifies the signed manifest against the instance BEFORE decrypting, then swaps data/ (§17.2 steps 2–4).
+  rpc Restore(RestoreRequest) returns (RestoreResponse);
+  // PostRestoreReconcile expires keys/nodes and resets routes/tags of a restored instance (§17.2 step 5).
+  rpc PostRestoreReconcile(PostRestoreReconcileRequest) returns (PostRestoreReconcileResponse);
+  // EnsureEdgeAttachment attaches the edge to the tenant network after the alias check (§11.3 step 14).
+  rpc EnsureEdgeAttachment(EnsureEdgeAttachmentRequest) returns (EnsureEdgeAttachmentResponse);
+  // RemoveEdgeAttachment clears the edge_attach flag, then detaches the edge (§11.4).
+  rpc RemoveEdgeAttachment(RemoveEdgeAttachmentRequest) returns (RemoveEdgeAttachmentResponse);
+}
+
+// ---------------------------------------------------------------------------------------------------- common types
+
+// InstanceRef identifies one tenant instance. The agent cross-checks the three values against the meta/instance.json
+// it wrote itself (root-only) and against the labels of the Docker objects: any mismatch is a refusal.
+message InstanceRef {
+  // Canonical lower-case UUID (tenant_instances.id); the only input of every path.
+  string instance_id = 1;
+  // Canonical lower-case UUID (tenants.id), different from instance_id.
+  string tenant_id = 2;
+  // ^[a-z][a-z0-9-]{1,30}[a-z0-9]$, no "--", no "xn--" prefix, not reserved (§14.5); the only input of every name.
+  string slug = 3;
+}
+
+// ResourceLimits of the Headscale container (compose mem_limit, cpus, pids_limit).
+message ResourceLimits {
+  uint32 memory_mib = 1; // 64..16384
+  uint32 cpu_millis = 2; // 100..16000 (0.1–16 CPUs)
+  uint32 pids = 3;       // 32..4096
+}
+
+enum LogLevel {
+  LOG_LEVEL_UNSPECIFIED = 0;
+  LOG_LEVEL_INFO = 1;
+  LOG_LEVEL_WARN = 2;
+  LOG_LEVEL_ERROR = 3;
+}
+
+// HeadscaleParams are the tenant-specific values of config.yaml. Everything else (server_url from the platform
+// domain, prefixes, derp.*, policy.mode database, tls_* empty, trusted_proxies = net_cidr…) is fixed by the agent's
+// template and checked as an invariant. OIDC (method C) is not part of v1 (TD-14, P5-T10).
+message HeadscaleParams {
+  // node.expiry in whole days, 1..3650 (rendered in hours — Headscale 0.29.7 has no day unit).
+  uint32 node_expiry_days = 1;
+  // dns.nameservers.global: 1..8 unicast IP addresses, no duplicates.
+  repeated string nameservers = 2;
+  // derp.server.region_id, 900..999.
+  uint32 derp_region_id = 3;
+  // derp.server.ipv4: must equal the public entry configured on the host (hosts.public_entry).
+  string public_entry_ipv4 = 4;
+  LogLevel log_level = 5;
+  // Per-tenant STUN port — fallback design only (§10.1); refused unless the host has a STUN port range.
+  optional uint32 stun_port = 6;
+}
+
+// InstanceSpec is the whole typed input of an instance (§11.1, §11.5).
+message InstanceSpec {
+  InstanceRef instance = 1;
+  // sha256:<64 hex> of a Headscale image in the agent's allowlist.
+  string image_digest = 2;
+  // In the host's run_uid range, never 0; run_gid = run_uid (§6.3).
+  uint32 run_uid = 3;
+  // A canonical IPv4 /29 inside the host's tenant network pool (trusted_proxies = this subnet).
+  string net_cidr = 4;
+  ResourceLimits limits = 5;
+  HeadscaleParams headscale = 6;
+}
+
+enum TargetPhase {
+  TARGET_PHASE_UNSPECIFIED = 0;
+  TARGET_PHASE_STORAGE = 1;   // §11.3 step 7
+  TARGET_PHASE_CONFIG = 2;    // step 8
+  TARGET_PHASE_NETWORK = 3;   // step 9
+  TARGET_PHASE_CONTAINER = 4; // step 10
+}
+
+enum ContainerState {
+  CONTAINER_STATE_UNSPECIFIED = 0;
+  CONTAINER_STATE_ABSENT = 1;
+  CONTAINER_STATE_CREATED = 2;
+  CONTAINER_STATE_RUNNING = 3;
+  CONTAINER_STATE_PAUSED = 4;
+  CONTAINER_STATE_RESTARTING = 5;
+  CONTAINER_STATE_EXITED = 6;
+  CONTAINER_STATE_DEAD = 7;
+}
+
+enum HealthState {
+  HEALTH_STATE_UNSPECIFIED = 0;
+  HEALTH_STATE_NONE = 1;
+  HEALTH_STATE_STARTING = 2;
+  HEALTH_STATE_HEALTHY = 3;
+  HEALTH_STATE_UNHEALTHY = 4;
+}
+
+enum PathKind {
+  PATH_KIND_UNSPECIFIED = 0;
+  PATH_KIND_INSTANCE_DIR = 1;
+  PATH_KIND_CONFIG_DIR = 2;
+  PATH_KIND_RECORDS_DIR = 3;
+  PATH_KIND_DATA_DIR = 4;
+  PATH_KIND_META_DIR = 5;
+  PATH_KIND_SECRETS_DIR = 6;
+  PATH_KIND_COMPOSE_FILE = 7;
+  PATH_KIND_CONFIG_FILE = 8;
+  PATH_KIND_POLICY_FILE = 9;
+  PATH_KIND_RECORDS_FILE = 10;
+  PATH_KIND_META_FILE = 11;
+}
+
+// PathState is the owner/mode of one agent-managed path (reconcile: "quyền file").
+message PathState {
+  PathKind kind = 1;
+  bool exists = 2;
+  uint32 uid = 3;
+  uint32 gid = 4;
+  uint32 mode = 5; // permission bits
+}
+
+message NetworkState {
+  bool exists = 1;
+  string subnet = 2;
+  bool internal = 3;
+  // Container names attached to the network; reconcile requires exactly mg-hs-<slug> + the edge.
+  repeated string members = 4;
+  bool edge_attached = 5;
+}
+
+// ApiKeyInfo is the public part of a Headscale API key (never the secret).
+message ApiKeyInfo {
+  string prefix = 1;
+  google.protobuf.Timestamp expiration = 2;
+  google.protobuf.Timestamp created_at = 3;
+}
+
+message InstanceStatus {
+  InstanceRef instance = 1;
+  ContainerState container_state = 2;
+  HealthState health = 3;
+  string container_id = 4;
+  google.protobuf.Timestamp started_at = 5;
+  string image_digest = 6;
+  string config_sha256 = 7;
+  uint32 template_version = 8;
+  NetworkState network = 9;
+  repeated PathState paths = 10;
+  // Fingerprint of data/noise_private.key, computed by the one-shot helper container (fixed-length hex).
+  string noise_key_fingerprint = 11;
+  bool activated = 12;        // meta/activated exists
+  bool edge_attach_flag = 13; // meta/instance.json edge_attach
+  repeated ApiKeyInfo api_keys = 14; // only with include_api_keys
+}
+
+// ---------------------------------------------------------------------------------------------------- refusals
+
+enum RefusalReason {
+  REFUSAL_REASON_UNSPECIFIED = 0;
+  // Missing required field, unknown field, unknown enum value, wrong format.
+  REFUSAL_REASON_MALFORMED = 1;
+  // An id that is not a canonical lower-case UUID (path traversal attempts land here).
+  REFUSAL_REASON_INVALID_ID = 2;
+  REFUSAL_REASON_INVALID_SLUG = 3;
+  // image digest not in the agent's allowlist.
+  REFUSAL_REASON_IMAGE_NOT_ALLOWED = 4;
+  REFUSAL_REASON_UID_OUT_OF_RANGE = 5;
+  // net_cidr not a canonical /29 of the host's tenant pool.
+  REFUSAL_REASON_NETWORK_OUT_OF_POOL = 6;
+  REFUSAL_REASON_PORT_OUT_OF_RANGE = 7;
+  // A number, duration or length outside its bounds.
+  REFUSAL_REASON_OUT_OF_BOUNDS = 8;
+  // Too many items or too many bytes in one field.
+  REFUSAL_REASON_TOO_LARGE = 9;
+  // An existing directory, network or container belongs to another instance or carries no MeshGuard label.
+  REFUSAL_REASON_FOREIGN_OBJECT = 10;
+  // run_uid, slug or net_cidr already used by another instance; subnet overlap; immutable field changed.
+  REFUSAL_REASON_CONFLICT = 11;
+  // The InstanceRef does not match meta/instance.json of that instance.
+  REFUSAL_REASON_IDENTITY_MISMATCH = 12;
+  // An agent-managed path is a symlink, not a regular file/directory, or has an unexpected owner/mode.
+  REFUSAL_REASON_UNSAFE_PATH = 13;
+  // The instance is not known to the agent (no meta/instance.json).
+  REFUSAL_REASON_NOT_FOUND = 14;
+  // Another operation holds the per-instance lock (retry with backoff).
+  REFUSAL_REASON_BUSY = 15;
+  // Missing or wrong agent token.
+  REFUSAL_REASON_UNAUTHENTICATED = 16;
+  // Peer UID allowed only for Health (the agent's own UID).
+  REFUSAL_REASON_PERMISSION_DENIED = 17;
+  // The operation is not allowed in the instance's current state (e.g. storage on an activated instance).
+  REFUSAL_REASON_STATE = 18;
+}
+
+// Refusal is the typed detail of every refusal status. field is the path of the offending request field (for
+// example "spec.instance.instance_id"); the refused value is never echoed.
+message Refusal {
+  RefusalReason reason = 1;
+  string field = 2;
+  string message = 3;
+}
+
+// ---------------------------------------------------------------------------------------------------- health, host
+
+enum ServingStatus {
+  SERVING_STATUS_UNSPECIFIED = 0;
+  SERVING_STATUS_SERVING = 1;
+  SERVING_STATUS_NOT_SERVING = 2;
+}
+
+message HealthRequest {}
+
+message HealthResponse {
+  ServingStatus status = 1;
+  string version = 2;
+  string commit = 3;
+  google.protobuf.Timestamp started_at = 4;
+  // Infrastructure driver wired into this agent: "none" until the compose driver (P3-T02).
+  string driver = 5;
+  uint32 allowed_images = 6;
+}
+
+message GetHostInfoRequest {}
+
+message UintRange {
+  uint32 min = 1;
+  uint32 max = 2;
+}
+
+message AllowedImage {
+  string repository = 1;
+  string digest = 2;
+}
+
+message GetHostInfoResponse {
+  UintRange run_uid_range = 1;
+  string tenant_net_pool = 2;
+  // Absent when the host has no per-tenant STUN port range (the MVP: shared STUN).
+  UintRange stun_port_range = 3;
+  string public_entry_ipv4 = 4;
+  repeated AllowedImage allowed_images = 5;
+  uint32 template_version = 6;
+  string version = 7;
+}
+
+// ---------------------------------------------------------------------------------------------------- instance lifecycle
+
+message ValidateConfigRequest {
+  InstanceSpec spec = 1;
+  // provisioning_jobs.id (canonical UUID) — required on every mutating call, for the agent's audit log.
+  string job_id = 2;
+}
+
+message ValidateConfigResponse {
+  bool valid = 1;
+  string config_sha256 = 2;
+  int32 exit_code = 3;
+  // stderr of configtest, redacted and truncated to 4 KiB.
+  string detail = 4;
+}
+
+enum PlannedActionKind {
+  PLANNED_ACTION_KIND_UNSPECIFIED = 0;
+  PLANNED_ACTION_KIND_ENSURE_DIRECTORY = 1;
+  PLANNED_ACTION_KIND_WRITE_FILE = 2;
+  PLANNED_ACTION_KIND_VALIDATE_CONFIG = 3;
+  PLANNED_ACTION_KIND_ENSURE_NETWORK = 4;
+  PLANNED_ACTION_KIND_COMPOSE_UP = 5;
+}
+
+// PlannedAction is one step of a dry run. target is derived by the agent (a path or a Docker name).
+message PlannedAction {
+  PlannedActionKind kind = 1;
+  TargetPhase phase = 2;
+  string target = 3;
+  uint32 uid = 4;
+  uint32 gid = 5;
+  uint32 mode = 6;
+  string detail = 7;
+}
+
+message EnsureInstanceRequest {
+  InstanceSpec spec = 1;
+  TargetPhase target_phase = 2;
+  string job_id = 3;
+  // Validate, check ownership and return the planned actions only.
+  bool dry_run = 4;
+}
+
+message EnsureInstanceResponse {
+  InstanceStatus status = 1;
+  string config_sha256 = 2;
+  uint32 template_version = 3;
+  repeated PlannedAction planned_actions = 4; // dry_run only
+}
+
+message GetInstanceStatusRequest {
+  InstanceRef instance = 1;
+  // Also list the instance's API keys (one CLI call in the container — reconcile only).
+  bool include_api_keys = 2;
+}
+
+message GetInstanceStatusResponse {
+  InstanceStatus status = 1;
+}
+
+message ListInstancesRequest {}
+
+message InventoryEntry {
+  string instance_id = 1;
+  string tenant_id = 2;
+  string slug = 3;
+  bool has_directory = 4;
+  bool has_container = 5;
+  bool has_network = 6;
+}
+
+message ListInstancesResponse {
+  repeated InventoryEntry instances = 1;
+}
+
+message StartInstanceRequest {
+  InstanceRef instance = 1;
+  string job_id = 2;
+}
+
+message StartInstanceResponse {
+  InstanceStatus status = 1;
+}
+
+message StopInstanceRequest {
+  InstanceRef instance = 1;
+  string job_id = 2;
+}
+
+message StopInstanceResponse {
+  InstanceStatus status = 1;
+}
+
+message RestartInstanceRequest {
+  InstanceRef instance = 1;
+  string job_id = 2;
+}
+
+message RestartInstanceResponse {
+  InstanceStatus status = 1;
+}
+
+enum DataDisposition {
+  DATA_DISPOSITION_UNSPECIFIED = 0;
+  // compose down + remove the network; the directory stays (compensation of steps 9/10).
+  DATA_DISPOSITION_KEEP = 1;
+  // Also remove the whole directory, only when meta/activated does not exist (compensation of step 7).
+  DATA_DISPOSITION_DELETE_IF_NEVER_ACTIVATED = 2;
+  // Deprovision: also remove the directory of an activated instance, only when the final backup named by
+  // archived_backup_sequence exists with a valid signed manifest.
+  DATA_DISPOSITION_DELETE_ARCHIVED = 3;
+}
+
+message RemoveInstanceRequest {
+  InstanceRef instance = 1;
+  string job_id = 2;
+  DataDisposition data = 3;
+  // Required with DATA_DISPOSITION_DELETE_ARCHIVED, zero otherwise.
+  uint64 archived_backup_sequence = 4;
+}
+
+message RemoveInstanceResponse {
+  bool container_removed = 1;
+  bool network_removed = 2;
+  bool directory_removed = 3;
+}
+
+message UpgradeInstanceRequest {
+  InstanceRef instance = 1;
+  string job_id = 2;
+  // Both digests must be in the allowlist; from_image_digest must be the running one (compare-and-swap).
+  string from_image_digest = 3;
+  string to_image_digest = 4;
+}
+
+message UpgradeInstanceResponse {
+  InstanceStatus status = 1;
+}
+
+enum DnsRecordType {
+  DNS_RECORD_TYPE_UNSPECIFIED = 0;
+  DNS_RECORD_TYPE_A = 1;
+  DNS_RECORD_TYPE_AAAA = 2;
+}
+
+// DnsRecord is one entry of extra-records.json.
+message DnsRecord {
+  // Lower-case host name without the trailing dot (LDH labels, ≤ 253 bytes); under the platform domain only inside
+  // the tenant's own <slug>.tail.<domain>.
+  string name = 1;
+  DnsRecordType type = 2;
+  // IPv4 for A, IPv6 for AAAA.
+  string value = 3;
+}
+
+message WriteDnsRecordsRequest {
+  InstanceRef instance = 1;
+  string job_id = 2;
+  // 0..1024 records, no duplicates; empty writes [].
+  repeated DnsRecord records = 3;
+}
+
+message WriteDnsRecordsResponse {
+  string records_sha256 = 1;
+}
+
+enum PolicyKind {
+  POLICY_KIND_UNSPECIFIED = 0;
+  // The deny-all baseline of the agent's template (bootstrap-policy.hujson).
+  POLICY_KIND_BASELINE_DENY_ALL = 1;
+}
+
+message BootstrapPolicyRequest {
+  InstanceRef instance = 1;
+  string job_id = 2;
+  PolicyKind policy = 3;
+}
+
+message BootstrapPolicyResponse {
+  // sha256 of the policy read back (one trailing newline removed — RT-15).
+  string policy_sha256 = 1;
+}
+
+message BootstrapApiKeyRequest {
+  InstanceRef instance = 1;
+  string job_id = 2;
+  // Expiration of the new key: whole hours, 24h..8760h.
+  google.protobuf.Duration ttl = 3;
+  // tenant_instances.api_key_prefix (12 URL-safe characters) or empty on the first bootstrap.
+  string keep_prefix = 4;
+}
+
+message BootstrapApiKeyResponse {
+  // The new key; empty when a key with keep_prefix is still valid (created = false).
+  string api_key = 1 [debug_redact = true];
+  string prefix = 2;
+  google.protobuf.Timestamp expires_at = 3;
+  bool created = 4;
+  uint32 expired_keys = 5;
+}
+
+// ---------------------------------------------------------------------------------------------------- backup, restore
+
+enum BackupMethod {
+  BACKUP_METHOD_UNSPECIFIED = 0;
+  BACKUP_METHOD_VACUUM_INTO = 1; // instance running (§17.1)
+  BACKUP_METHOD_COLD_COPY = 2;   // instance stopped, under the per-instance lock
+}
+
+message BackupRequest {
+  InstanceRef instance = 1;
+  string job_id = 2;
+  // Strictly increasing per instance; names the archive under backups/tenants/<instance_id>/.
+  uint64 sequence = 3;
+  // Random 32-byte data key, wrapped by the worker with the tenant's backup key (online path, §17.1); the agent
+  // also wraps it to the platform recovery recipient (DR path).
+  bytes data_key = 4 [debug_redact = true];
+}
+
+message BackupArtifact {
+  uint64 sequence = 1;
+  string archive_sha256 = 2;
+  string manifest_sha256 = 3;
+  uint64 size_bytes = 4;
+  BackupMethod method = 5;
+  google.protobuf.Timestamp created_at = 6;
+  string headscale_version = 7;
+}
+
+message BackupResponse {
+  BackupArtifact artifact = 1;
+}
+
+// ArtifactRef names an archive of the SAME instance (path derived from instance_id + sequence); the agent checks the
+// signed manifest (tenant_id, instance_id, sequence, hashes) before decrypting anything.
+message ArtifactRef {
+  uint64 sequence = 1;
+  string archive_sha256 = 2;
+  string manifest_sha256 = 3;
+}
+
+message RestoreRequest {
+  InstanceRef instance = 1;
+  string job_id = 2;
+  ArtifactRef artifact = 3;
+  bytes data_key = 4 [debug_redact = true];
+  // §17.2 step 4: the policy set (offline, before the first start) on the restored database.
+  oneof policy {
+    // The policy currently applied according to PostgreSQL (HuJSON, 1 B..256 KiB, UTF-8).
+    bytes applied_policy_hujson = 5;
+    // PostgreSQL is older than the backup: keep the policy stored in the archive.
+    bool keep_backup_policy = 6;
+  }
+}
+
+message RestoreResponse {
+  string restored_data_sha256 = 1;
+  string previous_data_kept_as = 2;
+}
+
+// NodeDesiredState is the PostgreSQL state of one node, matched by machine key (never by numeric id — §17.2).
+message NodeDesiredState {
+  string machine_key = 1;              // mkey:<64 hex>
+  repeated string approved_routes = 2; // canonical CIDRs, ≤ 256
+  repeated string tags = 3;            // tag:<name>, ≤ 64
+}
+
+message ReconcilePlan {
+  // Expiration of the API key bootstrapped after every restored key is expired (whole hours, 24h..8760h).
+  google.protobuf.Duration api_key_ttl = 1;
+  // Nodes revoked after the backup was taken (≤ 10000).
+  repeated string revoked_machine_keys = 2;
+  // Routes and tags to reset (skipped when restore_point_older_than_backup).
+  repeated NodeDesiredState nodes = 3;
+  // Headscale users of offboarded members: mg-<membership uuid> (≤ 10000).
+  repeated string offboarded_users = 4;
+  // §17.2 step 4 branch: PostgreSQL is older than the backup.
+  bool restore_point_older_than_backup = 5;
+}
+
+message PostRestoreReconcileRequest {
+  InstanceRef instance = 1;
+  string job_id = 2;
+  ReconcilePlan plan = 3;
+}
+
+message PostRestoreReconcileResponse {
+  string api_key = 1 [debug_redact = true];
+  string api_key_prefix = 2;
+  google.protobuf.Timestamp api_key_expires_at = 3;
+  uint32 api_keys_expired = 4;
+  uint32 preauth_keys_expired = 5;
+  uint32 nodes_expired = 6;
+  uint32 routes_reset = 7;
+  uint32 tags_reset = 8;
+  uint32 users_handled = 9;
+  repeated string unmatched_machine_keys = 10;
+}
+
+// ---------------------------------------------------------------------------------------------------- edge attachment
+
+message EnsureEdgeAttachmentRequest {
+  InstanceRef instance = 1;
+  string job_id = 2;
+}
+
+message EnsureEdgeAttachmentResponse {
+  bool attached = 1;
+  bool already_attached = 2;
+  uint32 network_members = 3;
+}
+
+enum EdgeDetachReason {
+  EDGE_DETACH_REASON_UNSPECIFIED = 0;
+  EDGE_DETACH_REASON_COMPENSATION = 1; // §11.3 step 14 compensation
+  EDGE_DETACH_REASON_QUARANTINE = 2;
+  EDGE_DETACH_REASON_DEPROVISION = 3;
+  EDGE_DETACH_REASON_RESTORE = 4;
+  EDGE_DETACH_REASON_POLICY_DRIFT = 5; // post-start gate (§11.4)
+}
+
+message RemoveEdgeAttachmentRequest {
+  InstanceRef instance = 1;
+  string job_id = 2;
+  EdgeDetachReason reason = 3;
+}
+
+message RemoveEdgeAttachmentResponse {
+  bool detached = 1;
+  bool was_attached = 2;
+}
