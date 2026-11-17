@@ -77,10 +77,16 @@ func notFound() *problem.Error {
 	return problem.New(gen.ProblemCodeNotFound, "The resource does not exist.")
 }
 
-// failure maps a service error: not found ⇒ 404, invalid list parameters ⇒ 422 naming the parameter group, anything
-// else ⇒ 500 (the cause goes to the internal log only).
+// failure maps a service error: not found ⇒ 404, invalid list parameters ⇒ 422 naming the parameter group, a quota
+// refusal (tenants.ErrQuotaExceeded — P3-T06a) ⇒ 403 quota_exceeded, anything else ⇒ 500 (the cause goes to the
+// internal log only).
 func failure(err error) *problem.Error {
+	if p, ok := problem.FromQuota(err); ok {
+		return p
+	}
 	switch {
+	case errors.Is(err, tenants.ErrQuotaExceeded): // without a status to name
+		return problem.New(gen.ProblemCodeQuotaExceeded, "A quota is reached.")
 	case errors.Is(err, tenants.ErrNotFound), errors.Is(err, platform.ErrNotFound):
 		return notFound()
 	case errors.Is(err, tenants.ErrInvalid), errors.Is(err, platform.ErrInvalid):

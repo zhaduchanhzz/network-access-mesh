@@ -1,6 +1,7 @@
 // Package platform holds the platform-side registry of the Management Plane (§4.2): hosts and the instances of every
-// tenant as platform staff see them (GET /platform/instances[/{id}], P2-T11). Relay regions and system settings join
-// in Phase 3. Every query runs in store.WithPlatformTx on the platform pool (hosts is a platform-only table; the
+// tenant as platform staff see them (GET /platform/instances[/{id}], P2-T11), and the placement of new instances on
+// hosts (Placer — step 3 of §11.3, P3-T04, placement.go). Relay regions and system settings join in Phase 3. Every
+// query runs in store.WithPlatformTx on the platform pool (hosts is a platform-only table; the
 // platform branch of tenant_instances' RLS shows every tenant's row) and returns registry metadata only — never the
 // API key reference of an instance (§8.4 invariant 2: staff see no tenant-internal data here).
 package platform
@@ -79,14 +80,20 @@ type InstanceFilter struct {
 	HostID uuid.UUID // uuid.Nil = every host
 }
 
-// Host is a registered host (hosts, §6.3).
+// Host is a registered host (hosts, §6.3; shapes of status, capacity and public_entry fixed by 0014 — P3-T04).
 type Host struct {
 	ID            uuid.UUID
 	Name          string
 	Region        string
-	RunUIDFirst   int32 // run_uid_range, inclusive bounds
+	Status        string // HostActive, HostDraining, HostDisabled
+	RunUIDFirst   int32  // run_uid_range, inclusive bounds
 	RunUIDLast    int32
 	TenantNetPool netip.Prefix
+	MaxInstances  int32      // capacity.max_instances: live (not removed) instances the host may hold
+	PublicEntry   netip.Addr // public_entry.ipv4 (derp.server.ipv4 of its instances); zero = not declared yet
+	EntryMode     string     // public_entry.mode: direct | vps_gateway | ""
+	STUNPortFirst int32      // stun_port_range, inclusive bounds; 0 = none (shared STUN — MVP)
+	STUNPortLast  int32
 }
 
 // HostSpec describes a host for EnsureHost.
@@ -189,13 +196,23 @@ func (h HostSpec) validate() error {
 		return fmt.Errorf("%w: host name must be a DNS label", ErrInvalid)
 	case h.Region == "" || len(h.Region) > 64 || strings.ContainsAny(h.Region, " \t\r\n"):
 		return fmt.Errorf("%w: host region must be 1–64 characters without spaces", ErrInvalid)
-	case h.RunUIDFirst <= 0 || h.RunUIDLast < h.RunUIDFirst:
-		return fmt.Errorf("%w: run_uid range", ErrInvalid)
-	case !h.TenantNetPool.IsValid() || h.TenantNetPool != h.TenantNetPool.Masked() || !h.TenantNetPool.Addr().Is4():
-		return fmt.Errorf("%w: tenant network pool must be an IPv4 network", ErrInvalid)
+	case h.RunUIDFirst < 1000 || h.RunUIDLast < h.RunUIDFirst || h.RunUIDLast > 1<<31-2:
+		return fmt.Errorf("%w: run_uid range must lie within 1000–2147483646", ErrInvalid)
+	case !h.TenantNetPool.IsValid() || h.TenantNetPool != h.TenantNetPool.Masked() || !h.TenantNetPool.Addr().Is4() ||
+		h.TenantNetPool.Bits() < 8 || h.TenantNetPool.Bits() > 29 || h.TenantNetPool.Overlaps(tailnetRange):
+		return fmt.Errorf("%w: tenant network pool must be an IPv4 network between /8 and /29 outside 100.64.0.0/10",
+			ErrInvalid)
+	}
+	for _, id := range ReservedIDs {
+		if id >= h.RunUIDFirst && id <= h.RunUIDLast {
+			return fmt.Errorf("%w: run_uid range contains the platform UID/GID %d (versions.lock [ids])", ErrInvalid, id)
+		}
 	}
 	return nil
 }
+
+// tailnetRange holds the addresses Headscale gives to nodes (§6.3: a tenant pool must not overlap it).
+var tailnetRange = netip.MustParsePrefix("100.64.0.0/10")
 
 // Contains reports whether the host can run an instance with this UID and network: the UID inside run_uid_range and
 // the /29 inside tenant_net_pool (§6.3).
@@ -249,9 +266,8 @@ func (s *Service) EnsureHost(ctx context.Context, spec HostSpec) (Host, bool, er
 		return h, exists, err
 	}
 	err = s.st.WithPlatformTx(ctx, func(q *sqlcdb.Queries) error {
-		r, err := q.CreateHost(ctx, sqlcdb.CreateHostParams{
-			Name: spec.Name, Region: spec.Region, TenantNetPool: spec.TenantNetPool, Capacity: []byte("{}"),
-			PublicEntry: []byte("{}"),
+		r, err := q.CreateHost(ctx, sqlcdb.CreateHostParams{ // capacity, public_entry: table defaults (0014)
+			Name: spec.Name, Region: spec.Region, TenantNetPool: spec.TenantNetPool,
 			RunUidRange: pgtype.Range[pgtype.Int4]{
 				Lower: pgtype.Int4{Int32: spec.RunUIDFirst, Valid: true}, LowerType: pgtype.Inclusive,
 				Upper: pgtype.Int4{Int32: spec.RunUIDLast, Valid: true}, UpperType: pgtype.Inclusive, Valid: true,
@@ -285,9 +301,29 @@ func hostDiff(h Host, s HostSpec) []string {
 
 // host maps a row; PostgreSQL returns int4range in canonical form [first, last+1).
 func host(r sqlcdb.Host) (Host, error) {
-	rg := r.RunUidRange
-	if !rg.Valid || !rg.Lower.Valid || !rg.Upper.Valid {
+	first, last, ok := bounds(r.RunUidRange)
+	if !ok {
 		return Host{}, fmt.Errorf("platform: host %s has an unbounded run_uid_range", r.Name)
+	}
+	h := Host{ID: r.ID, Name: r.Name, Region: r.Region, Status: r.Status, RunUIDFirst: first, RunUIDLast: last,
+		TenantNetPool: r.TenantNetPool}
+	if r.StunPortRange.Valid {
+		if h.STUNPortFirst, h.STUNPortLast, ok = bounds(r.StunPortRange); !ok {
+			return Host{}, fmt.Errorf("platform: host %s has an unbounded stun_port_range", r.Name)
+		}
+	}
+	var err error
+	if h.MaxInstances, h.PublicEntry, h.EntryMode, err = parseHostSettings(r.Capacity, r.PublicEntry); err != nil {
+		return Host{}, fmt.Errorf("platform: host %s: %w", r.Name, err)
+	}
+	return h, nil
+}
+
+// bounds returns the inclusive bounds of a non-empty finite int4range.
+func bounds(rg pgtype.Range[pgtype.Int4]) (int32, int32, bool) {
+	if !rg.Valid || !rg.Lower.Valid || !rg.Upper.Valid || rg.LowerType == pgtype.Unbounded ||
+		rg.UpperType == pgtype.Unbounded || rg.LowerType == pgtype.Empty {
+		return 0, 0, false
 	}
 	first, last := rg.Lower.Int32, rg.Upper.Int32
 	if rg.LowerType == pgtype.Exclusive {
@@ -296,8 +332,7 @@ func host(r sqlcdb.Host) (Host, error) {
 	if rg.UpperType == pgtype.Exclusive {
 		last--
 	}
-	return Host{ID: r.ID, Name: r.Name, Region: r.Region, RunUIDFirst: first, RunUIDLast: last,
-		TenantNetPool: r.TenantNetPool}, nil
+	return first, last, first <= last
 }
 
 func instance(r sqlcdb.TenantInstance, now time.Time) Instance {

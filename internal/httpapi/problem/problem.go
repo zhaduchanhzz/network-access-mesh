@@ -231,3 +231,30 @@ func Write(w http.ResponseWriter, r *http.Request, e *Error) {
 	w.WriteHeader(ent.status)
 	_ = json.NewEncoder(w).Encode(p)
 }
+
+// quotaRefusal is implemented by the typed quota errors of the services (tenants.QuotaExceededError — P3-T06a), so this
+// package needs no service import.
+type quotaRefusal interface {
+	error
+	QuotaResource() string
+	QuotaLimit() int64
+}
+
+// quotaResource is a quota name that is safe to echo (tenants, devices, max_users…).
+var quotaResource = regexp.MustCompile(`^[a-z][a-z_]{0,31}$`)
+
+// FromQuota maps a quota refusal anywhere in err's chain to 403 quota_exceeded (§13.1); ok = false for any other error.
+// The detail names the quota and its effective limit — the platform cap or the caller's own plan, never data of another
+// tenant.
+func FromQuota(err error) (*Error, bool) {
+	var q quotaRefusal
+	if !errors.As(err, &q) {
+		return nil, false
+	}
+	resource := q.QuotaResource()
+	if !quotaResource.MatchString(resource) {
+		resource = "resource"
+	}
+	return &Error{Code: gen.ProblemCodeQuotaExceeded,
+		Detail: fmt.Sprintf("The %s quota is reached (limit %d).", resource, q.QuotaLimit())}, true
+}

@@ -27,10 +27,10 @@ import (
 var p3Tables = []string{"approval_requests", "tenant_invitations", "notification_outbox", "relay_regions", "relay_assignments",
 	"backups", "subscription_plans", "subscriptions", "policy_versions", "policy_applications"}
 
-// TestLatestMigrationIs13: the embedded migrations end at 0013 (latestMigration of the fixture) — the version
+// TestLatestMigration: the embedded migrations end at latestMigration of the fixture (0014 since P3-T04) — the version
 // `meshguard-api migrate status` reports as latest_migration (current = schema_version == latest_migration,
 // ReadDeployState) — and the fixture has a step for every migration.
-func TestLatestMigrationIs13(t *testing.T) {
+func TestLatestMigration(t *testing.T) {
 	v, err := LatestMigration()
 	if err != nil || v != latestMigration {
 		t.Fatalf("LatestMigration() = %d (%v), want latestMigration = %d", v, err, latestMigration)

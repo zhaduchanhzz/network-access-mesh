@@ -12,7 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// fixture holds one row per scope (tenant A, tenant B, platform) in every table of migrations 0001–0013, inserted
+// fixture holds one row per scope (tenant A, tenant B, platform) in every table of migrations 0001–0014, inserted
 // by the superuser (bypassing RLS) so the tests can check what each role and scope sees. Every identifier is random,
 // so fixtures of parallel tests share a database without colliding.
 type fixture struct {
@@ -66,12 +66,12 @@ func newFixture() *fixture {
 var fixtureSteps = map[int64]func(f *fixture, t *testing.T, c *pgx.Conn){
 	1: (*fixture).step1, 2: (*fixture).step2, 3: (*fixture).step3, 4: (*fixture).step4, 5: (*fixture).step5, 6: (*fixture).step6,
 	7: (*fixture).step7, 8: (*fixture).step8, 9: (*fixture).step9, 10: (*fixture).step10, 11: (*fixture).step11,
-	12: (*fixture).step12, 13: (*fixture).step13,
+	12: (*fixture).step12, 13: (*fixture).step13, 14: (*fixture).step14,
 }
 
 // latestMigration is the number of the last migration of database/migrations (TestMigrationsUpWithData,
 // TestMigrationsShareClusterRoles).
-const latestMigration = 13
+const latestMigration = 14
 
 func (f *fixture) insertAll(t *testing.T, c *pgx.Conn) {
 	t.Helper()
@@ -311,4 +311,11 @@ func (f *fixture) step13(t *testing.T, c *pgx.Conn) {
 			VALUES ($1, $2, $3, $4, 'bootstrap', $5, $6, 'applied', now())`,
 			tr.application, tr.id, tr.instance, tr.policy, baselinePolicy, sha256Hex(baselinePolicy))
 	}
+}
+
+// 0014 (P3-T04): no new table — the host of the fixture declares its public entry and capacity (shapes checked by 0014),
+// so it is a host placement could choose.
+func (f *fixture) step14(t *testing.T, c *pgx.Conn) {
+	exec(t, c, `UPDATE hosts SET public_entry = '{"ipv4": "192.0.2.10", "mode": "direct"}',
+		capacity = '{"max_instances": 50}' WHERE id = $1`, f.host)
 }
