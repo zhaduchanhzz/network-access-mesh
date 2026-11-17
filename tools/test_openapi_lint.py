@@ -392,20 +392,27 @@ check([a for _, _, a, _ in master.roles] == ["SA", "PO", "PS", "PV", "TO", "TA",
       str(master.roles))
 check(master.columns == {"platform": ["SA", "PO", "PS", "PV"], "tenant": ["TO", "TA", "TP", "TV", "EU", "Staff"]},
       "§8.5/§8.6: role columns", str(master.columns))
-check({"P2-T01", "P2-T02", "P2-T03", "P1-T21"} <= master.done and not {"P1-T02", "P1-T12e", "P2-T07", "P4-T09"} & master.done,
+check({"P2-T01", "P2-T02", "P2-T03", "P2-T07", "P1-T21"} <= master.done
+      and not {"P1-T02", "P1-T12e", "P2-T08", "P4-T09"} & master.done,
       "§20: done tasks (full marker only; 'phần 1 …' / 'một phần' are not done)", str(sorted(master.done)))
 check(master.row_tasks(P["platform.tenant:suspend"]) == {"P3-T05", "P3-T08", "P3-T09"}
-      and master.row_tasks(P["tenant.user:read"]) == {"P2-T11"} and master.row_tasks(P["tenant.tag:read"]) == set(),
-      "§13.2: tasks of a matrix row (tag catalog: no traceability group)")
+      and master.row_tasks(P["tenant.user:read"]) == {"P2-T11"} and master.row_tasks(P["tenant.tag:read"]) == {"P4-T15"},
+      "§13.2: tasks of a matrix row (tag catalog: group `tags` → P4-T15)")
 check(ol.entry_path("tenant", ()) == "/tenants/{tenantId}" and ol.entry_path("tenant", ("devices", "{}")) ==
       "/tenants/{tenantId}/devices/{id}" and ol.entry_path("platform", ("platform", "jobs")) == "/platform/jobs",
       "entry_path: full path of a matrix entry")
 
 # second direction of §13.1: every row has an operation once all its tasks are done
 row_errs, row_notes = ol.row_coverage(spec, master)
-check(not row_errs and any("tenant.tag:read" in n and "task unknown" in n for n in row_notes)
+check(not row_errs and any("tenant.tag:read" in n and "P4-T15 pending" in n for n in row_notes)
       and any("tenant.membership:assign" in n and "P4-T09 pending" in n for n in row_notes),
       "row coverage on the real spec: no error, pending rows reported", str(row_errs))
+TAGS_TRACE = "| tags (danh mục tag) | 4 | P4-T15 |\n"
+_master_text = ol.MASTER.read_text(encoding="utf-8")
+check(_master_text.count(TAGS_TRACE) == 1, "§13.2: the tag catalog group is in the traceability table")
+_errs, _notes = ol.row_coverage(spec, ol.Master(_master_text.replace(TAGS_TRACE, "")))
+check(not _errs and any("tenant.tag:read" in n and "task unknown" in n for n in _notes),
+      "row coverage: a row no traceability group covers is reported as task unknown, not as an error", str(_errs))
 
 
 def with_done(*tasks: str) -> ol.Master:
@@ -462,12 +469,14 @@ def master_with(old: str, new: str) -> ol.Master:
 
 
 BACKUP_ROW = "| `platform.backup:read` | `GET /platform/backups` | ✔ | ✔ | — | ✔ |"
-DUP_ROW = "(thu hồi grant bất kỳ — §8.7) | ✔ / ✔ | ✔ / — |"
+# §8.5 no longer repeats a permission (the duplicated support_grant row was removed at the Phase 2 integration):
+# the duplicate-row rule is exercised with a second row of the same key added by the test.
+DUP_ROW = BACKUP_ROW + "\n| `platform.backup:read` | `GET /platform/backups` | ✔ | — | — | ✔ |"
 for name, old, new, fragment in [
     ("unknown cell", BACKUP_ROW, BACKUP_ROW.replace("| — | ✔ |", "| có thể | ✔ |"), "unknown cell 'có thể' in column PS"),
     ("unknown Staff cell", "| — | — | — | G (Admin) |\n| `tenant.device:expire`", "| — | — | — | G (Root) |\n| `tenant.device:expire`",
      "unknown cell 'G (Root)' in column Staff"),
-    ("duplicate rows disagree", DUP_ROW, "(thu hồi grant bất kỳ — §8.7) | ✔ / ✔ | ✔ / ✔ |", "disagree in column PO"),
+    ("duplicate rows disagree", BACKUP_ROW, DUP_ROW, "disagree in column PO"),
     ("§8.4 role without key", "| Tenant | **End User (EU)** |", "| Tenant | **End User (EX)** |", "role EX has no roles.key"),
     ("support role no longer named", "`support_admin` (thêm", "`support_root` (thêm", "no longer names the support role `support_admin`"),
 ]:
