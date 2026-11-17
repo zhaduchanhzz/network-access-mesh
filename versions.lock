@@ -156,23 +156,23 @@ note = "tailscale.com/cmd/stund tại tag v1.104.7 (commit cbc74fe…), Go 1.27.
 
 [images.mg-api]
 image = "ghcr.io/zhaduchanhzz/network-access-mesh/api"
-tag = "57ed98b60e97ff11bde0b366a9fb41e5a1802c18"
-index = "sha256:5b30b432c21a970633237c7ad0a34c45518d231b2e05f8008f9bef8adc395c62"   # một manifest linux/amd64 (docker v2 schema 2)
-amd64 = "sha256:5b30b432c21a970633237c7ad0a34c45518d231b2e05f8008f9bef8adc395c62"
+tag = "fca68f22d4af38850d6f47c79ab339cd6793d689"
+index = "sha256:c2ee41f779e7fadb7a69f5e6cfb4cdbdd70ee0ab03993483e8af47e912a76310"   # một manifest linux/amd64 (docker v2 schema 2)
+amd64 = "sha256:c2ee41f779e7fadb7a69f5e6cfb4cdbdd70ee0ab03993483e8af47e912a76310"
 user = "65532:65532"
 run_as = "65532:65532 + nhóm mg-sec-app (20001) / mg-sec-api (20002); job migrate 20004; rootfs chỉ đọc, cap_drop ALL; project mg-app (P2-T16)"
 released = "2026-11-18"
-note = "meshguard-api build từ 57ed98b (Phase 3 đợt 3: P3-T10 xoay API key, P3-T15 kiểm soát quản trị IdP + cổng console /internal/edge/idp-console; trước đó 391ad74, cbb91d5); workflow images run 44193289398 xanh; digest, user và label org.opencontainers.image.revision đọc từ GHCR ngày 2026-11-18. CÙNG commit với [images.mg-worker] (tools/render_app.py từ chối nếu khác)"
+note = "meshguard-api build từ fca68f2 (Phase 3: P3-T05 orchestrator + POST /platform/tenants + /retry /cancel /rollback, migration 0015; trước đó 57ed98b, 391ad74); workflow images run 44201677814 xanh; digest, user và label org.opencontainers.image.revision đọc từ GHCR ngày 2026-11-18. CÙNG commit với [images.mg-worker] (tools/render_app.py từ chối nếu khác)"
 
 [images.mg-worker]
 image = "ghcr.io/zhaduchanhzz/network-access-mesh/worker"
-tag = "57ed98b60e97ff11bde0b366a9fb41e5a1802c18"
-index = "sha256:45b866e8c6fd8e84be2ab89e2b562ff6ae0a59722a0797dd3405686f6f111d0a"   # một manifest linux/amd64 (docker v2 schema 2)
-amd64 = "sha256:45b866e8c6fd8e84be2ab89e2b562ff6ae0a59722a0797dd3405686f6f111d0a"
+tag = "fca68f22d4af38850d6f47c79ab339cd6793d689"
+index = "sha256:62937c2eff90b8ae1ed4e0750011f575f5685d4108d0bad0a6fd50799d111d3e"   # một manifest linux/amd64 (docker v2 schema 2)
+amd64 = "sha256:62937c2eff90b8ae1ed4e0750011f575f5685d4108d0bad0a6fd50799d111d3e"
 user = "65532:65532"
 run_as = "65532:65532 + nhóm mg-sec-app (20001) / mg-sec-worker (20003); rootfs chỉ đọc, cap_drop ALL; project mg-app (P2-T16)"
 released = "2026-11-18"
-note = "meshguard-worker build từ 57ed98b (Phase 3 đợt 3: apikey.rotate, idp.audit_sync; trước đó 391ad74); workflow images run 44193289398 xanh; digest, user và label revision đọc từ GHCR ngày 2026-11-18. CÙNG commit với [images.mg-api]"
+note = "meshguard-worker build từ fca68f2 (Phase 3: tenant.provision 19 bước, worker nối Host Agent; trước đó 57ed98b); workflow images run 44201677814 xanh; digest, user và label revision đọc từ GHCR ngày 2026-11-18. CÙNG commit với [images.mg-api]"
 
 [images.mg-agent]
 image = "ghcr.io/zhaduchanhzz/network-access-mesh/agent"
