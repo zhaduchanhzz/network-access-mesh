@@ -8,7 +8,7 @@ PostgreSQL của Management Plane (§6 của [bản master](../docs/planning/imp
 |---|---|
 | `bootstrap/superuser.sql` | Chạy **một lần** bằng superuser của cụm, trong database `meshguard`, trước migration đầu tiên (chạy lại được): tạo `mg_migrator` (CREATEROLE, owner database) và `mg_backup` (BYPASSRLS + `pg_read_all_data`) — hai role chỉ superuser tạo được |
 | `migrations/0001…0006_*.sql` | Migration goose, forward-only (không có phần Down), nhúng vào binary qua `embed.go`; bản đồ bảng ở §6.3 |
-| `queries/*.sql` + `sqlc.yaml` | Truy vấn sqlc → mã sinh ở `internal/store/sqlcdb` (không sửa tay); `jobs.sql` = khung job + idempotency (P2-T12) |
+| `queries/*.sql` + `sqlc.yaml` | Truy vấn sqlc → mã sinh ở `internal/store/sqlcdb` (không sửa tay); `jobs.sql` = khung job + idempotency (P2-T12); `devices.sql` = sổ thiết bị + trạng thái sync + thu hồi hai pha (P2-T13) |
 | `river/grants.sql` | Quyền trên schema `river` của job queue (P2-T12), chạy lại sau mỗi lần migrate River — xem mục "Job queue (River)" |
 | `checks/partition_grants.sql` | Truy vấn CI: mỗi hàng là một vi phạm (quyền trên partition, partition chưa bật RLS, default privileges) |
 | `embed.go` | Package Go `database`: `Migrations`, `Seeds`, `Bootstrap`, `Checks`, `River` (embed.FS) |
@@ -110,6 +110,20 @@ ngoài tham chiếu `provisioning_jobs.id` (+ kind) trong args. Bằng chứng: 
   `REINDEX` bằng `mg_migrator`.
 - **Enqueue**: module nghiệp vụ gọi `jobs.Enqueue(ctx, tx, spec)` trong `store.WithTenantJobTx` /
   `WithPlatformJobTx` — hàng `provisioning_jobs` và job River cùng commit/rollback với thay đổi nghiệp vụ.
+
+## Sổ thiết bị (P2-T13)
+
+Module `internal/devices` (bằng chứng: [`P2-T13.md`](../docs/planning/evidence/P2-T13.md)); truy vấn ở `queries/devices.sql`
+(pool tenant — cả hai bảng là T).
+
+- `device_inventory_cache`: hàng được chuẩn hóa từ `ListNodes` ở mỗi `inventory.sync`; cùng `headscale_node_id` khác
+  `machine_key` ⇒ `removed_at` cho hàng cũ + hàng mới (partial unique `(instance_id, headscale_node_id) WHERE removed_at IS
+  NULL`); `revocation_*` chỉ do luồng thu hồi hai pha ghi (`StartDeviceRevocation` → `SettleDeviceRevocation` theo đúng
+  `revocation_job_id`, một lần).
+- `device_inventory_sync_state` (thêm vào 0005 ở P2-T13): một hàng mỗi instance — `generation`, `synced_at` (đồng hồ DB
+  ngay trước `ListNodes`), `node_count`. Lần sync khóa hàng này (`FOR UPDATE`) và bỏ qua snapshot không mới hơn
+  `synced_at`; là nguồn "lần sync gần nhất" của dashboard (P2-T13a) kể cả khi tailnet chưa có node nào. `instance_id`,
+  `tenant_id` bất biến; role ứng dụng tenant `SELECT/INSERT` + `UPDATE (generation, synced_at, node_count)`.
 
 ## Triển khai (P2-T16 nối vào job `migrate` của `mg-core`)
 

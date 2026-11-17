@@ -1,0 +1,15 @@
+{
+  "tenant_id": "b1b1b1b1-1111-4111-8111-b1b1b1b1b1b1",
+  "instance_id": "b2b2b2b2-2222-4222-8222-b2b2b2b2b2b2",
+  "slug": "iso-b",
+  "base_domain": "iso-b.test",
+  "net_cidr": "10.250.253.248/29",
+  "run_uid": 30012,
+  "derp_region_id": 912,
+  "derp_ipv4": "192.0.2.12",
+  "node_expiry": "720h",
+  "nameservers": ["192.0.2.53"],
+  "mem_limit": "512m",
+  "cpus": "1.0",
+  "pids_limit": 256
+}

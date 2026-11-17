@@ -5,7 +5,14 @@
 # pin thì run.sh build từ infrastructure/docker/headscale của chính commit; image chính thức [images.headscale] tạo DB
 # và chạy pha đối chứng âm/rollback. API key của instance và token của listener admin sinh mới trong mỗi lần chạy,
 # trong container dùng-một-lần trên runner — workflow không dùng secret nào của repo (repo public, D-12). Kết quả quan
-# sát từng quirk (V-06, V-21, V-26, V-28) được lưu thành artifact.
+# sát từng quirk (V-06, V-21, V-26, V-28) được lưu thành artifact. Pha 8–10 (P2-T13): sổ thiết bị internal/devices
+# trên bản vá, với PostgreSQL pin digest và job device.revoke chạy trong khung job thật; restore bản chụp SQLite để
+# thử quy tắc node id được cấp lại (§6.3).
+# Job thứ hai (P2-T15) chạy phần isolation suite cần Headscale thật: hai instance A, B sau cùng khối listener admin và
+# một PostgreSQL pin digest giữ registry thật (tenant_instances + SecretStore) cho Locator của P2-T11 — IT-06 (apply
+# policy cho A ⇒ sha256 GetPolicy của B không đổi), IT-10 (API key của A bị instance B trả 401), IT-20 (lỗi tiêm vào
+# registry: định tuyến / API key / secret reference của tenant kia ⇒ mọi lời gọi ForTenant thất bại, không dữ liệu
+# nào của tenant kia). paths gồm package Locator và các module nó đọc (tenants, secrets, store, database).
 name: headscale-contract
 
 on:
@@ -14,12 +21,18 @@ on:
     paths: ["internal/headscale/**", "internal/kit/logx/**", "tests/integration/headscale/**",
             "infrastructure/caddy/Caddyfile.tmpl", "infrastructure/headscale/templates/**", "tools/render_instance.py",
             "tools/mgenv.py", "versions.lock", "infrastructure/docker/headscale/**",
-            ".github/workflows/headscale-contract.yml"]
+            ".github/workflows/headscale-contract.yml",
+            "internal/devices/**", "internal/store/**", "internal/jobs/**", "internal/audit/**", "database/**",
+            "tests/isolation/headscale/**", "internal/headscale/locator/**", "internal/tenants/**",
+            "internal/secrets/**"]
   pull_request:
     paths: ["internal/headscale/**", "internal/kit/logx/**", "tests/integration/headscale/**",
             "infrastructure/caddy/Caddyfile.tmpl", "infrastructure/headscale/templates/**", "tools/render_instance.py",
             "tools/mgenv.py", "versions.lock", "infrastructure/docker/headscale/**",
-            ".github/workflows/headscale-contract.yml"]
+            ".github/workflows/headscale-contract.yml",
+            "internal/devices/**", "internal/store/**", "internal/jobs/**", "internal/audit/**", "database/**",
+            "tests/isolation/headscale/**", "internal/headscale/locator/**", "internal/tenants/**",
+            "internal/secrets/**"]
 
 permissions:
   contents: read
@@ -32,7 +45,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - name: Contract test adapter ↔ Headscale v0.29.7 bản vá (7 pha, có restart / làm đầy đĩa / đổi image / đối chứng crash)
+      - name: Contract test adapter ↔ Headscale v0.29.7 bản vá (10 pha, có restart / làm đầy đĩa / đổi image / đối chứng crash / restore SQLite)
         # run.sh dùng [images.mg-headscale] khi đã pin VÀ đúng bộ bản vá của cây (label patched-commit = ARG của
         # Dockerfile); ngược lại build image từ cây của commit này.
         run: HSCT_OUT="${RUNNER_TEMP}/hsct" HSCT_KEEP_CACHE=0 bash tests/integration/headscale/run.sh
@@ -42,5 +55,23 @@ jobs:
         with:
           name: headscale-contract
           path: ${{ runner.temp }}/hsct/
+          retention-days: 14
+          if-no-files-found: warn
+
+  isolation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Isolation suite v1 trên hai Headscale v0.29.7 thật — IT-06, IT-10 (API key), IT-20 (mức target + Locator thật) (P2-T15)
+        run: HSISO_OUT="${RUNNER_TEMP}/hsiso" HSISO_KEEP_CACHE=0 bash tests/isolation/headscale/run.sh
+      - name: Lưu log của isolation suite
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: headscale-isolation
+          path: ${{ runner.temp }}/hsiso/
           retention-days: 14
           if-no-files-found: warn

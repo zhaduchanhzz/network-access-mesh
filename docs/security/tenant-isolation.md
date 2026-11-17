@@ -34,7 +34,7 @@ Bổ sung cho ranh giới 12 (giả mạo telemetry tại nguồn): IT-18 — in
 
 Bổ sung cho ranh giới 4 (điểm nghẽn dùng chung): IT-19 — giữ hàng nghìn stream nâng cấp nhàn rỗi trên hostname của A, làm đầy cache pending-auth của A và làm đầy quota `data/` của A ⇒ B vẫn enroll được, control của B không gián đoạn, PostgreSQL vẫn ghi.
 
-Bổ sung cho ranh giới 10 (tiêm lỗi registry): IT-20 — hoán đổi riêng `internal_address`, riêng `api_key_secret_ref`, rồi cả hai giữa A và B trong registry của môi trường test ⇒ mọi lời gọi qua `ForTenant` thất bại (`401`, hoặc secret reference khác tenant bị từ chối), không dữ liệu nào của tenant kia được trả.
+Bổ sung cho ranh giới 10 (tiêm lỗi registry): IT-20 — hoán đổi giữa A và B trong registry của môi trường test các trường mà `Locator` dùng để chọn đích: **`tenants.slug`** (khóa định tuyến thật — listener admin của edge chuyển tới `hs-<slug>` theo header `X-MG-Instance`), riêng `api_key_secret_ref`, rồi cả hai ⇒ mọi lời gọi qua `ForTenant` thất bại (`401`, hoặc secret reference khác tenant bị từ chối trước mọi lời gọi), không dữ liệu nào của tenant kia được trả; hoán đổi riêng `internal_address` không đổi đích (`Locator` không đọc trường này — VERIFIED, P2-T15).
 
 **Truy vết phép thử cách ly** (mỗi IT có task thực hiện, mức tự động và gate đầu tiên phải đạt):
 
