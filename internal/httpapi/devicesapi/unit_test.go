@@ -80,7 +80,7 @@ func (a fakeAuthorizer) RequireOperation(context.Context, string, uuid.UUID) (au
 func serve(t *testing.T, svc *fakeService, authorizer gen.StrictMiddlewareFunc, method, path, body string, hdr http.Header) *httptest.ResponseRecorder {
 	t.Helper()
 	h, err := httpapi.New(httpapi.Options{Logger: logx.New(io.Discard, slog.LevelInfo, "api"),
-		Handlers: httpapi.Handlers{Devices: New(svc)}, Hooks: httpapi.Hooks{Authz: authorizer}})
+		Handlers: httpapi.Handlers{Devices: New(svc)}, Hooks: httpapi.Hooks{Authz: authorizer, Session: noSession, Audit: noAudit}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,3 +244,9 @@ func TestProblemMapping(t *testing.T) {
 		t.Error("instance_unavailable without Retry-After")
 	}
 }
+
+// noSession and noAudit are explicit pass-through hooks: httpapi.New requires Session and Audit once handlers are
+// mounted (P2-T16); this test exercises the handlers behind the authorization hook only.
+func noSession(next http.Handler) http.Handler { return next }
+
+func noAudit(f gen.StrictHandlerFunc, _ string) gen.StrictHandlerFunc { return f }

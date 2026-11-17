@@ -1,6 +1,7 @@
 """Stack dev/CI of P2-T01a: parameters, render, ephemeral CA, secrets, networks, compose — used by e2e.py.
 
-Everything is rendered by the repository's own tools (tools/render_instance.py, render_edge.py, render_idp.py) from the
+Everything is rendered by the repository's own tools (tools/render_instance.py, render_edge.py, render_idp.py and,
+since P2-T16, render_app.py — the backend api/worker/migrate/db-bootstrap with images built from the tree) from the
 `ci` environment (infrastructure/environments/ci); the only CI-specific change to a rendered file is the edge's `tls`
 block (ACME DNS-01 → certificate of the run's internal CA — ci_tls()). Secrets are generated per run into
 <work>/secrets as 0400 files owned by their consumer's UID (an alpine helper container sets the ownership), handed to
@@ -38,6 +39,7 @@ HERE = ROOT / "tests" / "e2e" / "harness"
 ENV_DIR = ROOT / "infrastructure" / "environments" / "ci"
 sys.path.insert(0, str(ROOT / "tools"))
 import mgenv  # noqa: E402
+import render_app  # noqa: E402
 import render_edge  # noqa: E402
 import render_idp  # noqa: E402
 import render_instance  # noqa: E402
@@ -54,6 +56,13 @@ SECRET_RE = re.compile(r"hskey-(?:api|auth|authreq)-[A-Za-z0-9_-]+|(?i:bearer\s+
 PREFIX_RE = re.compile(r"^[a-z][a-z0-9-]{1,20}$")
 # uid:gid of each consumer (images: postgres 999, Keycloak 1000, edge 10001, distroless nonroot 65532, client root)
 UID = {"postgres": "999:999", "idp": "1000:1000", "edge": "10001:10001", "dbinit": "65532:65532", "client": "0:0"}
+# Backend (P2-T16): file secrets of compose.app.yaml → <work>/secrets/<path>, group = the fixed GID of §14.2 (root:<gid>
+# 0440, as infrastructure/host/app-secrets.sh lays them out on the host). One copy per consumer, same values as the
+# role passwords db-init sets.
+APP_SECRET_GROUPS = {"api": 20002, "worker": 20003, "app": 20001, "migrate": 20004, "kek-app": 20001, "kek-ops": 20003}
+APP_ROLES = ("mg_api_tenant", "mg_api_platform", "mg_worker_tenant", "mg_worker_platform", "mg_audit_writer",
+             "mg_partition_maint")
+DUMMY_IMAGES = ("sha256:" + "0" * 64, "sha256:" + "1" * 64)   # render without Docker (e2e.py render, test_stack.py)
 # The ACME DNS-01 block of the rendered Caddyfile, replaced by the run's certificate (ci_tls).
 TLS_DNS01 = re.compile(r"\n\ttls \{\n\t\tdns cloudflare \{file\./run/secrets/cloudflare_dns_token\}\n"
                        r"\t\tresolvers [0-9. ]+\n\t\}\n")
@@ -90,6 +99,9 @@ class Stack:
         self.mesh = f"mesh.{self.domain}"
         self.edge_ip = f"{base}.0.2"
         self.admin_ip, self.obs_ip = f"{base}.2.2", f"{base}.3.2"
+        self.worker_edge_ip = f"{base}.0.4"           # render_edge.APP_IPS: the edge's Admin-API allow-list (P2-T16)
+        self.host_ip = f"{base}.0.1"                  # this host on the edge network: the only admin. source (P2-T16)
+        self.app_images = DUMMY_IMAGES                # (api, worker) — build_app_images() sets the local image IDs
         # name → (subnet, internal, ip-range for dynamic allocation) — same layout as infrastructure/host/networks.sh
         self.networks = {
             "edge": (f"{base}.0.0/24", False, f"{base}.0.128/25"),
@@ -110,7 +122,8 @@ class Stack:
                        "idp": img("mg-idp"), "postgres": img("postgres"), "tailscale": img("tailscale"),
                        "alpine": img("alpine"), "golang": img("golang"), "distroless": img("distroless-static")}
         env.update(MG_E2E_EDGE_IPV4=self.edge_ip, MG_E2E_TENANT_A_CIDR=net_a, MG_E2E_TENANT_B_CIDR=net_b,
-                   MG_E2E_HEADSCALE_IMAGE=self.images["headscale"], MG_E2E_EDGE_IMAGE=self.images["edge"])
+                   MG_E2E_HEADSCALE_IMAGE=self.images["headscale"], MG_E2E_EDGE_IMAGE=self.images["edge"],
+                   MG_E2E_ADMIN_ALLOW=f"{self.host_ip}/32")
         self.env = env
 
     # ------------------------------------------------------------------------------------------------ processes
@@ -119,12 +132,15 @@ class Stack:
             text = text.replace(v, "[REDACTED]")
         return SECRET_RE.sub("[REDACTED]", text)
 
-    def run(self, cmd: list[str], *, check: bool = True, timeout: float | None = 300) -> subprocess.CompletedProcess:
+    def run(self, cmd: list[str], *, check: bool = True, timeout: float | None = 300,
+            input: str | None = None) -> subprocess.CompletedProcess:  # noqa: A002
         """Run a command (never with a secret in its arguments), capturing output. Output is never echoed (it may hold
-        a credential) — callers decide what to print, through redact()."""
+        a credential) — callers decide what to print, through redact(). `input` is written to its stdin (a pipe) — the
+        only way a credential reaches an admin command (P2-T11, P2-T16)."""
         try:
-            p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL,
-                               encoding="utf-8", errors="replace")
+            stdin = {"input": input} if input is not None else {"stdin": subprocess.DEVNULL}
+            p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, encoding="utf-8", errors="replace",
+                               **stdin)
         except subprocess.TimeoutExpired as e:
             raise StackError(f"timeout after {timeout}s: {' '.join(cmd[:6])} …") from e
         if check and p.returncode != 0:
@@ -138,7 +154,7 @@ class Stack:
     def compose_files(self) -> list[str]:
         r = self.work / "render"
         files = [r / "tenant-a" / "compose.yaml", r / "tenant-b" / "compose.yaml", r / "edge" / "compose.edge.yaml",
-                 r / "idp" / "compose.idp.yaml", ROOT / "compose.yaml"]
+                 r / "idp" / "compose.idp.yaml", r / "app" / "compose.app.yaml", ROOT / "compose.yaml"]
         return [x for f in files for x in ("-f", str(f))]
 
     def compose(self, *args: str, **kw) -> subprocess.CompletedProcess:
@@ -172,6 +188,7 @@ class Stack:
         # (KC_PROXY_TRUSTED_ADDRESSES = the edge IP).
         render_edge.EDGE_IPS.update(edge_ip=self.edge_ip, edge_admin_ip=self.admin_ip, edge_obs_ip=self.obs_ip)
         render_edge.INTERNAL.update(admin_subnet=self.networks["admin"][0], obs_subnet=self.networks["obs"][0])
+        render_edge.APP_IPS.update(worker_edge_ip=self.worker_edge_ip)
         params = mgenv.expand(json.loads((ENV_DIR / "edge.json").read_text(encoding="utf-8")), self.env)
         files = render_edge.render(params)
         files["caddy/Caddyfile"] = ci_tls(files["caddy/Caddyfile"])
@@ -180,6 +197,7 @@ class Stack:
         files = render_idp.render(self.env, self.images["idp"])
         render_edge.write(files, out / "idp")
         log(f"render idp: {len([f for f in files if f.startswith('idp/realms/')])} realm, compose.idp.yaml")
+        self.render_app()
         pol = self.work / "policies"
         pol.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ROOT / "infrastructure" / "headscale" / "templates" / "test-allow-intra.hujson",
@@ -187,6 +205,27 @@ class Stack:
         os.chmod(pol / "test-allow-intra.hujson", 0o644)
         for p in out.rglob("*"):   # config is not secret; Headscale/Keycloak/Caddy run as other UIDs
             os.chmod(p, 0o755 if p.is_dir() else 0o644)
+
+    def render_app(self) -> None:
+        """compose.app.yaml (P2-T16) by tools/render_app.py with the images of this run (dummy IDs before the build)."""
+        files = render_app.render(self.env, *self.app_images)
+        render_edge.write(files, self.work / "render" / "app")
+        os.chmod(self.work / "render" / "app" / "compose.app.yaml", 0o644)
+        log(f"render app: compose.app.yaml (template {render_app.TEMPLATE_VERSION}, api {self.app_images[0][:19]}…, "
+            f"worker {self.app_images[1][:19]}…)")
+
+    def build_app_images(self) -> None:
+        """api and worker images built from the tree with the production Dockerfile (infrastructure/docker/app)."""
+        ids = []
+        for app in ("api", "worker"):
+            t0 = time.time()
+            tag = f"{self.prefix}-{app}:e2e"
+            self.docker("build", "-q", "-f", str(ROOT / "infrastructure" / "docker" / "app" / "Dockerfile"),
+                        "--build-arg", f"APP={app}", "--build-arg", "VERSION=e2e", "--build-arg", "COMMIT=e2e",
+                        "--label", "meshguard.role=e2e", "-t", tag, str(ROOT), timeout=1800)
+            ids.append(self.docker("image", "inspect", "-f", "{{.Id}}", tag).stdout.strip())
+            log(f"build {app} (infrastructure/docker/app/Dockerfile): {ids[-1][:19]}… trong {time.time() - t0:.0f} s")
+        self.app_images = (ids[0], ids[1])
 
     def write_stack_env(self) -> None:
         values = {"MGE_PREFIX": self.prefix, "MGE_WORK": str(self.work), "MGE_MESH_DOMAIN": self.mesh,
@@ -224,10 +263,12 @@ class Stack:
                       "-days", "1", "-subj", f"/O=MeshGuard CI/CN=MeshGuard ephemeral CI CA {self.prefix} {stamp}",
                       "-addext", "basicConstraints=critical,CA:TRUE,pathlen:0",
                       "-addext", "keyUsage=critical,keyCertSign,cRLSign",
-                      "-addext", f"nameConstraints=critical,permitted;DNS:{self.mesh}"])
+                      "-addext", f"nameConstraints=critical,permitted;DNS:{self.domain}"])
             self.run(["openssl", "req", "-new", *ec, "-keyout", str(edge / "tls_key"), "-out", str(tmp / "edge.csr"),
                       "-subj", f"/CN=*.{self.mesh}"])
-            (tmp / "edge.ext").write_text(f"subjectAltName=DNS:*.{self.mesh}\nbasicConstraints=critical,CA:FALSE\n"
+            sans = ",".join(f"DNS:{h}" for h in (f"*.{self.mesh}", f"app.{self.domain}", f"admin.{self.domain}",
+                                                  f"auth.{self.domain}"))
+            (tmp / "edge.ext").write_text(f"subjectAltName={sans}\nbasicConstraints=critical,CA:FALSE\n"
                                           "keyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth\n",
                                           encoding="ascii")
             self.run(["openssl", "x509", "-req", "-in", str(tmp / "edge.csr"), "-CA", str(ca_dir / "ca.crt"),
@@ -239,7 +280,8 @@ class Stack:
         os.chmod(ca_dir / "ca.crt", 0o644)
         self.secret_values.add((edge / "tls_key").read_text(encoding="ascii").strip())
         info = self.run(["openssl", "x509", "-in", str(ca_dir / "ca.crt"), "-noout", "-subject", "-enddate"]).stdout
-        log("CA nội bộ dùng-một-lần: " + " ".join(info.split()) + f"; name constraint DNS:{self.mesh}; khóa CA đã xóa")
+        log("CA nội bộ dùng-một-lần: " + " ".join(info.split()) + f"; name constraint DNS:{self.domain} "
+            f"(*.{self.mesh}, app./admin./auth.); khóa CA đã xóa")
 
     def make_secrets(self) -> None:
         (self.work / "secrets").mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -248,6 +290,22 @@ class Stack:
         s("dbinit/pg_superuser_password", pg)              # one copy per consumer (§14.2)
         for role in (*ADMIN_ROLES, *LOGIN_ROLES):
             s(f"dbinit/role_{role}")
+        roles = {r: (self.work / "secrets" / "dbinit" / f"role_{r}").read_text(encoding="utf-8")
+                 for r in (*ADMIN_ROLES, *LOGIN_ROLES)}
+        # backend (P2-T16): each consumer's copy of the role passwords, the edge admin token, the two keyrings
+        s("api/db_api_tenant_password", roles["mg_api_tenant"])
+        s("api/db_api_platform_password", roles["mg_api_platform"])
+        s("worker/db_worker_tenant_password", roles["mg_worker_tenant"])
+        s("worker/db_worker_platform_password", roles["mg_worker_platform"])
+        s("worker/db_partition_password", roles["mg_partition_maint"])
+        s("app/db_audit_writer_password", roles["mg_audit_writer"])
+        for r in ("mg_migrator", *APP_ROLES):
+            s(f"migrate/{r}", roles[r])
+        s("appboot/pg_superuser_password", pg)
+        s("appboot/pg_backup_password", roles["mg_backup"])
+        for ring, kid in (("kek-app", "e2e-app-1"), ("kek-ops", "e2e-ops-1")):
+            s(f"{ring}/{kid}", secrets.token_hex(32) + "\n")
+            self.write_private(self.work / "secrets" / ring / "ACTIVE", kid + "\n")
         idp_db = s("idp/db_password")
         s("idp/db_superuser_password")
         s("idp/backup_db_password")                        # role idp_backup of idp-db (initdb 20-…, P2-T05b)
@@ -262,8 +320,10 @@ class Stack:
                            "# Sinh bởi tests/e2e/harness — dùng một lần.\n" + "".join(f"{k}={v}\n" for k, v in conf.items()))
         for name in ("admin_token", "metrics_token", "bouncer_key", "cloudflare_dns_token"):
             v = s(f"edge/{name}")
-            if name == "admin_token":                      # copy of the caller of the admin listener (role of api)
+            if name == "admin_token":                      # copies: the caller of the admin listener, api/worker
                 s("harness/admin_token", v)
+                s("app/edge_admin_token", v)
+        s("harness/kc_admin_password", admin_pw)           # the harness's copy: Keycloak Admin API of the checks
         for c in CLIENTS:                                  # filled with a pre-auth key right before the client starts
             self.write_private(self.work / "secrets" / "clients" / f"{c}.authkey", "")
         for d in ("data/tenant-a", "data/tenant-b", "logs/edge", "bin"):
@@ -281,6 +341,10 @@ class Stack:
             f"chown -R {UID['edge']} /w/secrets/edge; chmod 0700 /w/secrets/edge; chmod 0400 /w/secrets/edge/*",
             f"chown {UID['edge']} /w/logs/edge; chmod 0750 /w/logs/edge",
             "chown 30001:30001 /w/data/tenant-a; chown 30002:30002 /w/data/tenant-b; chmod 0700 /w/data/*",
+            *[f"chown -R 0:{g} /w/secrets/{d}; chmod 0750 /w/secrets/{d}; chmod 0440 /w/secrets/{d}/*"
+              for d, g in APP_SECRET_GROUPS.items()],
+            "chown 0:999 /w/secrets/appboot/pg_superuser_password; chown 0:20007 /w/secrets/appboot/pg_backup_password",
+            "chmod 0755 /w/secrets/appboot; chmod 0440 /w/secrets/appboot/*",
         ])
         self.helper(script, f"{self.work}:/w")
 
@@ -299,6 +363,8 @@ class Stack:
     def create_networks(self) -> None:
         for name, (subnet, internal, ip_range) in self.networks.items():
             flags = (["--internal"] if internal else []) + (["--ip-range", ip_range] if ip_range else [])
+            if name == "edge":   # this host on the edge network = .1 (Docker would take the first address of the range)
+                flags += ["--gateway", self.host_ip]
             self.docker("network", "create", *flags, "--subnet", subnet, "--label", "meshguard.role=e2e",
                         "--label", f"meshguard.e2e.prefix={self.prefix}", self.name(name))
         log("network: " + ", ".join(f"{self.name(n)} {s}{' internal' if i else ''}"
@@ -317,11 +383,11 @@ class Stack:
 
     def teardown(self, *, quiet: bool = False) -> None:
         """Remove every object of this prefix (and only those). Safe to run when nothing exists."""
-        if (self.work / "stack.env").exists() and (self.work / "render" / "idp" / "compose.idp.yaml").exists():
-            self.compose("--profile", "tools", "down", "-v", "--remove-orphans", "--timeout", "10", check=False,
-                         timeout=180)
+        if (self.work / "stack.env").exists() and (self.work / "render" / "app" / "compose.app.yaml").exists():
+            self.compose("--profile", "tools", "--profile", "migrate", "--profile", "bootstrap", "down", "-v",
+                         "--remove-orphans", "--timeout", "10", check=False, timeout=180)
         ids = self.docker("ps", "-aq", "--filter", f"label=com.docker.compose.project={self.prefix}", check=False).stdout.split()
-        for extra in ("probe", "caller"):
+        for extra in ("probe", "caller", "direct"):
             ids += self.docker("ps", "-aq", "--filter", f"name=^{self.name(extra)}", check=False).stdout.split()
         if ids:
             self.docker("rm", "-f", *ids, check=False)
@@ -331,6 +397,8 @@ class Stack:
             self.docker("volume", "rm", "-f", f"{self.prefix}_{v}", check=False)
         if not self.keep_cache:
             self.docker("volume", "rm", "-f", self.name("gomod"), self.name("gocache"), check=False)
+        for app in ("api", "worker"):                        # images built from the tree (build cache is kept)
+            self.docker("image", "rm", "-f", f"{self.prefix}-{app}:e2e", check=False)
         if self.work.exists():
             self.helper("rm -rf /w/* /w/.[!.]* 2>/dev/null || true", f"{self.work}:/w")
             shutil.rmtree(self.work, ignore_errors=True)
@@ -356,6 +424,6 @@ def ci_tls(caddyfile: str) -> str:
     if len(TLS_DNS01.findall(caddyfile)) != 1:
         raise StackError("Caddyfile.tmpl đổi: không tìm thấy đúng một khối tls DNS-01 — cập nhật stack.ci_tls()")
     out = TLS_DNS01.sub("\n\ttls /run/secrets/edge_tls_cert /run/secrets/edge_tls_key\n", caddyfile)
-    head = ("# [stack dev/CI P2-T01a] Bản render của tools/render_edge.py; khác duy nhất: khối tls của *.mesh dùng chứng chỉ\n"
-            "# do CA nội bộ dùng-một-lần của lượt chạy ký (thay ACME DNS-01). Không bao giờ dùng ngoài CI.\n")
+    head = ("# [stack dev/CI P2-T01a] Bản render của tools/render_edge.py; khác duy nhất: khối tls (snippet tls_acme) dùng\n"
+            "# chứng chỉ do CA nội bộ dùng-một-lần của lượt chạy ký (thay ACME DNS-01). Không bao giờ dùng ngoài CI.\n")
     return head + out

@@ -63,7 +63,7 @@ func (a fakeAuthorizer) RequireOperation(_ context.Context, _ string, tenantID u
 func serve(t *testing.T, svc *fakeService, authorizer gen.StrictMiddlewareFunc, path string, hdr http.Header) *httptest.ResponseRecorder {
 	t.Helper()
 	h, err := httpapi.New(httpapi.Options{Logger: logx.New(io.Discard, slog.LevelInfo, "api"),
-		Handlers: httpapi.Handlers{Monitoring: New(svc)}, Hooks: httpapi.Hooks{Authz: authorizer}})
+		Handlers: httpapi.Handlers{Monitoring: New(svc)}, Hooks: httpapi.Hooks{Authz: authorizer, Session: noSession, Audit: noAudit}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,3 +179,9 @@ func TestHandlersFailClosed(t *testing.T) {
 		}
 	}
 }
+
+// noSession and noAudit are explicit pass-through hooks: httpapi.New requires Session and Audit once handlers are
+// mounted (P2-T16); this test exercises the handlers behind the authorization hook only.
+func noSession(next http.Handler) http.Handler { return next }
+
+func noAudit(f gen.StrictHandlerFunc, _ string) gen.StrictHandlerFunc { return f }

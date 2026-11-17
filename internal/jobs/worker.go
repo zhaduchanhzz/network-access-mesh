@@ -76,10 +76,11 @@ type Worker struct {
 	metrics    *metrics
 	partitions *store.PartitionMaintainer
 
-	mu       sync.Mutex
-	handlers map[string]Handler
-	client   *store.QueueClient
-	started  bool
+	mu        sync.Mutex
+	handlers  map[string]Handler
+	periodics []periodic // RegisterPeriodic
+	client    *store.QueueClient
+	started   bool
 }
 
 // NewWorker validates cfg and returns a worker with the built-in handlers registered.
@@ -624,6 +625,9 @@ func (w *Worker) periodicJobs() []*river.PeriodicJob {
 	list := []schedule{{"job.reaper", w.cfg.ReaperInterval, false}, {"retention.sweep", w.cfg.SweepInterval, true}}
 	if w.partitions != nil {
 		list = append(list, schedule{"partition.maintain", w.cfg.PartitionInterval, true})
+	}
+	for _, p := range w.periodics {
+		list = append(list, schedule{p.kind, p.every, true})
 	}
 	out := make([]*river.PeriodicJob, 0, len(list))
 	for _, s := range list {

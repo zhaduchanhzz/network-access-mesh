@@ -1,0 +1,170 @@
+package runner
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"sync"
+
+	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
+
+	"github.com/zhaduchanhzz/network-access-mesh/internal/config"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/devices"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/headscale"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/identity"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/idp"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/idp/external"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/idp/keycloak"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/jobs"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/monitoring"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/secrets"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
+)
+
+// partitionRole is the owner of the partitioned tables, used only by partition.maintain (§6.1).
+const partitionRole = "mg_partition_maint"
+
+// buildWorker wires the worker process (P2-T16):
+//
+//	store            mg_worker_tenant / mg_worker_platform (§6.1); SecretStore with kek-app AND kek-ops (§7.6)
+//	jobs.Worker      jobs.DefaultConfig (every timeout explicit — §11.3); built-in job.reaper, retention.sweep and,
+//	                 with the mg_partition_maint pool, partition.maintain (daily); Alerter = fan-out to devices.JobAlert
+//	devices          inventory.sync + device.revoke handlers, the inventory.sync schedule, JobAlert (P2-T13)
+//	monitoring       health.probe handler over the Headscale registry's Probe, its schedule (P2-T13a)
+//	identity         session.gc on the worker's store, scheduled through jobs.Worker.RegisterPeriodic (P2-T06)
+//	idp              driver registry keycloak (narrow route to auth.<domain> incl. /admin/realms, provisioning identity
+//	                 from the SecretStore — platform_ops) + external (hardened client) — P2-T05a
+//	readiness        postgres, secretstore, edge_admin (§16.2)
+func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg prometheus.Registerer) (_ *component, err error) {
+	d, err := openDeps(ctx, cfg, log, nil) // nil: idp.PlatformDriverPaths (public OIDC + Admin REST API)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err != nil {
+			d.close()
+		}
+	}()
+	part, err := store.OpenPartitionMaintainer(ctx, cfg.DB.URL, store.Credentials{User: partitionRole,
+		PasswordFile: cfg.PartitionPasswordFile})
+	if err != nil {
+		return nil, err
+	}
+	d.closers = append(d.closers, part.Close)
+	dev, err := d.newDevices(reg)
+	if err != nil {
+		return nil, err
+	}
+	mon, err := monitoring.New(d.st, monitoring.Config{Devices: deviceCounter(dev), Prober: prober(d.headscale),
+		Logger: log, Registerer: reg})
+	if err != nil {
+		return nil, err
+	}
+	w, err := jobs.NewWorker(d.st, jobs.DefaultConfig(), jobs.Options{Logger: log, Registerer: reg,
+		Alerter: fanOut{dev}, Partitions: part})
+	if err != nil {
+		return nil, err
+	}
+	if err := dev.Register(w); err != nil {
+		return nil, err
+	}
+	if err := mon.Register(w); err != nil {
+		return nil, err
+	}
+	if err := identity.NewSessionGC(d.st, log, nil).Register(w); err != nil {
+		return nil, err
+	}
+	drivers, provisioned, err := idpDrivers(ctx, cfg, d)
+	if err != nil {
+		return nil, err
+	}
+	log.Info("worker wired", "idp_drivers", drivers.Names(), "keycloak_provisioner_bootstrapped", provisioned)
+	if !provisioned {
+		log.Warn("the keycloak driver's provisioning identity is not bootstrapped yet: run `meshguard-worker admin " +
+			"idp-bootstrap` (RUNBOOK), then restart the worker — no Phase 2 job uses the driver")
+	}
+
+	var wg sync.WaitGroup
+	sched, cancel := context.WithCancel(context.Background())
+	c := &component{probes: d.probes(), close: d.close}
+	c.start = func(ctx context.Context) error {
+		if err := w.Start(ctx); err != nil {
+			cancel()
+			return err
+		}
+		for name, run := range map[string]func(context.Context) error{
+			"inventory.sync": dev.NewScheduler(devices.SchedulerConfig{}).Run,
+			"health.probe":   mon.NewScheduler(monitoring.SchedulerConfig{}).Run,
+		} {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if err := run(sched); err != nil && !errors.Is(err, context.Canceled) {
+					log.Error("schedule stopped", "schedule", name, "error", err.Error())
+				}
+			}()
+		}
+		return nil
+	}
+	c.stop = func(ctx context.Context) {
+		cancel()
+		wg.Wait()
+		if err := w.Stop(ctx); err != nil {
+			log.Warn("job worker stop", "error", err.Error())
+		}
+	}
+	return c, nil
+}
+
+// fanOut forwards every job alert (already counted and logged by the worker) to the modules that settle their own
+// failed jobs: devices (failed revocations, the audit pair of an API-requested sync — P2-T13).
+type fanOut []jobs.Alerter
+
+func (f fanOut) JobAlert(ctx context.Context, a jobs.Alert) {
+	for _, x := range f {
+		x.JobAlert(ctx, a)
+	}
+}
+
+// prober adapts the Headscale registry's Probe to monitoring (which does not import internal/headscale — §13.6).
+func prober(reg *headscale.CachingRegistry) monitoring.Prober {
+	return monitoring.ProberFunc(func(ctx context.Context, t uuid.UUID) monitoring.InstanceProbe {
+		p := reg.Probe(ctx, t)
+		return monitoring.InstanceProbe{InstanceID: p.InstanceID, Version: p.Version, Database: p.Database,
+			Breaker: string(p.Breaker), Reason: p.Reason(), Duration: p.Duration}
+	})
+}
+
+// idpDrivers builds the IdP driver registry of the worker (P2-T05a): keycloak over the narrow platform route with the
+// provisioning identity stored by `meshguard-worker admin idp-bootstrap` (its latest secret version in the SecretStore,
+// platform_ops — never in the configuration) and external over the hardened client. provisioned is false while the
+// provisioning identity has not been bootstrapped: the driver then points at version 1 of its reference and its calls
+// fail until the bootstrap ran and the worker restarted.
+func idpDrivers(ctx context.Context, cfg config.Config, d *deps) (_ *idp.Registry, provisioned bool, err error) {
+	clientID := cfg.IdPProvisionerClientID
+	if clientID == "" {
+		clientID = keycloak.DefaultProvisionerClientID
+	}
+	ref, err := d.secrets.Latest(ctx, uuid.Nil, keycloak.ProvisionerRefName)
+	switch {
+	case errors.Is(err, secrets.ErrNotFound):
+		ref = secrets.PlatformRef(keycloak.ProvisionerRefName, 1)
+	case err != nil:
+		return nil, false, err
+	default:
+		provisioned = true
+	}
+	kc, err := keycloak.New(keycloak.Config{Route: d.route, Secrets: d.secrets,
+		Provisioner: keycloak.Credentials{ClientID: clientID, Secret: ref},
+		AppHost:     cfg.AppHost(), AdminHost: cfg.AdminHost(), Logger: d.log})
+	if err != nil {
+		return nil, false, err
+	}
+	ext, err := external.New(external.Config{Client: d.hardened, Secrets: d.secrets})
+	if err != nil {
+		return nil, false, err
+	}
+	r, err := idp.NewRegistry(kc, ext)
+	return r, provisioned, err
+}

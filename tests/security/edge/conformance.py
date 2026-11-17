@@ -14,6 +14,10 @@ are stripped. Subcommands (each prints PASS/FAIL lines; exit code 0 = every chec
               no TLS/HTTP answer with or without a forged PROXY header — V-17)
   real-api    --via admin|public --edge ADDR --key-file F --instance SLUG [--token-file F] [--mesh-domain D]
               (a real, short-lived Headscale API key read from a root-only file; never printed)
+  platform    --edge IP --domain D --admin allowed|refused [--realm R] [--port 443] [--cafile F]
+              (P2-T16 sites app./admin./auth. with the real api and idp behind: api only on /api/*, security
+              headers, Admin REST API / master realm / console of the IdP ⇒ 404 from this source, admin. served only
+              from the allowed management networks; on a tunnel-facing port pass --admin refused)
 
 --log is the echo upstream's JSONL file; without it, upstream-side assertions are skipped (e.g. when run from a
 LAN client). Token files are read, never printed. Standard library only.
@@ -95,10 +99,13 @@ def allowed_public(path: str) -> bool:
     return False
 
 
+CAFILE: str | None = None   # --cafile of `platform` (dev/CI stack: the run's CA); None = system roots
+
+
 def https(edge_ip: str, sni: str, method: str, path: str, headers: dict | None = None, body: bytes | None = None,
           port: int = 443, timeout: float = 8.0):
     """One HTTPS request to edge_ip with the given SNI; returns (status, headers, body) or (None, error, b"")."""
-    ctx = ssl.create_default_context()
+    ctx = ssl.create_default_context(cafile=CAFILE)
     try:
         raw = socket.create_connection((edge_ip, port), timeout=timeout)
         tls = ctx.wrap_socket(raw, server_hostname=sni)
@@ -403,6 +410,50 @@ def cmd_real_api(a) -> int:
     return res.done(f"real Headscale API key via {a.via} listener")
 
 
+IDP_REFUSED = ["/realms/master/.well-known/openid-configuration", "/realms/master/protocol/openid-connect/token",
+               "/admin/realms/master", "/admin/realms/tenant-a/users", "/admin/master/console/", "/admin/", "/",
+               "/realms/tenant-a/../../admin/realms/tenant-a/users", "/realms/tenant-a/%2e%2e/%2e%2e/admin/realms",
+               "/resources/..%2f..%2fadmin/realms/tenant-a", "/realms/tenant-a\\..\\..\\admin/realms",
+               "/health/ready", "/metrics", "/welcome"]
+APP_REFUSED = ["/", "/healthz", "/readyz", "/metrics", "/internal/prometheus/sd", "/api/../metrics", "/api\\..\\metrics"]
+
+
+def cmd_platform(a) -> int:
+    """Sites of the platform (P2-T16, §8.3, §14.6, §15.4): what a client of this source can reach on app./admin./auth."""
+    global CAFILE
+    CAFILE = a.cafile
+    res = Result()
+    app, admin, auth = f"app.{a.domain}", f"admin.{a.domain}", f"auth.{a.domain}"
+    st, hdr, body = https(a.edge, app, "GET", "/api/v1/auth/session", port=a.port,
+                          headers={"X-MG-Token": "x" * 40, "X-Request-Id": "bad id"})
+    h = {k.lower(): v for k, v in (hdr.items() if isinstance(hdr, dict) else [])}
+    res.check(st == 401 and h.get("content-type", "").startswith("application/problem+json"),
+              f"{app} GET /api/v1/auth/session without a session ⇒ 401 problem+json from the api", f"status {st}")
+    res.check(h.get("strict-transport-security", "").startswith("max-age=") and h.get("x-content-type-options") == "nosniff"
+              and "frame-ancestors 'none'" in h.get("content-security-policy", "") and "server" not in h,
+              f"{app}: HSTS, nosniff, CSP, no Server header", str(sorted(h)))
+    res.check(h.get("x-request-id", "") not in ("", "bad id"), f"{app}: the request id is the api's, not the client's")
+    for path in APP_REFUSED:
+        st, _, _ = https(a.edge, app, "GET", path, port=a.port)
+        res.check(st == 404, f"{app} GET {path} ⇒ 404 (only /api/* reaches the api)", f"status {st}")
+    st, _, body = https(a.edge, auth, "GET", f"/realms/{a.realm}/.well-known/openid-configuration", port=a.port)
+    try:
+        issuer = json.loads(body).get("issuer") if st == 200 else None
+    except ValueError:
+        issuer = None
+    res.check(issuer == f"https://{auth}/realms/{a.realm}", f"{auth} discovery of {a.realm} ⇒ 200, issuer of the realm",
+              f"status {st} issuer {issuer}")
+    for path in IDP_REFUSED:
+        st, _, _ = https(a.edge, auth, "GET", path, port=a.port)
+        res.check(st == 404, f"{auth} GET {path} ⇒ 404 from this source", f"status {st}")
+    st, detail, _ = https(a.edge, admin, "GET", "/api/v1/auth/session", port=a.port)
+    if a.admin == "allowed":
+        res.check(st == 401, f"{admin} from an allowed source ⇒ the api (401)", f"status {st} {detail if st is None else ''}")
+    else:
+        res.check(st is None, f"{admin} from this source ⇒ no answer (aborted or no such site)", f"status {st}")
+    return res.done(f"platform sites app./admin./auth. of {a.domain} on {a.edge}:{a.port}")
+
+
 def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
@@ -440,9 +491,17 @@ def main() -> int:
     p.add_argument("--instance", required=True)
     p.add_argument("--token-file")
     p.add_argument("--mesh-domain")
+    p = sub.add_parser("platform")
+    p.add_argument("--edge", required=True)
+    p.add_argument("--domain", required=True)
+    p.add_argument("--admin", choices=["allowed", "refused"], required=True)
+    p.add_argument("--realm", default="tenant-a")
+    p.add_argument("--port", type=int, default=443)
+    p.add_argument("--cafile")
     a = ap.parse_args()
     return {"public": cmd_public, "stopped": cmd_stopped, "admin": cmd_admin, "metrics": cmd_metrics,
-            "unreachable": cmd_unreachable, "tunnel-reject": cmd_tunnel_reject, "real-api": cmd_real_api}[a.cmd](a)
+            "unreachable": cmd_unreachable, "tunnel-reject": cmd_tunnel_reject, "real-api": cmd_real_api,
+            "platform": cmd_platform}[a.cmd](a)
 
 
 if __name__ == "__main__":

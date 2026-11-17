@@ -64,6 +64,9 @@ func (c *fakeClock) Advance(d time.Duration) {
 // passAuthz is an explicit "allow everything" Authz hook for tests that mount handler sets.
 func passAuthz(f gen.StrictHandlerFunc, _ string) gen.StrictHandlerFunc { return f }
 
+// passSession is a Session hook that resolves nothing (tests of the chain without the identity module).
+func passSession(next http.Handler) http.Handler { return next }
+
 // newLogger is the production logger (logx: JSON, redaction, request_id from the context) at debug level.
 func newLogger(w io.Writer) *slog.Logger { return logx.New(w, slog.LevelDebug, "api") }
 
@@ -87,6 +90,16 @@ func newEnv(t *testing.T, opts Options) *env {
 	}
 	if opts.Now == nil {
 		opts.Now = e.clock.Now
+	}
+	// httpapi.New requires the three security hooks once handlers are mounted (P2-T16): the tests of the chain itself
+	// supply explicit pass-through Session/Audit hooks unless they test those slots.
+	if opts.Handlers.mounted() {
+		if opts.Hooks.Session == nil {
+			opts.Hooks.Session = passSession
+		}
+		if opts.Hooks.Audit == nil {
+			opts.Hooks.Audit = passAuthz
+		}
 	}
 	h, err := New(opts)
 	if err != nil {

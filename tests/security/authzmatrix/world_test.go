@@ -27,8 +27,10 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/auditapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/authzhook"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/devicesapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/jobsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/monitoringapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/tenantsapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/jobs"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/kit/logx"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/kit/requestid"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/monitoring"
@@ -58,8 +60,9 @@ const unreachableEdge = "http://127.0.0.1:1"
 // through the production registry — headscale.NewRegistry over the real Locator of P2-T11 (tenant_instances read in the
 // tenant's own scope, API key from the SecretStore that holds the canaries) — pointed at unreachableEdge. mountedOps
 // switches the expectations of the mounted operations from 501 to real answers (own object accepted; another member's
-// object under an own-only grant, another tenant's object and a missing one ⇒ 404). Still 501: the Jobs set (HTTP
-// handlers of the jobs API, deferred by P2-T12 to P2-T16) — add it here when it exists.
+// object under an own-only grant, another tenant's object and a missing one ⇒ 404). Jobs (P2-T16, jobsapi over
+// jobs.Service on the api's store — the HTTP handlers deferred by P2-T12) is mounted like every other set: no
+// operation of the spec answers 501 any more.
 func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi.Handlers {
 	t.Helper()
 	log := logx.New(m.svcLog, slog.LevelDebug, "matrix")
@@ -90,6 +93,7 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 		Tenants:    tenantsapi.New(dir, platform.New(w.Store)),
 		Devices:    devicesapi.New(dev),
 		Audit:      auditapi.New(audit.NewReader(w.Store)),
+		Jobs:       jobsapi.New(jobs.NewService(w.Store)),
 		Monitoring: monitoringapi.New(mon),
 	}
 }

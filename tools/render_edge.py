@@ -11,10 +11,14 @@ Params (no secret — secrets are referenced by {file.*} placeholders and compos
   acme           "staging" or "production" (Let's Encrypt; staging first — P1-T05)
   image          edge image pinned by digest (versions.lock)
   dns_resolvers  public resolvers for the DNS-01 propagation check (split-horizon safe — P1-T06)
+  admin_allow    CIDRs allowed to reach admin.<base_domain> (Platform Console — §15.4 "giới hạn IP"): private ranges
+                 of the management network (staging: MG_LAN_CIDR), never the tenant pool; any other source is aborted
   tunnel         optional {"edge_tunnel_ipv4", "peer_ipv4", "http_port", "https_port"}: tunnel-facing listeners for
                  the VPS gateway (§14.6, §14.9). The edge publishes the two ports on the host's tunnel IP only and
                  REQUIRES a PROXY v2 header from the tunnel peer; a header from any other source is rejected and a
                  headerless connection from any other source is closed by the @direct_tunnel guard (GW-02, V-17).
+                 app.<base_domain> and auth.<base_domain> are served there too (public through the VPS);
+                 admin.<base_domain>, the Admin REST API and the master realm of the IdP never are (P2-T16).
 
 Writes <out_dir>/caddy/Caddyfile and <out_dir>/compose.edge.yaml. Output is deterministic — guarded by
 tools/test_render_edge.py (golden files). Standard library only.
@@ -32,7 +36,7 @@ import sys
 import mgenv  # noqa: E402 — tools/mgenv.py: env file of the environment (no secrets)
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-TEMPLATE_VERSION = "4"
+TEMPLATE_VERSION = "5"
 CADDYFILE_TMPL = ROOT / "infrastructure" / "caddy" / "Caddyfile.tmpl"
 COMPOSE_TMPL = ROOT / "infrastructure" / "compose" / "compose.edge.yaml.tmpl"
 
@@ -47,7 +51,12 @@ ACME = {
 EDGE_IPS = {"edge_ip": "10.249.0.2", "edge_admin_ip": "10.249.2.2", "edge_obs_ip": "10.249.3.2"}
 # Internal listeners (§14.6): only callers inside the matching subnet are served, everything else is aborted.
 INTERNAL = {"admin_subnet": "10.249.2.0/24", "admin_port": "8081", "obs_subnet": "10.249.3.0/24", "metrics_port": "9091"}
-REQUIRED = ["lan_ipv4", "public_entry_ipv4", "acme", "image", "dns_resolvers"]
+# Static IP of the worker on mg-edge (compose project mg-app, tools/render_app.py — lower half of the /24 like the
+# edge's): the only source the edge lets reach the Admin REST API and the master realm of auth.<domain> (P2-T05a).
+APP_IPS = {"worker_edge_ip": "10.249.0.4"}
+# Tenant network pool (versions.lock [ids] tenant_net_pool, §14.3): a source in it is aborted on the platform sites.
+TENANT_POOL = "10.250.0.0/16"
+REQUIRED = ["lan_ipv4", "public_entry_ipv4", "acme", "image", "dns_resolvers", "admin_allow"]
 
 
 class ParamError(ValueError):
@@ -61,11 +70,12 @@ def deny_all_but(peer: str) -> list[str]:
     return [str(n) for n in sorted(nets)] + ["::/0"]
 
 
-def tunnel_values(p: dict, edge_ip: str, mesh_domain: str) -> dict[str, str]:
+def tunnel_values(p: dict, edge_ip: str, mesh_domain: str, base_domain: str) -> dict[str, str]:
     t = p.get("tunnel")
     if not t:
         return {"tunnel_servers": "", "tunnel_tls_site": "", "tunnel_http_site": "", "tunnel_ports": "",
-                "tunnel_guard": "", "tunnel_summary": "không có (Local Development, chỉ LAN-direct)"}
+                "tunnel_guard": "", "tunnel_guard_matcher": "", "tunnel_guard_abort": "", "tunnel_app_site": "",
+                "tunnel_auth_site": "", "tunnel_summary": "không có (Local Development, chỉ LAN-direct)"}
     tun = ipaddress.IPv4Address(t["edge_tunnel_ipv4"])
     peer = ipaddress.IPv4Address(t["peer_ipv4"])
     if not (tun.is_private and peer.is_private) or tun == peer:
@@ -90,10 +100,23 @@ def tunnel_values(p: dict, edge_ip: str, mesh_domain: str) -> dict[str, str]:
     # connections that carry a header (go-proxyproto), and REQUIRE would accept a forged one. A connection that did
     # carry the peer's header has the header's destination as its local address (the VPS entry, port 443/80); a
     # connection made straight to the tunnel-facing listener still has the listener port ⇒ close it (V-17, P1-T18).
+    matcher = f"\t@direct_tunnel vars {{http.request.local.port}} {https_port} {http_port}\n"
     guard = ("\t# Vào thẳng listener tunnel-facing mà không qua PROXY header của VPS (địa chỉ đích còn là cổng tunnel)\n"
              "\t# ⇒ đóng kết nối, trước mọi handle khác (proxy_protocol chỉ REJECT nguồn bị deny khi chúng GỬI header).\n"
-             f"\t@direct_tunnel vars {{http.request.local.port}} {https_port} {http_port}\n"
-             "\thandle @direct_tunnel {\n\t\tabort\n\t}\n")
+             + matcher + "\thandle @direct_tunnel {\n\t\tabort\n\t}\n")
+    # auth.<domain> on the tunnel-facing listener: a site block of its own, so the routes that exist only on the
+    # LAN-direct server (Admin REST API, master realm — worker only) are not even present on the server of this port —
+    # whatever a PROXY header claims about the source or destination (P2-T16).
+    auth_site = (
+        "\n# auth." + base_domain + " trên listener tunnel-facing (public qua VPS): chỉ endpoint OIDC và trang đăng nhập\n"
+        "# công khai của các realm (trừ master). Admin REST API, realm master và console KHÔNG tồn tại trên server này.\n"
+        f"auth.{base_domain}:{https_port} {{\n"
+        "\timport access_log\n" + matcher +
+        "\timport tls_acme\n\timport platform_site\n"
+        "\t@idp_public {\n\t\tpath /realms/* /resources/*\n\t\tnot path /realms/master /realms/master/*\n\t}\n"
+        "\troute {\n\t\tabort @direct_tunnel\n\t\tabort @from_tenant_pool\n\t\trespond @unsafe_path 404\n"
+        "\t\treverse_proxy @idp_public idp.:8080 {\n\t\t\timport upstream_headers\n\t\t}\n"
+        "\t\trespond 404\n\t}\n}\n")
     return {
         "tunnel_servers": server(https_port, True) + server(http_port, False),
         "tunnel_tls_site": f", *.{mesh_domain}:{https_port}",
@@ -101,6 +124,10 @@ def tunnel_values(p: dict, edge_ip: str, mesh_domain: str) -> dict[str, str]:
         "tunnel_ports": f'      - "{tun}:{http_port}:{http_port}/tcp"   # tunnel-facing (VPS gateway)\n'
                         f'      - "{tun}:{https_port}:{https_port}/tcp"\n',
         "tunnel_guard": guard,
+        "tunnel_guard_matcher": matcher,
+        "tunnel_guard_abort": "\t\tabort @direct_tunnel\n",
+        "tunnel_app_site": f", app.{base_domain}:{https_port}",
+        "tunnel_auth_site": auth_site,
         "tunnel_summary": f"{edge_ip}:{https_port} (TLS) và :{http_port}, publish trên IP tunnel {tun}; "
                           f"bắt buộc PROXY v2 từ {peer}, header từ nguồn khác bị từ chối, kết nối không header "
                           f"từ nguồn khác bị đóng ở tầng HTTP (@direct_tunnel)",
@@ -130,6 +157,14 @@ def validate(p: dict) -> dict:
     for r in p["dns_resolvers"]:
         if not ipaddress.ip_address(r).is_global:
             raise ParamError("dns_resolvers must be public resolvers (split-horizon must not break DNS-01)")
+    allow = p["admin_allow"]
+    if isinstance(allow, str) or not allow:
+        raise ParamError("admin_allow must be a non-empty list of CIDRs (management networks)")
+    tenant_pool = ipaddress.ip_network(TENANT_POOL)
+    for c in allow:
+        n = ipaddress.ip_network(c)   # strict: host bits set ⇒ error
+        if not n.is_private or n.prefixlen < 8 or n.overlaps(tenant_pool):
+            raise ParamError("admin_allow: private management networks only (at least /8), never the tenant pool")
     return p
 
 
@@ -147,10 +182,14 @@ def render(params: dict) -> dict[str, str]:
         "lan_ipv4": p["lan_ipv4"],
         "public_entry_ipv4": p["public_entry_ipv4"],
         "image": p["image"],
+        "base_domain": p["base_domain"],
+        "admin_allow": " ".join(str(ipaddress.ip_network(c)) for c in p["admin_allow"]),
+        "tenant_pool": TENANT_POOL,
         **EDGE_IPS,
         **INTERNAL,
+        **APP_IPS,
     }
-    v.update(tunnel_values(p, EDGE_IPS["edge_ip"], mesh_domain))
+    v.update(tunnel_values(p, EDGE_IPS["edge_ip"], mesh_domain, p["base_domain"]))
     return {
         "caddy/Caddyfile": string.Template(CADDYFILE_TMPL.read_text(encoding="utf-8")).substitute(v),
         "compose.edge.yaml": string.Template(COMPOSE_TMPL.read_text(encoding="utf-8")).substitute(v),

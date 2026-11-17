@@ -32,6 +32,12 @@ BAD = {
     "bad domain": {"base_domain": "Example.COM"},
     "no entry ip": {"public_entry_ipv4": ""},
     "wildcard entry ip": {"public_entry_ipv4": "0.0.0.0"},
+    "no admin allow-list": {"admin_allow": []},
+    "admin allow-list as text": {"admin_allow": "192.0.2.0/24"},
+    "admin allow-list open to all": {"admin_allow": ["0.0.0.0/0"]},
+    "admin allow-list public": {"admin_allow": ["8.8.8.0/24"]},
+    "admin allow-list in the tenant pool": {"admin_allow": ["10.250.0.0/24"]},
+    "admin allow-list covering the tenant pool": {"admin_allow": ["10.0.0.0/8"]},
 }
 
 
@@ -134,6 +140,78 @@ def check_structure(caddyfile: str, params: dict) -> list[str]:
     return errors
 
 
+def site_block(code: str, address: str) -> str:
+    """Body of the site block whose address line is exactly `address` ("" when absent)."""
+    m = re.search(r"(?m)^" + re.escape(address) + r" \{\n(.*?)\n\}\n", code, re.S)
+    return m.group(1) if m else ""
+
+
+def check_platform_sites(caddyfile: str, params: dict) -> list[str]:
+    """Invariants of the platform sites (P2-T16, §8.3, §14.6, §15.4, P2-T05a)."""
+    errors = []
+    code = "\n".join(line for line in caddyfile.splitlines() if not line.lstrip().startswith("#")) + "\n"
+    d = params["base_domain"]
+    tunnel = params.get("tunnel")
+    tport = tunnel["https_port"] if tunnel else None
+    app_addr = f"app.{d}" + (f", app.{d}:{tport}" if tunnel else "")
+    app, admin, auth = site_block(code, app_addr), site_block(code, f"admin.{d}"), site_block(code, f"auth.{d}")
+    auth_tunnel = site_block(code, f"auth.{d}:{tport}") if tunnel else ""
+    for name, body in (("app", app), ("admin", admin), ("auth", auth)):
+        if not body:
+            errors.append(f"site {name}.{d} not found (or its address line changed)")
+            continue
+        for must in ("import tls_acme", "import platform_site", "import access_log", "abort @from_tenant_pool",
+                     "respond @unsafe_path 404"):
+            if must not in body:
+                errors.append(f"{name}: missing {must!r}")
+        route = body[body.find("\troute {"):]
+        if "\troute {" not in body or not route.rstrip().endswith("respond 404\n\t}") and "\t\trespond 404\n\t}" not in route:
+            errors.append(f"{name}: the route does not end with respond 404")
+        if re.search(r"(?m)^\thandle\b", body):
+            errors.append(f"{name}: handle blocks (sorted by Caddy) instead of one explicit route")
+        for proxy in re.findall(r"reverse_proxy [^\n]*\{\n((?:\t\t\t[^\n]*\n)*)", body):
+            if "import upstream_headers" not in proxy:
+                errors.append(f"{name}: a reverse_proxy without the upstream header rules")
+    for addr in re.findall(r"(?m)^(\S[^\n{]*) \{$", code):
+        if f"admin.{d}" in addr and addr != f"admin.{d}":
+            errors.append(f"admin.{d} is served on another listener: {addr!r}")
+        if tunnel and f":{tport}" in addr and f"admin.{d}" in addr:
+            errors.append("admin.<domain> on the tunnel-facing listener")
+    if "abort @outside_admin" not in admin or "@outside_admin not remote_ip " + " ".join(params["admin_allow"]) not in admin:
+        errors.append("admin: the IP allow-list is not enforced")
+    if admin.find("abort @outside_admin") > admin.find("reverse_proxy"):
+        errors.append("admin: the allow-list is checked after the proxy")
+    for name, body in (("app", app), ("admin", admin)):
+        if "reverse_proxy /api/* api.:8080 {" not in body or "import portal_headers" not in body:
+            errors.append(f"{name}: /api/* is not proxied to api.:8080 with the portal headers")
+    if "remote_ip " + re_.APP_IPS["worker_edge_ip"] not in auth or "reverse_proxy @idp_worker idp.:8080" not in auth:
+        errors.append("auth: the Admin REST API / master realm are not restricted to the worker")
+    worker = re.search(r"@idp_worker \{\n(.*?)\n\t\}", auth, re.S)
+    if not worker or set(re.search(r"path (.+)", worker.group(1)).group(1).split()) != {
+            "/admin/realms", "/admin/realms/*", "/realms/master", "/realms/master/*"}:
+        errors.append("auth: @idp_worker paths differ from the Admin REST API + master realm")
+    for name, body in (("auth", auth), ("auth (tunnel)", auth_tunnel if tunnel else auth)):
+        public = re.search(r"@idp_public \{\n(.*?)\n\t\}", body, re.S)
+        if not public or "path /realms/* /resources/*" not in public.group(1) or \
+                "not path /realms/master /realms/master/*" not in public.group(1):
+            errors.append(f"{name}: public paths are not /realms/* + /resources/* without the master realm")
+        if "/admin/" in (public.group(1) if public else "") or ":9000" in body:
+            errors.append(f"{name}: the console or the management port is routed")
+    if tunnel:
+        if not auth_tunnel:
+            errors.append("auth.<domain> has no block on the tunnel-facing listener")
+        elif "@idp_worker" in auth_tunnel or "/admin/realms" in auth_tunnel or \
+                not auth_tunnel.split("route {", 1)[-1].lstrip().startswith("abort @direct_tunnel"):
+            errors.append("auth (tunnel): Admin API reachable or the tunnel guard is not first")
+        if not app.split("route {", 1)[-1].lstrip().startswith("abort @direct_tunnel"):
+            errors.append("app (tunnel): the tunnel guard is not the first step of the route")
+    elif "@direct_tunnel" in app + admin + auth:
+        errors.append("platform sites: tunnel guard rendered without a tunnel")
+    if "header_up -X-MG-Token" not in code.split("(upstream_headers)", 1)[-1].split("}", 1)[0]:
+        errors.append("upstream_headers does not strip X-MG-Token")
+    return errors
+
+
 def main() -> int:
     update = "--update" in sys.argv
     failures = 0
@@ -170,6 +248,12 @@ def main() -> int:
             failures += 1
         else:
             print(f"PASS {case.name}: listener/allow-list invariants of §14.6 hold")
+        errors = check_platform_sites(files["caddy/Caddyfile"], params)
+        if errors:
+            print(f"FAIL {case.name}: platform sites: " + "; ".join(errors))
+            failures += 1
+        else:
+            print(f"PASS {case.name}: app./admin./auth. invariants hold (admin LAN-only, Admin API worker-only — P2-T16)")
         for name, override in BAD.items():
             try:
                 re_.render({**params, **override})

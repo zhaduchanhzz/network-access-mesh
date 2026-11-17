@@ -74,6 +74,17 @@ type Options struct {
 	Ops    *Keyring         // kek-ops: worker only — nil in the api (§7.6)
 	Logger *slog.Logger     // nil discards; values and key material are never logged
 	Now    func() time.Time // clock for expiry checks; nil = time.Now
+	// OnIntegrity is called for every operation refused with ErrIntegrity (tampered row, AAD, DEK of another owner,
+	// failed authentication), AFTER the operation's transaction ended — its writes rolled back — so it may write in a
+	// transaction of its own: the processes record a security event (P2-T08 open item, wired in P2-T16). nil: the
+	// failure is only logged.
+	OnIntegrity func(ctx context.Context, f IntegrityFailure)
+}
+
+// IntegrityFailure describes an operation refused with ErrIntegrity — never a value or key material.
+type IntegrityFailure struct {
+	Op  string // put, get, rotate, destroy, latest, probe
+	Ref Ref    // the reference of the operation; zero for probe (a DEK of the process)
 }
 
 // Store is the PostgreSQL envelope-encryption SecretStore.
@@ -83,6 +94,8 @@ type Store struct {
 	ops *Keyring
 	log *slog.Logger
 	now func() time.Time
+	// integrity: Options.OnIntegrity
+	integrity func(ctx context.Context, f IntegrityFailure)
 }
 
 var _ SecretStore = (*Store)(nil)
@@ -97,7 +110,7 @@ func New(db *store.Store, o Options) (*Store, error) {
 	case o.Ops != nil && o.Ops.Name() != KEKOps:
 		return nil, fmt.Errorf("secrets: Options.Ops must be the %s keyring", KEKOps)
 	}
-	s := &Store{db: db, app: o.App, ops: o.Ops, log: o.Logger, now: o.Now}
+	s := &Store{db: db, app: o.App, ops: o.Ops, log: o.Logger, now: o.Now, integrity: o.OnIntegrity}
 	if s.log == nil {
 		s.log = slog.New(slog.DiscardHandler)
 	}
@@ -168,6 +181,7 @@ func (s *Store) Put(ctx context.Context, ref Ref, value []byte, opts ...Option) 
 		created, err = s.insertVersion(ctx, q, owner, ref, value, o.expires)
 		return err
 	})
+	s.reportIntegrity(ctx, "put", ref, err)
 	if err != nil {
 		return fmt.Errorf("secrets: put %s: %w", ref, err)
 	}
@@ -223,6 +237,7 @@ func (s *Store) Get(ctx context.Context, ref Ref) (Plaintext, error) {
 		out = pt
 		return nil
 	})
+	s.reportIntegrity(ctx, "get", ref, err)
 	if err != nil {
 		return nil, fmt.Errorf("secrets: get %s: %w", ref, err)
 	}
@@ -266,6 +281,7 @@ func (s *Store) Rotate(ctx context.Context, ref Ref, value []byte, opts ...Optio
 		}
 		return err
 	})
+	s.reportIntegrity(ctx, "rotate", ref, err)
 	if err != nil {
 		return Ref{}, fmt.Errorf("secrets: rotate %s: %w", ref, err)
 	}
@@ -291,6 +307,7 @@ func (s *Store) Destroy(ctx context.Context, ref Ref) error {
 		n, err = q.DestroySecret(ctx, row.ID)
 		return err
 	})
+	s.reportIntegrity(ctx, "destroy", ref, err)
 	if err != nil {
 		return fmt.Errorf("secrets: destroy %s: %w", ref, err)
 	}
@@ -431,6 +448,15 @@ func sameTenant(col *uuid.UUID, o Owner) bool {
 		return col != nil && *col == o.Tenant
 	}
 	return col == nil
+}
+
+// reportIntegrity hands an ErrIntegrity of operation op to Options.OnIntegrity — called after the operation's
+// transaction ended, detached from the caller's cancellation.
+func (s *Store) reportIntegrity(ctx context.Context, op string, ref Ref, err error) {
+	if err == nil || s.integrity == nil || !errors.Is(err, ErrIntegrity) {
+		return
+	}
+	s.integrity(context.WithoutCancel(ctx), IntegrityFailure{Op: op, Ref: ref})
 }
 
 func (s *Store) integrityFailure(ref Ref, dekID uuid.UUID, what string) {

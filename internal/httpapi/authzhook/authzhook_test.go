@@ -112,7 +112,8 @@ func TestAuthzHook(t *testing.T) {
 	dev := devices{seen: make(chan authz.Decision, 1)}
 	h, err := httpapi.New(httpapi.Options{
 		Logger: slog.New(slog.DiscardHandler), Handlers: httpapi.Handlers{Devices: dev},
-		Hooks: httpapi.Hooks{Authz: Authz(fa)},
+		Hooks: httpapi.Hooks{Authz: Authz(fa), Session: func(next http.Handler) http.Handler { return next },
+			Audit: func(f gen.StrictHandlerFunc, _ string) gen.StrictHandlerFunc { return f }},
 	})
 	if err != nil {
 		t.Fatal(err)

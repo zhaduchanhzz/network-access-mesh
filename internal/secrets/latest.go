@@ -31,6 +31,7 @@ func (s *Store) Latest(ctx context.Context, tenant uuid.UUID, name string) (Ref,
 		out = Ref{Tenant: tenant, Name: name, Version: row.Version}
 		return nil
 	})
+	s.reportIntegrity(ctx, "latest", probe, err)
 	if err != nil {
 		return Ref{}, fmt.Errorf("secrets: latest %s: %w", probe.ownerSegment()+"/"+name, err)
 	}
