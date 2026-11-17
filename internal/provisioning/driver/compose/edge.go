@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	agentv1 "github.com/zhaduchanhzz/network-access-mesh/api/agent/v1"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/agentspec"
@@ -132,7 +134,7 @@ func (d *Driver) EnsureEdgeAttachment(ctx context.Context, c agentspec.Call) (*a
 	}
 	switch {
 	case g.err != nil:
-		return nil, fmt.Errorf("start guard (§11.4): %w", g.err)
+		return nil, status.Errorf(codes.Unavailable, "start guard (§11.4) could not verify data/ of this instance: %v", g.err)
 	case g.violation != "" && st.activated:
 		actions := d.contain(ctx, t, l, n, c.Ref, st.meta, g, "edge_attach")
 		return nil, state("instance", "start guard (§11.4): %s — not attached; actions: %v", g.describe(), actions)

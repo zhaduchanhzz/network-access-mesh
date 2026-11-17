@@ -708,6 +708,9 @@ func TestStartGuard(t *testing.T) {
 	if _, err := rg.d.RestartInstance(ctx, rg.call()); status.Code(err) != codes.Unavailable {
 		t.Fatalf("indeterminate: %v", err)
 	}
+	if _, err := rg.attachRef(rg.s.Ref, uuid.New()); status.Code(err) != codes.Unavailable {
+		t.Fatalf("indeterminate attachment: %v", err)
+	}
 	if rg.meta(t)[metaEdgeAttach] != true || !rg.edgeOn("mg-t-acme") {
 		t.Fatal("an indeterminate check was treated as a violation")
 	}
