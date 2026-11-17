@@ -126,7 +126,7 @@ PlanLimits:        {max_devices, max_users, max_tagged_devices, max_live_enrollm
 UsageMetric:       devices_registered | devices_online_peak | users_active | enrollment_keys_issued | relay_bytes_approx
                     # giá trị hợp lệ của usage_records.metric (không có traffic P2P — §10.6)
 TenantInstanceStatus: allocated -> starting -> running; running <-> stopped (upgrade và restore đi qua stopped; tiến trình của thao tác nằm ở job — §13.5);
-                    mọi trạng thái -> failed; failed -> starting (retry); stopped | failed -> removed;
+                    mọi trạng thái -> failed; failed -> starting (retry); stopped | failed -> removed; allocated -> removed (compensation bước 3 — chưa từng start);
                     mọi trạng thái chưa removed -> quarantined; quarantined -> starting -> running chỉ sau /release có 2P (§11.4)
                     # allocated: bước 3; starting: bước 10–18; running: bước 19 (§11.3); removed: sau deprovision hoặc khi instance bị thay thế (§11.4)
 EnrollmentStatus:  # enum của enrollment_requests.status: tập giá trị ở §6.3, thứ tự chuyển trạng thái theo từng phương thức ở §7.4 — nguồn duy nhất, không lặp lại ở đây

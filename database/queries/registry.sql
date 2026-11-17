@@ -22,10 +22,10 @@ WHERE id = sqlc.arg(id) AND version = sqlc.arg(version)
 RETURNING *;
 
 -- name: CreateHost :one
--- Pool platform (bảng P).
-INSERT INTO hosts (name, region, run_uid_range, tenant_net_pool, capacity, public_entry)
-VALUES (sqlc.arg(name), sqlc.arg(region), sqlc.arg(run_uid_range), sqlc.arg(tenant_net_pool), sqlc.arg(capacity),
-        sqlc.arg(public_entry))
+-- Pool platform (bảng P). capacity và public_entry lấy DEFAULT của bảng (0014: max_instances 100; điểm vào công khai
+-- khai báo sau — placement không chọn host chưa có ipv4).
+INSERT INTO hosts (name, region, run_uid_range, tenant_net_pool)
+VALUES (sqlc.arg(name), sqlc.arg(region), sqlc.arg(run_uid_range), sqlc.arg(tenant_net_pool))
 RETURNING *;
 
 -- name: GetHost :one

@@ -14,9 +14,8 @@ import (
 )
 
 const createHost = `-- name: CreateHost :one
-INSERT INTO hosts (name, region, run_uid_range, tenant_net_pool, capacity, public_entry)
-VALUES ($1, $2, $3, $4, $5,
-        $6)
+INSERT INTO hosts (name, region, run_uid_range, tenant_net_pool)
+VALUES ($1, $2, $3, $4)
 RETURNING id, name, region, agent_endpoint, agent_identity, status, capacity, public_entry, run_uid_range, stun_port_range, tenant_net_pool, last_heartbeat_at, created_at, updated_at
 `
 
@@ -25,19 +24,16 @@ type CreateHostParams struct {
 	Region        string
 	RunUidRange   pgtype.Range[pgtype.Int4]
 	TenantNetPool netip.Prefix
-	Capacity      []byte
-	PublicEntry   []byte
 }
 
-// Pool platform (bảng P).
+// Pool platform (bảng P). capacity và public_entry lấy DEFAULT của bảng (0014: max_instances 100; điểm vào công khai
+// khai báo sau — placement không chọn host chưa có ipv4).
 func (q *Queries) CreateHost(ctx context.Context, arg CreateHostParams) (Host, error) {
 	row := q.db.QueryRow(ctx, createHost,
 		arg.Name,
 		arg.Region,
 		arg.RunUidRange,
 		arg.TenantNetPool,
-		arg.Capacity,
-		arg.PublicEntry,
 	)
 	var i Host
 	err := row.Scan(
