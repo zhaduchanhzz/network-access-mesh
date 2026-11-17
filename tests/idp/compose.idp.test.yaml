@@ -27,6 +27,8 @@ secrets:
     file: ${MGT_WORK}/secrets/idp/db_password
   idp_db_superuser_password:
     file: ${MGT_WORK}/secrets/idp/db_superuser_password
+  idp_backup_db_password:
+    file: ${MGT_WORK}/secrets/idp/backup_db_password
 
 networks:
   mg-edge:

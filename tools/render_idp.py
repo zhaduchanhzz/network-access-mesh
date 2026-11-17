@@ -18,6 +18,7 @@ Writes, relative to /opt/meshguard/core on the host:
   compose.idp.yaml                  compose project mg-idp (idp + idp-db)
   idp/realms/<realm>.json           platform, tenant-a, tenant-b — Keycloak imports them with --import-realm
   idp/initdb/10-keycloak-db.sql     role/DB of Keycloak inside idp-db (copied unchanged)
+  idp/initdb/20-idp-backup-role.sql read-only role idp_backup of the idp-backup service (P2-T05b; copied unchanged)
 
 The realm templates (infrastructure/idp/realms/*.json.tmpl) hold only ${MG_*} placeholders and are expanded by
 tools/mgenv.py. Every rendered realm must pass check_realm() — the security invariants of P2-T05 — before anything is
@@ -43,7 +44,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 TEMPLATE_VERSION = "1"
 COMPOSE_TMPL = ROOT / "infrastructure" / "compose" / "compose.idp.yaml.tmpl"
 REALM_DIR = ROOT / "infrastructure" / "idp" / "realms"
-INITDB = ROOT / "infrastructure" / "idp" / "initdb" / "10-keycloak-db.sql"
+INITDB = [ROOT / "infrastructure" / "idp" / "initdb" / n for n in ("10-keycloak-db.sql", "20-idp-backup-role.sql")]
 VERSIONS = ROOT / "versions.lock"
 
 # Per realm: scope, Portal origin (§8.3: platform staff log in on admin.<domain>, tenant users on app.<domain>), the env
@@ -221,7 +222,8 @@ def render(env: dict[str, str], image: str) -> dict[str, str]:
     values = {"template_version": TEMPLATE_VERSION, "idp_image": image, "auth_host": f"auth.{base_domain}",
               "edge_ip": EDGE_IPS["edge_ip"]}
     files["compose.idp.yaml"] = string.Template(COMPOSE_TMPL.read_text(encoding="utf-8")).substitute(values)
-    files["idp/initdb/10-keycloak-db.sql"] = INITDB.read_text(encoding="utf-8")
+    for f in INITDB:
+        files[f"idp/initdb/{f.name}"] = f.read_text(encoding="utf-8")
     return files
 
 

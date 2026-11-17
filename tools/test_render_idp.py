@@ -46,8 +46,9 @@ def raises(fn, name: str) -> None:
 
 
 files = ri.render(ENV, IMG)
-check(sorted(files) == ["compose.idp.yaml", "idp/initdb/10-keycloak-db.sql", "idp/realms/platform.json",
-                        "idp/realms/tenant-a.json", "idp/realms/tenant-b.json"], "render writes 5 files", str(sorted(files)))
+check(sorted(files) == ["compose.idp.yaml", "idp/initdb/10-keycloak-db.sql", "idp/initdb/20-idp-backup-role.sql",
+                        "idp/realms/platform.json", "idp/realms/tenant-a.json", "idp/realms/tenant-b.json"],
+      "render writes 6 files", str(sorted(files)))
 check(files == ri.render(ENV, IMG), "output is deterministic")
 reps = {r: json.loads(files[f"idp/realms/{r}.json"]) for r in ri.REALMS}
 for realm, rep in reps.items():
@@ -168,14 +169,20 @@ env_keys = re.findall(r"^      ([A-Z][A-Z0-9_]+): ", c, flags=re.M)
 bad = [k for k in env_keys if re.search(r"PASSWORD|SECRET|TOKEN", k) and not k.endswith("_FILE")]
 check(env_keys and not bad, "compose: no environment variable carries a secret", str(bad))
 check(all(s in c for s in ("/opt/meshguard/secrets/idp/keycloak.conf", "/opt/meshguard/secrets/idp/db_password",
-                           "/opt/meshguard/secrets/idp/db_superuser_password")), "compose: secrets are files")
+                           "/opt/meshguard/secrets/idp/db_superuser_password",
+                           "/opt/meshguard/secrets/idp/backup_db_password")), "compose: secrets are files")
+role = files["idp/initdb/20-idp-backup-role.sql"]
+check("CREATE ROLE idp_backup LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS" in role
+      and "GRANT pg_read_all_data TO idp_backup;" in role and "default_transaction_read_only = on" in role
+      and "cat /run/secrets/idp_backup_db_password" in role and not re.search(r"GRANT (?!pg_read_all_data|CONNECT)", role),
+      "initdb: idp_backup is read-only (pg_read_all_data + CONNECT), password from the Docker secret")
 check("mg-idp-data: {}" in c and "networks: [mg-idp-data]" in c, "compose: idp-db only on mg-idp-data")
 
 # the real staging env file renders (with a stand-in image digest)
 staging = mgenv.environment(ri.ROOT / "infrastructure" / "environments" / "staging" / "staging.env")
 try:
     sf = ri.render(staging, IMG)
-    check(len(sf) == 5, "staging.env renders the IdP")
+    check(len(sf) == 6, "staging.env renders the IdP")
 except (ri.ParamError, mgenv.EnvError) as e:
     check(False, "staging.env renders the IdP", str(e))
 example = mgenv.parse_env_file(ri.ROOT / ".env.example")

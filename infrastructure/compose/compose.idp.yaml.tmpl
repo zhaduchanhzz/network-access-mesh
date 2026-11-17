@@ -22,9 +22,10 @@ services:
     secrets:
       - idp_db_superuser_password
       - idp_db_password             # mật khẩu role keycloak — chỉ initdb/10-keycloak-db.sql đọc, một lần
+      - idp_backup_db_password      # mật khẩu role idp_backup (chỉ đọc, P2-T05b) — chỉ initdb/20-idp-backup-role.sql đọc
     volumes:
       - idp-db-data:/var/lib/postgresql
-      - type: bind                  # tạo role keycloak (KHÔNG superuser) + DB keycloak khi khởi tạo data dir
+      - type: bind                  # tạo role keycloak (KHÔNG superuser) + DB keycloak + role idp_backup khi khởi tạo data dir
         source: /opt/meshguard/core/idp/initdb
         target: /docker-entrypoint-initdb.d
         read_only: true
@@ -116,6 +117,8 @@ secrets:
     file: /opt/meshguard/secrets/idp/db_password
   idp_db_superuser_password:        # root:999 0440
     file: /opt/meshguard/secrets/idp/db_superuser_password
+  idp_backup_db_password:           # root:999 0440 — cùng giá trị với secrets/backup/idp_backup_password (idp-backup)
+    file: /opt/meshguard/secrets/idp/backup_db_password
 
 volumes:
   idp-db-data:

@@ -218,6 +218,7 @@ secrets:
   idp_keycloak_conf: {file: "${MGE_WORK}/secrets/idp/keycloak.conf"}
   idp_db_password: {file: "${MGE_WORK}/secrets/idp/db_password"}
   idp_db_superuser_password: {file: "${MGE_WORK}/secrets/idp/db_superuser_password"}
+  idp_backup_db_password: {file: "${MGE_WORK}/secrets/idp/backup_db_password"}   # role idp_backup (initdb 20-…, P2-T05b)
   edge_admin_token: {file: "${MGE_WORK}/secrets/edge/admin_token"}
   edge_metrics_token: {file: "${MGE_WORK}/secrets/edge/metrics_token"}
   edge_bouncer_key: {file: "${MGE_WORK}/secrets/edge/bouncer_key"}

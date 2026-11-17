@@ -25,8 +25,12 @@ sudo install -d -o 10001 -g 10001 -m 0750 "$R/logs/edge"   # access log của ed
 # File log phải có sẵn trước khi crowdsec khởi động: file datasource không nhận file tạo sau lúc start (P1-T06)
 sudo test -e "$R/logs/edge/access.log" || sudo install -o 10001 -g 10001 -m 0640 /dev/null "$R/logs/edge/access.log"
 sudo install -d -o root -g root -m 0700 "$R/secrets" "$R/backups"
-for d in postgres idp edge tenants; do sudo install -d -o root -g root -m 0700 "$R/backups/$d"; done
-for d in postgres crowdsec edge app obs; do sudo install -d -o root -g root -m 0700 "$R/secrets/$d"; done
+# Đích của project mg-backup (P2-T03a, P2-T05b): mỗi dịch vụ ghi đúng thư mục của nó — pg-backup/idp-backup chạy
+# 10007:20007, edge-backup chạy UID của edge (10001) để đọc được khóa ACME 0600; nhóm mg-sec-backup (20007).
+sudo install -d -o 10007 -g mg-sec-backup -m 0750 "$R/backups/postgres" "$R/backups/idp"
+sudo install -d -o 10001 -g mg-sec-backup -m 0750 "$R/backups/edge"
+sudo install -d -o root -g root -m 0700 "$R/backups/tenants"
+for d in postgres crowdsec edge app obs backup; do sudo install -d -o root -g root -m 0700 "$R/secrets/$d"; done
 
 new_secret() {   # <file>: 40 ký tự [A-Za-z0-9] ngẫu nhiên; giữ nguyên nếu đã có
   sudo test -s "$1" && return 0
@@ -51,5 +55,7 @@ new_secret "$R/secrets/edge/metrics_token"
 own        "$R/secrets/edge/metrics_token" root mg-sec-edge 0440
 copy_secret "$R/secrets/edge/metrics_token" "$R/secrets/obs/edge_metrics_token"
 own        "$R/secrets/obs/edge_metrics_token" root mg-sec-obs 0440            # prometheus (65534 + mg-sec-obs)
+new_secret "$R/secrets/backup/pg_backup_password"                               # role mg_backup (P2-T03a): superuser
+own        "$R/secrets/backup/pg_backup_password" root mg-sec-backup 0440      # đặt verifier từ file này (P2-T16); pg-backup đọc
 
 sudo find "$R" -mindepth 1 -maxdepth 3 -printf '%M %u:%g %p\n' | sort -k3

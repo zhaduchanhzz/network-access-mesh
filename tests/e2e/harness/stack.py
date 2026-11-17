@@ -250,6 +250,7 @@ class Stack:
             s(f"dbinit/role_{role}")
         idp_db = s("idp/db_password")
         s("idp/db_superuser_password")
+        s("idp/backup_db_password")                        # role idp_backup of idp-db (initdb 20-…, P2-T05b)
         admin_pw = "".join(secrets.choice(ALNUM) for _ in range(40))
         self.secret_values.add(admin_pw)
         # same keys as infrastructure/idp/secrets.sh (Keycloak --config-file); checked against that script
@@ -274,7 +275,8 @@ class Stack:
             f"chown -R {UID['postgres']} /w/secrets/postgres; chmod 0700 /w/secrets/postgres; chmod 0400 /w/secrets/postgres/*",
             f"chown -R {UID['dbinit']} /w/secrets/dbinit; chmod 0500 /w/secrets/dbinit; chmod 0400 /w/secrets/dbinit/*",
             f"chown {UID['idp']} /w/secrets/idp/keycloak.conf",
-            f"chown {UID['postgres']} /w/secrets/idp/db_password /w/secrets/idp/db_superuser_password",
+            f"chown {UID['postgres']} /w/secrets/idp/db_password /w/secrets/idp/db_superuser_password"
+            " /w/secrets/idp/backup_db_password",
             "chmod 0400 /w/secrets/idp/*",
             f"chown -R {UID['edge']} /w/secrets/edge; chmod 0700 /w/secrets/edge; chmod 0400 /w/secrets/edge/*",
             f"chown {UID['edge']} /w/logs/edge; chmod 0750 /w/logs/edge",

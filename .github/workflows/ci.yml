@@ -24,12 +24,13 @@ jobs:
         run: python3 tools/docs_check.py
       - name: docs/ khớp với master đã commit
         run: git diff --exit-code -- docs/ || { echo "::error::docs/ lệch với master — chạy 'make docs' rồi commit"; exit 1; }
-      - name: Golden test của các tool render (instance Headscale, edge, IdP)
+      - name: Golden test của các tool render (instance Headscale, edge, IdP, backup)
         run: |
           python3 tools/test_mgenv.py
           python3 tools/test_render_instance.py
           python3 tools/test_render_edge.py
           python3 tools/test_render_idp.py
+          python3 tools/test_render_backup.py
       - name: Spec-lint api/openapi.yaml (x-permission hai chiều với §8.5/§8.6, x-task, tenant chỉ từ path, action path, problem+json; seed RBAC + bảng authz đã sinh khớp master/spec — P2-T07) + test
         run: |
           python3 tools/openapi_lint.py
