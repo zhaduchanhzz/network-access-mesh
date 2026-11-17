@@ -165,6 +165,7 @@ jobs:
                 -e MG_BACKUP_PG_PASSWORD_FILE=/run/secrets/pw "${IMAGE}:${GITHUB_SHA}" once --label manual | tail -3
               docker rm -f bk-pg >/dev/null; docker network rm bk-smoke >/dev/null
               ls -l "$d/out"
+              sudo chmod -R a+rX "$d/out"   # file 0640 thuộc 10007:20007 (UID của dịch vụ) — chỉ để runner đọc kiểm
               n=0; for f in "$d"/out/*.age; do test "$(head -c 21 "$f")" = "age-encryption.org/v1"; n=$((n + 1)); done; test "$n" = 2
               python3 -c 'import json, sys; s = json.load(open(sys.argv[1])); assert s["last_attempt"]["ok"] and len(s["last_success"]["files"]) == 2' "$d/out/status.json" ;;
           esac
