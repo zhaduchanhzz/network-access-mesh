@@ -156,23 +156,23 @@ note = "tailscale.com/cmd/stund tại tag v1.104.7 (commit cbc74fe…), Go 1.27.
 
 [images.mg-api]
 image = "ghcr.io/zhaduchanhzz/network-access-mesh/api"
-tag = "03509d3fd3aad032de49eb11ea54db0f6d02b6b7"
-index = "sha256:9f14df3f5384a8c17f5e43e64dd0ca9d90403ba6745b59fbdcaf97b1a0ea95ab"   # một manifest linux/amd64 (docker v2 schema 2)
-amd64 = "sha256:9f14df3f5384a8c17f5e43e64dd0ca9d90403ba6745b59fbdcaf97b1a0ea95ab"
+tag = "129b2022953a10607495cd99890d523d7c5e9762"
+index = "sha256:0d388364ba609e997494fb4ec3c12cfd1b460d7a70870563f46ac2f627dc3c73"   # một manifest linux/amd64 (docker v2 schema 2)
+amd64 = "sha256:0d388364ba609e997494fb4ec3c12cfd1b460d7a70870563f46ac2f627dc3c73"
 user = "65532:65532"
 run_as = "65532:65532 + nhóm mg-sec-app (20001) / mg-sec-api (20002); job migrate 20004; rootfs chỉ đọc, cap_drop ALL; project mg-app (P2-T16)"
 released = "2026-11-17"
-note = "meshguard-api build từ 03509d3 (main sau đợt gộp P2-T16 + sửa G2 vòng 1 + sửa T-17); workflow images run 44063142251 xanh; digest, user và label org.opencontainers.image.revision đọc từ GHCR (package công khai) ngày 2026-11-17. CÙNG commit với [images.mg-worker] (tools/render_app.py từ chối nếu khác)"
+note = "meshguard-api build từ 129b202 (main sau sửa G2 vòng 2 — ASVS A-1/A-2/A-6/I-7; trước đó 03509d3); workflow images run 44095968912 xanh; digest, user và label org.opencontainers.image.revision đọc từ GHCR (package công khai) ngày 2026-11-17. CÙNG commit với [images.mg-worker] (tools/render_app.py từ chối nếu khác)"
 
 [images.mg-worker]
 image = "ghcr.io/zhaduchanhzz/network-access-mesh/worker"
-tag = "03509d3fd3aad032de49eb11ea54db0f6d02b6b7"
-index = "sha256:84bc5b7d40c6d6179aa797d742dda94673861cfce637b796f3c0280bedfacc27"   # một manifest linux/amd64 (docker v2 schema 2)
-amd64 = "sha256:84bc5b7d40c6d6179aa797d742dda94673861cfce637b796f3c0280bedfacc27"
+tag = "129b2022953a10607495cd99890d523d7c5e9762"
+index = "sha256:79a7810460e29da7aa852e3625bee879c45facc9de8e22280e5ec3304cf5b3d5"   # một manifest linux/amd64 (docker v2 schema 2)
+amd64 = "sha256:79a7810460e29da7aa852e3625bee879c45facc9de8e22280e5ec3304cf5b3d5"
 user = "65532:65532"
 run_as = "65532:65532 + nhóm mg-sec-app (20001) / mg-sec-worker (20003); rootfs chỉ đọc, cap_drop ALL; project mg-app (P2-T16)"
 released = "2026-11-17"
-note = "meshguard-worker build từ 03509d3 (main sau đợt gộp P2-T16 + sửa G2 vòng 1 + sửa T-17); workflow images run 44063142251 xanh; digest, user và label org.opencontainers.image.revision đọc từ GHCR (package công khai) ngày 2026-11-17. Bản trước (82cf216, chỉ dùng cho kek-drill của nghi thức P2-T04a) được thay"
+note = "meshguard-worker build từ 129b202 (main sau sửa G2 vòng 2 — ASVS A-1/A-2/A-6/I-7; trước đó 03509d3); workflow images run 44095968912 xanh; digest, user và label org.opencontainers.image.revision đọc từ GHCR (package công khai) ngày 2026-11-17. Bản trước (82cf216, chỉ dùng cho kek-drill của nghi thức P2-T04a) được thay"
 
 [images.mg-backup]
 image = "ghcr.io/zhaduchanhzz/network-access-mesh/backup"
@@ -186,13 +186,13 @@ note = "meshguard-backup + pg_dump 18.7 + age v1.3.2 build từ 03509d3 (main sa
 
 [images.mg-idp]
 image = "ghcr.io/zhaduchanhzz/network-access-mesh/idp"
-tag = "c983f67822596d0f62e6d53d6c0e95dc3ee68516"
-index = "sha256:a0191d549fcec8ab52074518dba33dc084831a0f574df50f716f91d5583ac4cf"   # một manifest linux/amd64 (docker v2 schema 2)
-amd64 = "sha256:a0191d549fcec8ab52074518dba33dc084831a0f574df50f716f91d5583ac4cf"
+tag = "129b2022953a10607495cd99890d523d7c5e9762"
+index = "sha256:ce83f361bc46cb7f8ebfae5c918c0d64cb82a7d6816a85aa4aa0be36600c154c"   # một manifest linux/amd64 (docker v2 schema 2)
+amd64 = "sha256:ce83f361bc46cb7f8ebfae5c918c0d64cb82a7d6816a85aa4aa0be36600c154c"
 user = "1000:1000"
 run_as = "1000:1000, rootfs chỉ đọc, cap_drop ALL; project compose mg-idp (P2-T05)"
 released = "2026-11-17"
-note = "Keycloak 26.8.2 (base quay.io c68e286c…) build tối ưu (kc.sh build: db postgres, health, metrics, tắt impersonation/kerberos/ciba/device-flow/token-exchange-standard) + kho CA của JVM đã gỡ emSign Root CA - G1 (117 CA). Workflow images run 43997562081 xanh; digest đọc từ GHCR (Docker-Content-Digest khớp sha256 của manifest). grype: 0 Critical nhờ ngoại lệ CVE-2026-91403 có hạn tới 2027-02-16 (infrastructure/docker/idp/grype.yaml; P2-T05 mục 7); 5 High chưa có bản vá trong base (sqlite-libs ×4, guava 33.6.0-jre)"
+note = "Bản 129b202 (G2 vòng 2, A-3: stage blocklist — /opt/keycloak/mg/password-blacklists/mg-passwords-v1.txt, KC_SPI_PASSWORD_POLICY__PASSWORD_BLACKLIST__BLACKLISTS_PATH; workflow images run 44095968912 xanh, digest/label đọc từ GHCR 2026-11-17; bản trước c983f678 không import được realm mới). Keycloak 26.8.2 (base quay.io c68e286c…) build tối ưu (kc.sh build: db postgres, health, metrics, tắt impersonation/kerberos/ciba/device-flow/token-exchange-standard) + kho CA của JVM đã gỡ emSign Root CA - G1 (117 CA). Workflow images run 43997562081 xanh; digest đọc từ GHCR (Docker-Content-Digest khớp sha256 của manifest). grype: 0 Critical nhờ ngoại lệ CVE-2026-91403 có hạn tới 2027-02-16 (infrastructure/docker/idp/grype.yaml; P2-T05 mục 7); 5 High chưa có bản vá trong base (sqlite-libs ×4, guava 33.6.0-jre)"
 
 # [images.mg-headscale] — Headscale v0.29.7 + bản vá V-26 (P2-T10a; nguồn: [sources.headscale]). tools/render_instance.py
 # dùng image này cho tenant không ghi headscale_build (mặc định "patched"); contract test dùng nó khi label
