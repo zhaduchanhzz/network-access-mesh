@@ -42,6 +42,10 @@ Chủ dự án gửi mật khẩu root của VPS và của Proxmox trong hội t
 | 10 | Host staging | Token Cloudflare do chủ dự án gửi trong hội thoại: ghi thẳng qua stdin của SSH thành `/opt/meshguard/secrets/edge/cloudflare_dns_token` (`0440 root:mg-sec-edge`), không ghi ở nơi khác; 6 bản sao trong transcript cục bộ đã được xóa. Kiểm trên host: token cấp account, còn hiệu lực; đọc/ghi DNS của `gta5web.online` được (bản ghi TXT thử tạo rồi xóa) ⇒ dùng được cho DNS-01. **Rộng hơn yêu cầu của D-1**: thấy thêm 1 zone khác và đọc được Workers của account | `sudo rm /opt/meshguard/secrets/edge/cloudflare_dns_token` (và thu hồi token trên dashboard) |
 | 7 | Máy vận hành (Windows) | Cài `pre-commit` 4.7.0 cho user hiện tại và bật hook trong repo (`.git/hooks/pre-commit`: gitleaks + docs-check) | `pre-commit uninstall` (trong repo) và `python -m pip uninstall pre-commit` |
 
+| 11 | Proxmox, VM 110 `mg-ci-runner-2` | Ngày 2026-11-17, chủ dự án duyệt "Thêm VM 110 + nâng 105 sau". Tạo VM 110 bằng cùng lệnh của `pve_create_vms.sh` (một VM, 12 vCPU / 24 GB / 200 GB, `nvme01`, cloud image ở bước 3 kiểm lại sha256 `04e8f246…`), rồi cài `qemu-guest-agent`. Docker cài theo `install_docker.sh`, khóa kho kiểm theo fingerprint; ngoài engine 29.9.3 và compose 5.7.1 còn ghim thêm `containerd.io=2.4.2-4` và `docker-buildx-plugin=0.39.0-1` cho trùng VM 105, giữ phiên bản bằng `apt-mark hold`. `daemon.json` giống VM 105. Không cài Tailscale và runner GitHub. IP DHCP `192.168.1.23` (chưa có DHCP reservation). Phần nâng VM 105 lên 12 vCPU / 24 GB làm sau, khi không còn agent chạy trên VM 105 | `ssh root@<proxmox> 'qm stop 110 && qm destroy 110 --purge'` |
+
+Kiểm sau bước 11 (VM 110): Ubuntu 24.04.5, 12 vCPU, 23 GiB, `/` 193 GB; Docker khớp từng gói với VM 105 (engine/cli 29.9.3, containerd 2.4.2, buildx 0.39.0, compose 5.7.1); overlayfs, cgroup systemd, `live-restore` bật; container Alpine pin digest chạy được; dockerd không nghe cổng TCP nào.
+
 Kiểm sau bước 6 (cả hai VM): engine 29.9.3, Compose v5.7.1, storage overlayfs, cgroup systemd, `live-restore` bật; container thử từ image Alpine pin theo digest chạy được; `dockerd` không nghe cổng TCP nào.
 
 Kiểm sau bước 5: không còn container nào chạy; không còn tiến trình nghe ở 80/443/3478/7881/7882; RAM khả dụng của VPS tăng từ 873 MiB lên 1,3 GiB.
@@ -58,6 +62,7 @@ Mọi VM: Ubuntu 24.04.5 LTS từ cloud image ở bước 3, cloud-init tạo us
 | 107 | `mg-client-b1` | 2 / 2 GB / 20 GB | `vmbr0` | 192.168.1.22 | 0 | Client tenant B trong LAN |
 | 108 | `mg-client-a2` | 2 / 2 GB / 20 GB | `lan10` | 192.168.10.11 | 0 | Client tenant A sau NAT của OPNsense |
 | 109 | `mg-client-b2` | 2 / 2 GB / 20 GB | `lan10` | 192.168.10.12 | 0 | Client tenant B sau NAT của OPNsense |
+| 110 | `mg-ci-runner-2` | 12 / 24 GB / 200 GB | `vmbr0` | 192.168.1.23 | 1 | Máy build thứ hai (thêm 2026-11-17, bước 11) — chạy song song với VM 105, không chung Docker daemon ⇒ không đụng subnet cố định của các bộ test |
 
 Storage `nvme01` đã dùng 1,69% sau khi tạo.
 
