@@ -1,0 +1,286 @@
+#!/usr/bin/env python3
+"""Stack dev/CI của P2-T01a + kiểm thử functional (`make e2e-functional` = `all`).
+
+  python3 tests/e2e/harness/e2e.py all      up → test → down (down chạy cả khi lỗi); exit 0 ⇔ mọi ca PASS
+  python3 tests/e2e/harness/e2e.py up       render, secret, CA, network, khởi động stack, enroll 4 client
+  python3 tests/e2e/harness/e2e.py test     chạy các ca trên stack đang chạy (chạy lại được)
+  python3 tests/e2e/harness/e2e.py down     lưu log (đã che secret) rồi gỡ mọi đối tượng mang tiền tố
+  python3 tests/e2e/harness/e2e.py render   chỉ render (không cần Docker) vào <work>/render để xem
+
+Tham số chạy (E2E_PREFIX, E2E_WORK, E2E_OUT, DOCKER, E2E_KEEP_CACHE, E2E_HEADSCALE_LOCK_KEY, MG_*): xem stack.py.
+Mọi kết quả chỉ được ghi "functional" (§22.1): client, Headscale và edge cùng một host Docker (HS-24).
+"""
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import sys
+import time
+
+try:
+    import fcntl
+except ImportError:            # Windows: only `render` is useful there
+    fcntl = None
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import checks  # noqa: E402
+from stack import CLIENTS, SECRET_RE, TENANTS, Stack, StackError, log  # noqa: E402
+
+PHASES: dict[str, float] = {}
+
+
+def timed(name: str):
+    class T:
+        def __enter__(self):
+            self.t0 = time.time()
+            log(f"── {name}")
+
+        def __exit__(self, *exc):
+            PHASES[name] = round(time.time() - self.t0, 1)
+    return T()
+
+
+def ensure_images(st: Stack) -> None:
+    for ref in sorted(set(st.images.values())):
+        if st.docker("image", "inspect", ref, check=False).returncode != 0:
+            st.docker("pull", "-q", ref, timeout=900)
+            log(f"pull {ref.split('@')[0]}")
+
+
+def ensure_users(st: Stack) -> None:
+    st.users = {}
+    for slug in TENANTS:
+        users = json.loads(st.headscale(slug, "users", "list", "-o", "json").stdout or "[]") or []
+        u = next((x for x in users if x.get("name") == "e2e"), None)
+        if u is None:
+            u = json.loads(st.headscale(slug, "users", "create", "e2e", "-o", "json").stdout)
+        st.users[slug] = str(u["id"])
+
+
+def up(st: Stack) -> None:
+    with timed("chuẩn bị (render, secret, CA nội bộ, network)"):
+        st.teardown(quiet=True)
+        shutil.rmtree(st.out, ignore_errors=True)       # kết quả của lượt trước
+        st.work.mkdir(parents=True, exist_ok=True)
+        (st.work / "state").mkdir(exist_ok=True)
+        st.render()
+        st.make_secrets()
+        st.make_ca()
+        st.write_stack_env()
+        st.create_networks()
+        st.own_files()
+        log(f"Headscale: [images.{st.headscale_lock_key}] {st.images['headscale']}")
+    with timed("image (pull nếu thiếu)"):
+        ensure_images(st)
+    with timed("IdP (khởi động nền) + build dbinit"):
+        st.compose("up", "-d", "idp-db", "idp")
+        st.build_dbinit()
+    with timed("PostgreSQL + migration"):
+        st.compose("up", "-d", "--wait", "--wait-timeout", "120", "postgres")
+        p = st.compose("run", "--rm", "--no-TTY", "db-init", check=False, timeout=300)
+        if p.returncode != 0:
+            raise StackError("db-init thất bại:\n" + st.redact(p.stderr + p.stdout)[-2000:])
+        line = next(ln for ln in reversed(p.stdout.strip().splitlines()) if ln.startswith("{"))
+        (st.work / "state" / "dbinit.json").write_text(line, encoding="utf-8")
+        log(f"db-init: {line}")
+    with timed("Headscale tenant-a, tenant-b + policy deny-all"):
+        st.compose("up", "-d", "--wait", "--wait-timeout", "120", "hs-tenant-a", "hs-tenant-b")
+        for slug in TENANTS:       # §11.3 bước 12: deny-all TRƯỚC khi instance có đường mạng nào (edge chưa gắn)
+            st.headscale(slug, "policy", "set", "-f", "/etc/headscale/bootstrap-policy.hujson")
+        log("bootstrap-policy (deny-all) đã áp cho cả hai tenant")
+    with timed("edge + stund, gắn edge vào network tenant lúc chạy"):
+        st.compose("up", "-d", "--wait", "--wait-timeout", "120", "edge", "stund")
+        for slug in TENANTS:
+            st.docker("network", "connect", st.name(f"t-{slug}"), st.name("edge"))
+        log("edge gắn vào " + ", ".join(st.name(f"t-{s}") for s in TENANTS) + " (không reload Caddy)")
+    with timed("chờ IdP healthy"):
+        st.compose("up", "-d", "--wait", "--wait-timeout", "420", "idp-db", "idp", timeout=480)
+    with timed("enroll 4 client (pre-auth key một lần)"):
+        ensure_users(st)
+        for c, slug in CLIENTS.items():
+            key = json.loads(st.headscale(slug, "preauthkeys", "create", "-u", st.users[slug], "-e", "30m",
+                                          "-o", "json").stdout)["key"]
+            st.secret_values.add(key)
+            st.write_private(st.work / "secrets" / "clients" / f"{c}.authkey", key)
+        st.own_client_keys([f"clients/{c}.authkey" for c in CLIENTS])
+        st.compose("up", "-d", "--no-deps", *(f"ts-{c}" for c in CLIENTS))
+        stat = checks.wait_running(st, CLIENTS, 180)
+        log("client Running: " + ", ".join(f"{c}={checks.ip4(s['Self'])}" for c, s in stat.items()))
+
+
+def guarded(r: checks.Results, tid: str, fn, *args):
+    """Run one check; an error inside it is that check's FAIL, the next checks still run."""
+    try:
+        return fn(r, *args)
+    except (StackError, OSError, ValueError, KeyError, StopIteration) as e:
+        r.add(tid, f"{fn.__name__}: lỗi khi chạy ca", False, f"{type(e).__name__}: {e}")
+        return None
+
+
+def test(st: Stack, r: checks.Results) -> None:
+    ensure_users(st)
+    with timed("ca E2E-01, E2E-02 (PostgreSQL, IdP)"):
+        f = st.work / "state" / "dbinit.json"
+        guarded(r, "E2E-01", checks.check_db, st, json.loads(f.read_text(encoding="utf-8")) if f.exists() else {})
+        guarded(r, "E2E-02", checks.check_idp, st)
+    with timed("ca E2E-03, E2E-04 (deny-all, enrollment)"):
+        for slug in TENANTS:     # chạy lại `test` được: luôn bắt đầu từ baseline deny-all
+            st.headscale(slug, "policy", "set", "-f", "/etc/headscale/bootstrap-policy.hujson")
+        stat = {c: checks.wait_peer_count(st, c, 0, 60) or checks.status(st, c) for c in CLIENTS}
+        guarded(r, "E2E-03", checks.check_baseline, st, stat)
+        guarded(r, "E2E-04", checks.check_nodes, st, stat)
+    with timed("ca E2E-05 … E2E-11 (test-allow-intra: cô lập, DERP, STUN, TCP, đường đi)"):
+        for slug in TENANTS:
+            st.headscale(slug, "policy", "set", "-f", "/etc/mg-e2e/test-allow-intra.hujson")
+        stat = guarded(r, "E2E-05", checks.check_isolation, st) or {c: checks.status(st, c) for c in CLIENTS}
+        ips = {c: checks.ip4(s["Self"]) for c, s in stat.items()}
+        guarded(r, "E2E-06", checks.check_derp_map, st)
+        guarded(r, "E2E-07", checks.check_stun, st)
+        guarded(r, "E2E-08", checks.check_tcp, st, ips)
+        guarded(r, "E2E-10", checks.check_paths, st, ips)
+    with timed("ca E2E-12, E2E-13 (edge public + admin)"):
+        api_keys = {}
+        for slug in TENANTS:
+            k = json.loads(st.headscale(slug, "apikeys", "create", "-e", "1h", "-o", "json").stdout)
+            st.secret_values.add(k)
+            api_keys[slug] = k
+        try:
+            guarded(r, "E2E-12", checks.check_edge_public, st, api_keys)
+            guarded(r, "E2E-13", checks.check_edge_admin, st, api_keys)
+        finally:
+            for slug, k in api_keys.items():
+                st.headscale(slug, "apikeys", "expire", "--prefix", k.split("-")[2], check=False)
+    with timed("ca E2E-14 (pre-auth key chéo tenant)"):
+        guarded(r, "E2E-14", checks.check_cross_tenant_key, st)
+    with timed("ca E2E-15 (policy deny)"):
+        guarded(r, "E2E-15", checks.check_deny, st, ips)
+
+
+def versions(st: Stack) -> dict[str, str]:
+    def first(*cmd: str) -> str:
+        p = st.docker(*cmd, check=False)
+        return (p.stdout.strip().splitlines() or ["?"])[0][:80]
+    return {"headscale": first("exec", st.name("hs-tenant-a"), "headscale", "version"),
+            "tailscale": first("exec", st.name("ts-b1"), "tailscale", "version"),
+            "caddy (edge)": first("exec", st.name("edge"), "caddy", "version"),
+            "postgres": first("exec", st.name("postgres"), "postgres", "--version"),
+            "docker": first("version", "--format", "{{.Server.Version}}"),
+            "compose": first("compose", "version", "--short")}
+
+
+def collect(st: Stack) -> None:
+    """Redacted logs and the merged compose model into E2E_OUT (artifact of CI)."""
+    (st.out / "logs").mkdir(parents=True, exist_ok=True)
+    if not (st.work / "stack.env").exists():
+        return
+    p = st.compose("logs", "--no-color", "--timestamps", check=False, timeout=120)
+    (st.out / "logs" / "compose.log").write_text(st.redact(p.stdout + p.stderr), encoding="utf-8")
+    p = st.compose("--profile", "tools", "config", check=False)
+    (st.out / "compose.config.yaml").write_text(st.redact(p.stdout or p.stderr), encoding="utf-8")
+    caddy = st.work / "render" / "edge" / "caddy" / "Caddyfile"
+    if caddy.exists():
+        (st.out / "Caddyfile.ci").write_text(caddy.read_text(encoding="utf-8"), encoding="utf-8")
+    fmt = ("{{.Name}} user={{.Config.User}} read_only={{.HostConfig.ReadonlyRootfs}} cap_drop={{.HostConfig.CapDrop}} "
+           "security_opt={{.HostConfig.SecurityOpt}} ports={{.HostConfig.PortBindings}} "
+           "networks={{range $k, $v := .NetworkSettings.Networks}}{{$k}}={{$v.IPAddress}} {{end}}")
+    ids = st.compose("ps", "-aq", check=False).stdout.split()
+    if ids:
+        p = st.docker("inspect", "-f", fmt, *ids, check=False)
+        (st.out / "containers.txt").write_text(st.redact(p.stdout), encoding="utf-8")
+
+
+def leak_scan(st: Stack) -> list[str]:
+    """Files of E2E_OUT that still hold a secret of this run (value or hskey-/Bearer pattern); such a file is emptied."""
+    leaks = []
+    for f in sorted(p for p in st.out.rglob("*") if p.is_file()):
+        text = f.read_text(encoding="utf-8", errors="replace")
+        hit = any(v in text for v in st.secret_values) or any(m.group(0) != "[REDACTED]" for m in SECRET_RE.finditer(text))
+        if hit:
+            f.write_text("[đã xóa: tệp chứa secret]\n", encoding="utf-8")
+            leaks.append(str(f.relative_to(st.out)))
+    return leaks
+
+
+def summary(st: Stack, r: checks.Results | None, total: float, error: str | None, ver: dict[str, str]) -> None:
+    rows = r.rows if r else []
+    lines = [f"P2-T01a — stack dev/CI, kiểm thử FUNCTIONAL (không phải network E2E verified) — {time.strftime('%Y-%m-%d %H:%M:%S %Z')}",
+             f"prefix {st.prefix}; Headscale [images.{st.headscale_lock_key}] {st.images['headscale']}",
+             "phiên bản: " + "; ".join(f"{k} {v}" for k, v in ver.items()), ""]
+    lines += [f"{x['result']:4} {x['id']:8} [{x['label']}] {x['name']}\n{'':14}{x['detail']}" for x in rows]
+    passed = sum(x["result"] == "PASS" for x in rows)
+    lines += ["", f"{passed}/{len(rows)} ca PASS (functional); tổng thời gian {total:.0f} s",
+              "thời gian từng pha: " + "; ".join(f"{k} {v:.0f} s" for k, v in PHASES.items())]
+    if error:
+        lines.append(f"LỖI: {st.redact(error)[-1500:]}")
+    text = "\n".join(lines) + "\n"
+    st.out.mkdir(parents=True, exist_ok=True)
+    (st.out / "summary.txt").write_text(text, encoding="utf-8")
+    (st.out / "results.json").write_text(json.dumps({"label": "functional", "prefix": st.prefix,
+                                                     "headscale_image": st.images["headscale"], "versions": ver,
+                                                     "phases_s": PHASES, "total_s": round(total, 1), "error": bool(error),
+                                                     "results": rows}, ensure_ascii=False, indent=2), encoding="utf-8")
+    print("\n" + text, flush=True)
+
+
+def main(argv: list[str]) -> int:
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
+    cmd = argv[1] if len(argv) == 2 else ""
+    if cmd not in ("all", "up", "test", "down", "render"):
+        print(__doc__)
+        return 2
+    st = Stack()
+    st.users = {}
+    # one run per prefix at a time: two runs on one stack would change each other's policy mid-check
+    lock_path = f"{st.work}.lock"
+    lock = open(lock_path, "w")  # noqa: SIM115 — held for the whole process
+    if fcntl:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            print(f"đang có một lượt khác dùng tiền tố {st.prefix} ({lock_path}) — dừng", file=sys.stderr)
+            return 3
+    t0, r, error, ver = time.time(), checks.Results(st), None, {}
+    try:
+        if cmd == "render":
+            st.work.mkdir(parents=True, exist_ok=True)
+            st.render()
+            log(f"đã render vào {st.work / 'render'}")
+            return 0
+        if cmd == "down":
+            collect(st)
+            leaks = leak_scan(st)
+            st.teardown()
+            os.unlink(lock_path)
+            if leaks:
+                log(f"LỖI: secret còn trong {leaks} (đã xóa nội dung)")
+            return 1 if leaks else 0
+        if cmd in ("all", "up"):
+            up(st)
+        if cmd in ("all", "test"):
+            test(st, r)
+            ver = versions(st)
+    except (StackError, OSError, ValueError, KeyError) as e:
+        error = f"{type(e).__name__}: {e}"
+        log("LỖI: " + st.redact(error)[-3000:])
+    finally:
+        if cmd == "all":
+            if not ver:
+                ver = versions(st)
+            with timed("lưu log + gỡ stack"):
+                collect(st)
+                leaks = leak_scan(st)
+                r.add("E2E-16", "Artifact (log compose đã che, cấu hình compose đã ghép, Caddyfile) không chứa secret "
+                      "nào của lượt chạy", not leaks, f"tệp bị xóa nội dung: {leaks}" if leaks else
+                      f"{sum(1 for p in st.out.rglob('*') if p.is_file())} tệp, {len(st.secret_values)} giá trị secret đã dò")
+                st.teardown()
+            os.unlink(lock_path)
+    if cmd in ("all", "test") or error:
+        summary(st, r, time.time() - t0, error, ver)
+    return 1 if error or (r and r.failed) else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

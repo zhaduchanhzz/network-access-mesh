@@ -1,0 +1,8 @@
+{
+  "base_domain": "${MG_BASE_DOMAIN}",
+  "lan_ipv4": "${MG_E2E_EDGE_IPV4}",
+  "public_entry_ipv4": "${MG_E2E_EDGE_IPV4}",
+  "acme": "${MG_ACME}",
+  "image": "${MG_E2E_EDGE_IMAGE}",
+  "dns_resolvers": "${MG_DNS_RESOLVERS:list}"
+}

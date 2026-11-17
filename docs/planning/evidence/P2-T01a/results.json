@@ -1,0 +1,153 @@
+{
+  "label": "functional",
+  "prefix": "p2t01a",
+  "headscale_image": "docker.io/headscale/headscale@sha256:11f81665e842809db9fe3006a38c56a66e968baa5abd4bac498e86445572b970",
+  "versions": {
+    "headscale": "headscale version v0.29.7",
+    "tailscale": "1.104.7",
+    "caddy (edge)": "v2.11.9 h1:bhZtcRKQOq0fuLvEgCdPYvUxXyGn9kzjG4lh2332DTE=",
+    "postgres": "postgres (PostgreSQL) 18.7 (Debian 18.7-1.pgdg13+2)",
+    "docker": "29.9.3",
+    "compose": "5.7.1"
+  },
+  "phases_s": {
+    "chuẩn bị (render, secret, CA nội bộ, network)": 4.6,
+    "image (pull nếu thiếu)": 2.4,
+    "IdP (khởi động nền) + build dbinit": 112.9,
+    "PostgreSQL + migration": 9.9,
+    "Headscale tenant-a, tenant-b + policy deny-all": 5.6,
+    "edge + stund, gắn edge vào network tenant lúc chạy": 5.0,
+    "chờ IdP healthy": 11.6,
+    "enroll 4 client (pre-auth key một lần)": 11.8,
+    "ca E2E-01, E2E-02 (PostgreSQL, IdP)": 1.2,
+    "ca E2E-03, E2E-04 (deny-all, enrollment)": 1.6,
+    "ca E2E-05 … E2E-11 (test-allow-intra: cô lập, DERP, STUN, TCP, đường đi)": 32.8,
+    "ca E2E-12, E2E-13 (edge public + admin)": 14.7,
+    "ca E2E-14 (pre-auth key chéo tenant)": 12.1,
+    "ca E2E-15 (policy deny)": 10.8,
+    "lưu log + gỡ stack": 7.0
+  },
+  "total_s": 245.7,
+  "error": false,
+  "results": [
+    {
+      "id": "E2E-01",
+      "name": "PostgreSQL: migration bằng đường của repo (store.Bootstrap → MigrateAll) — schema mới nhất, River, seed RBAC, role đăng nhập dùng được",
+      "result": "PASS",
+      "label": "functional",
+      "detail": "schema 6/6, river 8 version, 11 role hệ thống, pool ['api', 'worker'], 9 role có mật khẩu, vi phạm partition 0"
+    },
+    {
+      "id": "E2E-02",
+      "name": "IdP Keycloak: 3 realm import sẵn, 3 issuer khác nhau, khóa ký riêng từng realm",
+      "result": "PASS",
+      "label": "functional",
+      "detail": "issuer ['https://auth.meshguard-ci.test/realms/platform', 'https://auth.meshguard-ci.test/realms/tenant-a', 'https://auth.meshguard-ci.test/realms/tenant-b']; 3 kid khác nhau"
+    },
+    {
+      "id": "E2E-03",
+      "name": "Baseline deny-all (bootstrap-policy, áp trước khi edge gắn vào network tenant): client Running, 0 peer",
+      "result": "PASS",
+      "label": "functional",
+      "detail": "số peer {'a1': 0, 'a2': 0, 'b1': 0, 'b2': 0}"
+    },
+    {
+      "id": "E2E-04",
+      "name": "Enrollment bằng pre-auth key (CLI Headscale trong container): mỗi Headscale chỉ có đúng 2 node của tenant mình",
+      "result": "PASS",
+      "label": "functional",
+      "detail": "tenant-a: ['a1', 'a2']; tenant-b: ['b1', 'b2']"
+    },
+    {
+      "id": "E2E-05",
+      "name": "IT-05 (functional, status --json): dưới test-allow-intra mỗi client thấy đúng peer cùng tenant, không thấy node nào của tenant kia (danh sách peer khác rỗng)",
+      "result": "PASS",
+      "label": "functional",
+      "detail": "a1: 1 peer = anh em cùng tenant; a2: 1 peer = anh em cùng tenant; b1: 1 peer = anh em cùng tenant; b2: 1 peer = anh em cùng tenant; IP tailnet {'a1': '100.64.0.1', 'a2': '100.64.0.2', 'b1': '100.64.0.2', 'b2': '100.64.0.1'} — hai tailnet dùng chung địa chỉ ['100.64.0.1', '100.64.0.2']"
+    },
+    {
+      "id": "E2E-06",
+      "name": "DERP map: mỗi client chỉ có region DERP nhúng của tenant mình (urls: [], host tenant, IP điểm vào)",
+      "result": "PASS",
+      "label": "functional",
+      "detail": "a1: ['901'] mg-tenant-a; a2: ['901'] mg-tenant-a; b1: ['902'] mg-tenant-b; b2: ['902'] mg-tenant-b"
+    },
+    {
+      "id": "E2E-07",
+      "name": "STUN dùng chung tại IP điểm vào (stund trong netns của edge, như staging): netcheck UDP true, DERP ưa thích = region của tenant",
+      "result": "PASS",
+      "label": "functional",
+      "detail": "a1: UDP=True GlobalV4=10.231.0.131:53977 DERP=901; a2: UDP=True GlobalV4=10.231.0.132:52277 DERP=901; b1: UDP=True GlobalV4=10.231.0.133:56841 DERP=902; b2: UDP=True GlobalV4=10.231.0.130:50702 DERP=902"
+    },
+    {
+      "id": "E2E-08",
+      "name": "TCP thật qua tailnet tới cổng được phép (tcp:8000), cả hai chiều, hai tenant — bên trả lời là đúng node cùng tenant",
+      "result": "PASS",
+      "label": "functional",
+      "detail": "a1→a2:8000: mg-e2e tenant-a a2 tcp/8000; a2→a1:8000: mg-e2e tenant-a a1 tcp/8000; b1→b2:8000: mg-e2e tenant-b b2 tcp/8000; b2→b1:8000: mg-e2e tenant-b b1 tcp/8000"
+    },
+    {
+      "id": "E2E-09",
+      "name": "TCP thật tới cổng không được phép (tcp:8001) bị chặn bởi policy (listener có chạy — đối chứng cục bộ)",
+      "result": "PASS",
+      "label": "functional",
+      "detail": "a1→a2:8001: qua tailnet: không kết nối được; đối chứng cục bộ trên a2: mg-e2e tenant-a a2 tcp/8001; b1→b2:8001: qua tailnet: không kết nối được; đối chứng cục bộ trên b2: mg-e2e tenant-b b2 tcp/8001"
+    },
+    {
+      "id": "E2E-10",
+      "name": "Relay ép buộc (TS_DEBUG_ALWAYS_USE_DERP): đường của tenant-a đi qua DERP của chính tenant-a qua edge, TCP thật vẫn thông (E2E-08)",
+      "result": "PASS",
+      "label": "functional",
+      "detail": "a1→a2: pong from a2 (100.64.0.2) via DERP(mg-tenant-a) in 1ms; Relay=mg-tenant-a CurAddr=-; a2→a1: pong from a1 (100.64.0.1) via DERP(mg-tenant-a) in 1ms; Relay=mg-tenant-a CurAddr=-"
+    },
+    {
+      "id": "E2E-11",
+      "name": "Đường trực tiếp giữa hai client tenant-b (cùng bridge Docker — chỉ functional, không phải P2P qua NAT)",
+      "result": "PASS",
+      "label": "functional",
+      "detail": "b1→b2: CurAddr=10.231.0.130:41535 Relay=mg-tenant-b; b2→b1: CurAddr=10.231.0.133:44608 Relay=mg-tenant-b"
+    },
+    {
+      "id": "E2E-12",
+      "name": "Edge (Caddyfile thật, TLS từ CA nội bộ): allow-list chặn /api/v1 (kèm API key thật), /swagger, /verify, /metrics… ⇒ 404 trên cả hai hostname tenant; /key tới đúng instance của từng tenant",
+      "result": "PASS",
+      "label": "functional",
+      "detail": "76 request bị chặn đúng"
+    },
+    {
+      "id": "E2E-12b",
+      "name": "SNI tenant-a + Host tenant-b ⇒ 421 (strict_sni_host, không domain fronting giữa tenant)",
+      "result": "PASS",
+      "label": "functional",
+      "detail": "status 421"
+    },
+    {
+      "id": "E2E-13",
+      "name": "Listener admin nội bộ của edge (từ network admin): API key của instance chỉ dùng được trên chính instance đó; thiếu token ⇒ 403",
+      "result": "PASS",
+      "label": "functional",
+      "detail": "a-on-a ⇒ 200 (cần 200), a-on-b ⇒ 401 (cần 401), b-on-b ⇒ 200 (cần 200), no-token ⇒ 403 (cần 403)"
+    },
+    {
+      "id": "E2E-14",
+      "name": "AC-14/IT-13 (functional): pre-auth key của tenant này bị tenant kia từ chối (hai chiều); đối chứng: cùng key đăng ký được ở đúng tenant (key không bị tiêu khi bị từ chối)",
+      "result": "PASS",
+      "label": "functional",
+      "detail": "key tenant-a → tenant-b: rc=1 state=NeedsLogin — backend error: invalid pre auth key; key tenant-b → tenant-a: rc=1 state=NeedsLogin — backend error: invalid pre auth key; key tenant-a → tenant-a: rc=0 state=Running — node đối chứng đã xóa; key tenant-b → tenant-b: rc=0 state=Running — node đối chứng đã xóa"
+    },
+    {
+      "id": "E2E-15",
+      "name": "Policy chuyển về deny-all: peer biến mất và TCP tới cổng vừa được phép (8000) bị chặn",
+      "result": "PASS",
+      "label": "functional",
+      "detail": "số peer {'a1': 0, 'a2': 0, 'b1': 0, 'b2': 0}; a1→a2: không kết nối được, b1→b2: không kết nối được"
+    },
+    {
+      "id": "E2E-16",
+      "name": "Artifact (log compose đã che, cấu hình compose đã ghép, Caddyfile) không chứa secret nào của lượt chạy",
+      "result": "PASS",
+      "label": "functional",
+      "detail": "4 tệp, 26 giá trị secret đã dò"
+    }
+  ]
+}

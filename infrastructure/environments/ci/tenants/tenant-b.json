@@ -1,0 +1,16 @@
+{
+  "base_domain": "${MG_BASE_DOMAIN}",
+  "tenant_id": "077d16c9-860d-4559-bd4c-0db34495af40",
+  "instance_id": "faac5e76-d9b1-454e-92bb-d48ecfbb0a5d",
+  "slug": "tenant-b",
+  "net_cidr": "${MG_E2E_TENANT_B_CIDR}",
+  "run_uid": 30002,
+  "derp_region_id": 902,
+  "derp_ipv4": "${MG_E2E_EDGE_IPV4}",
+  "node_expiry": "2160h",
+  "nameservers": "${MG_TENANT_NAMESERVERS:list}",
+  "image": "${MG_E2E_HEADSCALE_IMAGE}",
+  "mem_limit": "512m",
+  "cpus": "1.0",
+  "pids_limit": 256
+}

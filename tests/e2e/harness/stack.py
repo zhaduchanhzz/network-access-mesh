@@ -1,0 +1,359 @@
+"""Stack dev/CI of P2-T01a: parameters, render, ephemeral CA, secrets, networks, compose — used by e2e.py.
+
+Everything is rendered by the repository's own tools (tools/render_instance.py, render_edge.py, render_idp.py) from the
+`ci` environment (infrastructure/environments/ci); the only CI-specific change to a rendered file is the edge's `tls`
+block (ACME DNS-01 → certificate of the run's internal CA — ci_tls()). Secrets are generated per run into
+<work>/secrets as 0400 files owned by their consumer's UID (an alpine helper container sets the ownership), handed to
+containers as files; their values are only ever held in this process (for log redaction) and never printed.
+
+Run parameters (environment, none secret):
+  E2E_PREFIX       prefix of every Docker object (default mge2e): containers, networks, volumes, compose project
+  E2E_WORK         working directory (default <tmp>/<prefix>-work) — removed by `down`
+  E2E_OUT          results: summary, results.json, redacted logs (default <work>-out) — kept
+  DOCKER           docker command (default "docker"; e.g. "sudo docker" on a host where docker needs sudo)
+  E2E_KEEP_CACHE   1 (default) keeps the Go module/build cache volumes <prefix>-gomod/-gocache between runs
+  E2E_HEADSCALE_LOCK_KEY  versions.lock [images.<key>] of Headscale (default: mg-headscale if present, else headscale)
+  MG_*             override a value of infrastructure/environments/ci/ci.env (e.g. MG_E2E_NET_BASE=10.232)
+Standard library only (+ openssl CLI for the CA).
+"""
+from __future__ import annotations
+
+import ipaddress
+import json
+import os
+import pathlib
+import re
+import secrets
+import shlex
+import shutil
+import string
+import subprocess
+import sys
+import tempfile
+import time
+import tomllib
+
+ROOT = pathlib.Path(__file__).resolve().parents[3]
+HERE = ROOT / "tests" / "e2e" / "harness"
+ENV_DIR = ROOT / "infrastructure" / "environments" / "ci"
+sys.path.insert(0, str(ROOT / "tools"))
+import mgenv  # noqa: E402
+import render_edge  # noqa: E402
+import render_idp  # noqa: E402
+import render_instance  # noqa: E402
+
+TENANTS = ("tenant-a", "tenant-b")
+CLIENTS = {"a1": "tenant-a", "a2": "tenant-a", "b1": "tenant-b", "b2": "tenant-b"}
+RELAY_ONLY = {"a1", "a2"}                 # TS_DEBUG_ALWAYS_USE_DERP in compose.yaml
+HEADSCALE_LOCK_KEYS = ("mg-headscale", "headscale")   # first one present in versions.lock wins
+ADMIN_ROLES = ("mg_migrator", "mg_backup")
+LOGIN_ROLES = ("mg_api_tenant", "mg_worker_tenant", "mg_api_platform", "mg_worker_platform", "mg_readonly",
+               "mg_audit_writer", "mg_partition_maint")
+ALNUM = string.ascii_letters + string.digits
+SECRET_RE = re.compile(r"hskey-(?:api|auth|authreq)-[A-Za-z0-9_-]+|(?i:bearer\s+)[A-Za-z0-9._~+/=-]{8,}")
+PREFIX_RE = re.compile(r"^[a-z][a-z0-9-]{1,20}$")
+# uid:gid of each consumer (images: postgres 999, Keycloak 1000, edge 10001, distroless nonroot 65532, client root)
+UID = {"postgres": "999:999", "idp": "1000:1000", "edge": "10001:10001", "dbinit": "65532:65532", "client": "0:0"}
+# The ACME DNS-01 block of the rendered Caddyfile, replaced by the run's certificate (ci_tls).
+TLS_DNS01 = re.compile(r"\n\ttls \{\n\t\tdns cloudflare \{file\./run/secrets/cloudflare_dns_token\}\n"
+                       r"\t\tresolvers [0-9. ]+\n\t\}\n")
+
+
+class StackError(RuntimeError):
+    pass
+
+
+def log(msg: str) -> None:
+    print(f"[e2e {time.strftime('%H:%M:%S')}] {msg}", flush=True)
+
+
+class Stack:
+    def __init__(self) -> None:
+        self.prefix = os.environ.get("E2E_PREFIX", "mge2e")
+        if not PREFIX_RE.match(self.prefix):
+            raise StackError("E2E_PREFIX must match ^[a-z][a-z0-9-]{1,20}$")
+        self.work = pathlib.Path(os.environ.get("E2E_WORK") or pathlib.Path(tempfile.gettempdir()) / f"{self.prefix}-work")
+        self.out = pathlib.Path(os.environ.get("E2E_OUT") or f"{self.work}-out")
+        self.docker_cmd = shlex.split(os.environ.get("DOCKER", "docker"))
+        self.keep_cache = os.environ.get("E2E_KEEP_CACHE", "1") == "1"
+        self.secret_values: set[str] = set()
+
+        env = mgenv.environment(ENV_DIR / "ci.env")       # ci.env + MG_* of the process environment
+        base = env.get("MG_E2E_NET_BASE", "")
+        if not re.fullmatch(r"10\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)", base) or base in ("10.249", "10.250"):
+            raise StackError("MG_E2E_NET_BASE must look like 10.<n> and differ from 10.249/10.250 (host and tenant pools)")
+        tnet = ipaddress.ip_network(env.get("MG_E2E_TENANT_NET", ""))
+        if tnet.prefixlen != 28 or not tnet.subnet_of(render_instance.TENANT_NET_POOL):
+            raise StackError(f"MG_E2E_TENANT_NET must be a /28 inside {render_instance.TENANT_NET_POOL}")
+        net_a, net_b = (str(n) for n in tnet.subnets(new_prefix=29))
+        self.domain = env["MG_BASE_DOMAIN"]
+        self.mesh = f"mesh.{self.domain}"
+        self.edge_ip = f"{base}.0.2"
+        self.admin_ip, self.obs_ip = f"{base}.2.2", f"{base}.3.2"
+        # name → (subnet, internal, ip-range for dynamic allocation) — same layout as infrastructure/host/networks.sh
+        self.networks = {
+            "edge": (f"{base}.0.0/24", False, f"{base}.0.128/25"),
+            "data": (f"{base}.1.0/24", True, None),
+            "admin": (f"{base}.2.0/24", True, f"{base}.2.128/25"),
+            "obs": (f"{base}.3.0/24", True, f"{base}.3.128/25"),
+            "sec": (f"{base}.4.0/24", True, None),
+            "egress": (f"{base}.5.0/24", False, None),
+            "idp-data": (f"{base}.6.0/24", True, None),
+            "t-tenant-a": (net_a, True, None),
+            "t-tenant-b": (net_b, True, None),
+        }
+        lock = tomllib.loads((ROOT / "versions.lock").read_text(encoding="utf-8"))["images"]
+        img = lambda k: f"{lock[k]['image']}@{lock[k]['index']}"  # noqa: E731
+        hs_key = headscale_lock_key(lock, os.environ.get("E2E_HEADSCALE_LOCK_KEY"))
+        self.headscale_lock_key = hs_key
+        self.images = {"headscale": img(hs_key), "edge": img("mg-edge"), "stund": img("mg-stund"),
+                       "idp": img("mg-idp"), "postgres": img("postgres"), "tailscale": img("tailscale"),
+                       "alpine": img("alpine"), "golang": img("golang"), "distroless": img("distroless-static")}
+        env.update(MG_E2E_EDGE_IPV4=self.edge_ip, MG_E2E_TENANT_A_CIDR=net_a, MG_E2E_TENANT_B_CIDR=net_b,
+                   MG_E2E_HEADSCALE_IMAGE=self.images["headscale"], MG_E2E_EDGE_IMAGE=self.images["edge"])
+        self.env = env
+
+    # ------------------------------------------------------------------------------------------------ processes
+    def redact(self, text: str) -> str:
+        for v in sorted(self.secret_values, key=len, reverse=True):
+            text = text.replace(v, "[REDACTED]")
+        return SECRET_RE.sub("[REDACTED]", text)
+
+    def run(self, cmd: list[str], *, check: bool = True, timeout: float | None = 300) -> subprocess.CompletedProcess:
+        """Run a command (never with a secret in its arguments), capturing output. Output is never echoed (it may hold
+        a credential) — callers decide what to print, through redact()."""
+        try:
+            p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL,
+                               encoding="utf-8", errors="replace")
+        except subprocess.TimeoutExpired as e:
+            raise StackError(f"timeout after {timeout}s: {' '.join(cmd[:6])} …") from e
+        if check and p.returncode != 0:
+            tail = self.redact((p.stderr or p.stdout or "").strip())[-1500:]
+            raise StackError(f"exit {p.returncode}: {' '.join(cmd[:8])} …\n{tail}")
+        return p
+
+    def docker(self, *args: str, **kw) -> subprocess.CompletedProcess:
+        return self.run([*self.docker_cmd, *args], **kw)
+
+    def compose_files(self) -> list[str]:
+        r = self.work / "render"
+        files = [r / "tenant-a" / "compose.yaml", r / "tenant-b" / "compose.yaml", r / "edge" / "compose.edge.yaml",
+                 r / "idp" / "compose.idp.yaml", ROOT / "compose.yaml"]
+        return [x for f in files for x in ("-f", str(f))]
+
+    def compose(self, *args: str, **kw) -> subprocess.CompletedProcess:
+        return self.docker("compose", "-p", self.prefix, "--project-directory", str(ROOT),
+                           "--env-file", str(self.work / "stack.env"), *self.compose_files(), *args, **kw)
+
+    def name(self, what: str) -> str:
+        return f"{self.prefix}-{what}"
+
+    def exec(self, container: str, *args: str, **kw) -> subprocess.CompletedProcess:
+        return self.docker("exec", self.name(container), *args, **kw)
+
+    def headscale(self, slug: str, *args: str, **kw) -> subprocess.CompletedProcess:
+        return self.exec(f"hs-{slug}", "headscale", *args, **kw)
+
+    def helper(self, script: str, *mounts: str, network: str = "none") -> subprocess.CompletedProcess:
+        """Run a shell script (never holding a secret) as root in the pinned alpine image."""
+        vols = [x for m in mounts for x in ("-v", m)]
+        return self.docker("run", "--rm", "--network", network, *vols, self.images["alpine"], "sh", "-ec", script)
+
+    # ------------------------------------------------------------------------------------------------ render
+    def render(self) -> None:
+        out = self.work / "render"
+        for slug in TENANTS:
+            params = mgenv.expand(json.loads((ENV_DIR / "tenants" / f"{slug}.json").read_text(encoding="utf-8")), self.env)
+            files = render_instance.render(params)
+            render_instance.write(files, out / slug)
+            log(f"render {slug}: {', '.join(sorted(files))} (image {params['image'].split('@')[0]})")
+        # The edge's static IPs and internal subnets are module constants of render_edge (the host layout of
+        # infrastructure/host/networks.sh); the stack uses its own subnets. Updated in place: render_idp shares the dict
+        # (KC_PROXY_TRUSTED_ADDRESSES = the edge IP).
+        render_edge.EDGE_IPS.update(edge_ip=self.edge_ip, edge_admin_ip=self.admin_ip, edge_obs_ip=self.obs_ip)
+        render_edge.INTERNAL.update(admin_subnet=self.networks["admin"][0], obs_subnet=self.networks["obs"][0])
+        params = mgenv.expand(json.loads((ENV_DIR / "edge.json").read_text(encoding="utf-8")), self.env)
+        files = render_edge.render(params)
+        files["caddy/Caddyfile"] = ci_tls(files["caddy/Caddyfile"])
+        render_edge.write(files, out / "edge")
+        log(f"render edge: Caddyfile (template {render_edge.TEMPLATE_VERSION}, tls → CA nội bộ), compose.edge.yaml")
+        files = render_idp.render(self.env, self.images["idp"])
+        render_edge.write(files, out / "idp")
+        log(f"render idp: {len([f for f in files if f.startswith('idp/realms/')])} realm, compose.idp.yaml")
+        pol = self.work / "policies"
+        pol.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(ROOT / "infrastructure" / "headscale" / "templates" / "test-allow-intra.hujson",
+                        pol / "test-allow-intra.hujson")
+        os.chmod(pol / "test-allow-intra.hujson", 0o644)
+        for p in out.rglob("*"):   # config is not secret; Headscale/Keycloak/Caddy run as other UIDs
+            os.chmod(p, 0o755 if p.is_dir() else 0o644)
+
+    def write_stack_env(self) -> None:
+        values = {"MGE_PREFIX": self.prefix, "MGE_WORK": str(self.work), "MGE_MESH_DOMAIN": self.mesh,
+                  "MGE_EDGE_IP": self.edge_ip, "MGE_IMG_POSTGRES": self.images["postgres"],
+                  "MGE_IMG_TAILSCALE": self.images["tailscale"], "MGE_IMG_STUND": self.images["stund"],
+                  "MGE_IMG_DISTROLESS": self.images["distroless"]}
+        text = "# Sinh bởi tests/e2e/harness/stack.py — tham số KHÔNG bí mật của stack dev/CI (compose.yaml).\n"
+        (self.work / "stack.env").write_text(text + "".join(f"{k}={v}\n" for k, v in values.items()), encoding="utf-8")
+
+    # ------------------------------------------------------------------------------------------------ CA + secrets
+    def new_secret(self, rel: str, value: str | None = None) -> str:
+        v = value if value is not None else "".join(secrets.choice(ALNUM) for _ in range(40))
+        self.secret_values.add(v)
+        self.write_private(self.work / "secrets" / rel, v)
+        return v
+
+    def write_private(self, path: pathlib.Path, value: str) -> None:
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
+            f.write(value)
+
+    def make_ca(self) -> None:
+        """Ephemeral CA of this run → one wildcard certificate for *.mesh.<domain>; the CA key is deleted at once."""
+        ca_dir, tmp = self.work / "ca", self.work / "ca-private"
+        ca_dir.mkdir(parents=True, exist_ok=True)
+        tmp.mkdir(mode=0o700, parents=True, exist_ok=True)
+        edge = self.work / "secrets" / "edge"
+        edge.mkdir(parents=True, exist_ok=True)
+        ec = ["-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes"]
+        stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+        old = os.umask(0o077)
+        try:
+            self.run(["openssl", "req", "-x509", *ec, "-keyout", str(tmp / "ca.key"), "-out", str(ca_dir / "ca.crt"),
+                      "-days", "1", "-subj", f"/O=MeshGuard CI/CN=MeshGuard ephemeral CI CA {self.prefix} {stamp}",
+                      "-addext", "basicConstraints=critical,CA:TRUE,pathlen:0",
+                      "-addext", "keyUsage=critical,keyCertSign,cRLSign",
+                      "-addext", f"nameConstraints=critical,permitted;DNS:{self.mesh}"])
+            self.run(["openssl", "req", "-new", *ec, "-keyout", str(edge / "tls_key"), "-out", str(tmp / "edge.csr"),
+                      "-subj", f"/CN=*.{self.mesh}"])
+            (tmp / "edge.ext").write_text(f"subjectAltName=DNS:*.{self.mesh}\nbasicConstraints=critical,CA:FALSE\n"
+                                          "keyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth\n",
+                                          encoding="ascii")
+            self.run(["openssl", "x509", "-req", "-in", str(tmp / "edge.csr"), "-CA", str(ca_dir / "ca.crt"),
+                      "-CAkey", str(tmp / "ca.key"), "-set_serial", "0x" + secrets.token_hex(16), "-days", "1",
+                      "-extfile", str(tmp / "edge.ext"), "-out", str(edge / "tls_cert")])
+        finally:
+            os.umask(old)
+            shutil.rmtree(tmp, ignore_errors=True)        # the CA key never outlives the signing of the one leaf
+        os.chmod(ca_dir / "ca.crt", 0o644)
+        self.secret_values.add((edge / "tls_key").read_text(encoding="ascii").strip())
+        info = self.run(["openssl", "x509", "-in", str(ca_dir / "ca.crt"), "-noout", "-subject", "-enddate"]).stdout
+        log("CA nội bộ dùng-một-lần: " + " ".join(info.split()) + f"; name constraint DNS:{self.mesh}; khóa CA đã xóa")
+
+    def make_secrets(self) -> None:
+        (self.work / "secrets").mkdir(mode=0o700, parents=True, exist_ok=True)
+        s = self.new_secret
+        pg = s("postgres/superuser_password")
+        s("dbinit/pg_superuser_password", pg)              # one copy per consumer (§14.2)
+        for role in (*ADMIN_ROLES, *LOGIN_ROLES):
+            s(f"dbinit/role_{role}")
+        idp_db = s("idp/db_password")
+        s("idp/db_superuser_password")
+        admin_pw = "".join(secrets.choice(ALNUM) for _ in range(40))
+        self.secret_values.add(admin_pw)
+        # same keys as infrastructure/idp/secrets.sh (Keycloak --config-file); checked against that script
+        conf = {"db-password": idp_db, "bootstrap-admin-username": "mg-bootstrap-admin", "bootstrap-admin-password": admin_pw}
+        want = set(re.findall(r'echo "([a-z-]+)=', (ROOT / "infrastructure" / "idp" / "secrets.sh").read_text(encoding="utf-8")))
+        if want != set(conf):
+            raise StackError(f"keycloak.conf keys {sorted(conf)} differ from infrastructure/idp/secrets.sh {sorted(want)}")
+        self.write_private(self.work / "secrets" / "idp" / "keycloak.conf",
+                           "# Sinh bởi tests/e2e/harness — dùng một lần.\n" + "".join(f"{k}={v}\n" for k, v in conf.items()))
+        for name in ("admin_token", "metrics_token", "bouncer_key", "cloudflare_dns_token"):
+            v = s(f"edge/{name}")
+            if name == "admin_token":                      # copy of the caller of the admin listener (role of api)
+                s("harness/admin_token", v)
+        for c in CLIENTS:                                  # filled with a pre-auth key right before the client starts
+            self.write_private(self.work / "secrets" / "clients" / f"{c}.authkey", "")
+        for d in ("data/tenant-a", "data/tenant-b", "logs/edge", "bin"):
+            (self.work / d).mkdir(parents=True, exist_ok=True)
+
+    def own_files(self) -> None:
+        """Give each secret/data directory to the UID that uses it (0400 files) — Docker binds files as they are."""
+        script = "\n".join([
+            f"chown -R {UID['postgres']} /w/secrets/postgres; chmod 0700 /w/secrets/postgres; chmod 0400 /w/secrets/postgres/*",
+            f"chown -R {UID['dbinit']} /w/secrets/dbinit; chmod 0500 /w/secrets/dbinit; chmod 0400 /w/secrets/dbinit/*",
+            f"chown {UID['idp']} /w/secrets/idp/keycloak.conf",
+            f"chown {UID['postgres']} /w/secrets/idp/db_password /w/secrets/idp/db_superuser_password",
+            "chmod 0400 /w/secrets/idp/*",
+            f"chown -R {UID['edge']} /w/secrets/edge; chmod 0700 /w/secrets/edge; chmod 0400 /w/secrets/edge/*",
+            f"chown {UID['edge']} /w/logs/edge; chmod 0750 /w/logs/edge",
+            "chown 30001:30001 /w/data/tenant-a; chown 30002:30002 /w/data/tenant-b; chmod 0700 /w/data/*",
+        ])
+        self.helper(script, f"{self.work}:/w")
+
+    def fresh_dir(self, rel: str) -> pathlib.Path:
+        """An empty directory <work>/<rel> owned by this process (a previous run may have handed it to another UID)."""
+        self.helper(f"rm -rf /w/{rel}", f"{self.work}:/w")
+        d = self.work / rel
+        d.mkdir(mode=0o700, parents=True)
+        return d
+
+    def own_client_keys(self, names: list[str]) -> None:
+        paths = " ".join(f"/w/secrets/{n}" for n in names)
+        self.helper(f"chown {UID['client']} {paths}; chmod 0400 {paths}", f"{self.work}:/w")
+
+    # ------------------------------------------------------------------------------------------------ docker objects
+    def create_networks(self) -> None:
+        for name, (subnet, internal, ip_range) in self.networks.items():
+            flags = (["--internal"] if internal else []) + (["--ip-range", ip_range] if ip_range else [])
+            self.docker("network", "create", *flags, "--subnet", subnet, "--label", "meshguard.role=e2e",
+                        "--label", f"meshguard.e2e.prefix={self.prefix}", self.name(name))
+        log("network: " + ", ".join(f"{self.name(n)} {s}{' internal' if i else ''}"
+                                    for n, (s, i, _) in self.networks.items()))
+
+    def build_dbinit(self) -> None:
+        for v in ("gomod", "gocache"):
+            self.docker("volume", "create", "--label", "meshguard.role=e2e", self.name(v))
+        t0 = time.time()
+        self.docker("run", "--rm", "-v", f"{ROOT}:/src:ro", "-v", f"{self.name('gomod')}:/go/pkg/mod",
+                    "-v", f"{self.name('gocache')}:/root/.cache/go-build", "-v", f"{self.work / 'bin'}:/out",
+                    "-e", "GOTOOLCHAIN=local", "-e", "GOFLAGS=-mod=readonly", "-e", "CGO_ENABLED=0", "-w", "/src",
+                    self.images["golang"], "go", "build", "-buildvcs=false", "-trimpath",
+                    "-o", "/out/mg-e2e-dbinit", "./tests/e2e/harness/dbinit", timeout=900)
+        log(f"build tests/e2e/harness/dbinit trong {self.images['golang'].split('@')[0]}: {time.time() - t0:.0f} s")
+
+    def teardown(self, *, quiet: bool = False) -> None:
+        """Remove every object of this prefix (and only those). Safe to run when nothing exists."""
+        if (self.work / "stack.env").exists() and (self.work / "render" / "idp" / "compose.idp.yaml").exists():
+            self.compose("--profile", "tools", "down", "-v", "--remove-orphans", "--timeout", "10", check=False,
+                         timeout=180)
+        ids = self.docker("ps", "-aq", "--filter", f"label=com.docker.compose.project={self.prefix}", check=False).stdout.split()
+        for extra in ("probe", "caller"):
+            ids += self.docker("ps", "-aq", "--filter", f"name=^{self.name(extra)}", check=False).stdout.split()
+        if ids:
+            self.docker("rm", "-f", *ids, check=False)
+        for n in self.networks:
+            self.docker("network", "rm", self.name(n), check=False)
+        for v in ("edge-data", "idp-db-data"):
+            self.docker("volume", "rm", "-f", f"{self.prefix}_{v}", check=False)
+        if not self.keep_cache:
+            self.docker("volume", "rm", "-f", self.name("gomod"), self.name("gocache"), check=False)
+        if self.work.exists():
+            self.helper("rm -rf /w/* /w/.[!.]* 2>/dev/null || true", f"{self.work}:/w")
+            shutil.rmtree(self.work, ignore_errors=True)
+        if not quiet:
+            left = [self.docker("ps", "-aq", "--filter", f"name=^{self.prefix}-", check=False).stdout.split(),
+                    self.docker("network", "ls", "-q", "--filter", f"name=^{self.prefix}-", check=False).stdout.split(),
+                    self.docker("volume", "ls", "-q", "--filter", f"name=^{self.prefix}", check=False).stdout.split()]
+            log(f"dọn xong: còn {len(left[0])} container, {len(left[1])} network, {len(left[2])} volume mang tiền tố "
+                f"{self.prefix}" + (" (cache Go giữ lại: E2E_KEEP_CACHE=1)" if self.keep_cache and left[2] else ""))
+
+
+def headscale_lock_key(lock_images: dict, override: str | None = None) -> str:
+    """versions.lock entry of the Headscale image: the override if given, else the patched build [images.mg-headscale]
+    once it is pinned (P2-T10a), else the official [images.headscale] — switching needs a change to the lock only."""
+    key = override or next((k for k in HEADSCALE_LOCK_KEYS if k in lock_images), "")
+    if key not in lock_images or not render_instance.IMAGE_RE.match(f"{lock_images[key].get('image')}@{lock_images[key].get('index')}"):
+        raise StackError(f"versions.lock: [images.{key or 'headscale'}] thiếu hoặc không pin theo digest")
+    return key
+
+
+def ci_tls(caddyfile: str) -> str:
+    """The rendered Caddyfile with its ACME DNS-01 `tls` block replaced by the run's certificate — nothing else."""
+    if len(TLS_DNS01.findall(caddyfile)) != 1:
+        raise StackError("Caddyfile.tmpl đổi: không tìm thấy đúng một khối tls DNS-01 — cập nhật stack.ci_tls()")
+    out = TLS_DNS01.sub("\n\ttls /run/secrets/edge_tls_cert /run/secrets/edge_tls_key\n", caddyfile)
+    head = ("# [stack dev/CI P2-T01a] Bản render của tools/render_edge.py; khác duy nhất: khối tls của *.mesh dùng chứng chỉ\n"
+            "# do CA nội bộ dùng-một-lần của lượt chạy ký (thay ACME DNS-01). Không bao giờ dùng ngoài CI.\n")
+    return head + out

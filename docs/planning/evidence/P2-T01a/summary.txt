@@ -1,0 +1,41 @@
+P2-T01a — stack dev/CI, kiểm thử FUNCTIONAL (không phải network E2E verified) — 2026-11-17 04:36:19 UTC
+prefix p2t01a; Headscale [images.headscale] docker.io/headscale/headscale@sha256:11f81665e842809db9fe3006a38c56a66e968baa5abd4bac498e86445572b970
+phiên bản: headscale headscale version v0.29.7; tailscale 1.104.7; caddy (edge) v2.11.9 h1:bhZtcRKQOq0fuLvEgCdPYvUxXyGn9kzjG4lh2332DTE=; postgres postgres (PostgreSQL) 18.7 (Debian 18.7-1.pgdg13+2); docker 29.9.3; compose 5.7.1
+
+PASS E2E-01   [functional] PostgreSQL: migration bằng đường của repo (store.Bootstrap → MigrateAll) — schema mới nhất, River, seed RBAC, role đăng nhập dùng được
+              schema 6/6, river 8 version, 11 role hệ thống, pool ['api', 'worker'], 9 role có mật khẩu, vi phạm partition 0
+PASS E2E-02   [functional] IdP Keycloak: 3 realm import sẵn, 3 issuer khác nhau, khóa ký riêng từng realm
+              issuer ['https://auth.meshguard-ci.test/realms/platform', 'https://auth.meshguard-ci.test/realms/tenant-a', 'https://auth.meshguard-ci.test/realms/tenant-b']; 3 kid khác nhau
+PASS E2E-03   [functional] Baseline deny-all (bootstrap-policy, áp trước khi edge gắn vào network tenant): client Running, 0 peer
+              số peer {'a1': 0, 'a2': 0, 'b1': 0, 'b2': 0}
+PASS E2E-04   [functional] Enrollment bằng pre-auth key (CLI Headscale trong container): mỗi Headscale chỉ có đúng 2 node của tenant mình
+              tenant-a: ['a1', 'a2']; tenant-b: ['b1', 'b2']
+PASS E2E-05   [functional] IT-05 (functional, status --json): dưới test-allow-intra mỗi client thấy đúng peer cùng tenant, không thấy node nào của tenant kia (danh sách peer khác rỗng)
+              a1: 1 peer = anh em cùng tenant; a2: 1 peer = anh em cùng tenant; b1: 1 peer = anh em cùng tenant; b2: 1 peer = anh em cùng tenant; IP tailnet {'a1': '100.64.0.1', 'a2': '100.64.0.2', 'b1': '100.64.0.2', 'b2': '100.64.0.1'} — hai tailnet dùng chung địa chỉ ['100.64.0.1', '100.64.0.2']
+PASS E2E-06   [functional] DERP map: mỗi client chỉ có region DERP nhúng của tenant mình (urls: [], host tenant, IP điểm vào)
+              a1: ['901'] mg-tenant-a; a2: ['901'] mg-tenant-a; b1: ['902'] mg-tenant-b; b2: ['902'] mg-tenant-b
+PASS E2E-07   [functional] STUN dùng chung tại IP điểm vào (stund trong netns của edge, như staging): netcheck UDP true, DERP ưa thích = region của tenant
+              a1: UDP=True GlobalV4=10.231.0.131:53977 DERP=901; a2: UDP=True GlobalV4=10.231.0.132:52277 DERP=901; b1: UDP=True GlobalV4=10.231.0.133:56841 DERP=902; b2: UDP=True GlobalV4=10.231.0.130:50702 DERP=902
+PASS E2E-08   [functional] TCP thật qua tailnet tới cổng được phép (tcp:8000), cả hai chiều, hai tenant — bên trả lời là đúng node cùng tenant
+              a1→a2:8000: mg-e2e tenant-a a2 tcp/8000; a2→a1:8000: mg-e2e tenant-a a1 tcp/8000; b1→b2:8000: mg-e2e tenant-b b2 tcp/8000; b2→b1:8000: mg-e2e tenant-b b1 tcp/8000
+PASS E2E-09   [functional] TCP thật tới cổng không được phép (tcp:8001) bị chặn bởi policy (listener có chạy — đối chứng cục bộ)
+              a1→a2:8001: qua tailnet: không kết nối được; đối chứng cục bộ trên a2: mg-e2e tenant-a a2 tcp/8001; b1→b2:8001: qua tailnet: không kết nối được; đối chứng cục bộ trên b2: mg-e2e tenant-b b2 tcp/8001
+PASS E2E-10   [functional] Relay ép buộc (TS_DEBUG_ALWAYS_USE_DERP): đường của tenant-a đi qua DERP của chính tenant-a qua edge, TCP thật vẫn thông (E2E-08)
+              a1→a2: pong from a2 (100.64.0.2) via DERP(mg-tenant-a) in 1ms; Relay=mg-tenant-a CurAddr=-; a2→a1: pong from a1 (100.64.0.1) via DERP(mg-tenant-a) in 1ms; Relay=mg-tenant-a CurAddr=-
+PASS E2E-11   [functional] Đường trực tiếp giữa hai client tenant-b (cùng bridge Docker — chỉ functional, không phải P2P qua NAT)
+              b1→b2: CurAddr=10.231.0.130:41535 Relay=mg-tenant-b; b2→b1: CurAddr=10.231.0.133:44608 Relay=mg-tenant-b
+PASS E2E-12   [functional] Edge (Caddyfile thật, TLS từ CA nội bộ): allow-list chặn /api/v1 (kèm API key thật), /swagger, /verify, /metrics… ⇒ 404 trên cả hai hostname tenant; /key tới đúng instance của từng tenant
+              76 request bị chặn đúng
+PASS E2E-12b  [functional] SNI tenant-a + Host tenant-b ⇒ 421 (strict_sni_host, không domain fronting giữa tenant)
+              status 421
+PASS E2E-13   [functional] Listener admin nội bộ của edge (từ network admin): API key của instance chỉ dùng được trên chính instance đó; thiếu token ⇒ 403
+              a-on-a ⇒ 200 (cần 200), a-on-b ⇒ 401 (cần 401), b-on-b ⇒ 200 (cần 200), no-token ⇒ 403 (cần 403)
+PASS E2E-14   [functional] AC-14/IT-13 (functional): pre-auth key của tenant này bị tenant kia từ chối (hai chiều); đối chứng: cùng key đăng ký được ở đúng tenant (key không bị tiêu khi bị từ chối)
+              key tenant-a → tenant-b: rc=1 state=NeedsLogin — backend error: invalid pre auth key; key tenant-b → tenant-a: rc=1 state=NeedsLogin — backend error: invalid pre auth key; key tenant-a → tenant-a: rc=0 state=Running — node đối chứng đã xóa; key tenant-b → tenant-b: rc=0 state=Running — node đối chứng đã xóa
+PASS E2E-15   [functional] Policy chuyển về deny-all: peer biến mất và TCP tới cổng vừa được phép (8000) bị chặn
+              số peer {'a1': 0, 'a2': 0, 'b1': 0, 'b2': 0}; a1→a2: không kết nối được, b1→b2: không kết nối được
+PASS E2E-16   [functional] Artifact (log compose đã che, cấu hình compose đã ghép, Caddyfile) không chứa secret nào của lượt chạy
+              4 tệp, 26 giá trị secret đã dò
+
+17/17 ca PASS (functional); tổng thời gian 246 s
+thời gian từng pha: chuẩn bị (render, secret, CA nội bộ, network) 5 s; image (pull nếu thiếu) 2 s; IdP (khởi động nền) + build dbinit 113 s; PostgreSQL + migration 10 s; Headscale tenant-a, tenant-b + policy deny-all 6 s; edge + stund, gắn edge vào network tenant lúc chạy 5 s; chờ IdP healthy 12 s; enroll 4 client (pre-auth key một lần) 12 s; ca E2E-01, E2E-02 (PostgreSQL, IdP) 1 s; ca E2E-03, E2E-04 (deny-all, enrollment) 2 s; ca E2E-05 … E2E-11 (test-allow-intra: cô lập, DERP, STUN, TCP, đường đi) 33 s; ca E2E-12, E2E-13 (edge public + admin) 15 s; ca E2E-14 (pre-auth key chéo tenant) 12 s; ca E2E-15 (policy deny) 11 s; lưu log + gỡ stack 7 s
