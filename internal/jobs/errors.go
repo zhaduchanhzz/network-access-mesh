@@ -20,6 +20,7 @@ const (
 	CodeInterrupted        = "interrupted"         // the worker stopped mid-job: the job resumes after restart
 	CodeRetriesExhausted   = "retries_exhausted"   // delivered again after its last attempt (rescue)
 	CodeCompensationFailed = "compensation_failed" // compensation after a permanent error failed
+	CodeCancelled          = "cancelled"           // /cancel: the job stopped after its current step (§11.3)
 )
 
 var codeRE = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
@@ -29,7 +30,11 @@ var codeRE = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
 type Error struct {
 	Code      string
 	Permanent bool // not recoverable: no retry; a lifecycle job with a Compensator rolls back (§11.3)
-	Err       error
+	// Stop: recoverable, but the queue must not retry it — the handler ran its own retries (or was cancelled): the job
+	// ends failed_resumable (lifecycle group: no compensation, resources kept, /retry resumes from the failed step) or
+	// failed.
+	Stop bool
+	Err  error
 }
 
 func (e *Error) Error() string {
@@ -47,6 +52,29 @@ func Transient(code string, err error) error { return &Error{Code: code, Err: er
 
 // Permanent wraps err as a failure that no retry can fix.
 func Permanent(code string, err error) error { return &Error{Code: code, Permanent: true, Err: err} }
+
+// Resumable wraps err as a recoverable failure that the queue must not retry: the handler already spent its own
+// retries (the provisioning steps retry 5 times with backoff — §11.3), or the operator cancelled the job. The job stops
+// without compensation — failed_resumable for the lifecycle group, failed otherwise.
+func Resumable(code string, err error) error { return &Error{Code: code, Stop: true, Err: err} }
+
+// IsPermanent reports whether err (or an error it wraps) is a Permanent failure.
+func IsPermanent(err error) bool {
+	var je *Error
+	return errors.As(err, &je) && je.Permanent
+}
+
+// IsResumable reports whether err (or an error it wraps) is a Resumable failure.
+func IsResumable(err error) bool {
+	var je *Error
+	return errors.As(err, &je) && je.Stop
+}
+
+// CodeOf returns the stable code of a handler error (CodeHandlerError when it has none).
+func CodeOf(err error) string {
+	code, _, _ := classify(err)
+	return code
+}
 
 // classify returns the code, permanence and redacted message of a handler error.
 func classify(err error) (code string, permanent bool, msg string) {

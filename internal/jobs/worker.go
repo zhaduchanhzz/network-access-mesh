@@ -223,6 +223,17 @@ func (w *Worker) work(ctx context.Context, queueJobID int64, args queueArgs) err
 		rec, err = w.startPeriodic(ctx, k, args, queueJobID)
 	} else {
 		rec, err = w.acquire(ctx, k, args.JobID, queueJobID)
+		if errors.Is(err, store.ErrNoRows) && k.Lock == LockHold {
+			// Not runnable as a run — maybe a compensation this River job carries (/rollback, or a delivery again after
+			// the worker stopped in the middle of one).
+			crec, cerr := w.acquireCompensation(ctx, k, args.JobID, queueJobID)
+			switch {
+			case cerr == nil:
+				return w.resumeCompensation(ctx, k, h, crec)
+			case !errors.Is(cerr, store.ErrNoRows):
+				err = cerr
+			}
+		}
 	}
 	switch {
 	case err == nil:
@@ -263,6 +274,19 @@ func acquireJob(ctx context.Context, q *sqlcdb.Queries, id uuid.UUID, queueJobID
 		return sqlcdb.ProvisioningJob{}, err
 	}
 	return q.MarkJobStarted(ctx, sqlcdb.MarkJobStartedParams{ID: id, TimeoutSecs: timeoutSecs})
+}
+
+// acquireCompensation takes a delivery of a job waiting in compensating (set by /rollback, or left there by a worker
+// that stopped in the middle of a compensation): only the River job that carries it, with a fresh deadline.
+func (w *Worker) acquireCompensation(ctx context.Context, k Kind, id uuid.UUID, queueJobID int64) (sqlcdb.ProvisioningJob, error) {
+	var rec sqlcdb.ProvisioningJob
+	err := w.bookkeep(ctx, func(ctx context.Context, tx *store.Tx) error {
+		var err error
+		rec, err = tx.Q.AcquireCompensation(ctx, sqlcdb.AcquireCompensationParams{TimeoutSecs: k.Timeout.Seconds(),
+			ID: id, QueueJobID: queueJobID})
+		return err
+	})
+	return rec, err
 }
 
 // startPeriodic records a periodic run (River periodic jobs have no business row yet) directly as running, or resumes
@@ -358,6 +382,8 @@ func (w *Worker) execute(ctx context.Context, k Kind, h Handler, rec sqlcdb.Prov
 			return w.compensate(ctx, k, rec, run, c, herr, code, msg)
 		}
 		return w.fail(ctx, k, rec, code, msg)
+	case IsResumable(herr): // the handler spent its own retries, or the operator cancelled: no queue retry
+		return w.fail(ctx, k, rec, code, msg)
 	case rec.Attempt >= rec.MaxAttempts:
 		return w.fail(ctx, k, rec, code, fmt.Sprintf("%s (attempt %d of %d)", msg, rec.Attempt, rec.MaxAttempts))
 	}
@@ -415,12 +441,52 @@ func (w *Worker) compensate(ctx context.Context, k Kind, rec sqlcdb.Provisioning
 	cctx, cancel := context.WithDeadline(ctx, deadline)
 	cerr := call(cctx, func(ctx context.Context, run *Run) error { return c.Compensate(ctx, run, cause) }, run)
 	cancel()
-	if cerr != nil {
-		ccode, _, cmsg := classify(cerr)
-		return w.finish(ctx, k, comp, StatusCompensating, StatusFailedResumable,
-			jobError(CodeCompensationFailed, ccode+": "+cmsg), nil, CodeCompensationFailed)
+	return w.endCompensation(ctx, k, comp, cerr, deadline, jobError(code, msg), code)
+}
+
+// resumeCompensation runs the compensation of a job delivered in compensating: after /rollback of a failed_resumable
+// job (§11.3), or again after the worker stopped in the middle of one. The cause handed to the Compensator is the
+// job's stored error. Steps whose compensation already succeeded are not compensated again (Run.CompensateSteps).
+func (w *Worker) resumeCompensation(ctx context.Context, k Kind, h Handler, rec sqlcdb.ProvisioningJob) error {
+	c, ok := h.(Compensator)
+	if !ok {
+		return w.finish(ctx, k, rec, StatusCompensating, StatusFailedResumable,
+			jobError(CodeCompensationFailed, "the handler of this kind cannot compensate"), nil, CodeCompensationFailed)
 	}
-	return w.finish(ctx, k, comp, StatusCompensating, StatusRolledBack, jobError(code, msg), nil, code)
+	deadline := time.Now().Add(k.Timeout)
+	if rec.TimeoutAt != nil {
+		deadline = *rec.TimeoutAt
+	}
+	code := CodeHandlerError
+	cause := Permanent(code, errors.New("rollback requested"))
+	if e := decodeError(rec.Error); e != nil {
+		code = e.Code
+		cause = Permanent(e.Code, errors.New(e.Message))
+	}
+	run := w.newRun(rec, deadline)
+	cctx, cancel := context.WithDeadline(ctx, deadline)
+	cerr := call(cctx, func(ctx context.Context, run *Run) error { return c.Compensate(ctx, run, cause) }, run)
+	cancel()
+	return w.endCompensation(ctx, k, rec, cerr, deadline, rec.Error, code)
+}
+
+// endCompensation records the outcome of a compensation: rolled_back (keeping the error that caused it), or
+// failed_resumable with compensation_failed (the operator decides — §11.3). A worker that stops in the middle leaves the
+// job compensating: River delivers it again without using an attempt and the compensation resumes; a worker that never
+// returns is settled by job.reaper after timeout_at.
+func (w *Worker) endCompensation(ctx context.Context, k Kind, rec sqlcdb.ProvisioningJob, cerr error, deadline time.Time,
+	keepErr []byte, code string,
+) error {
+	if cerr == nil {
+		return w.finish(ctx, k, rec, StatusCompensating, StatusRolledBack, keepErr, nil, code)
+	}
+	if ctx.Err() != nil && time.Now().Before(deadline) {
+		w.log.Info("job compensation interrupted; it resumes after restart", "kind", k.Name, "job_id", rec.ID)
+		return fmt.Errorf("jobs: %s compensation interrupted: %w", k.Name, context.Canceled)
+	}
+	ccode, _, cmsg := classify(cerr)
+	return w.finish(ctx, k, rec, StatusCompensating, StatusFailedResumable,
+		jobError(CodeCompensationFailed, ccode+": "+cmsg), nil, CodeCompensationFailed)
 }
 
 // finish records the outcome of this worker's attempt, conditioned on the status and attempt it observed: when
@@ -535,25 +601,36 @@ func (r *Run) Step(ctx context.Context, name string, fn func(ctx context.Context
 	if !stepNameRE.MatchString(name) {
 		return Permanent("invalid_step", errorf("invalid step name %q", name))
 	}
-	var started bool
+	var (
+		started, cancelled bool
+		prev               []byte
+	)
 	err := r.w.bookkeep(ctx, func(bctx context.Context, tx *store.Tx) error {
-		_, err := tx.Q.StartJobStep(bctx, sqlcdb.StartJobStepParams{TenantID: r.TenantID, JobID: r.ID, Name: name})
+		// /cancel (§11.3): the job stops after the step that was running when the operator asked — before the next one.
+		if requested, err := tx.Q.JobCancelRequested(bctx, r.ID); err != nil || requested {
+			cancelled = requested
+			return err
+		}
+		row, err := tx.Q.StartJobStep(bctx, sqlcdb.StartJobStepParams{TenantID: r.TenantID, JobID: r.ID, Name: name})
 		if errors.Is(err, store.ErrNoRows) {
 			return nil // succeeded in an earlier attempt
 		}
 		if err != nil {
 			return err
 		}
-		started = true
+		started, prev = true, row.CreatedResources
 		return tx.Q.SetJobCurrentStep(bctx, sqlcdb.SetJobCurrentStepParams{CurrentStep: name, ID: r.ID, Attempt: int32(r.Attempt)}) //nolint:gosec // attempt count
 	})
 	if err != nil {
 		return Transient("step_bookkeeping", errorf("step %s: sqlstate %q", name, store.SQLState(err)))
 	}
+	if cancelled {
+		return Resumable(CodeCancelled, errorf("cancelled by an operator before step %s", name))
+	}
 	if !started {
 		return nil
 	}
-	s := &StepRun{run: r, name: name}
+	s := &StepRun{run: r, name: name, prev: prev}
 	ferr := call(ctx, func(ctx context.Context, _ *Run) error { return fn(ctx, s) }, r)
 	status, code, detail := StepSucceeded, (*string)(nil), s.detail
 	if ferr != nil {
@@ -574,6 +651,20 @@ type StepRun struct {
 	run    *Run
 	name   string
 	detail []byte
+	prev   []byte // created_resources recorded by an earlier attempt of this step
+}
+
+// Previous decodes into v what an earlier attempt of this step recorded with RecordCreated (the step failed, or the
+// worker died after recording): found = false on the first attempt. A step that chooses an identifier before creating
+// a resource (the instance ID of placement.allocate) reuses it from here, so a retry never creates a second one.
+func (s *StepRun) Previous(v any) (bool, error) {
+	if len(s.prev) == 0 || string(s.prev) == "null" {
+		return false, nil
+	}
+	if err := json.Unmarshal(s.prev, v); err != nil {
+		return false, Permanent("invalid_step", errorf("step %s: created_resources unreadable", s.name))
+	}
+	return true, nil
 }
 
 // RecordCreated stores what the step is about to create — BEFORE creating it — so a compensation removes exactly what

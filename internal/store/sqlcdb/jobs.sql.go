@@ -12,11 +12,57 @@ import (
 	"github.com/google/uuid"
 )
 
+const acquireCompensation = `-- name: AcquireCompensation :one
+UPDATE provisioning_jobs
+SET attempt = attempt + 1, timeout_at = clock_timestamp() + $1::float8 * interval '1 second'
+WHERE id = $2 AND queue_job_id = $3::bigint AND status = 'compensating'
+RETURNING id, tenant_id, instance_id, kind, request_key, dedupe_key, lock_key, status, current_step, attempt, max_attempts, input, output, error, resource_type, resource_id, queue_job_id, requested_by, created_at, timeout_at, started_at, finished_at, cancel_requested_at
+`
+
+type AcquireCompensationParams struct {
+	TimeoutSecs float64
+	ID          uuid.UUID
+	QueueJobID  int64
+}
+
+// Worker nhận một lần giao của job đang compensating (sau /rollback, hoặc lần giao lại sau khi worker dừng giữa
+// compensation): chỉ job River đang chở job; hạn mới cho lần chạy này.
+func (q *Queries) AcquireCompensation(ctx context.Context, arg AcquireCompensationParams) (ProvisioningJob, error) {
+	row := q.db.QueryRow(ctx, acquireCompensation, arg.TimeoutSecs, arg.ID, arg.QueueJobID)
+	var i ProvisioningJob
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.InstanceID,
+		&i.Kind,
+		&i.RequestKey,
+		&i.DedupeKey,
+		&i.LockKey,
+		&i.Status,
+		&i.CurrentStep,
+		&i.Attempt,
+		&i.MaxAttempts,
+		&i.Input,
+		&i.Output,
+		&i.Error,
+		&i.ResourceType,
+		&i.ResourceID,
+		&i.QueueJobID,
+		&i.RequestedBy,
+		&i.CreatedAt,
+		&i.TimeoutAt,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.CancelRequestedAt,
+	)
+	return i, err
+}
+
 const acquireJob = `-- name: AcquireJob :one
 UPDATE provisioning_jobs
 SET status = 'running', attempt = attempt + 1
 WHERE id = $1 AND queue_job_id = $2::bigint AND status IN ('queued', 'running')
-RETURNING id, tenant_id, instance_id, kind, request_key, dedupe_key, lock_key, status, current_step, attempt, max_attempts, input, output, error, resource_type, resource_id, queue_job_id, requested_by, created_at, timeout_at, started_at, finished_at
+RETURNING id, tenant_id, instance_id, kind, request_key, dedupe_key, lock_key, status, current_step, attempt, max_attempts, input, output, error, resource_type, resource_id, queue_job_id, requested_by, created_at, timeout_at, started_at, finished_at, cancel_requested_at
 `
 
 type AcquireJobParams struct {
@@ -55,6 +101,7 @@ func (q *Queries) AcquireJob(ctx context.Context, arg AcquireJobParams) (Provisi
 		&i.TimeoutAt,
 		&i.StartedAt,
 		&i.FinishedAt,
+		&i.CancelRequestedAt,
 	)
 	return i, err
 }
@@ -64,7 +111,7 @@ UPDATE provisioning_jobs
 SET status = 'compensating', error = $1,
     timeout_at = clock_timestamp() + $2::float8 * interval '1 second'
 WHERE id = $3 AND status = 'running' AND attempt = $4
-RETURNING id, tenant_id, instance_id, kind, request_key, dedupe_key, lock_key, status, current_step, attempt, max_attempts, input, output, error, resource_type, resource_id, queue_job_id, requested_by, created_at, timeout_at, started_at, finished_at
+RETURNING id, tenant_id, instance_id, kind, request_key, dedupe_key, lock_key, status, current_step, attempt, max_attempts, input, output, error, resource_type, resource_id, queue_job_id, requested_by, created_at, timeout_at, started_at, finished_at, cancel_requested_at
 `
 
 type BeginCompensationParams struct {
@@ -106,6 +153,52 @@ func (q *Queries) BeginCompensation(ctx context.Context, arg BeginCompensationPa
 		&i.TimeoutAt,
 		&i.StartedAt,
 		&i.FinishedAt,
+		&i.CancelRequestedAt,
+	)
+	return i, err
+}
+
+const cancelQueuedJob = `-- name: CancelQueuedJob :one
+UPDATE provisioning_jobs
+SET status = 'cancelled', error = $1, finished_at = clock_timestamp(), cancel_requested_at = clock_timestamp()
+WHERE id = $2 AND status = 'queued'
+RETURNING id, tenant_id, instance_id, kind, request_key, dedupe_key, lock_key, status, current_step, attempt, max_attempts, input, output, error, resource_type, resource_id, queue_job_id, requested_by, created_at, timeout_at, started_at, finished_at, cancel_requested_at
+`
+
+type CancelQueuedJobParams struct {
+	Error []byte
+	ID    uuid.UUID
+}
+
+// /cancel trên job chưa bắt đầu chạy ⇒ cancelled (trạng thái kết thúc — nhả dedupe_key). Lần giao của job River sau đó
+// gặp job đã kết thúc nên không chạy gì.
+func (q *Queries) CancelQueuedJob(ctx context.Context, arg CancelQueuedJobParams) (ProvisioningJob, error) {
+	row := q.db.QueryRow(ctx, cancelQueuedJob, arg.Error, arg.ID)
+	var i ProvisioningJob
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.InstanceID,
+		&i.Kind,
+		&i.RequestKey,
+		&i.DedupeKey,
+		&i.LockKey,
+		&i.Status,
+		&i.CurrentStep,
+		&i.Attempt,
+		&i.MaxAttempts,
+		&i.Input,
+		&i.Output,
+		&i.Error,
+		&i.ResourceType,
+		&i.ResourceID,
+		&i.QueueJobID,
+		&i.RequestedBy,
+		&i.CreatedAt,
+		&i.TimeoutAt,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.CancelRequestedAt,
 	)
 	return i, err
 }
@@ -377,7 +470,7 @@ func (q *Queries) FinishJobStep(ctx context.Context, arg FinishJobStepParams) er
 }
 
 const getActiveJobByDedupeKey = `-- name: GetActiveJobByDedupeKey :one
-SELECT id, tenant_id, instance_id, kind, request_key, dedupe_key, lock_key, status, current_step, attempt, max_attempts, input, output, error, resource_type, resource_id, queue_job_id, requested_by, created_at, timeout_at, started_at, finished_at FROM provisioning_jobs
+SELECT id, tenant_id, instance_id, kind, request_key, dedupe_key, lock_key, status, current_step, attempt, max_attempts, input, output, error, resource_type, resource_id, queue_job_id, requested_by, created_at, timeout_at, started_at, finished_at, cancel_requested_at FROM provisioning_jobs
 WHERE dedupe_key = $1::text AND status IN ('queued', 'running', 'compensating', 'failed_resumable')
 `
 
@@ -407,6 +500,7 @@ func (q *Queries) GetActiveJobByDedupeKey(ctx context.Context, dedupeKey string)
 		&i.TimeoutAt,
 		&i.StartedAt,
 		&i.FinishedAt,
+		&i.CancelRequestedAt,
 	)
 	return i, err
 }
@@ -464,7 +558,7 @@ func (q *Queries) GetIdempotencyKeyForUpdate(ctx context.Context, arg GetIdempot
 }
 
 const getJob = `-- name: GetJob :one
-SELECT id, tenant_id, instance_id, kind, request_key, dedupe_key, lock_key, status, current_step, attempt, max_attempts, input, output, error, resource_type, resource_id, queue_job_id, requested_by, created_at, timeout_at, started_at, finished_at FROM provisioning_jobs
+SELECT id, tenant_id, instance_id, kind, request_key, dedupe_key, lock_key, status, current_step, attempt, max_attempts, input, output, error, resource_type, resource_id, queue_job_id, requested_by, created_at, timeout_at, started_at, finished_at, cancel_requested_at FROM provisioning_jobs
 WHERE id = $1
 `
 
@@ -494,12 +588,13 @@ func (q *Queries) GetJob(ctx context.Context, id uuid.UUID) (ProvisioningJob, er
 		&i.TimeoutAt,
 		&i.StartedAt,
 		&i.FinishedAt,
+		&i.CancelRequestedAt,
 	)
 	return i, err
 }
 
 const getJobByRequestKey = `-- name: GetJobByRequestKey :one
-SELECT id, tenant_id, instance_id, kind, request_key, dedupe_key, lock_key, status, current_step, attempt, max_attempts, input, output, error, resource_type, resource_id, queue_job_id, requested_by, created_at, timeout_at, started_at, finished_at FROM provisioning_jobs
+SELECT id, tenant_id, instance_id, kind, request_key, dedupe_key, lock_key, status, current_step, attempt, max_attempts, input, output, error, resource_type, resource_id, queue_job_id, requested_by, created_at, timeout_at, started_at, finished_at, cancel_requested_at FROM provisioning_jobs
 WHERE requested_by = $1::uuid AND kind = $2 AND request_key = $3::text
 `
 
@@ -535,12 +630,47 @@ func (q *Queries) GetJobByRequestKey(ctx context.Context, arg GetJobByRequestKey
 		&i.TimeoutAt,
 		&i.StartedAt,
 		&i.FinishedAt,
+		&i.CancelRequestedAt,
+	)
+	return i, err
+}
+
+const getJobStep = `-- name: GetJobStep :one
+
+SELECT id, tenant_id, job_id, seq, name, status, attempt, started_at, finished_at, error_code, detail, created_resources, compensation_status FROM provisioning_job_steps
+WHERE job_id = $1 AND name = $2
+`
+
+type GetJobStepParams struct {
+	JobID uuid.UUID
+	Name  string
+}
+
+// ---------------------------------------------------------------- điều khiển job vòng đời (P3-T05, §11.3, 0015)
+// Một step của job (created_resources của step trước — ví dụ instance_id mà placement.allocate đã chọn).
+func (q *Queries) GetJobStep(ctx context.Context, arg GetJobStepParams) (ProvisioningJobStep, error) {
+	row := q.db.QueryRow(ctx, getJobStep, arg.JobID, arg.Name)
+	var i ProvisioningJobStep
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.JobID,
+		&i.Seq,
+		&i.Name,
+		&i.Status,
+		&i.Attempt,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.ErrorCode,
+		&i.Detail,
+		&i.CreatedResources,
+		&i.CompensationStatus,
 	)
 	return i, err
 }
 
 const getLockHolder = `-- name: GetLockHolder :one
-SELECT id, tenant_id, instance_id, kind, request_key, dedupe_key, lock_key, status, current_step, attempt, max_attempts, input, output, error, resource_type, resource_id, queue_job_id, requested_by, created_at, timeout_at, started_at, finished_at FROM provisioning_jobs
+SELECT id, tenant_id, instance_id, kind, request_key, dedupe_key, lock_key, status, current_step, attempt, max_attempts, input, output, error, resource_type, resource_id, queue_job_id, requested_by, created_at, timeout_at, started_at, finished_at, cancel_requested_at FROM provisioning_jobs
 WHERE lock_key = $1::text AND status IN ('running', 'compensating', 'failed_resumable')
 `
 
@@ -570,8 +700,40 @@ func (q *Queries) GetLockHolder(ctx context.Context, lockKey string) (Provisioni
 		&i.TimeoutAt,
 		&i.StartedAt,
 		&i.FinishedAt,
+		&i.CancelRequestedAt,
 	)
 	return i, err
+}
+
+const insertFinishedJobStep = `-- name: InsertFinishedJobStep :exec
+INSERT INTO provisioning_job_steps (tenant_id, job_id, seq, name, status, attempt, started_at, finished_at, detail)
+VALUES ($1, $2,
+        (SELECT COALESCE(max(s.seq) + 1, 0) FROM provisioning_job_steps s WHERE s.job_id = $2),
+        $3, $4::text, $5::integer, clock_timestamp(), clock_timestamp(),
+        $6)
+`
+
+type InsertFinishedJobStepParams struct {
+	TenantID *uuid.UUID
+	JobID    uuid.UUID
+	Name     string
+	Status   string
+	Attempt  int32
+	Detail   []byte
+}
+
+// Step chạy ngoài worker (bước 1–2 của tenant.provision chạy ở API, trong transaction enqueue job) hoặc bỏ qua (job mới
+// của /retry sau rolled_back bắt đầu từ bước 3): ghi thẳng trạng thái cuối.
+func (q *Queries) InsertFinishedJobStep(ctx context.Context, arg InsertFinishedJobStepParams) error {
+	_, err := q.db.Exec(ctx, insertFinishedJobStep,
+		arg.TenantID,
+		arg.JobID,
+		arg.Name,
+		arg.Status,
+		arg.Attempt,
+		arg.Detail,
+	)
+	return err
 }
 
 const insertIdempotencyKey = `-- name: InsertIdempotencyKey :one
@@ -632,7 +794,7 @@ VALUES ($1, $2, $3, $4, $5,
         $6, $7, $8, $9, $10,
         $11)
 ON CONFLICT DO NOTHING
-RETURNING id, tenant_id, instance_id, kind, request_key, dedupe_key, lock_key, status, current_step, attempt, max_attempts, input, output, error, resource_type, resource_id, queue_job_id, requested_by, created_at, timeout_at, started_at, finished_at
+RETURNING id, tenant_id, instance_id, kind, request_key, dedupe_key, lock_key, status, current_step, attempt, max_attempts, input, output, error, resource_type, resource_id, queue_job_id, requested_by, created_at, timeout_at, started_at, finished_at, cancel_requested_at
 `
 
 type InsertJobParams struct {
@@ -698,6 +860,7 @@ func (q *Queries) InsertJob(ctx context.Context, arg InsertJobParams) (Provision
 		&i.TimeoutAt,
 		&i.StartedAt,
 		&i.FinishedAt,
+		&i.CancelRequestedAt,
 	)
 	return i, err
 }
@@ -707,7 +870,7 @@ INSERT INTO provisioning_jobs (kind, dedupe_key, status, attempt, max_attempts, 
 VALUES ($1, $2::text, 'running', 1, $3, $4::bigint,
         clock_timestamp(), clock_timestamp() + $5::float8 * interval '1 second')
 ON CONFLICT DO NOTHING
-RETURNING id, tenant_id, instance_id, kind, request_key, dedupe_key, lock_key, status, current_step, attempt, max_attempts, input, output, error, resource_type, resource_id, queue_job_id, requested_by, created_at, timeout_at, started_at, finished_at
+RETURNING id, tenant_id, instance_id, kind, request_key, dedupe_key, lock_key, status, current_step, attempt, max_attempts, input, output, error, resource_type, resource_id, queue_job_id, requested_by, created_at, timeout_at, started_at, finished_at, cancel_requested_at
 `
 
 type InsertRunningJobParams struct {
@@ -752,6 +915,7 @@ func (q *Queries) InsertRunningJob(ctx context.Context, arg InsertRunningJobPara
 		&i.TimeoutAt,
 		&i.StartedAt,
 		&i.FinishedAt,
+		&i.CancelRequestedAt,
 	)
 	return i, err
 }
@@ -772,6 +936,19 @@ type InterruptJobParams struct {
 func (q *Queries) InterruptJob(ctx context.Context, arg InterruptJobParams) error {
 	_, err := q.db.Exec(ctx, interruptJob, arg.Error, arg.ID, arg.Attempt)
 	return err
+}
+
+const jobCancelRequested = `-- name: JobCancelRequested :one
+SELECT (cancel_requested_at IS NOT NULL)::boolean AS requested FROM provisioning_jobs
+WHERE id = $1
+`
+
+// Trước mỗi step: người vận hành đã gọi /cancel chưa (handler dừng SAU step hiện tại — §11.3).
+func (q *Queries) JobCancelRequested(ctx context.Context, id uuid.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, jobCancelRequested, id)
+	var requested bool
+	err := row.Scan(&requested)
+	return requested, err
 }
 
 const listJobSteps = `-- name: ListJobSteps :many
@@ -815,7 +992,7 @@ func (q *Queries) ListJobSteps(ctx context.Context, jobIds []uuid.UUID) ([]Provi
 }
 
 const listJobsPage = `-- name: ListJobsPage :many
-SELECT id, tenant_id, instance_id, kind, request_key, dedupe_key, lock_key, status, current_step, attempt, max_attempts, input, output, error, resource_type, resource_id, queue_job_id, requested_by, created_at, timeout_at, started_at, finished_at FROM provisioning_jobs
+SELECT id, tenant_id, instance_id, kind, request_key, dedupe_key, lock_key, status, current_step, attempt, max_attempts, input, output, error, resource_type, resource_id, queue_job_id, requested_by, created_at, timeout_at, started_at, finished_at, cancel_requested_at FROM provisioning_jobs
 WHERE ($1::uuid IS NULL OR tenant_id = $1::uuid)
   AND ($2::text IS NULL OR status = $2::text)
   AND ($3::text IS NULL OR kind = $3::text)
@@ -875,6 +1052,7 @@ func (q *Queries) ListJobsPage(ctx context.Context, arg ListJobsPageParams) ([]P
 			&i.TimeoutAt,
 			&i.StartedAt,
 			&i.FinishedAt,
+			&i.CancelRequestedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -887,7 +1065,7 @@ func (q *Queries) ListJobsPage(ctx context.Context, arg ListJobsPageParams) ([]P
 }
 
 const listJobsToReap = `-- name: ListJobsToReap :many
-SELECT id, tenant_id, instance_id, kind, request_key, dedupe_key, lock_key, status, current_step, attempt, max_attempts, input, output, error, resource_type, resource_id, queue_job_id, requested_by, created_at, timeout_at, started_at, finished_at FROM provisioning_jobs
+SELECT id, tenant_id, instance_id, kind, request_key, dedupe_key, lock_key, status, current_step, attempt, max_attempts, input, output, error, resource_type, resource_id, queue_job_id, requested_by, created_at, timeout_at, started_at, finished_at, cancel_requested_at FROM provisioning_jobs
 WHERE (status IN ('running', 'compensating') AND timeout_at < now())
    OR (status IN ('queued', 'running') AND created_at < now() - $1::float8 * interval '1 second')
 ORDER BY created_at
@@ -933,6 +1111,7 @@ func (q *Queries) ListJobsToReap(ctx context.Context, arg ListJobsToReapParams) 
 			&i.TimeoutAt,
 			&i.StartedAt,
 			&i.FinishedAt,
+			&i.CancelRequestedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -975,7 +1154,7 @@ UPDATE provisioning_jobs
 SET started_at = COALESCE(started_at, clock_timestamp()),
     timeout_at = COALESCE(timeout_at, clock_timestamp() + $1::float8 * interval '1 second')
 WHERE id = $2
-RETURNING id, tenant_id, instance_id, kind, request_key, dedupe_key, lock_key, status, current_step, attempt, max_attempts, input, output, error, resource_type, resource_id, queue_job_id, requested_by, created_at, timeout_at, started_at, finished_at
+RETURNING id, tenant_id, instance_id, kind, request_key, dedupe_key, lock_key, status, current_step, attempt, max_attempts, input, output, error, resource_type, resource_id, queue_job_id, requested_by, created_at, timeout_at, started_at, finished_at, cancel_requested_at
 `
 
 type MarkJobStartedParams struct {
@@ -1011,6 +1190,7 @@ func (q *Queries) MarkJobStarted(ctx context.Context, arg MarkJobStartedParams) 
 		&i.TimeoutAt,
 		&i.StartedAt,
 		&i.FinishedAt,
+		&i.CancelRequestedAt,
 	)
 	return i, err
 }
@@ -1030,6 +1210,141 @@ type RecordJobErrorParams struct {
 func (q *Queries) RecordJobError(ctx context.Context, arg RecordJobErrorParams) error {
 	_, err := q.db.Exec(ctx, recordJobError, arg.Error, arg.ID, arg.Attempt)
 	return err
+}
+
+const requestJobCancel = `-- name: RequestJobCancel :one
+UPDATE provisioning_jobs SET cancel_requested_at = COALESCE(cancel_requested_at, clock_timestamp())
+WHERE id = $1 AND status = 'running'
+RETURNING id, tenant_id, instance_id, kind, request_key, dedupe_key, lock_key, status, current_step, attempt, max_attempts, input, output, error, resource_type, resource_id, queue_job_id, requested_by, created_at, timeout_at, started_at, finished_at, cancel_requested_at
+`
+
+// /cancel trên job đang chạy: chỉ đặt mốc (giữ mốc đầu tiên); handler thấy ở đầu step kế tiếp.
+func (q *Queries) RequestJobCancel(ctx context.Context, id uuid.UUID) (ProvisioningJob, error) {
+	row := q.db.QueryRow(ctx, requestJobCancel, id)
+	var i ProvisioningJob
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.InstanceID,
+		&i.Kind,
+		&i.RequestKey,
+		&i.DedupeKey,
+		&i.LockKey,
+		&i.Status,
+		&i.CurrentStep,
+		&i.Attempt,
+		&i.MaxAttempts,
+		&i.Input,
+		&i.Output,
+		&i.Error,
+		&i.ResourceType,
+		&i.ResourceID,
+		&i.QueueJobID,
+		&i.RequestedBy,
+		&i.CreatedAt,
+		&i.TimeoutAt,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.CancelRequestedAt,
+	)
+	return i, err
+}
+
+const resumeJob = `-- name: ResumeJob :one
+UPDATE provisioning_jobs
+SET status = 'running', max_attempts = attempt + $1::integer, error = NULL, timeout_at = NULL,
+    cancel_requested_at = NULL, queue_job_id = $2::bigint
+WHERE id = $3 AND status = 'failed_resumable'
+RETURNING id, tenant_id, instance_id, kind, request_key, dedupe_key, lock_key, status, current_step, attempt, max_attempts, input, output, error, resource_type, resource_id, queue_job_id, requested_by, created_at, timeout_at, started_at, finished_at, cancel_requested_at
+`
+
+type ResumeJobParams struct {
+	Attempts   int32
+	QueueJobID int64
+	ID         uuid.UUID
+}
+
+// /retry trên job failed_resumable: chuyển THẲNG sang running (không qua queued) nên khóa chạy lifecycle không bao giờ
+// rời job — không job nào chen vào giữa (§13.5 mục d); lượt mới: max_attempts = attempt + số lượt của kind (attempt tăng
+// đơn điệu, không bao giờ đặt lại — lần giao cũ còn sống không trùng (status, attempt) với lượt mới); timeout_at đặt lại ở
+// lần nhận kế tiếp (MarkJobStarted); job River mới ⇒ queue_job_id mới. Step đã succeeded được bỏ qua: job tiếp tục từ
+// step lỗi.
+func (q *Queries) ResumeJob(ctx context.Context, arg ResumeJobParams) (ProvisioningJob, error) {
+	row := q.db.QueryRow(ctx, resumeJob, arg.Attempts, arg.QueueJobID, arg.ID)
+	var i ProvisioningJob
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.InstanceID,
+		&i.Kind,
+		&i.RequestKey,
+		&i.DedupeKey,
+		&i.LockKey,
+		&i.Status,
+		&i.CurrentStep,
+		&i.Attempt,
+		&i.MaxAttempts,
+		&i.Input,
+		&i.Output,
+		&i.Error,
+		&i.ResourceType,
+		&i.ResourceID,
+		&i.QueueJobID,
+		&i.RequestedBy,
+		&i.CreatedAt,
+		&i.TimeoutAt,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.CancelRequestedAt,
+	)
+	return i, err
+}
+
+const rollbackJob = `-- name: RollbackJob :one
+UPDATE provisioning_jobs
+SET status = 'compensating', cancel_requested_at = NULL, queue_job_id = $1::bigint,
+    timeout_at = clock_timestamp() + $2::float8 * interval '1 second'
+WHERE id = $3 AND status = 'failed_resumable'
+RETURNING id, tenant_id, instance_id, kind, request_key, dedupe_key, lock_key, status, current_step, attempt, max_attempts, input, output, error, resource_type, resource_id, queue_job_id, requested_by, created_at, timeout_at, started_at, finished_at, cancel_requested_at
+`
+
+type RollbackJobParams struct {
+	QueueJobID  int64
+	TimeoutSecs float64
+	ID          uuid.UUID
+}
+
+// /rollback trên job failed_resumable: compensating (vẫn giữ khóa chạy) + job River mới; worker chạy compensation ngược
+// thứ tự các step đã làm. timeout_at đặt ngay để job.reaper thu hồi lần compensation không ai chạy.
+func (q *Queries) RollbackJob(ctx context.Context, arg RollbackJobParams) (ProvisioningJob, error) {
+	row := q.db.QueryRow(ctx, rollbackJob, arg.QueueJobID, arg.TimeoutSecs, arg.ID)
+	var i ProvisioningJob
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.InstanceID,
+		&i.Kind,
+		&i.RequestKey,
+		&i.DedupeKey,
+		&i.LockKey,
+		&i.Status,
+		&i.CurrentStep,
+		&i.Attempt,
+		&i.MaxAttempts,
+		&i.Input,
+		&i.Output,
+		&i.Error,
+		&i.ResourceType,
+		&i.ResourceID,
+		&i.QueueJobID,
+		&i.RequestedBy,
+		&i.CreatedAt,
+		&i.TimeoutAt,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.CancelRequestedAt,
+	)
+	return i, err
 }
 
 const setJobCurrentStep = `-- name: SetJobCurrentStep :exec
@@ -1061,6 +1376,30 @@ type SetJobQueueIDParams struct {
 // id của job River chèn cùng transaction (hoặc của job River mới khi /retry — P3-T05).
 func (q *Queries) SetJobQueueID(ctx context.Context, arg SetJobQueueIDParams) error {
 	_, err := q.db.Exec(ctx, setJobQueueID, arg.QueueJobID, arg.ID)
+	return err
+}
+
+const setJobStepCompensation = `-- name: SetJobStepCompensation :exec
+UPDATE provisioning_job_steps
+SET compensation_status = $1::text, detail = COALESCE($2, detail)
+WHERE job_id = $3 AND name = $4
+`
+
+type SetJobStepCompensationParams struct {
+	CompensationStatus string
+	Detail             []byte
+	JobID              uuid.UUID
+	Name               string
+}
+
+// Trạng thái compensation của một step (running → succeeded/failed/skipped); detail thêm lỗi compensation đã redaction.
+func (q *Queries) SetJobStepCompensation(ctx context.Context, arg SetJobStepCompensationParams) error {
+	_, err := q.db.Exec(ctx, setJobStepCompensation,
+		arg.CompensationStatus,
+		arg.Detail,
+		arg.JobID,
+		arg.Name,
+	)
 	return err
 }
 
@@ -1131,7 +1470,7 @@ SET status        = $1::text,
     resource_id   = COALESCE($5, resource_id),
     finished_at   = CASE WHEN $1::text IN ('succeeded', 'failed', 'cancelled', 'rolled_back') THEN clock_timestamp() END
 WHERE id = $6 AND status = $7::text AND attempt = $8
-RETURNING id, tenant_id, instance_id, kind, request_key, dedupe_key, lock_key, status, current_step, attempt, max_attempts, input, output, error, resource_type, resource_id, queue_job_id, requested_by, created_at, timeout_at, started_at, finished_at
+RETURNING id, tenant_id, instance_id, kind, request_key, dedupe_key, lock_key, status, current_step, attempt, max_attempts, input, output, error, resource_type, resource_id, queue_job_id, requested_by, created_at, timeout_at, started_at, finished_at, cancel_requested_at
 `
 
 type TransitionJobParams struct {
@@ -1182,6 +1521,7 @@ func (q *Queries) TransitionJob(ctx context.Context, arg TransitionJobParams) (P
 		&i.TimeoutAt,
 		&i.StartedAt,
 		&i.FinishedAt,
+		&i.CancelRequestedAt,
 	)
 	return i, err
 }

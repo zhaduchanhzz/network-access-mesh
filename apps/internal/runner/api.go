@@ -25,6 +25,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/jobsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/monitoringapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/notificationsapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/provisioningapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/tenantsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/identity"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/idp"
@@ -33,7 +34,9 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/monitoring"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/notifications"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/platform"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/orchestrator"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/usage"
 )
 
 // buildAPI wires the api process (P2-T16) — the public REST API (/api/v1, §13) behind the middleware chain of P2-T14:
@@ -58,7 +61,8 @@ import (
 //	                 platform — P3-T04), Notifications (notificationsapi over notifications.Reader — the caller's
 //	                 own Portal notifications, P3-T05b), Approvals (approvalsapi over approvals), Invitations
 //	                 (invitationsapi over tenants + authz.GuardInvitationRole), IdPConsole (idpconsoleapi over
-//	                 approvals — P3-T15)
+//	                 approvals — P3-T15), Provisioning (provisioningapi over orchestrator.Creator — steps 1–2 of
+//	                 tenant.provision with usage's quota checks — and orchestrator.Control, P3-T05)
 //	readiness        postgres, secretstore, edge_admin (§16.2)
 func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prometheus.Registerer) (_ *component, err error) {
 	d, err := openDeps(ctx, cfg, log, idp.PlatformOIDCPaths)
@@ -112,6 +116,11 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 	if err != nil {
 		return nil, err
 	}
+	creator, err := orchestrator.NewCreator(orchestrator.CreatorConfig{Store: d.st, Secrets: d.secrets,
+		Quota: usage.NewChecker(d.st), QuotaTx: usage.TenantCreationTx, BaseDomain: cfg.BaseDomain})
+	if err != nil {
+		return nil, err
+	}
 	hooks := authzhook.Hooks(svc, authorizer)
 	hooks.Audit = auditapi.Middleware(auditLog)
 	gate := idpconsoleapi.NewGate(idpconsoleapi.GateConfig{Grants: console.NewStore(d.st), Authz: authorizer,
@@ -133,6 +142,7 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 			Invitations:   invitationsapi.New(d.tenants, authz.GuardInvitationRole),
 			Hosts:         hostsapi.New(platform.New(d.st)),
 			IdPConsole:    idpconsoleapi.New(appr),
+			Provisioning:  provisioningapi.New(creator, orchestrator.NewControl(d.st)),
 		},
 	})
 	if err != nil {

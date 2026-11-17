@@ -105,6 +105,15 @@ type IdPConsoleHandlers interface {
 	RequestIdpConsoleSession(ctx context.Context, request gen.RequestIdpConsoleSessionRequestObject) (gen.RequestIdpConsoleSessionResponseObject, error)
 }
 
+// ProvisioningHandlers — P3-T05 (`provisioning` orchestrator): tenant creation (steps 1–2 of tenant.provision) and the
+// controls of lifecycle jobs (§11.3, §13.2).
+type ProvisioningHandlers interface {
+	CreatePlatformTenant(ctx context.Context, request gen.CreatePlatformTenantRequestObject) (gen.CreatePlatformTenantResponseObject, error)
+	RetryPlatformJob(ctx context.Context, request gen.RetryPlatformJobRequestObject) (gen.RetryPlatformJobResponseObject, error)
+	CancelPlatformJob(ctx context.Context, request gen.CancelPlatformJobRequestObject) (gen.CancelPlatformJobResponseObject, error)
+	RollbackPlatformJob(ctx context.Context, request gen.RollbackPlatformJobRequestObject) (gen.RollbackPlatformJobResponseObject, error)
+}
+
 // Handlers is the extension point of the API: one handler set per building task. A nil set answers every operation
 // of its interface with 501 not_implemented. A set may also implement only part of its interface by embedding
 // NotImplemented. Handlers return a *problem.Error for an expected failure (not_found, conflict…); any other error
@@ -121,11 +130,13 @@ type Handlers struct {
 	Invitations   InvitationHandlers   // P3-T05a
 	Notifications NotificationHandlers // P3-T05b
 	IdPConsole    IdPConsoleHandlers   // P3-T15
+	Provisioning  ProvisioningHandlers // P3-T05
 }
 
 func (h Handlers) mounted() bool {
 	return h.Auth != nil || h.Tenants != nil || h.Devices != nil || h.Audit != nil || h.Jobs != nil || h.Monitoring != nil ||
-		h.Notifications != nil || h.Approvals != nil || h.Invitations != nil || h.Hosts != nil || h.IdPConsole != nil
+		h.Notifications != nil || h.Approvals != nil || h.Invitations != nil || h.Hosts != nil || h.IdPConsole != nil ||
+		h.Provisioning != nil
 }
 
 // dispatcher implements gen.StrictServerInterface by promotion from the disjoint interfaces.
@@ -141,13 +152,17 @@ type dispatcher struct {
 	InvitationHandlers
 	HostHandlers
 	IdPConsoleHandlers
+	ProvisioningHandlers
 }
 
 var _ gen.StrictServerInterface = dispatcher{}
 
 func newDispatcher(h Handlers) dispatcher {
 	d := dispatcher{h.Auth, h.Tenants, h.Devices, h.Audit, h.Jobs, h.Monitoring, h.Notifications, h.Approvals, h.Invitations,
-		h.Hosts, h.IdPConsole}
+		h.Hosts, h.IdPConsole, h.Provisioning}
+	if d.ProvisioningHandlers == nil {
+		d.ProvisioningHandlers = NotImplemented{}
+	}
 	if d.ApprovalHandlers == nil {
 		d.ApprovalHandlers = NotImplemented{}
 	}
@@ -376,4 +391,20 @@ func (NotImplemented) ListIdpConsoleSessions(context.Context, gen.ListIdpConsole
 
 func (NotImplemented) RequestIdpConsoleSession(context.Context, gen.RequestIdpConsoleSessionRequestObject) (gen.RequestIdpConsoleSessionResponseObject, error) {
 	return nil, problem.NotImplemented("RequestIdpConsoleSession")
+}
+
+func (NotImplemented) CreatePlatformTenant(context.Context, gen.CreatePlatformTenantRequestObject) (gen.CreatePlatformTenantResponseObject, error) {
+	return nil, problem.NotImplemented("CreatePlatformTenant")
+}
+
+func (NotImplemented) RetryPlatformJob(context.Context, gen.RetryPlatformJobRequestObject) (gen.RetryPlatformJobResponseObject, error) {
+	return nil, problem.NotImplemented("RetryPlatformJob")
+}
+
+func (NotImplemented) CancelPlatformJob(context.Context, gen.CancelPlatformJobRequestObject) (gen.CancelPlatformJobResponseObject, error) {
+	return nil, problem.NotImplemented("CancelPlatformJob")
+}
+
+func (NotImplemented) RollbackPlatformJob(context.Context, gen.RollbackPlatformJobRequestObject) (gen.RollbackPlatformJobResponseObject, error) {
+	return nil, problem.NotImplemented("RollbackPlatformJob")
 }

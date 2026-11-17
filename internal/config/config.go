@@ -71,6 +71,8 @@ type Config struct {
 	// SMTP is the relay of notification e-mails (worker only — P3-T05b, §21.3 external dependency). Addr empty = no relay:
 	// e-mail notifications are cancelled and only the Portal records are delivered — refused in production.
 	SMTP SMTP
+	// Provisioning (MG_PROVISION_*, MG_PROBER_URL, worker, optional): the Tenant Orchestrator — LoadProvisioning (P3-T05).
+	Provisioning Provisioning
 }
 
 // SMTP is the notification relay of the worker (MG_SMTP_*). The password is a file secret (MG_SMTP_PASSWORD_FILE), never
@@ -209,6 +211,12 @@ func Load(service string, getenv func(string) string, environ []string) (Config,
 	var agentErrs []error
 	cfg.Agent, agentErrs = LoadAgentClient(service, getenv)
 	errs = append(errs, agentErrs...)
+	var provErrs []error
+	cfg.Provisioning, provErrs = LoadProvisioning(service, cfg.Env, getenv)
+	errs = append(errs, provErrs...)
+	if cfg.Provisioning.Enabled() && !cfg.Agent.Configured() {
+		errs = append(errs, errors.New("MG_PROVISION_*: the Tenant Orchestrator needs the Host Agent (MG_AGENT_SOCKET, MG_AGENT_TOKEN_FILE)"))
+	}
 	cfg.Wired = cfg.Env != "dev" || strings.TrimSpace(getenv("MG_DB_URL")) != ""
 	if cfg.Wired && services[service] {
 		errs = append(errs, cfg.loadDependencies(getenv)...)

@@ -7,7 +7,7 @@ PostgreSQL của Management Plane (§6 của [bản master](../docs/planning/imp
 | Đường dẫn | Nội dung |
 |---|---|
 | `bootstrap/superuser.sql` | Chạy **một lần** bằng superuser của cụm, trong database `meshguard`, trước migration đầu tiên (chạy lại được): tạo `mg_migrator` (CREATEROLE, owner database) và `mg_backup` (BYPASSRLS + `pg_read_all_data`) — hai role chỉ superuser tạo được |
-| `migrations/0001…0014_*.sql` | Migration goose, forward-only (không có phần Down), nhúng vào binary qua `embed.go`; bản đồ bảng ở §6.3. `0007` (G2 vòng 1, F3) chỉ thêm CHECK: owner segment của `identity_providers.client_secret_ref` = `tenant_id` (hoặc `platform`); `0008` (G2 vòng 2, A-1) chỉ thêm cột `sessions.id_token_hint_enc`; `0009`–`0013` (P3-T06) và `0014` (P3-T04, chỉ CHECK/DEFAULT cho placement) — xem mục "Bảng của Phase 3" |
+| `migrations/0001…0015_*.sql` | Migration goose, forward-only (không có phần Down), nhúng vào binary qua `embed.go`; bản đồ bảng ở §6.3. `0007` (G2 vòng 1, F3) chỉ thêm CHECK: owner segment của `identity_providers.client_secret_ref` = `tenant_id` (hoặc `platform`); `0008` (G2 vòng 2, A-1) chỉ thêm cột `sessions.id_token_hint_enc`; `0009`–`0013` (P3-T06) `0014` (P3-T04, chỉ CHECK/DEFAULT cho placement) và `0015` (P3-T05, chỉ cột `provisioning_jobs.cancel_requested_at`) — xem mục "Bảng của Phase 3" |
 | `queries/*.sql` + `sqlc.yaml` | Truy vấn sqlc → mã sinh ở `internal/store/sqlcdb` (không sửa tay); `jobs.sql` = khung job + idempotency (P2-T12); `devices.sql` = sổ thiết bị + trạng thái sync + thu hồi hai pha (P2-T13); `placement.sql` = khóa host + trạng thái cấp phát (P3-T04); `hosts.sql` = API `/platform/hosts` và lệnh `host-set` (P3-T04); `usage.sql` = QuotaChecker (P3-T06a) |
 | `river/grants.sql` | Quyền trên schema `river` của job queue (P2-T12), chạy lại sau mỗi lần migrate River — xem mục "Job queue (River)" |
 | `checks/partition_grants.sql` | Truy vấn CI: mỗi hàng là một vi phạm (quyền trên partition, partition chưa bật RLS, default privileges) |
@@ -145,7 +145,7 @@ không có thông điệp thô của Headscale) và `last_health_at` = đồng h
 đầu sớm hơn kết quả đã ghi bị bỏ qua. `version`/`updated_at` của instance (ETag) không đổi. Dashboard tenant đọc qua
 pool tenant (RLS), Platform Health qua pool platform; số thiết bị chỉ đến từ service của `devices`.
 
-## Bảng của Phase 3 (P3-T06, migration 0009–0013; P3-T04, 0014)
+## Bảng của Phase 3 (P3-T06, migration 0009–0013; P3-T04, 0014; P3-T05, 0015)
 
 Bằng chứng: [`P3-T06.md`](../docs/planning/evidence/P3-T06.md). Mọi bảng có FK ghép theo tenant, `ENABLE` + `FORCE` RLS
 theo ký hiệu §6.3, quyền cấp tường minh theo tiến trình (ma trận đầy đủ: `TestP3GrantMatrix` trong
@@ -171,6 +171,12 @@ migration) bằng `meshguard admin host-set --name mg-staging --public-ipv4-env 
 ([RUNBOOK](../infrastructure/host/RUNBOOK.md)) hoặc `PATCH /api/v1/platform/hosts/{hostId}` — không sửa bằng SQL: hai
 đường đó kiểm đúng các CHECK trên, khóa hàng host như placement và ghi audit `platform.host.update` — bằng chứng
 [`P3-T04.md`](../docs/planning/evidence/P3-T04.md).
+
+**`0015` (P3-T05 — điều khiển job vòng đời, không bảng mới):** cột `provisioning_jobs.cancel_requested_at`
+(NULL-able) = lúc người vận hành gọi `POST /platform/jobs/{id}/cancel` trên job đang chạy — handler dừng sau step hiện
+tại rồi `failed_resumable`; job `queued` chuyển thẳng `cancelled` và cũng mang mốc này (CHECK: không có mốc ở hàng
+`queued`); `/retry` xóa mốc. Chỉ `mg_api_platform`, `mg_worker_platform` có `UPDATE` cột này. Expand-only, số hiệu tạm
+(người điều phối có thể đánh lại khi gộp) — bằng chứng [`P3-T05.md`](../docs/planning/evidence/P3-T05.md).
 
 Gói tối thiểu (`seeds/plans.sql`): `standard` = `max_devices` 100, `max_users` 100, `max_tagged_devices` 25,
 `max_live_enrollment_credentials` 25, `backup_interval_minutes` 60, `instance` {cpus 1, memory_mb 512, pids 256} — giá trị

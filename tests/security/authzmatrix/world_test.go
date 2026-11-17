@@ -35,6 +35,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/jobsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/monitoringapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/notificationsapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/provisioningapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/tenantsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/idp/console"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/jobs"
@@ -43,10 +44,12 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/monitoring"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/notifications"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/platform"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/orchestrator"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/secrets"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store/storetest"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/tenants"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/usage"
 	"github.com/zhaduchanhzz/network-access-mesh/tests/security/sessionfixture"
 )
 
@@ -123,6 +126,13 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Provisioning (P3-T05): the api side of the Tenant Orchestrator — tenant creation (steps 1–2, no worker here: the
+	// job stays queued) and the job controls, with the api's quota checks as apps/* wires them.
+	creator, err := orchestrator.NewCreator(orchestrator.CreatorConfig{Store: w.Store, Secrets: m.sec,
+		Quota: usage.NewChecker(w.Store), QuotaTx: usage.TenantCreationTx, BaseDomain: "mesh.test"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	return httpapi.Handlers{
 		Tenants:     tenantsapi.New(dir, platform.New(w.Store)),
 		Devices:     devicesapi.New(dev),
@@ -136,6 +146,7 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 		// Notifications (P3-T05b, notificationsapi over notifications.Reader — reads the caller's own rows only).
 		Notifications: notificationsapi.New(notifications.NewReader(w.Store)),
 		Hosts:         hostsapi.New(platform.New(w.Store)),
+		Provisioning:  provisioningapi.New(creator, orchestrator.NewControl(w.Store)),
 	}
 }
 

@@ -401,7 +401,17 @@ export interface paths {
         /** Tenant Registry — chỉ metadata registry */
         get: operations["listPlatformTenants"];
         put?: never;
-        post?: never;
+        /**
+         * Tạo tenant — bước 1–2 của tenant.provision rồi trả job (19 bước, §11.3)
+         * @description Bước 1 `validate` (slug theo `^[a-z][a-z0-9-]{1,30}[a-z0-9]$`, không `--`, không thuộc danh sách tên cấm hay nhãn
+         *     của domain nền tảng; slug đang dùng ⇒ `409`; slug của tenant đã `deleted` còn object của instance cũ ⇒ `409`; gói
+         *     phải tồn tại và đang mở; trần số tenant ⇒ `403 quota_exceeded`) và bước 2 `registry.create` (tenant
+         *     `provisioning`, subscription, job `tenant.provision`, audit `platform.tenant.create.requested`) chạy trong **một**
+         *     transaction; bước 3–19 chạy ở worker. `identity_provider.client_secret` (chỉ `external`) là trường chỉ-ghi: lưu
+         *     vào SecretStore trước khi enqueue, job/idempotency/audit chỉ mang reference — không bao giờ được trả lại.
+         *     Idempotency-Key: `request_hash` bỏ qua `client_secret`.
+         */
+        post: operations["createPlatformTenant"];
         delete?: never;
         options?: never;
         head?: never;
@@ -583,6 +593,73 @@ export interface paths {
         get: operations["getPlatformJob"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/jobs/{jobId}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Chạy lại job vòng đời — tiếp tục từ step lỗi, hoặc job mới từ bước 3 sau rollback
+         * @description §11.3: job `failed_resumable` chuyển thẳng `running` (không qua `queued` — khóa chạy của tenant không rời job),
+         *     tiếp tục từ step lỗi (step đã xong được bỏ qua), lượt và `timeout_at` mới. Job `tenant.provision` ở `rolled_back`
+         *     ⇒ tenant `failed` → `provisioning` và một **job mới** chạy từ bước 3 (`Location` trỏ job mới). Trạng thái khác,
+         *     hoặc kind không thuộc nhóm lifecycle ⇒ `409`.
+         */
+        post: operations["retryPlatformJob"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/jobs/{jobId}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Hủy job — chưa chạy ⇒ cancelled; đang chạy ⇒ dừng sau step hiện tại rồi failed_resumable
+         * @description §11.3: job chưa bắt đầu chạy ⇒ `cancelled` (với `tenant.provision`: tenant `failed`); job vòng đời đang chạy ⇒
+         *     dừng **sau** step hiện tại rồi chuyển `failed_resumable` (không tự compensation — `/retry` hoặc `/rollback`). Gọi
+         *     lại khi yêu cầu đã ghi ⇒ không đổi gì. Trạng thái khác ⇒ `409`.
+         */
+        post: operations["cancelPlatformJob"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/jobs/{jobId}/rollback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Hoàn tác job failed_resumable — compensation ngược thứ tự các step đã làm
+         * @description §11.3: job `failed_resumable` của kind có compensation (`tenant.provision`) ⇒ `compensating` → `rolled_back`
+         *     (tenant `failed`); compensation lỗi ⇒ lại `failed_resumable` (`compensation_failed`) và `/rollback` lần nữa tiếp
+         *     tục từ step dừng. Kind không có compensation hoặc trạng thái khác ⇒ `409`.
+         */
+        post: operations["rollbackPlatformJob"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1069,6 +1146,41 @@ export interface components {
             items: components["schemas"]["Tenant"][];
             next_cursor: string | null;
         };
+        /** @description Yêu cầu tạo tenant (§13.3). `identity_provider.driver = keycloak`: realm riêng của tenant trên IdP do nền tảng host (tên realm = slug, client `mg-portal`) — không nhận issuer/client; `external`: issuer + client của tenant (client secret chỉ-ghi). */
+        TenantCreate: {
+            slug: components["schemas"]["TenantSlug"];
+            name: string;
+            /** @description Khóa gói (`subscription_plans.key`, gói đang mở) */
+            plan_key: string;
+            deployment_region?: string;
+            /**
+             * Format: email
+             * @description Email của Tenant Owner — nhận lời mời ở bước 16 (§11.3)
+             */
+            owner_email: string;
+            identity_provider: components["schemas"]["TenantIdentityProviderCreate"];
+            /** @description TenantSettings ban đầu (§13.3) — ghi ở bước 16 `tenant.configure` */
+            settings?: {
+                [key: string]: unknown;
+            };
+        };
+        TenantIdentityProviderCreate: {
+            /** @enum {string} */
+            driver: "keycloak" | "external";
+            /**
+             * Format: uri
+             * @description Chỉ với `external` — `https://…`
+             */
+            issuer?: string;
+            /** @description Chỉ với `external` */
+            client_id?: string;
+            /** @description Chỉ-ghi, chỉ với `external` — vào SecretStore, không bao giờ được trả lại (§8.2) */
+            client_secret?: string;
+            required_claims?: {
+                [key: string]: unknown;
+            };
+            allowed_email_domains?: string[];
+        };
         DeviceCounts: {
             total: number;
             /** @description Theo góc nhìn của control plane tại lần sync gần nhất */
@@ -1296,6 +1408,7 @@ export interface components {
             detail?: {
                 [key: string]: unknown;
             };
+            compensation_status?: components["schemas"]["JobStepStatus"];
         };
         /** @description Lỗi gốc của job (đã redaction) — chỉ ở `GET /platform/jobs/{jobId}` */
         PlatformJobError: components["schemas"]["JobError"] & {
@@ -2590,6 +2703,40 @@ export interface operations {
             default: components["responses"]["Unexpected"];
         };
     };
+    createPlatformTenant: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TenantCreate"];
+            };
+        };
+        responses: {
+            /** @description Tenant đã ghi vào registry (`provisioning`); theo dõi tiến trình ở job */
+            202: {
+                headers: {
+                    Location: components["headers"]["JobLocation"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
     getPlatformTenant: {
         parameters: {
             query?: never;
@@ -2931,6 +3078,105 @@ export interface operations {
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    retryPlatformJob: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                jobId: components["parameters"]["JobId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Job tiếp tục (hoặc job mới); theo dõi ở job */
+            202: {
+                headers: {
+                    Location: components["headers"]["JobLocation"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    cancelPlatformJob: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                jobId: components["parameters"]["JobId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Yêu cầu hủy đã ghi; theo dõi ở job */
+            202: {
+                headers: {
+                    Location: components["headers"]["JobLocation"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    rollbackPlatformJob: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                jobId: components["parameters"]["JobId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Compensation đã được xếp hàng; theo dõi ở job */
+            202: {
+                headers: {
+                    Location: components["headers"]["JobLocation"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
             429: components["responses"]["RateLimited"];
             default: components["responses"]["Unexpected"];
         };

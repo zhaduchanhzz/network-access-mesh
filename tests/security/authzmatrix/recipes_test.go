@@ -107,6 +107,14 @@ var recipes = map[string]recipe{
 	// always 2P (Super Admin only); granted callers race on one open request per person (202, then 409)
 	"listIdpConsoleSessions":   {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
 	"requestIdpConsoleSession": {idempotent: true, body: `{"reason":"matrix","duration_minutes":10,"source_cidr":"192.0.2.0/24"}`},
+	// Tenant Orchestrator (P3-T05, provisioningapi — mounted): the same slug from every granted caller (202, then 409);
+	// the controls on the matrix's platform job — any answer that is not a refusal (409 for a job that is not a
+	// failed_resumable lifecycle job)
+	"createPlatformTenant": {idempotent: true, body: `{"slug":"matrix-new","name":"Matrix","plan_key":"standard",` +
+		`"owner_email":"owner@matrix.example","identity_provider":{"driver":"keycloak"}}`},
+	"retryPlatformJob":    {idempotent: true},
+	"cancelPlatformJob":   {idempotent: true},
+	"rollbackPlatformJob": {idempotent: true},
 }
 
 // objectKind is what a path parameter (other than the {tenantId} context of a tenant route) designates.

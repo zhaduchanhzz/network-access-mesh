@@ -31,7 +31,8 @@ failures = 0
 API = "ghcr.io/zhaduchanhzz/network-access-mesh/api@sha256:" + "ab" * 32
 WORKER = "ghcr.io/zhaduchanhzz/network-access-mesh/worker@sha256:" + "cd" * 32
 ENV = {"MG_ENV": "staging", "MG_BASE_DOMAIN": "example.com", "MG_LAN_CIDR": "192.0.2.0/24",
-       "MG_TUNNEL_HOST_IPV4": "10.248.0.2", "MG_TUNNEL_VPS_IPV4": "10.248.0.1", "MG_PUBLIC_IPV4": "203.0.113.10"}
+       "MG_TUNNEL_HOST_IPV4": "10.248.0.2", "MG_TUNNEL_VPS_IPV4": "10.248.0.1", "MG_PUBLIC_IPV4": "203.0.113.10",
+       "MG_TENANT_NAMESERVERS": "1.1.1.1,9.9.9.9"}
 
 
 def check(ok: bool, name: str, detail: str = "") -> None:
@@ -118,12 +119,12 @@ check(all("pg_superuser_password" not in svcs[s] and "SUPERUSER" not in svcs[s] 
 check("partition" in svcs["worker"] and "partition" not in svcs["api"] and "audit_writer" in svcs["api"] and
       "audit_writer" not in svcs["worker"], "compose: partition role in the worker, audit writer in the api only")
 check(all(f"source: {s}," in c for s in re.findall(r"^  (app_[a-z_]+): \{file: /opt/meshguard/secrets/", c, re.M)) and
-      len(re.findall(r"^  app_[a-z_]+: \{file: /opt/meshguard/secrets/[a-z]+/[a-z_]+\}$", c, re.M)) == 9,
-      "compose: 9 file secrets under /opt/meshguard/secrets, each used by a service")
+      len(re.findall(r"^  app_[a-z_]+: \{file: /opt/meshguard/secrets/[a-z]+/[a-z_]+\}$", c, re.M)) == 10,
+      "compose: 10 file secrets under /opt/meshguard/secrets (the agent token outside ci), each used by a service")
 for path in re.findall(r"source: (/opt/meshguard/secrets/\S+)", c):
     check(path in ("/opt/meshguard/secrets/kek-app", "/opt/meshguard/secrets/kek-ops", "/opt/meshguard/secrets/migrate"),
           f"compose: bind mount {path} is a keyring or the migrate job's directory")
-check(c.count("create_host_path: false") == 3 and c.count("read_only: true\n  bind:") + c.count("read_only: true\n        bind:") == 3,
+check(c.count("create_host_path: false") == 4 and c.count("read_only: true\n  bind:") + c.count("read_only: true\n        bind:") == 4,
       "compose: directory mounts read-only, never created on the host")
 
 # configuration values
@@ -158,6 +159,26 @@ check(all('test: ["CMD", "/usr/local/bin/meshguard", "healthcheck"]' in svcs[s] 
       "compose: healthcheck = /readyz of the process")
 check("pre-migration" in c and "migrate.sh" in c, "compose: documents the pre-migration backup of the migrate step")
 
+# Host Agent + Tenant Orchestrator in the worker only, outside ci (P3-T05)
+check(worker.get("MG_AGENT_SOCKET") == "/run/meshguard/agent.sock" and worker.get("MG_AGENT_TOKEN_FILE") == "/run/secrets/agent_token"
+      and not any(k.startswith(("MG_AGENT_", "MG_PROVISION_", "MG_PROBER")) for k in api),
+      "compose: the agent socket and token in the worker only (§11.1)")
+check("{source: app_agent_token, target: agent_token}" in svcs["worker"] and "agent_token" not in svcs["api"] and
+      "app_agent_token: {file: /opt/meshguard/secrets/worker/agent_token}" in c,
+      "compose: agent token = secrets/worker/agent_token (group mg-sec-worker 20003 of the worker)")
+check(re.search(r"source: /opt/meshguard/run +#.*\n        target: /run/meshguard\n        read_only: true", svcs["worker"]) is not None
+      and "/opt/meshguard/run" not in svcs["api"], "compose: socket directory /opt/meshguard/run read-only in the worker only")
+hs = __import__("tomllib").loads(ra.VERSIONS.read_text(encoding="utf-8"))["images"]
+check(worker.get("MG_PROVISION_HEADSCALE_DIGEST") == hs["mg-headscale"]["index"] and
+      worker.get("MG_PROVISION_HEADSCALE_VERSION") == hs["headscale"]["tag"] and
+      worker.get("MG_PROVISION_NAMESERVERS") == "1.1.1.1,9.9.9.9" and
+      worker.get("MG_PROVISION_EDGE_ADDR") == render_edge.EDGE_IPS["edge_ip"] + ":443" and "MG_PROBER_URL" not in worker,
+      "compose: orchestrator parameters from versions.lock and the environment (prober only when set)")
+pw = ra.render({**ENV, "MG_PROBER_URL": "http://prober:8080"}, API, WORKER)["compose.app.yaml"]
+check("MG_PROBER_URL: http://prober:8080" in pw, "compose: MG_PROBER_URL rendered when the environment sets it")
+raises(lambda: ra.render({**ENV, "MG_PROBER_URL": "http://u:p@x/y"}, API, WORKER), "a prober URL with credentials or a path is refused")
+raises(lambda: ra.render({**ENV, "MG_TENANT_NAMESERVERS": "10.0.0.1"}, API, WORKER), "private tenant nameservers are refused")
+
 # refusals
 raises(lambda: ra.render(ENV, "ghcr.io/x/api:latest", WORKER), "image by tag is refused")
 raises(lambda: ra.render({**ENV, "MG_ENV": "dev"}, API, WORKER), "MG_ENV dev is refused (deployments only)")
@@ -167,6 +188,8 @@ raises(lambda: ra.render(noentry, API, WORKER), "staging without MG_PUBLIC_IPV4 
 raises(lambda: ra.render({**ENV, "MG_LAN_CIDR": "192.0.2.1/24"}, API, WORKER), "a CIDR with host bits is refused")
 ci = ra.render({"MG_ENV": "ci", "MG_BASE_DOMAIN": "meshguard-ci.test"}, "sha256:" + "0" * 64, "sha256:" + "1" * 64)
 check("MG_ENV: ci" in ci["compose.app.yaml"], "ci stack: local image IDs, no LAN/tunnel/public values needed")
+check(all(x not in ci["compose.app.yaml"] for x in ("MG_AGENT_", "MG_PROVISION_", "agent_token", "/opt/meshguard/run")),
+      "ci stack: no Host Agent, no orchestrator (the stack has no agent)")
 _stdout, sys.stdout = sys.stdout, open(__import__("os").devnull, "w", encoding="utf-8")   # main prints the usage
 try:
     usage_rc = ra.main(["render_app.py", "x.env", "out", "--api-image", API])

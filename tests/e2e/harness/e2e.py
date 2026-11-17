@@ -177,7 +177,8 @@ def test(st: Stack, r: checks.Results) -> None:
         guarded(r, "E2E-14", checks.check_cross_tenant_key, st)
     with timed("ca E2E-15 (policy deny)"):
         guarded(r, "E2E-15", checks.check_deny, st, ips)
-    with timed("ca E2E-17 … E2E-25 (backend P2-T16: api/worker, edge app./admin./auth., OIDC + TOTP, adopt, thiết bị, audit)"):
+    with timed("ca E2E-17 … E2E-25, E2E-46, E2E-47 (backend P2-T16: api/worker, edge app./admin./auth., OIDC + TOTP, adopt, "
+               "thiết bị, audit; P3-T05: tạo tenant, /cancel)"):
         backend.run_all(r, st, guarded)
     with timed("ca E2E-32 … E2E-36 (Phase 3: helper enrollment P3-T14a, prober P3-T03a, lõi policy P3-T08a)"):
         phase3.run_all(r, st, guarded)

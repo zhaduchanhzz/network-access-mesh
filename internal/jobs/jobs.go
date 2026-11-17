@@ -106,6 +106,8 @@ type Kind struct {
 	// WorkerTimeout is River's timeout for one attempt — a backstop longer than Timeout. For the lifecycle group it
 	// equals RescueStuckJobsAfter (≈ 15 min, §11.3).
 	WorkerTimeout time.Duration
+	// Compensable: the handler of the kind undoes its completed steps (a Compensator) — /rollback is allowed on it.
+	Compensable bool
 }
 
 // LifecycleTimeout is the whole-job timeout of the lifecycle group and LifecycleWorkerTimeout the worker timeout of
@@ -167,6 +169,11 @@ func DefaultKinds() map[string]Kind {
 	for _, k := range ks {
 		out[k.Name] = k
 	}
+	// tenant.provision undoes its 19 steps in reverse order (§11.3, P3-T05); the other lifecycle kinds gain /rollback
+	// with the task that builds their compensation.
+	prov := out["tenant.provision"]
+	prov.Compensable = true
+	out["tenant.provision"] = prov
 	return out
 }
 

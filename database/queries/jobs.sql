@@ -244,3 +244,73 @@ WHERE tenant_id IS NOT DISTINCT FROM sqlc.narg(tenant_id)::uuid AND identity_id 
   AND operation_id = sqlc.arg(operation_id) AND key = sqlc.arg(key)
   AND status = 'in_progress' AND request_hash = sqlc.arg(request_hash)
 RETURNING *;
+
+-- ---------------------------------------------------------------- điều khiển job vòng đời (P3-T05, §11.3, 0015)
+
+-- name: GetJobStep :one
+-- Một step của job (created_resources của step trước — ví dụ instance_id mà placement.allocate đã chọn).
+SELECT * FROM provisioning_job_steps
+WHERE job_id = sqlc.arg(job_id) AND name = sqlc.arg(name);
+
+-- name: JobCancelRequested :one
+-- Trước mỗi step: người vận hành đã gọi /cancel chưa (handler dừng SAU step hiện tại — §11.3).
+SELECT (cancel_requested_at IS NOT NULL)::boolean AS requested FROM provisioning_jobs
+WHERE id = sqlc.arg(id);
+
+-- name: RequestJobCancel :one
+-- /cancel trên job đang chạy: chỉ đặt mốc (giữ mốc đầu tiên); handler thấy ở đầu step kế tiếp.
+UPDATE provisioning_jobs SET cancel_requested_at = COALESCE(cancel_requested_at, clock_timestamp())
+WHERE id = sqlc.arg(id) AND status = 'running'
+RETURNING *;
+
+-- name: CancelQueuedJob :one
+-- /cancel trên job chưa bắt đầu chạy ⇒ cancelled (trạng thái kết thúc — nhả dedupe_key). Lần giao của job River sau đó
+-- gặp job đã kết thúc nên không chạy gì.
+UPDATE provisioning_jobs
+SET status = 'cancelled', error = sqlc.arg(error), finished_at = clock_timestamp(), cancel_requested_at = clock_timestamp()
+WHERE id = sqlc.arg(id) AND status = 'queued'
+RETURNING *;
+
+-- name: ResumeJob :one
+-- /retry trên job failed_resumable: chuyển THẲNG sang running (không qua queued) nên khóa chạy lifecycle không bao giờ
+-- rời job — không job nào chen vào giữa (§13.5 mục d); lượt mới: max_attempts = attempt + số lượt của kind (attempt tăng
+-- đơn điệu, không bao giờ đặt lại — lần giao cũ còn sống không trùng (status, attempt) với lượt mới); timeout_at đặt lại ở
+-- lần nhận kế tiếp (MarkJobStarted); job River mới ⇒ queue_job_id mới. Step đã succeeded được bỏ qua: job tiếp tục từ
+-- step lỗi.
+UPDATE provisioning_jobs
+SET status = 'running', max_attempts = attempt + sqlc.arg(attempts)::integer, error = NULL, timeout_at = NULL,
+    cancel_requested_at = NULL, queue_job_id = sqlc.arg(queue_job_id)::bigint
+WHERE id = sqlc.arg(id) AND status = 'failed_resumable'
+RETURNING *;
+
+-- name: RollbackJob :one
+-- /rollback trên job failed_resumable: compensating (vẫn giữ khóa chạy) + job River mới; worker chạy compensation ngược
+-- thứ tự các step đã làm. timeout_at đặt ngay để job.reaper thu hồi lần compensation không ai chạy.
+UPDATE provisioning_jobs
+SET status = 'compensating', cancel_requested_at = NULL, queue_job_id = sqlc.arg(queue_job_id)::bigint,
+    timeout_at = clock_timestamp() + sqlc.arg(timeout_secs)::float8 * interval '1 second'
+WHERE id = sqlc.arg(id) AND status = 'failed_resumable'
+RETURNING *;
+
+-- name: AcquireCompensation :one
+-- Worker nhận một lần giao của job đang compensating (sau /rollback, hoặc lần giao lại sau khi worker dừng giữa
+-- compensation): chỉ job River đang chở job; hạn mới cho lần chạy này.
+UPDATE provisioning_jobs
+SET attempt = attempt + 1, timeout_at = clock_timestamp() + sqlc.arg(timeout_secs)::float8 * interval '1 second'
+WHERE id = sqlc.arg(id) AND queue_job_id = sqlc.arg(queue_job_id)::bigint AND status = 'compensating'
+RETURNING *;
+
+-- name: SetJobStepCompensation :exec
+-- Trạng thái compensation của một step (running → succeeded/failed/skipped); detail thêm lỗi compensation đã redaction.
+UPDATE provisioning_job_steps
+SET compensation_status = sqlc.arg(compensation_status)::text, detail = COALESCE(sqlc.narg(detail), detail)
+WHERE job_id = sqlc.arg(job_id) AND name = sqlc.arg(name);
+
+-- name: InsertFinishedJobStep :exec
+-- Step chạy ngoài worker (bước 1–2 của tenant.provision chạy ở API, trong transaction enqueue job) hoặc bỏ qua (job mới
+-- của /retry sau rolled_back bắt đầu từ bước 3): ghi thẳng trạng thái cuối.
+INSERT INTO provisioning_job_steps (tenant_id, job_id, seq, name, status, attempt, started_at, finished_at, detail)
+VALUES (sqlc.narg(tenant_id), sqlc.arg(job_id),
+        (SELECT COALESCE(max(s.seq) + 1, 0) FROM provisioning_job_steps s WHERE s.job_id = sqlc.arg(job_id)),
+        sqlc.arg(name), sqlc.arg(status)::text, sqlc.arg(attempt)::integer, clock_timestamp(), clock_timestamp(),
+        sqlc.narg(detail));

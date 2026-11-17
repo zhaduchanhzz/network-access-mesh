@@ -288,28 +288,29 @@ type PolicyVersion struct {
 }
 
 type ProvisioningJob struct {
-	ID           uuid.UUID
-	TenantID     *uuid.UUID
-	InstanceID   *uuid.UUID
-	Kind         string
-	RequestKey   *string
-	DedupeKey    *string
-	LockKey      *string
-	Status       string
-	CurrentStep  *string
-	Attempt      int32
-	MaxAttempts  int32
-	Input        []byte
-	Output       []byte
-	Error        []byte
-	ResourceType *string
-	ResourceID   *string
-	QueueJobID   *int64
-	RequestedBy  *uuid.UUID
-	CreatedAt    time.Time
-	TimeoutAt    *time.Time
-	StartedAt    *time.Time
-	FinishedAt   *time.Time
+	ID                uuid.UUID
+	TenantID          *uuid.UUID
+	InstanceID        *uuid.UUID
+	Kind              string
+	RequestKey        *string
+	DedupeKey         *string
+	LockKey           *string
+	Status            string
+	CurrentStep       *string
+	Attempt           int32
+	MaxAttempts       int32
+	Input             []byte
+	Output            []byte
+	Error             []byte
+	ResourceType      *string
+	ResourceID        *string
+	QueueJobID        *int64
+	RequestedBy       *uuid.UUID
+	CreatedAt         time.Time
+	TimeoutAt         *time.Time
+	StartedAt         *time.Time
+	FinishedAt        *time.Time
+	CancelRequestedAt *time.Time
 }
 
 type ProvisioningJobStep struct {
