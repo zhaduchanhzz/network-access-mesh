@@ -8,9 +8,11 @@ and no environment value (public IP, domain, LAN, tunnel) is hard-coded in the p
 """
 from __future__ import annotations
 
+import base64
 import json
 import os
 import pathlib
+import re
 import sys
 import tempfile
 
@@ -79,4 +81,25 @@ for f in sorted([*staging.rglob("*.json"), ROOT / "infrastructure" / "host" / "m
     text = f.read_text(encoding="utf-8")
     hard = [v for v in literals if v in text]
     check(not hard, f"{f.relative_to(ROOT).as_posix()}: no hard-coded environment value", str(hard))
+
+# public outputs of the key ceremony (P2-T04a): present in every env file (empty until the ceremony is done), and when
+# filled, an age X25519 recipient and an Ed25519 SubjectPublicKeyInfo — never a private key pasted by mistake.
+AGE_RECIPIENT = re.compile(r"^age1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{58}$")
+ED25519_SPKI_PREFIX = bytes.fromhex("302a300506032b6570032100")
+for f in [staging / "staging.env", ROOT / ".env.example"]:
+    name = f.relative_to(ROOT).as_posix()
+    text = f.read_text(encoding="utf-8")
+    values = mgenv.parse_env_file(f)
+    for key in ("MG_BACKUP_RECOVERY_RECIPIENT", "MG_BACKUP_MANIFEST_PUBKEY"):
+        check(key in values, f"{name}: defines {key}")
+    rec, pub = values.get("MG_BACKUP_RECOVERY_RECIPIENT", ""), values.get("MG_BACKUP_MANIFEST_PUBKEY", "")
+    check(not rec or bool(AGE_RECIPIENT.fullmatch(rec)), f"{name}: MG_BACKUP_RECOVERY_RECIPIENT is empty or an age recipient")
+    try:
+        der = base64.b64decode(pub, validate=True) if pub else b""
+    except ValueError:
+        der = b"invalid"
+    check(not pub or (len(der) == 44 and der.startswith(ED25519_SPKI_PREFIX)),
+          f"{name}: MG_BACKUP_MANIFEST_PUBKEY is empty or an Ed25519 public key (SPKI, base64)")
+    leaked = [m for m in ("AGE-SECRET-KEY-", "PRIVATE KEY", "MC4CAQAwBQYDK2Vw") if m in text]
+    check(not leaked, f"{name}: no private key material", str(leaked))
 sys.exit(1 if failures else 0)

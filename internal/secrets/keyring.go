@@ -33,11 +33,12 @@ var kekIDRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 
 // Keyring holds the KEK versions of one keyring. New DEKs are wrapped with the active KEK; a DEK is unwrapped with
 // the KEK its row names (tenant_keys.kek_id), so old and new KEKs coexist while DEKs are rewrapped (§7.6). The raw
-// key bytes are not kept: only the AES-GCM instances built from them.
+// key bytes are not kept: only the AES-GCM instances built from them and their key check values (KCV, drill.go).
 type Keyring struct {
 	name   string
 	active string
 	keys   map[string]cipher.AEAD
+	kcvs   map[string]string
 }
 
 // LoadKeyring reads a keyring directory (§7.6, §14.2): one file per KEK version, named by its kek_id and holding the
@@ -65,7 +66,7 @@ func LoadKeyring(name, dir string) (*Keyring, error) {
 	if err != nil {
 		return nil, fmt.Errorf("secrets: keyring %s: %w", name, err)
 	}
-	kr := &Keyring{name: name, keys: map[string]cipher.AEAD{}}
+	kr := &Keyring{name: name, keys: map[string]cipher.AEAD{}, kcvs: map[string]string{}}
 	for _, e := range entries {
 		n := e.Name()
 		switch {
@@ -88,12 +89,12 @@ func LoadKeyring(name, dir string) (*Keyring, error) {
 			if err != nil {
 				return fail("key file %s: %v", n, err)
 			}
-			aead, err := parseKEK(b)
+			aead, check, err := parseKEK(b)
 			clear(b)
 			if err != nil {
 				return fail("key file %s: %v", n, err)
 			}
-			kr.keys[n] = aead
+			kr.keys[n], kr.kcvs[n] = aead, check
 		}
 	}
 	switch {
@@ -137,19 +138,23 @@ func trimNewline(b []byte) []byte {
 	return bytes.TrimSuffix(b, []byte("\r"))
 }
 
-// parseKEK decodes 64 hexadecimal characters into an AES-256-GCM instance. The error never quotes the content (a
-// hex.InvalidByteError would).
-func parseKEK(b []byte) (cipher.AEAD, error) {
+// parseKEK decodes 64 hexadecimal characters into an AES-256-GCM instance and the key check value of the key. The
+// error never quotes the content (a hex.InvalidByteError would).
+func parseKEK(b []byte) (cipher.AEAD, string, error) {
 	b = trimNewline(b)
 	if len(b) != 2*keySize {
-		return nil, errors.New("must hold exactly 64 hexadecimal characters (32 bytes)")
+		return nil, "", errors.New("must hold exactly 64 hexadecimal characters (32 bytes)")
 	}
 	key := make([]byte, keySize)
 	defer clear(key)
 	if _, err := hex.Decode(key, b); err != nil {
-		return nil, errors.New("must hold exactly 64 hexadecimal characters (32 bytes)")
+		return nil, "", errors.New("must hold exactly 64 hexadecimal characters (32 bytes)")
 	}
-	return newAEAD(key)
+	aead, err := newAEAD(key)
+	if err != nil {
+		return nil, "", err
+	}
+	return aead, kcv(key), nil
 }
 
 // Name returns KEKApp or KEKOps.
@@ -168,10 +173,22 @@ func (k *Keyring) IDs() []string {
 	return ids
 }
 
+// KCV returns the key check value of KEK kekID (drill.go), or "" when the keyring has no such KEK. Not secret.
+func (k *Keyring) KCV(kekID string) string { return k.kcvs[kekID] }
+
 // wrap encrypts a DEK with the active KEK.
 func (k *Keyring) wrap(dek, aad []byte) (kekID string, nonce, wrapped []byte, err error) {
-	nonce, wrapped, err = seal(k.keys[k.active], dek, aad)
+	nonce, wrapped, err = k.wrapWith(k.active, dek, aad)
 	return k.active, nonce, wrapped, err
+}
+
+// wrapWith encrypts a DEK with KEK kekID — the active one for new DEKs (wrap); any version in the key ceremony drill.
+func (k *Keyring) wrapWith(kekID string, dek, aad []byte) (nonce, wrapped []byte, err error) {
+	aead := k.keys[kekID]
+	if aead == nil {
+		return nil, nil, fmt.Errorf("%w: kek_id %q is not in keyring %s", ErrUnknownKEK, kekID, k.name)
+	}
+	return seal(aead, dek, aad)
 }
 
 // unwrap decrypts a DEK wrapped with KEK kekID; the caller clears the result.

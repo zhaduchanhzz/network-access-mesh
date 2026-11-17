@@ -37,6 +37,10 @@ tailscale up --login-server=https://<slug>.mesh.$MG_BASE_DOMAIN --auth-key=file:
   --accept-dns=false --force-reauth
 ```
 
+## Nghi thức khóa (P2-T04a)
+
+Sinh KEK `kek-app`/`kek-ops`, khóa khôi phục backup và khóa ký manifest ngay trên host, với chủ dự án giữ 2 bản giấy: [docs/operations/key-ceremony.md](../../docs/operations/key-ceremony.md), bộ công cụ ở [key-ceremony/](key-ceremony/ceremony.sh). Hai bước có vật liệu khóa (`show-offline`, `verify-offline`) chỉ chạy trong terminal của chủ dự án (`ssh -t`); mọi bước khác chạy được qua SSH không TTY và không in bí mật.
+
 ## Sau khi recreate edge
 
 Network tenant được gắn lúc chạy nên mất khi container edge bị recreate: chạy lại `sudo bash infrastructure/host/reattach-edge.sh` (mọi instance) — đo được ~16 s cho 100 network ([P1-T20](../../docs/planning/evidence/P1-T20.md)).
