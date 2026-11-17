@@ -78,6 +78,14 @@ var recipes = map[string]recipe{
 	// monitoring (P2-T13a, monitoringapi — mounted; reads only the database)
 	"getTenantDashboard": {ok: answer{status: http.StatusOK}},
 	"getPlatformHealth":  {ok: answer{status: http.StatusOK}},
+	// platform hosts (P3-T04, hostsapi — mounted): a granted create answers 201 the first time and 409 (name taken)
+	// after; a granted PATCH without If-Match reaches the service and answers 428 on the existing host
+	"listPlatformHosts": {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
+	"getPlatformHost":   {ok: answer{status: http.StatusOK}},
+	"createPlatformHost": {idempotent: true, body: `{"name":"matrix-created","region":"matrix",` +
+		`"run_uid_range":{"first":50000,"last":50099},"tenant_net_pool":"10.251.0.0/24"}`},
+	"updatePlatformHost": {body: `{"status":"active"}`,
+		ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
 }
 
 // objectKind is what a path parameter (other than the {tenantId} context of a tenant route) designates.
@@ -91,10 +99,11 @@ const (
 	objTenant     objectKind = "tenant" // /platform/tenants/{tenantId}: a resource, not a context
 	objSession    objectKind = "session"
 	objIdP        objectKind = "idp"
+	objHost       objectKind = "host" // /platform/hosts/{hostId} (P3-T04)
 )
 
 // paramObjects maps path parameters to object kinds; a new parameter must be added (TestEveryOperationHasAnExpectation).
 var paramObjects = map[string]objectKind{
 	"deviceId": objDevice, "membershipId": objMembership, "jobId": objJob, "instanceId": objInstance,
-	"tenantId": objTenant, "sessionId": objSession, "idpId": objIdP,
+	"tenantId": objTenant, "sessionId": objSession, "idpId": objIdP, "hostId": objHost,
 }

@@ -54,6 +54,11 @@ var routes = []struct {
 	{http.MethodGet, "/api/v1/platform/tenants/" + tenantID, "", "GetPlatformTenant", nil},
 	{http.MethodGet, "/api/v1/platform/instances", "", "ListPlatformInstances", nil},
 	{http.MethodGet, "/api/v1/platform/instances/" + itemID, "", "GetPlatformInstance", nil},
+	// platform hosts (P3-T04)
+	{http.MethodGet, "/api/v1/platform/hosts?status=draining&region=lab", "", "ListPlatformHosts", nil},
+	{http.MethodPost, "/api/v1/platform/hosts", `{"name":"h1","region":"lab","run_uid_range":{"first":30000,"last":39999},"tenant_net_pool":"10.250.0.0/16"}`, "CreatePlatformHost", idempotency},
+	{http.MethodGet, "/api/v1/platform/hosts/" + itemID, "", "GetPlatformHost", nil},
+	{http.MethodPatch, "/api/v1/platform/hosts/" + itemID, `{"status":"draining"}`, "UpdatePlatformHost", map[string]string{"If-Match": `"0123"`}},
 	{http.MethodGet, "/api/v1/platform/health", "", "GetPlatformHealth", nil},
 	{http.MethodGet, "/api/v1/platform/audit", "", "ListPlatformAuditEvents", nil},
 	{http.MethodGet, "/api/v1/platform/jobs?kind=inventory.sync", "", "ListPlatformJobs", nil},

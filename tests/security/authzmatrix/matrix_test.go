@@ -234,7 +234,7 @@ func (m *matrix) objectCases(op authz.Operation, a *actor, tenantCase string) []
 			return []string{"own", "other-tenant", "missing"}
 		}
 		return []string{"existing", "missing"}
-	case objInstance, objTenant:
+	case objInstance, objTenant, objHost:
 		return []string{"existing", "missing"}
 	case objSession:
 		if a.session == nil || a.fx == nil || a.kind == kindCrossOrigin {
@@ -253,7 +253,7 @@ func firstCase(k objectKind) string {
 		return "eu-own"
 	case objSession:
 		return "missing"
-	case objInstance, objTenant:
+	case objInstance, objTenant, objHost:
 		return "existing"
 	}
 	return "own"
@@ -325,6 +325,8 @@ func (m *matrix) place(t *testing.T, c *call) {
 		c.objectID = m.obj.instance["A"]
 	case kind == objTenant:
 		c.objectID = w.A.ID
+	case kind == objHost:
+		c.objectID = m.obj.host
 	case kind == objIdP:
 		c.objectID = c.ownIdP(w)
 	case kind == objSession && c.objectCase == "own":

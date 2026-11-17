@@ -123,6 +123,45 @@ func (e HealthStatus) Valid() bool {
 	}
 }
 
+// Defines values for HostEntryMode.
+const (
+	HostEntryModeDirect     HostEntryMode = "direct"
+	HostEntryModeVpsGateway HostEntryMode = "vps_gateway"
+)
+
+// Valid indicates whether the value is a known member of the HostEntryMode enum.
+func (e HostEntryMode) Valid() bool {
+	switch e {
+	case HostEntryModeDirect:
+		return true
+	case HostEntryModeVpsGateway:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for HostStatus.
+const (
+	HostStatusActive   HostStatus = "active"
+	HostStatusDisabled HostStatus = "disabled"
+	HostStatusDraining HostStatus = "draining"
+)
+
+// Valid indicates whether the value is a known member of the HostStatus enum.
+func (e HostStatus) Valid() bool {
+	switch e {
+	case HostStatusActive:
+		return true
+	case HostStatusDisabled:
+		return true
+	case HostStatusDraining:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for InstanceStatus.
 const (
 	InstanceStatusAllocated   InstanceStatus = "allocated"
@@ -556,6 +595,128 @@ type HealthReason = string
 
 // HealthStatus Kết quả health check gần nhất; `unknown` khi chưa từng kiểm
 type HealthStatus string
+
+// Host Host chạy instance (`hosts`, §6.3) — không chứa secret
+type Host struct {
+	Capacity  HostCapacity `json:"capacity"`
+	CreatedAt time.Time    `json:"created_at"`
+
+	// Etag Hash cấu hình của host (`region`, `status`, `capacity`, `public_entry`, các dải) — giá trị `If-Match` của `PATCH` và của header `ETag`; heartbeat không làm nó đổi (bảng `hosts` không có cột `version`)
+	Etag            string             `json:"etag"`
+	Id              openapi_types.UUID `json:"id"`
+	LastHeartbeatAt *time.Time         `json:"last_heartbeat_at"`
+
+	// Name Tên host — nhãn DNS, bất biến
+	Name string `json:"name"`
+
+	// PublicEntry Điểm vào công khai (`hosts.public_entry`, §10.1): `ipv4` là `derp.server.ipv4` của mọi instance trên host — IPv4 thập phân chuẩn (không số 0 đứng đầu), unicast dùng được (ngoài 0/8, 127/8, 169.254/16, 224/3), nằm ngoài `tenant_net_pool`; host chưa có `ipv4` không được placement chọn. Khóa `ipv6` chưa nhận ở MVP
+	PublicEntry HostPublicEntry `json:"public_entry"`
+	Region      string          `json:"region"`
+
+	// RunUidRange Dải số nguyên, gồm cả hai đầu (`first` ≤ `last`)
+	RunUidRange HostRange `json:"run_uid_range"`
+
+	// Status Trạng thái host (`hosts.status`, 0014): `active` nhận instance mới; `draining` giữ instance đang có, không nhận mới; `disabled` ngừng hẳn — placement chỉ chọn host `active`
+	Status HostStatus `json:"status"`
+
+	// StunPortRange Dải số nguyên, gồm cả hai đầu (`first` ≤ `last`)
+	StunPortRange *HostRange `json:"stun_port_range,omitempty"`
+
+	// TenantNetPool Dải cấp subnet /29 cho network của tenant (IPv4 CIDR)
+	//
+	// Examples: 10.250.0.0/16
+	TenantNetPool string    `json:"tenant_net_pool"`
+	UpdatedAt     time.Time `json:"updated_at"`
+
+	// Usage Mức dùng của host lúc đọc: `live_instances` = instance chưa `removed` (so với `capacity.max_instances`), `by_status` = số instance chưa `removed` theo trạng thái, `run_uids_free` = UID của `run_uid_range` chưa từng được cấp (UID không tái sử dụng, kể cả sau `removed`; không tính UID/GID của service core), `net_slots_free` = số /29 của `tenant_net_pool` chưa thuộc instance chưa `removed`
+	Usage HostUsage `json:"usage"`
+}
+
+// HostCapacity defines model for HostCapacity.
+type HostCapacity struct {
+	// MaxInstances Trần số instance chưa `removed` trên host; `0` = không nhận instance mới
+	MaxInstances int64 `json:"max_instances"`
+}
+
+// HostCreate Host mới. Mặc định: `status` = `active`, `capacity` = `{"max_instances": 100}`, `public_entry` = `{}`, không có `stun_port_range` (STUN chung — MVP). `run_uid_range` trong 1000…2147483646 và không chứa UID/GID của service core; `tenant_net_pool` IPv4 /8…/29 ngoài 100.64.0.0/10; `stun_port_range` trong 1024…65535. `capacity` và `public_entry` được đọc đúng như CHECK của 0014 đọc cột jsonb: khóa lạ (ví dụ `ipv6`), thiếu `max_instances`, giá trị không phải số nguyên (`10.0`) ⇒ `422` theo trường
+type HostCreate struct {
+	Capacity *json.RawMessage `json:"capacity,omitempty"`
+
+	// Name Nhãn DNS (chữ thường, số, dấu gạch ngang; tối đa 63 ký tự)
+	Name string `json:"name"`
+
+	// PublicEntry Điểm vào công khai (`hosts.public_entry`, §10.1): `ipv4` là `derp.server.ipv4` của mọi instance trên host — IPv4 thập phân chuẩn (không số 0 đứng đầu), unicast dùng được (ngoài 0/8, 127/8, 169.254/16, 224/3), nằm ngoài `tenant_net_pool`; host chưa có `ipv4` không được placement chọn. Khóa `ipv6` chưa nhận ở MVP
+	PublicEntry *json.RawMessage `json:"public_entry,omitempty"`
+
+	// Region 1–64 ký tự, không có khoảng trắng
+	Region string `json:"region"`
+
+	// RunUidRange Dải số nguyên, gồm cả hai đầu (`first` ≤ `last`)
+	RunUidRange HostRange `json:"run_uid_range"`
+
+	// Status Trạng thái host (`hosts.status`, 0014): `active` nhận instance mới; `draining` giữ instance đang có, không nhận mới; `disabled` ngừng hẳn — placement chỉ chọn host `active`
+	Status *HostStatus `json:"status,omitempty"`
+
+	// StunPortRange Dải số nguyên, gồm cả hai đầu (`first` ≤ `last`)
+	StunPortRange *HostRange `json:"stun_port_range,omitempty"`
+
+	// TenantNetPool IPv4 CIDR dạng chuẩn `a.b.c.d/n`
+	TenantNetPool string `json:"tenant_net_pool"`
+}
+
+// HostEntryMode Đường vào công khai của host (§15.3) — `direct` (IP của chính host) hoặc `vps_gateway` (qua VPS gateway)
+type HostEntryMode string
+
+// HostList defines model for HostList.
+type HostList struct {
+	Items      []Host  `json:"items"`
+	NextCursor *string `json:"next_cursor"`
+}
+
+// HostPublicEntry Điểm vào công khai (`hosts.public_entry`, §10.1): `ipv4` là `derp.server.ipv4` của mọi instance trên host — IPv4 thập phân chuẩn (không số 0 đứng đầu), unicast dùng được (ngoài 0/8, 127/8, 169.254/16, 224/3), nằm ngoài `tenant_net_pool`; host chưa có `ipv4` không được placement chọn. Khóa `ipv6` chưa nhận ở MVP
+type HostPublicEntry struct {
+	Ipv4 *string `json:"ipv4,omitempty"`
+
+	// Mode Đường vào công khai của host (§15.3) — `direct` (IP của chính host) hoặc `vps_gateway` (qua VPS gateway)
+	Mode *HostEntryMode `json:"mode,omitempty"`
+}
+
+// HostRange Dải số nguyên, gồm cả hai đầu (`first` ≤ `last`)
+type HostRange struct {
+	First int64 `json:"first"`
+	Last  int64 `json:"last"`
+}
+
+// HostStatus Trạng thái host (`hosts.status`, 0014): `active` nhận instance mới; `draining` giữ instance đang có, không nhận mới; `disabled` ngừng hẳn — placement chỉ chọn host `active`
+type HostStatus string
+
+// HostUpdate Các trường muốn đổi (ít nhất một); `capacity` và `public_entry` thay cả object (`{}` xóa điểm vào công khai). `region` và các dải cấp phát chỉ đổi được khi host không còn instance chưa `removed`
+type HostUpdate struct {
+	Capacity *json.RawMessage `json:"capacity,omitempty"`
+
+	// PublicEntry Điểm vào công khai (`hosts.public_entry`, §10.1): `ipv4` là `derp.server.ipv4` của mọi instance trên host — IPv4 thập phân chuẩn (không số 0 đứng đầu), unicast dùng được (ngoài 0/8, 127/8, 169.254/16, 224/3), nằm ngoài `tenant_net_pool`; host chưa có `ipv4` không được placement chọn. Khóa `ipv6` chưa nhận ở MVP
+	PublicEntry *json.RawMessage `json:"public_entry,omitempty"`
+	Region      *string          `json:"region,omitempty"`
+
+	// RunUidRange Dải số nguyên, gồm cả hai đầu (`first` ≤ `last`)
+	RunUidRange *HostRange `json:"run_uid_range,omitempty"`
+
+	// Status Trạng thái host (`hosts.status`, 0014): `active` nhận instance mới; `draining` giữ instance đang có, không nhận mới; `disabled` ngừng hẳn — placement chỉ chọn host `active`
+	Status *HostStatus `json:"status,omitempty"`
+
+	// StunPortRange Dải số nguyên, gồm cả hai đầu (`first` ≤ `last`)
+	StunPortRange *HostRange `json:"stun_port_range,omitempty"`
+	TenantNetPool *string    `json:"tenant_net_pool,omitempty"`
+}
+
+// HostUsage Mức dùng của host lúc đọc: `live_instances` = instance chưa `removed` (so với `capacity.max_instances`), `by_status` = số instance chưa `removed` theo trạng thái, `run_uids_free` = UID của `run_uid_range` chưa từng được cấp (UID không tái sử dụng, kể cả sau `removed`; không tính UID/GID của service core), `net_slots_free` = số /29 của `tenant_net_pool` chưa thuộc instance chưa `removed`
+type HostUsage struct {
+	// ByStatus Số lượng theo trạng thái
+	ByStatus      StatusCounts `json:"by_status"`
+	LiveInstances int          `json:"live_instances"`
+	NetSlotsFree  int64        `json:"net_slots_free"`
+	RunUidsFree   int64        `json:"run_uids_free"`
+}
 
 // Instance Headscale instance của một tenant (`tenant_instances`, §6.3) — không chứa secret
 type Instance struct {
@@ -1026,11 +1187,23 @@ type DeviceId = openapi_types.UUID
 // FromFilter defines model for FromFilter.
 type FromFilter = time.Time
 
+// HostId defines model for HostId.
+type HostId = openapi_types.UUID
+
+// HostRegionFilter defines model for HostRegionFilter.
+type HostRegionFilter = string
+
+// HostStatusFilter Trạng thái host (`hosts.status`, 0014): `active` nhận instance mới; `draining` giữ instance đang có, không nhận mới; `disabled` ngừng hẳn — placement chỉ chọn host `active`
+type HostStatusFilter = HostStatus
+
 // IdempotencyKey defines model for IdempotencyKey.
 type IdempotencyKey = string
 
 // IdpId defines model for IdpId.
 type IdpId = openapi_types.UUID
+
+// IfMatch defines model for IfMatch.
+type IfMatch = string
 
 // InstanceId defines model for InstanceId.
 type InstanceId = openapi_types.UUID
@@ -1082,6 +1255,12 @@ type InstanceUnavailable = Problem
 
 // NotFound RFC 9457 problem details (§13.1, §13.3)
 type NotFound = Problem
+
+// PreconditionFailed RFC 9457 problem details (§13.1, §13.3)
+type PreconditionFailed = Problem
+
+// PreconditionRequired RFC 9457 problem details (§13.1, §13.3)
+type PreconditionRequired = Problem
 
 // RateLimited RFC 9457 problem details (§13.1, §13.3)
 type RateLimited = Problem
@@ -1163,6 +1342,31 @@ type ListPlatformAuditEventsParams struct {
 
 	// To Tới thời điểm (không bao gồm)
 	To *ToFilter `form:"to,omitempty" json:"to,omitempty"`
+}
+
+// ListPlatformHostsParams defines parameters for ListPlatformHosts.
+type ListPlatformHostsParams struct {
+	// Limit Số phần tử tối đa của trang
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Con trỏ mờ lấy từ `next_cursor` của trang trước
+	Cursor *Cursor           `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Status *HostStatusFilter `form:"status,omitempty" json:"status,omitempty"`
+
+	// Region Lọc theo vùng (khớp chính xác)
+	Region *HostRegionFilter `form:"region,omitempty" json:"region,omitempty"`
+}
+
+// CreatePlatformHostParams defines parameters for CreatePlatformHost.
+type CreatePlatformHostParams struct {
+	// IdempotencyKey Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// UpdatePlatformHostParams defines parameters for UpdatePlatformHost.
+type UpdatePlatformHostParams struct {
+	// IfMatch `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428`
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
 
 // ListPlatformInstancesParams defines parameters for ListPlatformInstances.
@@ -1292,6 +1496,12 @@ type ListTenantUsersParams struct {
 	Q *string `form:"q,omitempty" json:"q,omitempty"`
 }
 
+// CreatePlatformHostJSONRequestBody defines body for CreatePlatformHost for application/json ContentType.
+type CreatePlatformHostJSONRequestBody = HostCreate
+
+// UpdatePlatformHostJSONRequestBody defines body for UpdatePlatformHost for application/json ContentType.
+type UpdatePlatformHostJSONRequestBody = HostUpdate
+
 // RenameDeviceJSONRequestBody defines body for RenameDevice for application/json ContentType.
 type RenameDeviceJSONRequestBody = DeviceRename
 
@@ -1321,6 +1531,18 @@ type ServerInterface interface {
 	// GetPlatformHealth Health tổng hợp của nền tảng
 	// (GET /platform/health)
 	GetPlatformHealth(w http.ResponseWriter, r *http.Request)
+	// ListPlatformHosts Host chạy instance — cấu hình placement và mức dùng
+	// (GET /platform/hosts)
+	ListPlatformHosts(w http.ResponseWriter, r *http.Request, params ListPlatformHostsParams)
+	// CreatePlatformHost Đăng ký một host
+	// (POST /platform/hosts)
+	CreatePlatformHost(w http.ResponseWriter, r *http.Request, params CreatePlatformHostParams)
+	// GetPlatformHost Một host
+	// (GET /platform/hosts/{hostId})
+	GetPlatformHost(w http.ResponseWriter, r *http.Request, hostId HostId)
+	// UpdatePlatformHost Sửa trạng thái, capacity, điểm vào công khai hoặc dải cấp phát của host
+	// (PATCH /platform/hosts/{hostId})
+	UpdatePlatformHost(w http.ResponseWriter, r *http.Request, hostId HostId, params UpdatePlatformHostParams)
 	// ListPlatformInstances Headscale instance của mọi tenant
 	// (GET /platform/instances)
 	ListPlatformInstances(w http.ResponseWriter, r *http.Request, params ListPlatformInstancesParams)
@@ -1789,6 +2011,199 @@ func (siw *ServerInterfaceWrapper) GetPlatformHealth(w http.ResponseWriter, r *h
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetPlatformHealth(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListPlatformHosts operation middleware
+func (siw *ServerInterfaceWrapper) ListPlatformHosts(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListPlatformHostsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "region" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "region", r.URL.Query(), &params.Region, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "region"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "region", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListPlatformHosts(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreatePlatformHost operation middleware
+func (siw *ServerInterfaceWrapper) CreatePlatformHost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreatePlatformHostParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreatePlatformHost(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetPlatformHost operation middleware
+func (siw *ServerInterfaceWrapper) GetPlatformHost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "hostId" -------------
+	var hostId HostId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "hostId", r.PathValue("hostId"), &hostId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "hostId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPlatformHost(w, r, hostId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdatePlatformHost operation middleware
+func (siw *ServerInterfaceWrapper) UpdatePlatformHost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "hostId" -------------
+	var hostId HostId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "hostId", r.PathValue("hostId"), &hostId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "hostId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpdatePlatformHostParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdatePlatformHost(w, r, hostId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3041,6 +3456,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/platform/tenants/{tenantId}", wrapper.GetPlatformTenant)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/platform/instances", wrapper.ListPlatformInstances)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/platform/instances/{instanceId}", wrapper.GetPlatformInstance)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/platform/hosts", wrapper.ListPlatformHosts)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/platform/hosts", wrapper.CreatePlatformHost)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/platform/hosts/{hostId}", wrapper.GetPlatformHost)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/platform/hosts/{hostId}", wrapper.UpdatePlatformHost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/platform/health", wrapper.GetPlatformHealth)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/platform/audit", wrapper.ListPlatformAuditEvents)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/platform/jobs", wrapper.ListPlatformJobs)
@@ -3115,6 +3534,24 @@ type NotFoundApplicationProblemPlusJSONResponse struct {
 	Body Problem
 
 	Headers NotFoundResponseHeaders
+}
+
+type PreconditionFailedResponseHeaders struct {
+	XRequestId *string
+}
+type PreconditionFailedApplicationProblemPlusJSONResponse struct {
+	Body Problem
+
+	Headers PreconditionFailedResponseHeaders
+}
+
+type PreconditionRequiredResponseHeaders struct {
+	XRequestId *string
+}
+type PreconditionRequiredApplicationProblemPlusJSONResponse struct {
+	Body Problem
+
+	Headers PreconditionRequiredResponseHeaders
 }
 
 type RateLimitedResponseHeaders struct {
@@ -4118,6 +4555,658 @@ type GetPlatformHealthdefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response GetPlatformHealthdefaultApplicationProblemPlusJSONResponse) VisitGetPlatformHealthResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPlatformHostsRequestObject struct {
+	Params ListPlatformHostsParams
+}
+
+type ListPlatformHostsResponseObject interface {
+	VisitListPlatformHostsResponse(w http.ResponseWriter) error
+}
+
+type ListPlatformHosts200JSONResponse HostList
+
+func (response ListPlatformHosts200JSONResponse) VisitListPlatformHostsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPlatformHosts401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response ListPlatformHosts401ApplicationProblemPlusJSONResponse) VisitListPlatformHostsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPlatformHosts403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response ListPlatformHosts403ApplicationProblemPlusJSONResponse) VisitListPlatformHostsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPlatformHosts422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response ListPlatformHosts422ApplicationProblemPlusJSONResponse) VisitListPlatformHostsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPlatformHosts429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response ListPlatformHosts429ApplicationProblemPlusJSONResponse) VisitListPlatformHostsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPlatformHostsdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response ListPlatformHostsdefaultApplicationProblemPlusJSONResponse) VisitListPlatformHostsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePlatformHostRequestObject struct {
+	Params CreatePlatformHostParams
+	Body   *CreatePlatformHostJSONRequestBody
+}
+
+type CreatePlatformHostResponseObject interface {
+	VisitCreatePlatformHostResponse(w http.ResponseWriter) error
+}
+
+type CreatePlatformHost201ResponseHeaders struct {
+	ETag string
+}
+
+type CreatePlatformHost201JSONResponse struct {
+	Body    Host
+	Headers CreatePlatformHost201ResponseHeaders
+}
+
+func (response CreatePlatformHost201JSONResponse) VisitCreatePlatformHostResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePlatformHost401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response CreatePlatformHost401ApplicationProblemPlusJSONResponse) VisitCreatePlatformHostResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePlatformHost403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response CreatePlatformHost403ApplicationProblemPlusJSONResponse) VisitCreatePlatformHostResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePlatformHost409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response CreatePlatformHost409ApplicationProblemPlusJSONResponse) VisitCreatePlatformHostResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePlatformHost422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response CreatePlatformHost422ApplicationProblemPlusJSONResponse) VisitCreatePlatformHostResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePlatformHost429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response CreatePlatformHost429ApplicationProblemPlusJSONResponse) VisitCreatePlatformHostResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePlatformHostdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response CreatePlatformHostdefaultApplicationProblemPlusJSONResponse) VisitCreatePlatformHostResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPlatformHostRequestObject struct {
+	HostId HostId `json:"hostId"`
+}
+
+type GetPlatformHostResponseObject interface {
+	VisitGetPlatformHostResponse(w http.ResponseWriter) error
+}
+
+type GetPlatformHost200ResponseHeaders struct {
+	ETag string
+}
+
+type GetPlatformHost200JSONResponse struct {
+	Body    Host
+	Headers GetPlatformHost200ResponseHeaders
+}
+
+func (response GetPlatformHost200JSONResponse) VisitGetPlatformHostResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPlatformHost401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response GetPlatformHost401ApplicationProblemPlusJSONResponse) VisitGetPlatformHostResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPlatformHost403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response GetPlatformHost403ApplicationProblemPlusJSONResponse) VisitGetPlatformHostResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPlatformHost404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response GetPlatformHost404ApplicationProblemPlusJSONResponse) VisitGetPlatformHostResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPlatformHost429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response GetPlatformHost429ApplicationProblemPlusJSONResponse) VisitGetPlatformHostResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPlatformHostdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response GetPlatformHostdefaultApplicationProblemPlusJSONResponse) VisitGetPlatformHostResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdatePlatformHostRequestObject struct {
+	HostId HostId `json:"hostId"`
+	Params UpdatePlatformHostParams
+	Body   *UpdatePlatformHostJSONRequestBody
+}
+
+type UpdatePlatformHostResponseObject interface {
+	VisitUpdatePlatformHostResponse(w http.ResponseWriter) error
+}
+
+type UpdatePlatformHost200ResponseHeaders struct {
+	ETag string
+}
+
+type UpdatePlatformHost200JSONResponse struct {
+	Body    Host
+	Headers UpdatePlatformHost200ResponseHeaders
+}
+
+func (response UpdatePlatformHost200JSONResponse) VisitUpdatePlatformHostResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdatePlatformHost401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response UpdatePlatformHost401ApplicationProblemPlusJSONResponse) VisitUpdatePlatformHostResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdatePlatformHost403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response UpdatePlatformHost403ApplicationProblemPlusJSONResponse) VisitUpdatePlatformHostResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdatePlatformHost404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response UpdatePlatformHost404ApplicationProblemPlusJSONResponse) VisitUpdatePlatformHostResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdatePlatformHost409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response UpdatePlatformHost409ApplicationProblemPlusJSONResponse) VisitUpdatePlatformHostResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdatePlatformHost412ApplicationProblemPlusJSONResponse struct {
+	PreconditionFailedApplicationProblemPlusJSONResponse
+}
+
+func (response UpdatePlatformHost412ApplicationProblemPlusJSONResponse) VisitUpdatePlatformHostResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(412)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdatePlatformHost422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response UpdatePlatformHost422ApplicationProblemPlusJSONResponse) VisitUpdatePlatformHostResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdatePlatformHost428ApplicationProblemPlusJSONResponse struct {
+	PreconditionRequiredApplicationProblemPlusJSONResponse
+}
+
+func (response UpdatePlatformHost428ApplicationProblemPlusJSONResponse) VisitUpdatePlatformHostResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(428)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdatePlatformHost429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response UpdatePlatformHost429ApplicationProblemPlusJSONResponse) VisitUpdatePlatformHostResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdatePlatformHostdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response UpdatePlatformHostdefaultApplicationProblemPlusJSONResponse) VisitUpdatePlatformHostResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -7082,6 +8171,18 @@ type StrictServerInterface interface {
 	// GetPlatformHealth Health tổng hợp của nền tảng
 	// (GET /platform/health)
 	GetPlatformHealth(ctx context.Context, request GetPlatformHealthRequestObject) (GetPlatformHealthResponseObject, error)
+	// ListPlatformHosts Host chạy instance — cấu hình placement và mức dùng
+	// (GET /platform/hosts)
+	ListPlatformHosts(ctx context.Context, request ListPlatformHostsRequestObject) (ListPlatformHostsResponseObject, error)
+	// CreatePlatformHost Đăng ký một host
+	// (POST /platform/hosts)
+	CreatePlatformHost(ctx context.Context, request CreatePlatformHostRequestObject) (CreatePlatformHostResponseObject, error)
+	// GetPlatformHost Một host
+	// (GET /platform/hosts/{hostId})
+	GetPlatformHost(ctx context.Context, request GetPlatformHostRequestObject) (GetPlatformHostResponseObject, error)
+	// UpdatePlatformHost Sửa trạng thái, capacity, điểm vào công khai hoặc dải cấp phát của host
+	// (PATCH /platform/hosts/{hostId})
+	UpdatePlatformHost(ctx context.Context, request UpdatePlatformHostRequestObject) (UpdatePlatformHostResponseObject, error)
 	// ListPlatformInstances Headscale instance của mọi tenant
 	// (GET /platform/instances)
 	ListPlatformInstances(ctx context.Context, request ListPlatformInstancesRequestObject) (ListPlatformInstancesResponseObject, error)
@@ -7379,6 +8480,125 @@ func (sh *strictHandler) GetPlatformHealth(w http.ResponseWriter, r *http.Reques
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetPlatformHealthResponseObject); ok {
 		if err := validResponse.VisitGetPlatformHealthResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListPlatformHosts operation middleware
+func (sh *strictHandler) ListPlatformHosts(w http.ResponseWriter, r *http.Request, params ListPlatformHostsParams) {
+	var request ListPlatformHostsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListPlatformHosts(ctx, request.(ListPlatformHostsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListPlatformHosts")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListPlatformHostsResponseObject); ok {
+		if err := validResponse.VisitListPlatformHostsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreatePlatformHost operation middleware
+func (sh *strictHandler) CreatePlatformHost(w http.ResponseWriter, r *http.Request, params CreatePlatformHostParams) {
+	var request CreatePlatformHostRequestObject
+
+	request.Params = params
+
+	var body CreatePlatformHostJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreatePlatformHost(ctx, request.(CreatePlatformHostRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreatePlatformHost")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreatePlatformHostResponseObject); ok {
+		if err := validResponse.VisitCreatePlatformHostResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetPlatformHost operation middleware
+func (sh *strictHandler) GetPlatformHost(w http.ResponseWriter, r *http.Request, hostId HostId) {
+	var request GetPlatformHostRequestObject
+
+	request.HostId = hostId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetPlatformHost(ctx, request.(GetPlatformHostRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetPlatformHost")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetPlatformHostResponseObject); ok {
+		if err := validResponse.VisitGetPlatformHostResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdatePlatformHost operation middleware
+func (sh *strictHandler) UpdatePlatformHost(w http.ResponseWriter, r *http.Request, hostId HostId, params UpdatePlatformHostParams) {
+	var request UpdatePlatformHostRequestObject
+
+	request.HostId = hostId
+	request.Params = params
+
+	var body UpdatePlatformHostJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdatePlatformHost(ctx, request.(UpdatePlatformHostRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdatePlatformHost")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdatePlatformHostResponseObject); ok {
+		if err := validResponse.VisitUpdatePlatformHostResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
