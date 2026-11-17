@@ -299,7 +299,7 @@ func TestOwnUIDIsHealthOnly(t *testing.T) {
 func TestPeerCredRefused(t *testing.T) {
 	h := start(t, nil, []uint32{4242})
 	h.cfg.selfUID = 4343 // the test process is now a stranger
-	h.gs.Stop()
+	h.stop()
 	h.restart(t)
 	_, err := h.dial(t, h.cfg.TokenFile).Health(tctx(t), &agentv1.HealthRequest{})
 	if status.Code(err) != codes.Unavailable {
@@ -324,8 +324,9 @@ func (h *harness) restart(t *testing.T) {
 		t.Fatal(err)
 	}
 	gs := srv.grpcServer(h.cfg) // local: see start() — the Serve goroutine never reads h.gs
-	h.gs = gs
-	go func() { _ = gs.Serve(l) }()
+	served := make(chan struct{})
+	h.gs, h.served = gs, served
+	go func() { _ = gs.Serve(l); close(served) }()
 	t.Cleanup(gs.Stop)
 }
 
@@ -441,7 +442,7 @@ func TestHealthcheckSubcommand(t *testing.T) {
 	if code := healthcheck(context.Background(), getenv(env), &out, &errb); code != 0 || !strings.Contains(out.String(), "SERVING") {
 		t.Fatalf("healthcheck: %d %q %q", code, out.String(), errb.String())
 	}
-	h.gs.Stop()
+	h.stop()
 	if code := healthcheck(context.Background(), getenv(env), &out, &errb); code != 1 {
 		t.Fatalf("healthcheck of a stopped agent: %d", code)
 	}
