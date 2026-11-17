@@ -1,0 +1,193 @@
+{
+  "realm": "tenant-a",
+  "displayName": "MeshGuard — tenant-a",
+  "enabled": true,
+  "attributes": {
+    "meshguard.template": "idp-realm-v1",
+    "meshguard.scope": "tenant",
+    "meshguard.idp_id": "${MG_IDP_ID_TENANT_A}",
+    "adminEventsExpiration": "2592000"
+  },
+  "sslRequired": "all",
+  "registrationAllowed": false,
+  "registrationEmailAsUsername": false,
+  "resetPasswordAllowed": false,
+  "rememberMe": false,
+  "verifyEmail": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "editUsernameAllowed": false,
+  "userManagedAccessAllowed": false,
+  "organizationsEnabled": false,
+  "internationalizationEnabled": false,
+  "bruteForceProtected": true,
+  "permanentLockout": false,
+  "maxTemporaryLockouts": 0,
+  "bruteForceStrategy": "MULTIPLE",
+  "failureFactor": 5,
+  "waitIncrementSeconds": 60,
+  "maxFailureWaitSeconds": 900,
+  "quickLoginCheckMilliSeconds": 1000,
+  "minimumQuickLoginWaitSeconds": 60,
+  "maxDeltaTimeSeconds": 43200,
+  "passwordPolicy": "length(12) and maxLength(128) and notUsername and notEmail and passwordHistory(5)",
+  "otpPolicyType": "totp",
+  "otpPolicyAlgorithm": "HmacSHA1",
+  "otpPolicyDigits": 6,
+  "otpPolicyPeriod": 30,
+  "otpPolicyInitialCounter": 0,
+  "otpPolicyLookAheadWindow": 1,
+  "otpPolicyCodeReusable": false,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 43200,
+  "accessTokenLifespan": 300,
+  "accessCodeLifespan": 60,
+  "accessCodeLifespanLogin": 600,
+  "accessCodeLifespanUserAction": 300,
+  "actionTokenGeneratedByAdminLifespan": 43200,
+  "actionTokenGeneratedByUserLifespan": 300,
+  "revokeRefreshToken": true,
+  "refreshTokenMaxReuse": 0,
+  "eventsEnabled": true,
+  "eventsExpiration": 2592000,
+  "eventsListeners": ["jboss-logging"],
+  "adminEventsEnabled": true,
+  "adminEventsDetailsEnabled": true,
+  "browserFlow": "mg-browser",
+  "authenticationFlows": [
+    {
+      "alias": "mg-browser",
+      "description": "MeshGuard (P2-T05, §8.2): phiên SSO sẵn có, hoặc mật khẩu + OTP bắt buộc",
+      "providerId": "basic-flow",
+      "topLevel": true,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {"authenticator": "auth-cookie", "authenticatorFlow": false, "requirement": "ALTERNATIVE", "priority": 10, "userSetupAllowed": false},
+        {"flowAlias": "mg-browser-forms", "authenticatorFlow": true, "requirement": "ALTERNATIVE", "priority": 20, "userSetupAllowed": false}
+      ]
+    },
+    {
+      "alias": "mg-browser-forms",
+      "description": "Mật khẩu rồi OTP — OTP là REQUIRED (không có điều kiện): user chưa có OTP buộc cấu hình TOTP ngay trong lần đăng nhập",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {"authenticator": "auth-username-password-form", "authenticatorFlow": false, "requirement": "REQUIRED", "priority": 10, "userSetupAllowed": false},
+        {"authenticator": "auth-otp-form", "authenticatorFlow": false, "requirement": "REQUIRED", "priority": 20, "userSetupAllowed": false}
+      ]
+    }
+  ],
+  "requiredActions": [
+    {"alias": "TERMS_AND_CONDITIONS", "name": "Terms and Conditions", "providerId": "TERMS_AND_CONDITIONS", "enabled": false, "defaultAction": false, "priority": 20, "config": {}},
+    {"alias": "UPDATE_PROFILE", "name": "Update Profile", "providerId": "UPDATE_PROFILE", "enabled": true, "defaultAction": false, "priority": 40, "config": {}},
+    {"alias": "VERIFY_EMAIL", "name": "Verify Email", "providerId": "VERIFY_EMAIL", "enabled": true, "defaultAction": false, "priority": 50, "config": {}},
+    {"alias": "CONFIGURE_TOTP", "name": "Configure OTP", "providerId": "CONFIGURE_TOTP", "enabled": true, "defaultAction": true, "priority": 54, "config": {}},
+    {"alias": "UPDATE_PASSWORD", "name": "Update Password", "providerId": "UPDATE_PASSWORD", "enabled": true, "defaultAction": false, "priority": 57, "config": {}},
+    {"alias": "delete_account", "name": "Delete Account", "providerId": "delete_account", "enabled": false, "defaultAction": false, "priority": 60, "config": {}},
+    {"alias": "UPDATE_EMAIL", "name": "Update Email", "providerId": "UPDATE_EMAIL", "enabled": false, "defaultAction": false, "priority": 70, "config": {}},
+    {"alias": "webauthn-register", "name": "Webauthn Register", "providerId": "webauthn-register", "enabled": true, "defaultAction": false, "priority": 80, "config": {}},
+    {"alias": "webauthn-register-passwordless", "name": "Webauthn Register Passwordless", "providerId": "webauthn-register-passwordless", "enabled": true, "defaultAction": false, "priority": 90, "config": {}},
+    {"alias": "VERIFY_PROFILE", "name": "Verify Profile", "providerId": "VERIFY_PROFILE", "enabled": true, "defaultAction": false, "priority": 100, "config": {}},
+    {"alias": "delete_credential", "name": "Delete Credential", "providerId": "delete_credential", "enabled": true, "defaultAction": false, "priority": 110, "config": {}},
+    {"alias": "idp_link", "name": "Linking Identity Provider", "providerId": "idp_link", "enabled": true, "defaultAction": false, "priority": 120, "config": {}},
+    {"alias": "CONFIGURE_RECOVERY_AUTHN_CODES", "name": "Recovery Authentication Codes", "providerId": "CONFIGURE_RECOVERY_AUTHN_CODES", "enabled": true, "defaultAction": false, "priority": 130, "config": {}},
+    {"alias": "update_user_locale", "name": "Update User Locale", "providerId": "update_user_locale", "enabled": true, "defaultAction": false, "priority": 1000, "config": {}}
+  ],
+  "clients": [
+    {
+      "clientId": "mg-portal",
+      "name": "MeshGuard Tenant Portal",
+      "description": "Portal BFF (§8.3): Authorization Code + PKCE S256, client bí mật. Secret do Keycloak sinh; bootstrap đọc qua Admin API rồi lưu SecretStore (§7.6) — không nằm trong template.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "bearerOnly": false,
+      "clientAuthenticatorType": "client-secret",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "consentRequired": false,
+      "fullScopeAllowed": false,
+      "frontchannelLogout": false,
+      "rootUrl": "",
+      "baseUrl": "",
+      "adminUrl": "",
+      "redirectUris": ["https://app.${MG_BASE_DOMAIN}/api/v1/auth/callback/${MG_IDP_ID_TENANT_A}"],
+      "webOrigins": [],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "use.refresh.tokens": "false",
+        "client_credentials.use_refresh_token": "false",
+        "oauth2.device.authorization.grant.enabled": "false",
+        "oidc.ciba.grant.enabled": "false",
+        "standard.token.exchange.enabled": "false",
+        "exclude.issuer.from.auth.response": "false",
+        "require.pushed.authorization.requests": "false",
+        "id.token.signed.response.alg": "RS256",
+        "backchannel.logout.session.required": "true",
+        "backchannel.logout.revoke.offline.tokens": "false"
+      },
+      "defaultClientScopes": ["basic", "acr", "profile", "email"],
+      "optionalClientScopes": []
+    },
+    {
+      "clientId": "mg-idp-driver",
+      "name": "MeshGuard IdP driver",
+      "description": "IdP driver (P2-T05a, §8.2): service account chỉ quản lý user của realm này (manage-users, view-users, query-users); kc-admin-api = audience bắt buộc của Admin API. Secret lưu SecretStore (DEK platform_ops).",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "bearerOnly": false,
+      "clientAuthenticatorType": "client-secret",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "consentRequired": false,
+      "fullScopeAllowed": false,
+      "frontchannelLogout": false,
+      "redirectUris": [],
+      "webOrigins": [],
+      "attributes": {
+        "use.refresh.tokens": "false",
+        "client_credentials.use_refresh_token": "false",
+        "oauth2.device.authorization.grant.enabled": "false",
+        "oidc.ciba.grant.enabled": "false",
+        "standard.token.exchange.enabled": "false"
+      },
+      "defaultClientScopes": ["basic", "kc-admin-api"],
+      "optionalClientScopes": []
+    },
+    {
+      "clientId": "admin-cli",
+      "name": "admin-cli (tắt)",
+      "description": "Client mặc định của Keycloak, tắt trong realm này: không ai đăng nhập quản trị vào realm platform/tenant bằng mật khẩu (direct grant).",
+      "enabled": false,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "bearerOnly": false,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": false,
+      "redirectUris": [],
+      "webOrigins": []
+    }
+  ],
+  "clientScopeMappings": {
+    "realm-management": [
+      {"client": "mg-idp-driver", "roles": ["manage-users", "view-users", "query-users"]}
+    ]
+  },
+  "users": [
+    {
+      "username": "service-account-mg-idp-driver",
+      "enabled": true,
+      "serviceAccountClientId": "mg-idp-driver",
+      "clientRoles": {"realm-management": ["manage-users", "view-users", "query-users"]}
+    }
+  ]
+}
