@@ -208,6 +208,11 @@ func TestBackupRoleCannotWriteOrEscalate(t *testing.T) {
 
 	// Known residual, asserted so that a change is noticed: like every role, mg_backup may change its OWN session
 	// defaults (ALTER ROLE … SET) — the read-only default is defence in depth; the privileges above are the control.
+	// The role setting is a cluster-wide catalog row that the bootstrap of every other test package (superuser.sql)
+	// rewrites too: without the cluster lock, a package starting meanwhile makes this fail with "tuple concurrently
+	// updated" (XX000) instead of the privilege outcome the test pins.
+	unlock := e.lockCluster(t)
+	defer unlock()
 	tx, err = bk.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
