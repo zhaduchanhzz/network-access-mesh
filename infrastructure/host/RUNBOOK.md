@@ -92,6 +92,50 @@ Hoàn tác (về digest chính thức): đặt lại `"headscale_build": "offici
    - `tests/security/edge/external.py` từ một máy ngoài.
 6. Hoàn tác: cài lại bản sao lưu rồi reload.
 
+## IdP — Keycloak `mg-idp` (P2-T05, triển khai lên staging ở P2-T16)
+
+Project `mg-idp`: `idp` (Keycloak 26.8.2, 3 realm `platform`/`tenant-a`/`tenant-b` nhập lúc khởi động đầu), `idp-db` (PostgreSQL riêng, chỉ trên `mg-idp-data`) và — khi `MG_IDP_MAIL_SINK=mailpit` (staging) — `mailsink` (Mailpit, network `mail` internal: thư không ra ngoài host). Không publish cổng nào; `auth.<domain>` qua edge là bước riêng của P2-T16 (template edge mới + reload có lịch). Thiết kế: [P2-T05](../../docs/planning/evidence/P2-T05.md), [P2-T05b](../../docs/planning/evidence/P2-T05b.md).
+
+Điều kiện: network nền tảng đã có (`networks.sh` — có `mg-edge`, `mg-idp-data`, `mg-egress`), edge chạy ở `10.249.0.2` (proxy tin cậy duy nhất của Keycloak), `~/mg` là bản đồng bộ **chỉ file tracked** của repo (không bao giờ có `config/secrets/`).
+
+```bash
+cd ~/mg
+IDP="sudo docker compose -p mg-idp -f /opt/meshguard/core/compose.idp.yaml"
+# 1. Secret dạng file, sinh trên host, không in ra (chạy lại an toàn — file đã có thì giữ); kiểm quyền mọi secret
+sudo bash infrastructure/idp/secrets.sh
+sudo bash infrastructure/host/check-secrets.sh
+# 2. Render (không secret) rồi cài: compose + realm + script khởi tạo DB
+python3 tools/render_idp.py infrastructure/environments/staging/staging.env /tmp/mg-idp
+sudo install -d -o root -g root -m 0755 /opt/meshguard/core/idp/realms /opt/meshguard/core/idp/initdb
+sudo install -o root -g root -m 0644 /tmp/mg-idp/compose.idp.yaml /opt/meshguard/core/compose.idp.yaml
+sudo install -o root -g root -m 0644 /tmp/mg-idp/idp/realms/*.json /opt/meshguard/core/idp/realms/
+sudo install -o root -g root -m 0644 /tmp/mg-idp/idp/initdb/*.sql /opt/meshguard/core/idp/initdb/
+rm -rf /tmp/mg-idp
+$IDP config --quiet
+# 3. Kéo image theo digest, chạy, chờ healthy (Keycloak: start_period 180 s)
+$IDP pull && $IDP up -d
+$IDP ps
+```
+
+Kiểm:
+
+- `$IDP ps`: `idp`, `idp-db` (và `mailsink`) đều `healthy`.
+- Realm đã nhập và admin khởi tạo dùng được: `sudo bash infrastructure/idp/user-id.sh tenant-a service-account-mg-idp-driver` in đúng một user.
+- Discovery của 3 realm (từ host, thẳng tới `idp:8080` trên `mg-edge`): `issuer` = `https://auth.<domain>/realms/<realm>`.
+- `mail` là network internal, chỉ có `idp` và `mailsink`: `sudo docker network inspect mg-idp_mail`.
+- Thư đi được Keycloak → Mailpit: gửi `execute-actions-email` cho một tài khoản mẫu, đếm thư qua API của Mailpit (`http://<IP mailsink>:8025/api/v1/messages` từ host). Đọc thư bằng trình duyệt: `ssh -L 8025:<IP mailsink>:8025 mgdeploy@<host>` rồi mở `http://localhost:8025`.
+
+Tài khoản mẫu (owner 2026-11-17: 2 người vận hành trong `platform`, TO/TA của A và B): tạo bằng [infrastructure/idp/create-user.sh](../idp/create-user.sh) — mật khẩu do máy của người vận hành sinh, ghi vào kho secret của chủ dự án (`config/secrets/staging/`, ngoài git) và đi qua stdin của ssh, không nằm trên dòng lệnh, không in ra; TOTP đăng ký ở lần đăng nhập đầu. Sau đó dùng `user-id.sh` lấy `sub` cho mục "Super Admin đầu tiên" bên dưới.
+
+Hoàn tác:
+
+```bash
+$IDP down                         # dừng, GIỮ DB của IdP (volume mg-idp_idp-db-data)
+$IDP down -v                      # chỉ trước khi dùng thật: xóa luôn DB (realm, user) — lần up sau nhập lại realm
+sudo rm -rf /opt/meshguard/core/idp /opt/meshguard/core/compose.idp.yaml
+sudo rm -rf /opt/meshguard/secrets/idp /opt/meshguard/secrets/backup/idp_backup_password   # chỉ sau down -v
+```
+
 ## Đưa tenant A/B vào registry — `meshguard admin adopt-instance` (P2-T11, chạy ở P2-T16)
 
 Chuyển quyền quản lý hai instance dựng tay ở Phase 1 sang nền tảng: đăng ký tenant, host, instance (từ `meta/instance.json`) và IdP của tenant; giao cho nền tảng một API key **mới**; expire **mọi** key khác của instance (gồm key hạn ngắn của Phase 1). Chỉ adopt đúng instance được chỉ định — **không** adopt `tenant-c` (tenant demo; `staging.env` không có `MG_IDP_ID_TENANT_C` nên lệnh cũng tự từ chối). Thiết kế và phép thử: [P2-T11](../../docs/planning/evidence/P2-T11.md).

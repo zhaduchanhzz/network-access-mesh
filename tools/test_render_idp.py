@@ -139,6 +139,9 @@ NEG = {
     "description longer than varchar(255)": lambda r: client(r, ri.PORTAL).update(description="x" * 256),
     "device grant on a client": lambda r: client(r, ri.PORTAL)["attributes"].update(
         {"oauth2.device.authorization.grant.enabled": "true"}),
+    "SMTP password in the template": lambda r: r.update(smtpServer={**ri.smtp_server("example.com"), "auth": "true",
+                                                                     "user": "u", "password": "p"}),
+    "SMTP auth on": lambda r: r.update(smtpServer={**ri.smtp_server("example.com"), "auth": "true"}),
 }
 for name, fn in NEG.items():
     probs = mutated(fn)
@@ -177,6 +180,41 @@ check("CREATE ROLE idp_backup LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLIC
       and "cat /run/secrets/idp_backup_db_password" in role and not re.search(r"GRANT (?!pg_read_all_data|CONNECT)", role),
       "initdb: idp_backup is read-only (pg_read_all_data + CONNECT), password from the Docker secret")
 check("mg-idp-data: {}" in c and "networks: [mg-idp-data]" in c, "compose: idp-db only on mg-idp-data")
+check("mailsink" not in c and all("smtpServer" not in files[f"idp/realms/{r}.json"] for r in ri.REALMS),
+      "no MG_IDP_MAIL_SINK: no SMTP sink, no smtpServer (P2-T05 default)")
+
+# optional SMTP sink (staging/dev): Mailpit on a project-internal network, unauthenticated smtpServer in every realm
+SINK_ENV = {**ENV, "MG_IDP_MAIL_SINK": "mailpit"}
+sf = ri.render(SINK_ENV, IMG)
+check(sorted(sf) == sorted(files), "sink: same 6 files")
+check(sf == ri.render(SINK_ENV, IMG), "sink: output is deterministic")
+for realm in ri.REALMS:
+    rep = json.loads(sf[f"idp/realms/{realm}.json"])
+    check(rep.get("smtpServer") == {"host": "mailsink", "port": "1025", "from": "noreply@example.com",
+                                    "fromDisplayName": "MeshGuard (staging)", "auth": "false", "ssl": "false",
+                                    "starttls": "false"}, f"sink: {realm} sends to mailsink:1025, no auth", str(rep.get("smtpServer")))
+    check(ri.check_realm(rep, realm, "example.com", ENV[ri.REALMS[realm]["idp_var"]]) == [], f"sink: {realm} invariants hold")
+    base = json.loads(files[f"idp/realms/{realm}.json"])
+    rep.pop("smtpServer")
+    check(rep == base, f"sink: {realm} differs from the default only by smtpServer")
+sc = sf["compose.idp.yaml"]
+mp = ri.pinned_image("mailpit")
+check(mp.startswith("docker.io/axllent/mailpit@sha256:") and f"image: {mp}" in sc, "sink: Mailpit pinned by digest from versions.lock", mp)
+check("${" not in sc and "$" not in sc, "sink: compose has no placeholder or $ left")
+check(sc.count("cap_drop: [ALL]") == 3 and sc.count('"no-new-privileges:true"') == 3 and sc.count("read_only: true\n") >= 3
+      and 'user: "65534:65534"' in sc, "sink: Mailpit non-root, read-only, cap_drop ALL, no-new-privileges")
+check("ports:" not in sc and not re.search(r"^\s+MP_SMTP_RELAY\w*:", sc, flags=re.M), "sink: no published port, no relay")
+svc = sc.split("\n  mailsink:", 1)[1].split("\nsecrets:\n", 1)[0]
+check("mail:\n        aliases: [mailsink]" in svc and not re.search(r"mg-(edge|egress|idp-data)", svc),
+      "sink: mailsink is only on the `mail` network")
+check(sc.count(ri.IDP_MAIL_LINE) == 1 and sc.index(ri.IDP_MAIL_LINE) < sc.index("\n  mailsink:"),
+      "sink: idp joins the `mail` network")
+check(sc.endswith("\n  mail:                             # chỉ idp + mailsink; internal = không có đường ra\n    internal: true\n")
+      and "networks: [mg-idp-data]" in sc, "sink: `mail` is internal and project-local; idp-db still only on mg-idp-data")
+start, end = sc.index("\n  mailsink:") + 1, sc.index("\nsecrets:\n") + 1      # top-level secrets: (no indent)
+check((sc[:start] + sc[end:]).replace(ri.IDP_MAIL_LINE, "").replace(ri.MAIL_NETWORK, "") == c,
+      "sink: compose = default + mailsink + one network line + `mail` network, nothing else")
+raises(lambda: ri.render({**ENV, "MG_IDP_MAIL_SINK": "smtp.example.com"}, IMG), "unknown MG_IDP_MAIL_SINK is refused")
 
 # the real staging env file renders (with a stand-in image digest)
 staging = mgenv.environment(ri.ROOT / "infrastructure" / "environments" / "staging" / "staging.env")

@@ -14,6 +14,13 @@ Usage:
 --image     image built from infrastructure/docker/idp, pinned by digest (<name>@sha256:<64 hex>), or a local image ID
             (sha256:<64 hex>) for a dev/CI stack. Default: [images.mg-idp] in versions.lock.
 
+Optional SMTP sink (staging/dev only): MG_IDP_MAIL_SINK=mailpit in the env file adds a Mailpit service `mailsink`
+([images.mailpit]) to project mg-idp on a project-internal network `mail` (internal: no route out, no relay) that only
+idp and mailsink join, and gives every realm an unauthenticated smtpServer → mailsink:1025, from
+noreply@<MG_BASE_DOMAIN>. Mail never leaves the host; read it with the Mailpit UI (port 8025 on the `mail` network,
+through an SSH tunnel). Unset/empty = no SMTP (the P2-T05 default). Any other value is refused. A real SMTP relay
+(auth, TLS, password as a secret) is P3-T05a — never put an SMTP password in a realm template.
+
 Writes, relative to /opt/meshguard/core on the host:
   compose.idp.yaml                  compose project mg-idp (idp + idp-db)
   idp/realms/<realm>.json           platform, tenant-a, tenant-b — Keycloak imports them with --import-realm
@@ -78,13 +85,75 @@ def uuid7() -> str:
     return str(uuid.UUID(bytes=bytes(b)))
 
 
-def pinned_image() -> str:
+def pinned_image(name: str = "mg-idp") -> str:
     images = tomllib.loads(VERSIONS.read_text(encoding="utf-8")).get("images", {})
-    entry = images.get("mg-idp")
-    if not entry:
-        raise ParamError("image mg-idp chưa pin trong versions.lock ([images.mg-idp] — build bằng workflow images "
-                         "rồi ghi digest), hoặc truyền --image <name>@sha256:<digest>")
+    entry = images.get(name)
+    if not entry or not re.fullmatch(r"sha256:[0-9a-f]{64}", entry.get("index", "")):
+        raise ParamError(f"image {name} chưa pin trong versions.lock ([images.{name}] — ghi digest), "
+                         "hoặc truyền --image <name>@sha256:<digest> (chỉ cho mg-idp)")
     return f"{entry['image']}@{entry['index']}"
+
+
+MAIL_SINKS = {"", "mailpit"}
+SMTP_SINK_PORT = "1025"
+# Mailpit — staging/dev only. Text inserted into the rendered compose (two-space service indent, like the template).
+MAILSINK_SERVICE = """\
+  mailsink:                         # SMTP mẫu (Mailpit) — CHỈ staging/dev (MG_IDP_MAIL_SINK=mailpit). Nhận mọi thư của
+                                    # Keycloak; network `mail` là internal ⇒ không có đường ra, không relay (không đặt
+                                    # MP_SMTP_RELAY_*). Đọc thư: UI cổng 8025 trên network mail, qua SSH tunnel.
+    image: ${mailpit_image}
+    user: "65534:65534"
+    read_only: true
+    environment:                    # không secret
+      MP_SMTP_BIND_ADDR: 0.0.0.0:${smtp_port}
+      MP_UI_BIND_ADDR: 0.0.0.0:8025
+      MP_MAX_MESSAGES: "500"
+      MP_DISABLE_VERSION_CHECK: "true"
+    tmpfs:
+      - /tmp:size=64m,mode=1777     # DB tạm của Mailpit — thư mất khi khởi động lại (hộp thư thử)
+    networks:
+      mail:
+        aliases: [mailsink]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+    labels:
+      meshguard.role: idp-mailsink
+
+"""
+IDP_DATA_LINE = "      mg-idp-data: {}               # → idp-db\n"
+IDP_MAIL_LINE = "      mail: {}                      # → mailsink:1025 (SMTP mẫu, chỉ khi MG_IDP_MAIL_SINK=mailpit)\n"
+MAIL_NETWORK = "  mail:                             # chỉ idp + mailsink; internal = không có đường ra\n    internal: true\n"
+
+
+def smtp_server(base_domain: str) -> dict:
+    """smtpServer of a realm for the Mailpit sink: no auth, no TLS (internal network), no secret."""
+    return {"host": "mailsink", "port": SMTP_SINK_PORT, "from": f"noreply@{base_domain}",
+            "fromDisplayName": "MeshGuard (staging)", "auth": "false", "ssl": "false", "starttls": "false"}
+
+
+def add_mail_sink(compose: str, mailpit_image: str) -> str:
+    """Insert the mailsink service, the idp attachment and the `mail` network into the rendered compose."""
+    for anchor in (IDP_DATA_LINE, "\nsecrets:\n", "\nnetworks:\n  mg-edge:\n"):
+        if compose.count(anchor) != 1:
+            raise ParamError(f"compose.idp.yaml.tmpl đã đổi — không tìm thấy đúng một chỗ chèn {anchor!r}")
+    if re.search(r"^\S", compose.split("\nnetworks:\n  mg-edge:\n", 1)[1], flags=re.M):
+        raise ParamError("compose.idp.yaml.tmpl đã đổi — `networks:` không còn là khóa top-level cuối cùng")
+    service = string.Template(MAILSINK_SERVICE).substitute(mailpit_image=mailpit_image, smtp_port=SMTP_SINK_PORT)
+    compose = compose.replace(IDP_DATA_LINE, IDP_DATA_LINE + IDP_MAIL_LINE)
+    compose = compose.replace("\nsecrets:\n", "\n" + service + "secrets:\n")
+    return compose.rstrip("\n") + "\n" + MAIL_NETWORK
 
 
 def _execs(flows: dict, alias: str) -> list[dict]:
@@ -136,6 +205,9 @@ def check_realm(rep: dict, realm: str, base_domain: str, idp_id: str) -> list[st
     need(int(rep.get("accessCodeLifespanLogin", 1800)) <= 600, "đăng nhập phải xong trong ≤ 10 phút (auth_requests — §8.3)")
     need(rep.get("eventsEnabled") is True and rep.get("adminEventsEnabled") is True
          and rep.get("adminEventsDetailsEnabled") is True, "login event + admin event (P3-T15)")
+    smtp = rep.get("smtpServer") or {}
+    need(not ({"password", "authTokenUrl", "authTokenClientSecret"} & set(smtp)) and smtp.get("auth", "false") == "false",
+         "smtpServer không được mang mật khẩu/xác thực (SMTP thật có secret — P3-T05a, qua Admin API)")
 
     # MFA bắt buộc: browser flow = cookie | (mật khẩu REQUIRED + OTP REQUIRED), không có nhánh điều kiện
     flows = {f.get("alias"): f for f in rep.get("authenticationFlows", [])}
@@ -207,6 +279,9 @@ def render(env: dict[str, str], image: str) -> dict[str, str]:
         ids[realm] = v
     if len(set(ids.values())) != len(ids):
         raise ParamError("MG_IDP_ID_* phải khác nhau")
+    sink = env.get("MG_IDP_MAIL_SINK", "")
+    if sink not in MAIL_SINKS:
+        raise ParamError(f"MG_IDP_MAIL_SINK chỉ nhận 'mailpit' hoặc để trống, có {sink!r}")
     files: dict[str, str] = {}
     problems: list[str] = []
     for realm in REALMS:
@@ -215,6 +290,9 @@ def render(env: dict[str, str], image: str) -> dict[str, str]:
             rep = json.loads(text)
         except json.JSONDecodeError as e:
             raise ParamError(f"{realm}: JSON không hợp lệ sau khi render: {e}") from e
+        if sink:
+            rep["smtpServer"] = smtp_server(base_domain)
+            text = json.dumps(rep, ensure_ascii=False, indent=2) + "\n"
         problems += check_realm(rep, realm, base_domain, ids[realm])
         files[f"idp/realms/{realm}.json"] = text
     if problems:
@@ -222,6 +300,8 @@ def render(env: dict[str, str], image: str) -> dict[str, str]:
     values = {"template_version": TEMPLATE_VERSION, "idp_image": image, "auth_host": f"auth.{base_domain}",
               "edge_ip": EDGE_IPS["edge_ip"]}
     files["compose.idp.yaml"] = string.Template(COMPOSE_TMPL.read_text(encoding="utf-8")).substitute(values)
+    if sink:
+        files["compose.idp.yaml"] = add_mail_sink(files["compose.idp.yaml"], pinned_image("mailpit"))
     for f in INITDB:
         files[f"idp/initdb/{f.name}"] = f.read_text(encoding="utf-8")
     return files

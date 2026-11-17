@@ -15,6 +15,13 @@ CHECKS=(
   "edge/metrics_token|10001:10001|20005|65534:65534/;65532:65532/20001"
   "obs/edge_metrics_token|65534:65534|20006|10001:10001/20005;65532:65532/20001"
   "edge/cloudflare_dns_token|10001:10001|20005|65532:65532/20001;65534:65534/20006;12345:12345/"
+  # IdP (P2-T05, project mg-idp — triển khai lên staging ở P2-T16). 999 = idp-db (cùng UID với postgres của core: không
+  # phân biệt được bằng UID, file chỉ mount vào idp-db); 1000 = Keycloak; 65534 = mailsink (SMTP mẫu); 10007:20007 = backup
+  "idp/keycloak.conf|1000:1000||999:999/;65534:65534/;10001:10001/20005;65532:65532/20001"
+  "idp/db_password|999:999||1000:1000/;65534:65534/;10001:10001/20005"
+  "idp/db_superuser_password|999:999||1000:1000/;65534:65534/;10001:10001/20005"
+  "idp/backup_db_password|999:999||1000:1000/;65534:65534/;10007:10007/20007"
+  "backup/idp_backup_password|10007:20007||1000:1000/;999:999/;65534:65534/;65532:65532/20001"
 )
 fail=0
 can_read() {  # <file> <user> <groups>

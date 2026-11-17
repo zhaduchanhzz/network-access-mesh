@@ -122,6 +122,16 @@ run_as = "root trong container thử (userspace networking, state trên tmpfs), 
 released = "2026-11-12"
 note = "Cùng phiên bản client của lab (P1-T12) và nguồn stund ([sources.tailscale]). Config blob tạo 2026-11-12 — dưới 14 ngày tuổi, chấp nhận vì chỉ dùng trong test và là đúng bản đã dùng ở Phase 1. Digest kiểm qua Registry API v2 ngày 2026-11-17 (sha256 của index, manifest amd64 và config blob khớp Docker-Content-Digest)"
 
+[images.mailpit]   # hộp thư mẫu (SMTP sink) cho Keycloak — CHỈ staging/dev (MG_IDP_MAIL_SINK=mailpit), không bao giờ production
+image = "docker.io/axllent/mailpit"
+tag = "v1.32.0"
+index = "sha256:0790692be935ea4420d085694f7985b1f692ca6a8771ab0e0bd8ba75ac180498"
+amd64 = "sha256:938ce54b7b946ef3f45a03e119952cf7e67a7969d61f45a3ed055442a77e00f4"
+user = "root"   # image không khai báo User; Entrypoint /mailpit, healthcheck `/mailpit readyz`
+run_as = "65534:65534, rootfs chỉ đọc, cap_drop ALL; DB tạm trên tmpfs /tmp — thư mất khi khởi động lại (đúng ý: hộp thư thử)"
+released = "2026-10-22"
+note = "MIT. Chọn v1.32.0 (> 14 ngày tuổi) thay vì v1.33.1/v1.34.0. Network `mail` của project mg-idp là internal: không có đường ra Internet, không relay (không đặt MP_SMTP_RELAY_*). Digest kiểm qua Registry API v2 ngày 2026-11-17 (Docker-Content-Digest của index khớp)"
+
 # ---------------------------------------------------------------- image tự build (P1-T04, workflow `images`)
 
 [images.mg-edge]
