@@ -161,7 +161,7 @@ func randomHex(n int) string {
 // clusterLockKey is the advisory lock (taken in database postgres) that every test package migrating databases in
 // the shared cluster holds while it bootstraps, migrates and sets role passwords: `go test ./...` runs packages in
 // parallel, and concurrent CREATE ROLE / ALTER ROLE on the same cluster-wide role fail (duplicate key, "tuple
-// concurrently updated"). Same key in internal/secrets — keep them equal.
+// concurrently updated"). Same key in internal/secrets and internal/authz — keep them equal.
 const clusterLockKey int64 = 0x6d675f74657374 // "mg_test"
 
 // lockCluster takes the cluster lock; the returned function releases it.

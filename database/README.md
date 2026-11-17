@@ -10,8 +10,19 @@ PostgreSQL của Management Plane (§6 của [bản master](../docs/planning/imp
 | `migrations/0001…0006_*.sql` | Migration goose, forward-only (không có phần Down), nhúng vào binary qua `embed.go`; bản đồ bảng ở §6.3 |
 | `queries/*.sql` + `sqlc.yaml` | Truy vấn sqlc → mã sinh ở `internal/store/sqlcdb` (không sửa tay) |
 | `checks/partition_grants.sql` | Truy vấn CI: mỗi hàng là một vi phạm (quyền trên partition, partition chưa bật RLS, default privileges) |
-| `embed.go` | Package Go `database`: `Migrations`, `Bootstrap`, `Checks` (embed.FS) |
-| `seeds/` | Chưa có — seed role/permission ở P2-T07, plan ở P3-T06 |
+| `embed.go` | Package Go `database`: `Migrations`, `Seeds`, `Bootstrap`, `Checks` (embed.FS) |
+| `seeds/*.sql` | Dữ liệu tham chiếu áp **sau mỗi lần migrate** (`store.Migrate` → `store.Seed`: theo tên file, một transaction, `pg_advisory_xact_lock`, chạy bằng `mg_migrator`, idempotent). `seeds/rbac.sql` (P2-T07) là file **sinh** từ §8.4–§8.6 bằng `make authz-gen` — không sửa tay, spec-lint fail khi lệch; seed gói/plan ở P3-T06 |
+
+## RBAC (P2-T07)
+
+`roles` (11 role hệ thống: SA/PO/PS/PV phạm vi `platform`, TO/TA/TP/TV/EU phạm vi `tenant`, `support_operator`/`support_admin`
+phạm vi `support` — chỉ là role hiệu lực của Support Access Grant), `permissions` (mọi khóa của §8.5/§8.6, tiền tố khóa =
+phạm vi), `role_permissions` (`scope` any/own = ô ✔/○, `condition` = ô có điều kiện). Mọi ràng buộc phạm vi là **FK ghép**,
+không trigger: `tenant_memberships (tenant_id, identity_id) → identities (tenant_id, id)` (issuer binding) và
+`(role_id, role_scope='tenant') → roles (id, scope)`; `platform_users` tương tự với `'platform'`; `role_permissions` chép
+`role_scope` + `permission_scope` (FK ghép tới `roles`/`permissions`) với CHECK: role platform chỉ mang quyền platform,
+`own` chỉ ở role tenant. Seed đồng bộ đúng nội dung file: grant thừa của role hệ thống bị xóa, permission rời ma trận bị xóa
+cùng grant; role hệ thống không còn trong seed ⇒ seed dừng (gỡ role cần migration riêng). Role ứng dụng chỉ `SELECT`.
 
 ## Role (§6.1)
 
@@ -72,7 +83,7 @@ retention: chưa làm (lần đầu cần sau ≥ 400 ngày — §6.4). `usage_r
    `mg_migrator`, `mg_backup`; `mg_migrator` (ADMIN trên các role nó tạo) đặt cho các role còn lại sau migration.
    Lệnh quản trị gói các bước này chưa có — P2-T16.
 3. `mg_migrator`: `store.OpenMigrator(url, store.Credentials{User: "mg_migrator", PasswordFile: …})` rồi
-   `store.Migrate` (goose, session lock; luôn có dump trước migration — P2-T03a).
+   `store.Migrate` (goose, session lock; luôn có dump trước migration — P2-T03a), rồi `seeds/*.sql` trong cùng lệnh.
 4. Tiến trình: `store.Open(ctx, store.Config{URL: "postgres://postgres:5432/meshguard?sslmode=…", Tenant: …,
    Platform: …})` — URL không chứa user/mật khẩu; mật khẩu đọc lại từ file ở mỗi kết nối mới (xoay không cần restart).
 
@@ -95,10 +106,12 @@ make sqlc-diff   # như CI
 
 Không có `MG_TEST_PG_ADMIN_URL` thì test tích hợp được bỏ qua — trừ khi `MG_TEST_PG_REQUIRED=1` (CI đặt biến này,
 nên thiếu PostgreSQL là FAIL). CI (`.github/workflows/go.yml`) chạy PostgreSQL bằng service container pin theo digest.
-Cùng cách đó cho test tích hợp của `internal/secrets` (P2-T04).
+Cùng cách đó cho test tích hợp của `internal/secrets` (P2-T04) và `internal/authz` (P2-T07).
 
 **Nhiều package test dùng chung một cụm:** `go test ./...` chạy các package song song, mà role là đối tượng của cả
-cụm — hai package cùng bootstrap/migrate/đặt mật khẩu role một lúc sẽ lỗi (`duplicate key … pg_authid_rolname_index`,
-`tuple concurrently updated`; đối chứng ở bằng chứng P2-T04). Mọi harness tạo database thử phải giữ advisory lock
-`0x6d675f74657374` ("mg_test", lấy trong database `postgres`) suốt các bước đó và sinh mật khẩu role theo cùng công
-thức (`internal/store/harness_test.go`, `internal/secrets/harness_test.go`).
+cụm — hai package cùng bootstrap/migrate (`CREATE ROLE`) hoặc đặt mật khẩu role (`ALTER ROLE`) một lúc sẽ lỗi
+(`duplicate key … pg_authid_rolname_index`, `tuple concurrently updated`; đối chứng ở bằng chứng P2-T04). Harness của
+mọi package tạo database thử (`internal/store`, `internal/secrets`, `internal/authz`, …) phải giữ advisory lock phiên
+`pg_advisory_lock(0x6d675f74657374)` ("mg_test", lấy trong database `postgres`) suốt lúc tạo database, bootstrap,
+migrate và đặt mật khẩu role, và sinh mật khẩu role theo cùng công thức dẫn xuất
+(`sha256("meshguard-test|" + mật khẩu superuser + "|" + role)`, dạng hex).

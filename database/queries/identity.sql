@@ -27,6 +27,21 @@ INSERT INTO tenant_memberships (tenant_id, identity_id, role_id)
 VALUES (sqlc.arg(tenant_id), sqlc.arg(identity_id), sqlc.arg(role_id))
 RETURNING *;
 
+-- name: UpdateTenantMembershipRole :one
+-- Pool tenant. Chỉ chạy sau authz.GuardMembershipChange trong cùng transaction (§8.4 bất biến 3, 3a, Owner cuối
+-- cùng); FK ghép (role_id, role_scope) từ chối role không thuộc phạm vi tenant.
+UPDATE tenant_memberships
+SET role_id = sqlc.arg(role_id), updated_at = now(), version = version + 1
+WHERE tenant_id = sqlc.arg(tenant_id) AND id = sqlc.arg(id)
+RETURNING *;
+
+-- name: UpdateTenantMembershipStatus :one
+-- Pool tenant. Khóa/offboard (status rời 'active') cũng phải qua authz.GuardMembershipChange trước.
+UPDATE tenant_memberships
+SET status = sqlc.arg(status), updated_at = now(), version = version + 1
+WHERE tenant_id = sqlc.arg(tenant_id) AND id = sqlc.arg(id)
+RETURNING *;
+
 -- name: ListTenantMemberships :many
 SELECT * FROM tenant_memberships
 WHERE tenant_id = sqlc.arg(tenant_id)

@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
-"""Spec-lint of the SaaS API contract api/openapi.yaml (task P2-T02).
+"""Spec-lint of the SaaS API contract api/openapi.yaml (task P2-T02) and of the RBAC seed generated from the
+permission matrices (task P2-T07).
 
     python tools/openapi_lint.py                      # lint api/openapi.yaml against the master plan; exit 0 = pass
     python tools/openapi_lint.py --spec F --master M  # lint other files
+    python tools/openapi_lint.py --partial --spec F   # lint a spec fragment (no row coverage, no generated files)
+    python tools/openapi_lint.py --write              # regenerate database/seeds/rbac.sql and
+                                                      #   internal/authz/operations_gen.go, then lint
     python tools/openapi_lint.py --list               # also list the operations and the coverage of §8.5/§8.6, §13.2
     python tools/openapi_lint.py --dump-json          # print the spec as parsed here (canonical JSON)
     python tools/openapi_lint.py --compare-json F     # fail unless F (the spec as JSON from another YAML parser) is equal
@@ -12,8 +16,16 @@ Rules, with their source in docs/planning/implementation-master-plan.md:
   - x-permission is either a permission of the §8.5/§8.6 matrices whose "API action" column lists this method + path
     (and no other permission's row does), or a special value of §13.1 on an operation §13.1 allows it for; platform
     permissions only on /platform/..., tenant permissions only under /tenants/{tenantId}
+  - the other direction (§13.1 "every row maps to at least one operationId"; a row is a permission key — rows that
+    repeat a key are merged and must agree): a row without an operation fails once every task the §13.2
+    traceability table assigns to its API actions is done in §20 ("**đã thực hiện…**"); before that it is reported
+    by --list as coverage
   - x-own-resource: true <=> the permission row has a ○ cell; x-dual-control: true <=> 2P cells (§13.1)
   - x-permission-secondary on at most one operation (§13.1, §8.4 invariant 4)
+  - the RBAC seed: every cell of §8.5/§8.6 is a known grant (✔, ○, 2P, G, G (Admin), —, or a listed conditional
+    cell), the role columns are the roles of §8.4, platform roles hold only platform permissions (§8.4 invariant 2),
+    a role that may give roles gives only roles strictly below it that hold nothing it lacks (§8.4 invariant 3, 3a),
+    and database/seeds/rbac.sql + internal/authz/operations_gen.go equal what the master and the spec generate
   - x-task is a task ID of §20 and agrees with the endpoint -> task traceability table of §13.2
   - path rule: no segment mixes {param} with text and no ':' — actions are child segments /.../{id}/<action> (§13.1)
   - the tenant comes only from the path /tenants/{tenantId} (UUID): no tenant parameter in query, header or cookie, no
@@ -34,6 +46,7 @@ never silently reads something different from what the code generators read; CI 
 from __future__ import annotations
 
 import argparse
+import difflib
 import json
 import math
 import pathlib
@@ -438,6 +451,13 @@ class MasterError(ValueError):
 
 TASK_RE = re.compile(r"\bP\d-T\d+[a-z]?\b")
 PERM_RE = re.compile(r"(platform|tenant)\.[a-z_]+:[a-z_]+")
+DONE_RE = re.compile(r"\*\*đã thực hiện")
+
+
+def entry_path(scope: str, segs: tuple[str, ...]) -> str:
+    """Full API path of a matrix entry: tenant rows are relative to /tenants/{tenantId}; '{}' becomes '{id}'."""
+    tail = "".join("/" + ("{id}" if s == "{}" else s) for s in segs)
+    return "/tenants/{tenantId}" + tail if scope == "tenant" else tail or "/"
 
 
 def _row(line: str) -> list[str]:
@@ -479,7 +499,8 @@ def _sections(lines: list[str]) -> dict[str, tuple[int, int]]:
     return out
 
 
-def _table(lines: list[str], rng: tuple[int, int], header: str) -> list[tuple[int, list[str]]]:
+def _table_with_header(lines: list[str], rng: tuple[int, int], header: str) -> tuple[list[str], list]:
+    """(header cells, [(line number, cells)]) of the first table in rng whose header line starts with header."""
     start, end = rng
     for i in range(start, end):
         if lines[i].startswith(header):
@@ -488,8 +509,12 @@ def _table(lines: list[str], rng: tuple[int, int], header: str) -> list[tuple[in
                 if not lines[n].startswith("|"):
                     break
                 rows.append((n + 1, _row(lines[n])))
-            return rows
+            return _row(lines[i]), rows
     raise MasterError(f"table with header {header!r} not found in lines {start + 1}-{end}")
+
+
+def _table(lines: list[str], rng: tuple[int, int], header: str) -> list[tuple[int, list[str]]]:
+    return _table_with_header(lines, rng, header)[1]
 
 
 def _segments(path: str, tenant_relative: bool, keep_tenants: bool = False) -> tuple[str, ...]:
@@ -573,6 +598,7 @@ class Permission:
     lines: list[int] = field(default_factory=list)
     entries: set = field(default_factory=set)
     cells: list[str] = field(default_factory=list)
+    columns: list[dict] = field(default_factory=list)   # {role column: cell} for every matrix row naming the key
 
     @property
     def own(self) -> bool:
@@ -661,13 +687,26 @@ class Master:
     def __init__(self, text: str):
         lines = text.splitlines()
         secs = _sections(lines)
-        for need in ("8.5", "8.6", "13.2", "20"):
+        for need in ("8.4", "8.5", "8.6", "13.2", "20"):
             if need not in secs:
                 raise MasterError(f"section §{need} not found")
         start, end = secs["20"]
         self.tasks = {_row(ln)[0] for ln in lines[start:end] if ln.startswith("| P") and TASK_RE.fullmatch(_row(ln)[0])}
         if len(self.tasks) < 50:
             raise MasterError(f"only {len(self.tasks)} task IDs parsed from §20 — parser out of date?")
+        # a task is done when its Task cell carries the marker "**đã thực hiện…**" (partial markers such as
+        # "**phần 1 đã thực hiện**" or "**một phần**" do not count)
+        self.done = {_row(ln)[0] for ln in lines[start:end]
+                     if ln.startswith("| P") and TASK_RE.fullmatch(_row(ln)[0]) and DONE_RE.search(_row(ln)[1])}
+        # §8.4 role table: (scope, name, abbreviation, line)
+        self.roles: list[tuple[str, str, str, int]] = []
+        for lineno, cells in _table(lines, secs["8.4"], "| Phạm vi | Role |"):
+            m = re.fullmatch(r"\*\*(.+?) \(([A-Z]{2})\)\*\*", cells[1])
+            if not m:
+                raise MasterError(f"line {lineno}: §8.4 role cell {cells[1]!r} is not '**Name (XY)**'")
+            self.roles.append((cells[0].strip().lower(), m.group(1), m.group(2), lineno))
+        self.staff_text = "\n".join(lines[secs["8.6"][0]:secs["8.6"][1]])
+        self.columns: dict[str, list[str]] = {}
         self.perms: dict[str, Permission] = {}
         self._matrix(lines, secs["8.5"], "platform")
         self._matrix(lines, secs["8.6"], "tenant")
@@ -682,21 +721,36 @@ class Master:
             raise MasterError(f"only {len(self.trace)} groups parsed from the §13.2 traceability table")
 
     def _matrix(self, lines: list[str], rng: tuple[int, int], scope: str) -> None:
-        rows = _table(lines, rng, "| Permission |")
+        header, rows = _table_with_header(lines, rng, "| Permission |")
+        cols = header[2:]
+        self.columns[scope] = cols
         for lineno, cells in rows:
             keys = _expand_keys(cells[0])
             parts = _api_entries(cells[1], tenant_relative=scope == "tenant")
+            if len(cells) != len(header):
+                raise MasterError(f"line {lineno}: {len(cells)} cells, the header of the {scope} matrix has {len(header)}")
             for idx, key in enumerate(keys):
                 if not key.startswith(scope + "."):
                     raise MasterError(f"line {lineno}: {key} in the {scope} matrix")
                 p = self.perms.setdefault(key, Permission(key, scope))
                 p.lines.append(lineno)
                 p.entries |= set(parts[idx] if len(parts) == len(keys) else [e for q in parts for e in q])
-                for cell in cells[2:]:
+                colmap = {}
+                for col, cell in zip(cols, cells[2:]):
                     sub = _split_top(cell, " / ")
-                    p.cells.append(sub[idx] if len(keys) > 1 and len(sub) == len(keys) else cell)
+                    value = sub[idx] if len(keys) > 1 and len(sub) == len(keys) else cell
+                    p.cells.append(value)
+                    colmap[col] = value.strip()
+                p.columns.append(colmap)
         if len(rows) < 20:
             raise MasterError(f"only {len(rows)} rows parsed from the {scope} permission matrix")
+
+    def row_tasks(self, p: Permission) -> set[str]:
+        """Tasks that the §13.2 traceability table assigns to the API actions of a permission row."""
+        out: set[str] = set()
+        for method, segs in p.entries:
+            out |= self.trace_candidates(method, entry_path(p.scope, segs))
+        return out
 
     def permissions_for(self, scope: str, method: str, segs: tuple[str, ...]) -> set[str]:
         """Permissions whose API action column lists method + path (a collection row also covers its items)."""
@@ -792,8 +846,9 @@ def _schema_props(spec: dict, schema, seen: set) -> set[str]:
     return names
 
 
-def lint(spec: dict, master: Master) -> list[str]:
-    """All problems of the spec, as 'where: message' strings (empty = pass)."""
+def lint(spec: dict, master: Master, coverage: bool = True) -> list[str]:
+    """All problems of the spec, as 'where: message' strings (empty = pass). coverage=False skips the row -> operation
+    direction (for a spec fragment that is not meant to contain every operation)."""
     errs: list[str] = []
 
     def err(where: str, msg: str) -> None:
@@ -1037,12 +1092,19 @@ def lint(spec: dict, master: Master) -> list[str]:
         err("x-permission-secondary", f"allowed on at most one operation (§13.1), found on {secondary}")
     if count == 0:
         err("paths", "no operations")
+    if coverage:
+        errs += row_coverage(spec, master)[0]
     return errs
+
+
+def _used_permissions(spec: dict) -> set[str]:
+    """x-permission values of the spec's operations (malformed values are reported by lint(), not here)."""
+    return {p for _, _, op, _ in operations(spec) if isinstance(p := op.get("x-permission"), str)}
 
 
 def coverage(spec: dict, master: Master) -> tuple[list[str], list[str]]:
     """Permissions of §8.5/§8.6 and §13.2 traceability groups that no operation uses yet (later phases)."""
-    used_perms = {op.get("x-permission") for _, _, op, _ in operations(spec)}
+    used_perms = _used_permissions(spec)
     perms = sorted(k for k in master.perms if k not in used_perms)
     groups = []
     for row in master.trace:
@@ -1051,6 +1113,331 @@ def coverage(spec: dict, master: Master) -> tuple[list[str], list[str]]:
         if not hit:
             groups.append(f"{row.text} ({', '.join(sorted(row.tasks))})")
     return perms, groups
+
+
+def row_coverage(spec: dict, master: Master) -> tuple[list[str], list[str]]:
+    """Second direction of §13.1 ("every row maps to at least one operationId"), row = permission key.
+
+    Returns (errors, notes): a row without an operation is an error only when the §13.2 traceability table assigns
+    its API actions to tasks that are ALL done in §20 (nothing left that could still build it); otherwise it is a
+    coverage note — pending work of a later task, or an API action no traceability group covers (a master gap)."""
+    used = _used_permissions(spec)
+    errors, notes = [], []
+    for key, p in sorted(master.perms.items()):
+        if key in used:
+            continue
+        tasks = master.row_tasks(p)
+        where = f"§8.5/§8.6 {key} (master line {', '.join(map(str, p.lines))})"
+        if not tasks:
+            notes.append(f"{where}: no §13.2 traceability group covers its API actions — task unknown")
+        elif tasks <= master.done:
+            errors.append(f"{where}: no operation declares this permission although every task building it "
+                          f"({', '.join(sorted(tasks))}) is done in §20 — §13.1: every row maps to at least one "
+                          f"operationId")
+        else:
+            notes.append(f"{where}: no operation yet — {', '.join(sorted(tasks - master.done))} pending")
+    return errors, notes
+
+
+# ====================================================================== RBAC seed and authz table (P2-T07)
+#
+# The roles, permissions and grants of the database are generated from §8.4–§8.6 (database/seeds/rbac.sql) and the
+# authorization contract of every operation from the spec (internal/authz/operations_gen.go): `--write` regenerates
+# both, every other run fails when the committed files differ from what the master and the spec generate.
+
+SEED_FILE = "database/seeds/rbac.sql"
+OPS_FILE = "internal/authz/operations_gen.go"
+# roles.key of the §8.4 roles (the master names roles, P2-T07 fixes the keys); internal/authz has the same constants
+ROLE_KEYS = {"SA": "super_admin", "PO": "platform_operator", "PS": "platform_support", "PV": "platform_viewer",
+             "TO": "tenant_owner", "TA": "tenant_admin", "TP": "tenant_operator", "TV": "tenant_viewer",
+             "EU": "end_user"}
+# the two system roles of scope support named in §8.6 (column Staff): key, name, rank
+SUPPORT_ROLES = (("support_admin", "Support Admin", 2), ("support_operator", "Support Operator", 1))
+STAFF_CELLS = {"G": ("support_operator", "support_admin"), "G (Admin)": ("support_admin",)}
+NO_GRANT = {"—", "-"}
+# matrix cell -> (role_permissions.scope, role_permissions.condition). 2P is an ordinary grant: the second person
+# is demanded by the operation (x-dual-control, §13.1). A conditional cell becomes a grant with a condition that
+# internal/authz refuses until the operation declares it handles it. Any other cell text is an error.
+CELL_GRANTS = {
+    "✔": ("any", None),
+    "2P": ("any", None),
+    "○": ("own", None),
+    "✔ (nếu tenant cho phép self-enroll)": ("any", "self_enroll"),
+    "✔ (không gồm role SA)": ("any", "excludes_super_admin"),
+    "✔ (IdP của tenant: 2P)": ("any", "tenant_idp_dual_control"),
+    "chỉ cho restore": ("any", "restore_only"),
+}
+# permissions that let a role give roles to others (§8.4 invariant 3, 3a)
+ASSIGN_PERMISSIONS = {"tenant": {"tenant.user:manage", "tenant.membership:assign", "tenant.invitation:manage"},
+                      "platform": {"platform.user:assign"}}
+SCOPE_ORDER = {"platform": 0, "tenant": 1, "support": 2}
+
+
+@dataclass(frozen=True)
+class Role:
+    scope: str
+    key: str
+    name: str
+    rank: int          # higher = more senior within the scope (column order of §8.5/§8.6)
+
+
+@dataclass(frozen=True)
+class Grant:
+    role: str          # roles.key
+    permission: str
+    scope: str = "any"
+    condition: str | None = None
+
+
+@dataclass
+class RbacModel:
+    roles: list        # [Role] sorted by scope, rank descending
+    permissions: list  # [(key, scope, description)] sorted by key
+    grants: list       # [Grant] sorted like the seed
+
+    def role(self, key: str) -> Role:
+        return next(r for r in self.roles if r.key == key)
+
+    def grants_of(self, key: str) -> dict[str, Grant]:
+        return {g.permission: g for g in self.grants if g.role == key}
+
+
+def rbac_model(master: Master) -> tuple[RbacModel, list[str]]:
+    """The seed implied by §8.4–§8.6, and the problems that make it ambiguous (unknown cells, contradicting rows)."""
+    problems: list[str] = []
+    roles: list[Role] = []
+    by_abbr: dict[str, Role] = {}
+    for scope in ("platform", "tenant"):
+        listed = [(name, abbr, line) for s, name, abbr, line in master.roles if s == scope]
+        for i, (name, abbr, line) in enumerate(listed):
+            if abbr not in ROLE_KEYS:
+                problems.append(f"§8.4 line {line}: role {abbr} has no roles.key in ROLE_KEYS of tools/openapi_lint.py")
+                continue
+            by_abbr[abbr] = Role(scope, ROLE_KEYS[abbr], name, len(listed) - i)
+            roles.append(by_abbr[abbr])
+    for key, name, rank in SUPPORT_ROLES:
+        if f"`{key}`" not in master.staff_text:
+            problems.append(f"§8.6 no longer names the support role `{key}` (column Staff)")
+        roles.append(Role("support", key, name, rank))
+    for scope, section in (("platform", "§8.5"), ("tenant", "§8.6")):
+        want = [a for s, _, a, _ in master.roles if s == scope] + (["Staff"] if scope == "tenant" else [])
+        if master.columns.get(scope) != want:
+            problems.append(f"{section}: role columns {master.columns.get(scope)} differ from the roles of §8.4 {want}")
+
+    grants: list[Grant] = []
+    permissions = []
+    for key, p in sorted(master.perms.items()):
+        desc = ", ".join(sorted(f"{m} {entry_path(p.scope, segs)}" for m, segs in p.entries))
+        permissions.append((key, p.scope, desc))
+        merged: dict[str, set] = {}
+        for colmap in p.columns:
+            for col, cell in colmap.items():
+                merged.setdefault(col, set()).add(cell)
+        where = f"{key} (master line {', '.join(map(str, p.lines))})"
+        for col in master.columns[p.scope]:
+            cells = merged.get(col, set())
+            if len(cells) != 1:
+                problems.append(f"{where}: the rows of this permission disagree in column {col}: {sorted(cells)}")
+                continue
+            cell = next(iter(cells))
+            if cell in NO_GRANT:
+                continue
+            if col == "Staff":
+                if cell not in STAFF_CELLS:
+                    problems.append(f"{where}: unknown cell {cell!r} in column Staff (expected G, G (Admin) or —)")
+                    continue
+                grants += [Grant(k, key) for k in STAFF_CELLS[cell]]
+            elif col in by_abbr:
+                if cell not in CELL_GRANTS:
+                    problems.append(f"{where}: unknown cell {cell!r} in column {col} — add its meaning to CELL_GRANTS "
+                                    f"of tools/openapi_lint.py")
+                    continue
+                scope, cond = CELL_GRANTS[cell]
+                grants.append(Grant(by_abbr[col].key, key, scope, cond))
+    rank = {r.key: r for r in roles}
+    grants.sort(key=lambda g: (SCOPE_ORDER[rank[g.role].scope], -rank[g.role].rank, g.permission))
+    roles.sort(key=lambda r: (SCOPE_ORDER[r.scope], -r.rank))
+    return RbacModel(roles, permissions, grants), problems
+
+
+def _covers(have: Grant | None, need: Grant) -> bool:
+    """have grants at least what need grants: scope any covers own; an unconditional grant covers a conditional one."""
+    return (have is not None and (have.scope == "any" or need.scope == "own")
+            and (have.condition is None or have.condition == need.condition))
+
+
+def lattice_problems(model: RbacModel) -> list[str]:
+    """§8.4 invariant 3 on the seed: a role that may give roles (ASSIGN_PERMISSIONS) may give only roles strictly
+    below it (3a), and none of those may hold a grant the giver does not hold — no role can grant more than it has.
+    Grants of one scope never cross into another (invariant 2: platform roles hold no tenant permission)."""
+    problems = []
+    for g in model.grants:
+        r = model.role(g.role)
+        perm_scope = g.permission.split(".", 1)[0]
+        if (r.scope == "platform") != (perm_scope == "platform"):
+            problems.append(f"{r.key} ({r.scope}) holds {g.permission}: §8.4 invariant 2 — platform roles hold only "
+                            f"platform permissions, tenant and support roles only tenant permissions")
+        if g.scope == "own" and r.scope != "tenant":
+            problems.append(f"{r.key} holds {g.permission} on own resources: ○ exists only for tenant roles")
+    for scope, assign in ASSIGN_PERMISSIONS.items():
+        roles = [r for r in model.roles if r.scope == scope]
+        for giver in roles:
+            have = model.grants_of(giver.key)
+            if not assign & set(have):
+                continue
+            for r in roles:
+                if r.rank >= giver.rank:
+                    continue
+                extra = sorted(k for k, g in model.grants_of(r.key).items() if not _covers(have.get(k), g))
+                if extra:
+                    problems.append(f"§8.4 invariant 3: {giver.key} may give {r.key} (strictly lower) but {r.key} "
+                                    f"holds {extra} beyond {giver.key} — no role can grant more than it has")
+    return problems
+
+
+def _sql(v) -> str:
+    if v is None:
+        return "NULL"
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, int):
+        return str(v)
+    return "'" + str(v).replace("'", "''") + "'"
+
+
+def _values(rows: list[tuple]) -> str:
+    return ",\n".join("    (" + ", ".join(_sql(v) for v in row) + ")" for row in rows)
+
+
+def render_seed_sql(model: RbacModel) -> str:
+    """database/seeds/rbac.sql: idempotent, one transaction (store.Seed), run by mg_migrator after the migrations."""
+    roles = [(r.scope, r.key, r.name, r.rank) for r in model.roles]
+    scope_of = {r.key: r.scope for r in model.roles}
+    grants = [(scope_of[g.role], g.role, g.permission, g.scope, g.condition) for g in model.grants]
+    return f"""\
+-- Code generated by tools/openapi_lint.py --write from docs/planning/implementation-master-plan.md. DO NOT EDIT.
+--
+-- Seed RBAC (P2-T07) sinh từ §8.4 (role) và ma trận §8.5/§8.6 — không sửa tay: sửa master rồi chạy
+-- `make authz-gen`; spec-lint trong CI fail khi file này lệch với nội dung master sinh ra. store.Migrate áp file
+-- này sau migration, bằng mg_migrator, trong một transaction, idempotent: role hệ thống, permission và grant của
+-- chúng sau khi chạy đúng bằng các bảng dưới. Ô của ma trận: ✔ và 2P = grant scope any (người thứ hai của 2P do
+-- operation đòi qua x-dual-control — §13.1); ○ = grant scope own; G / G (Admin) = grant cho support_operator và
+-- support_admin / chỉ support_admin (§8.6); ô có điều kiện = grant kèm condition, internal/authz từ chối grant đó
+-- cho tới khi operation khai báo xử lý điều kiện (fail-closed).
+
+-- permissions ({len(model.permissions)}): mọi khóa của §8.5/§8.6; khóa đã rời ma trận bị xóa cùng grant của nó
+WITH seed (key, scope, description) AS (VALUES
+{_values(model.permissions)}
+), stale AS (
+    DELETE FROM permissions p WHERE NOT EXISTS (SELECT 1 FROM seed s WHERE s.key = p.key)
+)
+INSERT INTO permissions (key, scope, description)
+SELECT key, scope, description FROM seed
+ON CONFLICT (key) DO UPDATE SET scope = EXCLUDED.scope, description = EXCLUDED.description;
+
+-- roles ({len(roles)}): §8.4 + hai role support của §8.6; rank = thứ bậc trong cùng phạm vi (lớn hơn = cao hơn)
+INSERT INTO roles (scope, key, name, rank, is_system) VALUES
+{_values([r + (True,) for r in roles])}
+ON CONFLICT (scope, key) DO UPDATE SET name = EXCLUDED.name, rank = EXCLUDED.rank, is_system = true;
+
+-- Role hệ thống đã rời seed có thể còn được membership tham chiếu: gỡ role cần migration riêng ⇒ dừng.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM roles r WHERE r.is_system AND (r.scope, r.key) NOT IN (VALUES
+{_values([(s, k) for s, k, _, _ in roles])})) THEN
+    RAISE EXCEPTION 'seed RBAC: có role hệ thống không còn trong §8.4–§8.6 — gỡ role cần migration riêng';
+  END IF;
+END
+$$;
+
+-- role_permissions ({len(grants)}): grant của mỗi role hệ thống đúng bằng bảng này (grant thừa bị xóa)
+WITH seed (role_scope, role_key, permission_key, scope, condition) AS (VALUES
+{_values(grants)}
+), want AS (
+    SELECT r.id AS role_id, r.scope AS role_scope, p.key AS permission_key, p.scope AS permission_scope,
+           s.scope, s.condition
+    FROM seed s
+    JOIN roles r ON r.scope = s.role_scope AND r.key = s.role_key
+    JOIN permissions p ON p.key = s.permission_key
+), stale AS (
+    DELETE FROM role_permissions rp USING roles r
+    WHERE r.id = rp.role_id AND r.is_system
+      AND NOT EXISTS (SELECT 1 FROM want w WHERE w.role_id = rp.role_id AND w.permission_key = rp.permission_key)
+)
+INSERT INTO role_permissions (role_id, role_scope, permission_key, permission_scope, scope, condition)
+SELECT role_id, role_scope, permission_key, permission_scope, scope, condition FROM want
+ON CONFLICT (role_id, permission_key) DO UPDATE SET scope = EXCLUDED.scope, condition = EXCLUDED.condition;
+
+DO $$
+BEGIN
+  IF (SELECT count(*) FROM role_permissions rp JOIN roles r ON r.id = rp.role_id WHERE r.is_system) <> {len(grants)}
+     OR (SELECT count(*) FROM permissions) <> {len(model.permissions)} THEN
+    RAISE EXCEPTION 'seed RBAC: grant hoặc permission trong database khác bảng seed';
+  END IF;
+END
+$$;
+"""
+
+
+def render_operations_go(spec: dict) -> str:
+    """internal/authz/operations_gen.go: x-permission, x-own-resource, x-dual-control and x-permission-secondary of
+    every operation, sorted by operationId (gofmt-clean: one composite literal per line, nothing to align)."""
+    rows = []
+    for path, method, op, _ in sorted(operations(spec), key=lambda t: str(t[2].get("operationId"))):
+        fields = [f"ID: {json.dumps(str(op.get('operationId', '')))}", f'Method: "{method.upper()}"',
+                  f"Path: {json.dumps(path)}", f"Permission: {json.dumps(str(op.get('x-permission', '')))}"]
+        if op.get("x-permission-secondary") is not None:
+            fields.append(f"Secondary: {json.dumps(str(op['x-permission-secondary']))}")
+        if op.get("x-own-resource") is True:
+            fields.append("OwnResource: true")
+        if op.get("x-dual-control") is True:
+            fields.append("DualControl: true")
+        rows.append("\t{" + ", ".join(fields) + "},")
+    body = "\n".join(rows)
+    return f"""\
+// Code generated by tools/openapi_lint.py --write from api/openapi.yaml. DO NOT EDIT.
+
+package authz
+
+// specOperations is the authorization contract of every operation of api/openapi.yaml (§13.1): x-permission,
+// x-own-resource, x-dual-control and x-permission-secondary, sorted by operationId.
+var specOperations = []Operation{{
+{body}
+}}
+"""
+
+
+def generated_files(spec: dict, model: RbacModel) -> dict[str, str]:
+    return {SEED_FILE: render_seed_sql(model), OPS_FILE: render_operations_go(spec)}
+
+
+def generated_problems(expected: dict[str, str], root: pathlib.Path = ROOT) -> list[str]:
+    """Committed generated files that differ from what the master and the spec generate."""
+    errs = []
+    for rel, want in expected.items():
+        try:
+            got = (root / rel).read_text(encoding="utf-8").replace("\r\n", "\n")
+        except OSError:
+            errs.append(f"{rel}: missing — run `python3 tools/openapi_lint.py --write` (make authz-gen)")
+            continue
+        if got != want:
+            diff = list(difflib.unified_diff(got.splitlines(), want.splitlines(), "committed", "generated",
+                                             lineterm="", n=0))
+            errs.append(f"{rel}: differs from what §8.4–§8.6 and api/openapi.yaml generate — run `make authz-gen`\n    "
+                        + "\n    ".join(diff[:24]))
+    return errs
+
+
+def write_generated(expected: dict[str, str], root: pathlib.Path = ROOT) -> list[str]:
+    written = []
+    for rel, content in expected.items():
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        old = path.read_text(encoding="utf-8").replace("\r\n", "\n") if path.exists() else None
+        if old != content:
+            path.write_text(content, encoding="utf-8", newline="\n")
+            written.append(rel)
+    return written
 
 
 # ====================================================================== CLI
@@ -1086,7 +1473,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--list", action="store_true", help="list operations and coverage")
     ap.add_argument("--dump-json", action="store_true", help="print the parsed spec as JSON")
     ap.add_argument("--compare-json", metavar="FILE", help="compare with the spec parsed by another YAML parser")
+    ap.add_argument("--write", action="store_true", help=f"regenerate {SEED_FILE} and {OPS_FILE}, then lint")
+    ap.add_argument("--partial", action="store_true",
+                    help="lint a spec fragment: skip the row -> operation coverage and the generated files")
     args = ap.parse_args(argv)
+    if args.write and args.partial:
+        ap.error("--write and --partial exclude each other")
     try:
         spec = load_yaml(pathlib.Path(args.spec).read_text(encoding="utf-8"))
     except (OSError, YamlError) as e:
@@ -1107,7 +1499,18 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, MasterError) as e:
         print(f"openapi-lint: cannot read the master plan {args.master}: {e}")
         return 2
-    errs = lint(spec, master)
+    errs = lint(spec, master, coverage=not args.partial)
+    model, problems = rbac_model(master)
+    errs += problems + lattice_problems(model)
+    if not args.partial:
+        expected = generated_files(spec, model)
+        if args.write:
+            if problems:
+                print("openapi-lint: the matrices are ambiguous — nothing written")
+            else:
+                for rel in write_generated(expected):
+                    print(f"wrote {rel}")
+        errs += generated_problems(expected)
     ops = list(operations(spec))
     if args.list:
         for path, method, op, _ in ops:
@@ -1118,6 +1521,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"§13.2 traceability groups without an operation yet ({len(groups)}):")
         for g in groups:
             print(f"  - {g}")
+        _, notes = row_coverage(spec, master)
+        print(f"rows of §8.5/§8.6 without an operation ({len(notes)}; an error once all their tasks are done in §20):")
+        for n in notes:
+            print(f"  - {n}")
+        dup = sorted(k for k, p in master.perms.items() if len(p.lines) > 1)
+        print(f"permissions on more than one matrix row (merged; their cells must agree): {', '.join(dup) or '—'}")
+        print(f"seed: {len(model.roles)} roles, {len(model.permissions)} permissions, {len(model.grants)} grants; "
+              f"conditional grants: {', '.join(f'{g.role}/{g.permission}={g.condition}' for g in model.grants if g.condition)}")
     for e in errs:
         print(f"ERROR {e}")
     print(f"openapi-lint: {len(ops)} operations, {len(errs)} problem(s) — "

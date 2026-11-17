@@ -42,7 +42,7 @@ func randInt(n int64) int64 {
 func newFixture() *fixture {
 	f := &fixture{sfx: randomHex(4), host: newID(), tenantRole: newID(), platformRole: newID(), platformIdP: newID(),
 		platformUser: newID(), platformDEK: newID(), opsDEK: newID()}
-	f.permission = "test.perm:" + f.sfx
+	f.permission = "tenant.fixture_" + f.sfx + ":read" // permissions.key: <scope>.<resource>:<action>, prefix = scope
 	f.setting = "test.setting_" + f.sfx
 	for _, tr := range []*tenantRows{&f.a, &f.b} {
 		*tr = tenantRows{id: newID(), instance: newID(), config: newID(), idp: newID(), identity: newID(),
@@ -99,7 +99,8 @@ func (f *fixture) step2(t *testing.T, c *pgx.Conn) {
 	exec(t, c, `INSERT INTO roles (id, scope, key, name) VALUES ($1, 'tenant', 'owner_'||$3, 'Owner'),
 		($2, 'platform', 'super_admin_'||$3, 'Super Admin')`, f.tenantRole, f.platformRole, f.sfx)
 	exec(t, c, `INSERT INTO permissions (key, scope) VALUES ($1, 'tenant')`, f.permission)
-	exec(t, c, `INSERT INTO role_permissions (role_id, permission_key) VALUES ($1, $2)`, f.tenantRole, f.permission)
+	exec(t, c, `INSERT INTO role_permissions (role_id, role_scope, permission_key, permission_scope)
+		VALUES ($1, 'tenant', $2, 'tenant')`, f.tenantRole, f.permission)
 	exec(t, c, `INSERT INTO identity_providers (id, scope, issuer, client_id, driver, status)
 		VALUES ($1, 'platform', 'https://idp.test/realms/platform-'||$2, 'portal', 'keycloak', 'active')`, f.platformIdP, f.sfx)
 	exec(t, c, `INSERT INTO identities (id, idp_id, scope, subject, email) VALUES ($1, $2, 'platform', 'sa-'||$3, 'sa@example.test')`,

@@ -225,14 +225,18 @@ type Role struct {
 	Scope     string
 	Key       string
 	Name      string
+	Rank      int16
 	IsSystem  bool
 	CreatedAt time.Time
 }
 
 type RolePermission struct {
-	RoleID        uuid.UUID
-	PermissionKey string
-	Scope         string
+	RoleID          uuid.UUID
+	RoleScope       string
+	PermissionKey   string
+	PermissionScope string
+	Scope           string
+	Condition       *string
 }
 
 type Secret struct {
