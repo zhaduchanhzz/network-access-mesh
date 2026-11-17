@@ -68,7 +68,7 @@ flowchart TD
   B10 --> B10a[P2-T10a Headscale vá V-26] --> B16
   G1 --> B16
   G2 --> C01[P3-T01 agent] --> C02[P3-T02 compose driver] --> C03[P3-T03 agent ops] --> C05[P3-T05 state machine] --> C07[P3-T07 tiêm lỗi] --> C14[P3-T14 báo cáo G3] --> G3{{G3}}
-  G2 --> C06[P3-T06 migrations 0007–0011] --> C05
+  G2 --> C06[P3-T06 migrations 0008–0012] --> C05
   C06 --> C04[P3-T04 placement] --> C05
   C06 --> C4a[P3-T04a dual control]
   C06 --> C8a[P3-T08a lõi policy] --> C08[P3-T08 suspend/resume] --> C14
@@ -78,7 +78,7 @@ flowchart TD
   C8a --> C11 --> C09[P3-T09 deprovision] --> C14
   C4a --> C09
   G3 --> D01[P4-T01 web shell] --> D04[P4-T04 devices UI]
-  G3 --> D05[P4-T05 migrations 0012–0015] --> D06[P4-T06 enrollment] --> D07[P4-T07 web-auth gate]
+  G3 --> D05[P4-T05 migrations 0013–0016] --> D06[P4-T06 enrollment] --> D07[P4-T07 web-auth gate]
   D05 --> D09[P4-T09 users/groups] --> D10[P4-T10 policies] --> D11[P4-T11 policy UI]
   D04 --> D10a[P4-T10a báo cáo G4a] --> G4a{{G4a}}
   D07 --> D10a

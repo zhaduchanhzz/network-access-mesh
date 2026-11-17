@@ -927,16 +927,17 @@ Bảng của job queue (River, §4) nằm ở schema riêng `river`, không ch�
 | `0004` | 2 / P2-T03 | `audit_events` (partition theo tháng), `security_events` (không partition) + role `mg_audit_writer`, `mg_partition_maint` |
 | `0005` | 2 / P2-T03 (+ P2-T13) | `device_inventory_cache`, `device_inventory_sync_state` (P2-T13) |
 | `0006` | 2 / P2-T03 | `provisioning_jobs`/`provisioning_job_steps`, `idempotency_keys`, schema `river` (bảng do River tạo — P2-T12) |
-| `0007` | 3 / P3-T06 | `approval_requests`, `tenant_invitations`, `notification_outbox` |
-| `0008` | 3 / P3-T06 | `relay_regions`/`relay_assignments` |
-| `0009` | 3 / P3-T06 | `backups` |
-| `0010` | 3 / P3-T06 | `subscription_plans`/`subscriptions` |
-| `0011` | 3 / P3-T06 | `policy_versions`, `policy_applications` (+ FK `tenants.desired_policy_version_id`) |
-| `0012` | 4 / P4-T05 | `enrollment_requests` (+ FK `device_inventory_cache.enrollment_request_id`) |
-| `0013` | 4 / P4-T05 | `groups`/`group_members`, `tenant_tags` |
-| `0014` | 4 / P4-T05 | `network_resources`, `dns_records` |
-| `0015` | 4 / P4-T05 | `support_access_grants`, `identity_links` |
-| `0016` | 6 / P6-T11 | `usage_records` (partition) + bảng tổng hợp |
+| `0007` | 2 / G2 (sửa F3) | không bảng mới: CHECK chủ của `identity_providers.client_secret_ref` (owner segment = `tenant_id`, hoặc `platform` khi `tenant_id` NULL) — `0007_idp_secret_ref_owner.sql` |
+| `0008` | 3 / P3-T06 | `approval_requests`, `tenant_invitations`, `notification_outbox` |
+| `0009` | 3 / P3-T06 | `relay_regions`/`relay_assignments` |
+| `0010` | 3 / P3-T06 | `backups` |
+| `0011` | 3 / P3-T06 | `subscription_plans`/`subscriptions` |
+| `0012` | 3 / P3-T06 | `policy_versions`, `policy_applications` (+ FK `tenants.desired_policy_version_id`) |
+| `0013` | 4 / P4-T05 | `enrollment_requests` (+ FK `device_inventory_cache.enrollment_request_id`) |
+| `0014` | 4 / P4-T05 | `groups`/`group_members`, `tenant_tags` |
+| `0015` | 4 / P4-T05 | `network_resources`, `dns_records` |
+| `0016` | 4 / P4-T05 | `support_access_grants`, `identity_links` |
+| `0017` | 6 / P6-T11 | `usage_records` (partition) + bảng tổng hợp |
 
 ### 6.4 Data ownership & retention
 
@@ -2626,7 +2627,7 @@ Chi tiết từng môi trường (bổ sung cho đoạn trên):
 | Dependencies | G2 |
 | Files/modules expected | `apps/agent`, `apps/probe`, `api/agent/v1/agent.proto`, `internal/provisioning/**`, `internal/relay`, `internal/notifications`, `internal/policies` (lõi), `internal/usage` (quota tối thiểu), template hoàn chỉnh trong `infrastructure/headscale/templates/`, `infrastructure/monitoring/` (bộ cảnh báo tối thiểu — P3-T16) |
 | Configuration requirements | Socket Agent; allowlist image digest; dải UID và dải subnet tenant (`tenant_net_pool`) theo host; lịch job; SMTP; số người duyệt 2P (D-11) |
-| Database migrations | `0007`–`0011` theo bản đồ migration ở §6.3 (approval/invitation/notification; relay; backups; plans/subscriptions; policy_versions + policy_applications) |
+| Database migrations | `0008`–`0012` theo bản đồ migration ở §6.3 (approval/invitation/notification; relay; backups; plans/subscriptions; policy_versions + policy_applications) |
 | API changes | `POST /platform/tenants`, `/platform/tenants/{id}/suspend`, `/resume`, `DELETE /platform/tenants/{id}`, `platform/instances/{id}/<action>`, `platform/hosts`, `platform/approvals`, `tenants/{t}/approvals`, `platform/jobs/{id}/retry`, `/cancel`, `/rollback`, `tenants/{t}/invitations`, `tenants/{t}/notifications`, `tenants/{t}/relay`, `platform/relay-regions` (chỉ đọc) |
 | Security controls | Agent kiểm tra spec; không secret trong job payload/log; policy deny-all trước attach; dual control cho xóa/restore; một lifecycle job/tenant |
 | Unit tests | State machine (mọi chuyển trạng thái, compensation); cấp phát UID; validator spec của Agent |
@@ -2648,7 +2649,7 @@ Chi tiết từng môi trường (bổ sung cho đoạn trên):
 | Dependencies | G3 (API ổn định) |
 | Files/modules expected | `apps/web/**`, `internal/{enrollment,policies,network,members}`, bổ sung `api/openapi.yaml` |
 | Configuration requirements | Hai origin; CSP; quy tắc chuyển hướng `/register/*` ở edge |
-| Database migrations | `0012`–`0015` theo bản đồ migration ở §6.3 (enrollment_requests; groups + tenant_tags; network_resources/dns_records; support_access_grants + identity_links) |
+| Database migrations | `0013`–`0016` theo bản đồ migration ở §6.3 (enrollment_requests; groups + tenant_tags; network_resources/dns_records; support_access_grants + identity_links) |
 | API changes | `enrollment/*`, `policies/*`, `groups/*`, `tags/*`, `users` (ghi, gồm `role`, `admin-role`, `ownership-transfer`), `devices/{id}/tags`, `routes/*`, `dns/*`, `resources/*`, `support-grants/*`, `platform/users`, `platform/settings`, `platform/identity-providers`, `platform/plans`, `tenants/{t}/settings` (+ `settings/security`), `tenants/{t}/approvals`, `tenants/{t}/identity-provider`, `request-deletion`, `PATCH /platform/tenants/{id}` |
 | Security controls | Guardrail lint policy; 4-eyes tùy chọn; step-up; key hiển thị một lần; claim chỉ khi có yêu cầu đang chờ trong cùng phiên + kiểm node sau đăng ký (§7.4) |
 | Unit tests | Render policy tất định; lint L1–L13; component (Vitest) |
@@ -2692,7 +2693,7 @@ Chi tiết từng môi trường (bổ sung cho đoạn trên):
 | Dependencies | G5 |
 | Files/modules expected | `infrastructure/monitoring/**`, `docs/operations/**`, pipeline CI supply chain, `tests/load/**` |
 | Configuration requirements | Kho offsite; kênh cảnh báo; lịch xoay; quy tắc `DOCKER-USER` |
-| Database migrations | `0016` usage_records (partition) + bảng tổng hợp |
+| Database migrations | `0017` usage_records (partition) + bảng tổng hợp |
 | API changes | `usage/*` (gồm `tenants/{t}/billing` và `platform/usage`), `platform/backups`, `platform/security-events`, gỡ ban CrowdSec (endpoint chốt ở P6-T07a) |
 | Security controls | Hash-chain audit; đẩy audit ra ngoài host; rà soát grant định kỳ; allow-list đích cho `mg-egress` |
 | Unit tests | Hash-chain audit; tổng hợp usage; KEK rewrap |
@@ -2823,7 +2824,7 @@ Các task không chạm host (P2-T01…P2-T08, P2-T12, P2-T14, P2-T15a) **đư�
 | P3-T05b | `notifications`: `notification_outbox` + job `notification.send` (email qua SMTP + bản ghi trong Portal, đọc qua `GET /tenants/{t}/notifications`), template vi/en, không chứa secret; sự kiện: tenant activated/lời mời Owner, thiết bị mới, break-glass, policy applied, yêu cầu duyệt grant, key hoặc node sắp hết hạn, tenant bị suspend/resume, support grant được dùng; nối thêm khi task Phase 4 tương ứng hoàn tất: yêu cầu phê duyệt (policy 4-eyes, approval phạm vi tenant), đổi thiết lập bảo mật, đổi cấu hình IdP, đổi thành viên group, duyệt route | P2-T08, P2-T12, P3-T06, SMTP (A.1 #9) | `internal/notifications` | Với SMTP giả: mỗi sự kiện đúng 1 thông báo, tới đúng người nhận của đúng tenant |
 | P3-T05c | `relay`: `RelayService` (đọc `relay_regions`/`relay_assignments` + kết quả Prober), `GET /tenants/{t}/relay`, `GET /platform/relay-regions` (chỉ đọc ở MVP) | P3-T03a, P3-T05, P3-T06 | `internal/relay` | Số liệu kèm `checked_at`; relay của A không xuất hiện ở B (IT-12b phần relay) |
 | P3-T15 | Kiểm soát quản trị IdP (§8.2 — "không là cửa sau vào tenant"): job `idp.audit_sync` chuyển admin event của Keycloak (reset credential, sửa user, đổi client, thử impersonation) vào `audit_events` của tenant và thông báo Owner; console quản trị Keycloak chỉ phục vụ ở origin admin và chỉ mở theo phiên có thời hạn đã được duyệt 2P (`approval_requests`, step-up, giới hạn IP), cảnh báo mỗi lần đăng nhập | P2-T05a, P2-T08, P3-T04a, P3-T05b | `internal/idp` (audit sync), cấu hình edge | Admin reset credential của một user tenant ⇒ có `audit_events` hiển thị cho tenant + thông báo Owner; console không mở được khi chưa có phê duyệt và không tới được qua `auth.<domain>` hay qua VPS; mỗi lần đăng nhập console sinh cảnh báo |
-| P3-T06 | Migration `0007–0011` (bản đồ ở §6.3); plan tối thiểu | G2 | `database/migrations` | Up trên bản sao có dữ liệu + diễn tập restore từ dump (P2-T03a) |
+| P3-T06 | Migration `0008–0012` (bản đồ ở §6.3); plan tối thiểu | G2 | `database/migrations` | Up trên bản sao có dữ liệu + diễn tập restore từ dump (P2-T03a) |
 | P3-T06a | `QuotaChecker` tối thiểu (số tenant, số thiết bị) dùng ở bước `validate` và ở enrollment | P3-T06 | `internal/usage` | Vượt quota ⇒ 403 `quota_exceeded` |
 | P3-T07 | Harness tiêm lỗi tại từng bước + bộ phát hiện tài nguyên mồ côi; gồm các ca: lỗi ở bước 11–18 (thư mục đã có key), worker chết giữa bước 13 (key đã tạo chưa lưu), `/retry` sau `failed_resumable` (tiếp tục từ step lỗi) và sau `rolled_back` (job mới từ bước 3) | P3-T05 | `tests/integration/provisioning` | Không còn container/network/thư mục/secret mồ côi; trong instance không còn API key hợp lệ nào ngoài key đang lưu ở SecretStore |
 | P3-T08 | Suspend/resume: policy `suspension`, expire pre-auth key; middleware từ chối mọi thao tác ghi của role tenant khi tenant suspended (bất biến 5 ở §8.4 — bao trùm `web-auth/claim` và `enrollment/*` khi chúng được xây ở P4-T06) | P3-T05, P3-T06, P3-T08a | — | Áp fixture allow → TCP thông → suspend ⇒ TCP bị chặn; thao tác ghi của Tenant Admin (ví dụ `POST /devices/sync`) trong lúc suspend ⇒ 403 `tenant_suspended`; resume ⇒ TCP thông lại |
@@ -2850,7 +2851,7 @@ Các task không chạm host (P2-T01…P2-T08, P2-T12, P2-T14, P2-T15a) **đư�
 | P4-T03 | Platform Console: instances, hosts, health, jobs, settings, platform users, IdP, Relay Regions (chỉ đọc), Plans | P4-T01, P4-T03a | — | E2E |
 | P4-T03a | Backend: `platform/users`, `platform/settings`, `platform/identity-providers`, `platform/plans`, `tenants/{t}/settings` (+ `settings/security` và phê duyệt phía tenant `tenants/{t}/approvals`, dùng lại cơ chế của P3-T04a), `identity-provider`, `PATCH` tenant, `request-deletion` | P4-T05 | — | Ma trận authz phủ đủ; `PATCH` đổi `issuer` ⇒ `422`; thay đổi hàng IdP `scope='tenant'` do nền tảng khởi xướng ⇒ `202` + yêu cầu phê duyệt, không có hiệu lực trước khi được duyệt, có audit hiển thị cho tenant |
 | P4-T04 | Tenant Portal: dashboard + devices (trạng thái hai pha, `synced_at`) + mục Relay của tenant (`GET /relay`) + hộp thông báo in-portal (`GET /notifications`) + bộ lọc/báo cáo tagged node không hết hạn cho rà soát định kỳ (§7.4, ADR-23) | P4-T01 | — | Không số liệu mock |
-| P4-T05 | Migration `0012–0015` (bản đồ ở §6.3) | G3 | — | Up trên bản sao có dữ liệu + diễn tập restore từ dump |
+| P4-T05 | Migration `0013–0016` (bản đồ ở §6.3) | G3 | — | Up trên bản sao có dữ liệu + diễn tập restore từ dump |
 | P4-T15 | Danh mục tag: bảng `tenant_tags`, API `tenants/{t}/tags`, quyền `tenant.tag:*`; `PUT /devices/{id}/tags`, `requested_tags` của enrollment và lint L6 chỉ nhận tag có trong danh mục; đổi danh mục ⇒ `policy.apply` (trigger `tag_change`) | P4-T05, P3-T08a | `internal/policies` (tags) | Tag chưa khai báo bị từ chối ở cả ba đường; xóa tag còn được thiết bị/key/grant tham chiếu ⇒ `409` |
 | P4-T06 | `enrollment`: pre-auth key, web-auth claim (mã enrollment trong hostname, yêu cầu đang chờ trong cùng phiên, kiểm node sau đăng ký — §7.4), trạng thái yêu cầu + duyệt trước bước thiết bị (`requires_approval`, `/start`), hướng dẫn, quota, job reconcile; bước duyệt tùy chọn theo `enrollment.approval` (`/approve`, `/reject`, `/issue` — §7.4) | P4-T05, P4-T15, P3-T06a | `internal/enrollment` | Key chỉ trả một lần (sau E2E, bảng `idempotency_keys` và bản `pg_dump` không chứa mẫu `hskey-`); key hết hạn bị từ chối; claim không có yêu cầu đang chờ ⇒ từ chối + trang cảnh báo; khi bật phê duyệt: request `pending_approval` chưa phát mã/key và `/issue` chỉ thành công sau khi `approved`; claim khi yêu cầu chưa được duyệt ⇒ từ chối; re-auth của thiết bị đã có trong sổ **không** bị xóa; tenant suspended ⇒ `web-auth/claim` và mọi `enrollment/*` trả 403 `tenant_suspended` |
 | P4-T07 | Edge: quy tắc chuyển hướng `/register/*` + kiểm chứng với client thật (V-07); phương án lùi "dán Auth ID" | P4-T06 | Báo cáo gate | Client hoàn tất đăng ký sau claim |
@@ -2902,7 +2903,7 @@ Các task không chạm host (P2-T01…P2-T08, P2-T12, P2-T14, P2-T15a) **đư�
 | P6-T08 | Load/scale test 10 → 100 tenant; baseline tài nguyên/instance; chi phí polling; edge với ~100 network; số realm IdP (V-13, V-15) | G5 | Báo cáo | Có số liệu thật; ngưỡng đạt chốt ở G5 theo A.1 #16 |
 | P6-T09 | Chaos test: kill instance/edge/PostgreSQL/tunnel/VPS gateway; noisy neighbour (CPU; IT-19: stream nhàn rỗi tại edge, cache pending-auth, quota đĩa) | G5 | Báo cáo | Hành vi khớp §17.4; ngưỡng chốt ở G5 |
 | P6-T10 | Diễn tập upgrade/rollback Headscale + job `CheckPolicy` trước upgrade; ca restore bản backup cũ hơn một minor qua image trung gian | G5 | Runbook | Rollback bằng restore đạt |
-| P6-T11 | Thu thập usage + plan/quota + API/UI usage — `GET /tenants/{t}/usage`, `GET /tenants/{t}/billing`, `GET /platform/usage` (migration `0016`); IT-12c | G5 | — | Số liệu khớp inventory |
+| P6-T11 | Thu thập usage + plan/quota + API/UI usage — `GET /tenants/{t}/usage`, `GET /tenants/{t}/billing`, `GET /platform/usage` (migration `0017`); IT-12c | G5 | — | Số liệu khớp inventory |
 | P6-T12 | Pen test bên ngoài + runbook ứng phó sự cố + diễn tập tabletop (T-03) + kiểm lại checklist T-01…T-21 gồm các mitigation chỉ có từ Phase 6 (bảng truy vết ở §18.1) + review go-live | P6-T01…T11 | Báo cáo G6 | Gate G6 |
 
 ### Phase 7
@@ -2987,7 +2988,7 @@ flowchart TD
   B10 --> B10a[P2-T10a Headscale vá V-26] --> B16
   G1 --> B16
   G2 --> C01[P3-T01 agent] --> C02[P3-T02 compose driver] --> C03[P3-T03 agent ops] --> C05[P3-T05 state machine] --> C07[P3-T07 tiêm lỗi] --> C14[P3-T14 báo cáo G3] --> G3{{G3}}
-  G2 --> C06[P3-T06 migrations 0007–0011] --> C05
+  G2 --> C06[P3-T06 migrations 0008–0012] --> C05
   C06 --> C04[P3-T04 placement] --> C05
   C06 --> C4a[P3-T04a dual control]
   C06 --> C8a[P3-T08a lõi policy] --> C08[P3-T08 suspend/resume] --> C14
@@ -2997,7 +2998,7 @@ flowchart TD
   C8a --> C11 --> C09[P3-T09 deprovision] --> C14
   C4a --> C09
   G3 --> D01[P4-T01 web shell] --> D04[P4-T04 devices UI]
-  G3 --> D05[P4-T05 migrations 0012–0015] --> D06[P4-T06 enrollment] --> D07[P4-T07 web-auth gate]
+  G3 --> D05[P4-T05 migrations 0013–0016] --> D06[P4-T06 enrollment] --> D07[P4-T07 web-auth gate]
   D05 --> D09[P4-T09 users/groups] --> D10[P4-T10 policies] --> D11[P4-T11 policy UI]
   D04 --> D10a[P4-T10a báo cáo G4a] --> G4a{{G4a}}
   D07 --> D10a
