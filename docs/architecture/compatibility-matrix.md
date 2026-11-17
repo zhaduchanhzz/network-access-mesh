@@ -15,6 +15,7 @@
 | Control/DERP ↔ VPS l4proxy (PROXY v2) ↔ Caddy | **REQUIRES VALIDATION** (V-16…V-18) | Chuyển tiếp tầng 4 trong suốt với HTTP Upgrade; cần đo stream dài |
 | Embedded STUN publish trực tiếp qua Docker (phương án dự phòng) | **REQUIRES VALIDATION** | IPv4 kỳ vọng giữ IP nguồn; IPv6: **UNSUPPORTED ở MVP** (mất IP nguồn qua `userland-proxy` khi bridge chỉ-IPv4 — EG-10) |
 | Headscale `0.29.x` → `0.30` | VERIFIED là **breaking** (API v1 bị thay, gRPC bị bỏ) | Adapter có lớp version; không nâng tự động |
+| Headscale `0.29.7` bản vá MeshGuard (`mg.1`, image `mg-headscale`) ↔ adapter, ↔ DB của image chính thức | VERIFIED (functional, P2-T10 — bản vá V-26) | `GET /version` vẫn `v0.29.7` (dấu bản vá ở `commit`), adapter nhận như bản chính thức; DB tạo bởi image chính thức mở được bằng bản vá và ngược lại, `database_versions` = `v0.29.7` cả hai chiều (RT-10); contract test đủ 7 pha xanh trên bản vá |
 | derper `v1.104.x` ↔ Headscale `/verify` | VERIFIED (tài liệu + test upstream) | Chỉ dùng ở Phase 7 |
 | Headscale ↔ PostgreSQL | Hỗ trợ ở mức legacy — **không dùng** | HS-02 |
 | Peer relays ↔ client stable | **REQUIRES VALIDATION** | CL-13 |
