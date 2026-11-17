@@ -51,6 +51,26 @@ Ví dụ đổi `derp_ipv4` khi chuyển điểm vào ([P1-T18](../../docs/plann
 4. Chờ healthy.
 5. Kiểm policy giữ nguyên.
 
+## Đổi image Headscale của tenant đang chạy (bản vá V-26 ⇄ image chính thức)
+
+Bối cảnh: [P2-T10a](../../docs/planning/evidence/P2-T10a.md) — ADR-02 sửa đổi ngày 2026-11-17. Tham số `headscale_build` trong `infrastructure/environments/staging/tenants/<slug>.json` chọn image: `"patched"` (`versions.lock` `[images.mg-headscale]`, phải đã pin) hoặc `"official"` (`[images.headscale]` — đường rollback). Chỉ đổi image, không đổi config cùng lúc. **Chỉ chạy khi chủ dự án đã duyệt rollout.**
+
+```bash
+cd ~/mg
+S=tenant-a
+# 1. trong tenants/$S.json: "headscale_build": "patched"; render (config.yaml phải giống hệt bản đang chạy)
+python3 tools/render_instance.py infrastructure/environments/staging/tenants/$S.json /tmp/render/$S
+# 2. pull → ghi policy/node/user → dừng → cold backup data/ (meta/backup-<ts>/) → configtest image đích trên bản sao
+#    dữ liệu, không network → cài compose.yaml/meta mới (giữ bản cũ) → compose up -d → healthy → kiểm image, policy,
+#    số node, số user không đổi
+sudo bash infrastructure/host/tenant-upgrade.sh /tmp/render/$S
+# 3. kiểm thêm: headscale version (commit của bản vá), /key qua VPS, edge còn gắn network của tenant
+docker exec mg-hs-$S headscale version
+python3 tools/health_probe.py "$MG_PUBLIC_IPV4" "mesh.$MG_BASE_DOMAIN" $S
+```
+
+Hoàn tác (về digest chính thức): đặt lại `"headscale_build": "official"`, render như bước 1, rồi `sudo bash infrastructure/host/tenant-upgrade.sh /tmp/render/$S`. Cả hai bản đều là v0.29.7 và dùng chung DB hai chiều (contract test P2-T10a). Nếu instance không lên được: `docker compose -f /opt/meshguard/tenants/<instance_id>/compose.yaml down`, thay `data/` bằng `meta/backup-<ts>/data` (giữ owner `run_uid`), cài lại `meta/compose.yaml.bak-<ts>` và `meta/instance.json.bak-<ts>`, rồi `up -d`.
+
 ## Đổi cấu hình edge (Caddyfile)
 
 1. Chạy `python3 tools/render_edge.py infrastructure/environments/staging/edge.json /tmp/edge` (tham số lấy từ `staging.env`).

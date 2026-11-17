@@ -445,7 +445,8 @@ func TestEdgeAnswers(t *testing.T) {
 
 func TestVersionGate(t *testing.T) {
 	for v, ok := range map[string]bool{"v0.29.7": true, "v0.29.12": true, "0.29.7": true, "v0.29.6": false,
-		"v0.30.0": false, "v0.28.3": false, "v0.29.7-dirty": false, "v1.0.0": false, "": false} {
+		"v0.30.0": false, "v0.28.3": false, "v0.29.7-dirty": false, "v0.29.7+dirty": false, "v0.29.7+mg.1": false,
+		"v1.0.0": false, "": false} {
 		h := newHarness(t, Options{})
 		h.edge.set(func(f *fakeEdge) { f.version = v })
 		_, err := h.reg.ForTenant(context.Background(), testTenant)

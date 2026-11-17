@@ -248,6 +248,10 @@ const (
 	grpcUnauthenticated    = 16
 )
 
+// upstreamPanicMessage is the gRPC status message of a handler panic recovered by the patched build
+// (infrastructure/docker/headscale/patches/0002, P2-T10a); the official image exits instead.
+const upstreamPanicMessage = "internal error: request handler panicked"
+
 // gatewayError is the error body of the grpc-gateway behind /api/v1: {"code":5,"message":"node not found","details":[]}.
 type gatewayError struct {
 	Code    *int   `json:"code"`
@@ -286,12 +290,24 @@ func classify(op Op, status int, body []byte) *Error {
 	e.Upstream = truncate(g.Message)
 	msg := strings.ToLower(g.Message)
 
+	// A handler panic recovered by the patched build (P2-T10a, patch 0002): the instance is up, the handler stopped
+	// part-way — a write may or may not have been applied.
+	if e.Code == grpcInternal && g.Message == upstreamPanicMessage {
+		if op.RetryClass() != RetrySafe {
+			e.Outcome = OutcomeUnknown
+		}
+		return e
+	}
+
 	// Operation-specific rules first: the same text means different things for different operations.
 	switch op {
 	case OpAuthRegister, OpAuthApprove, OpAuthReject:
-		// §13.4: an Auth ID that is not pending is a validation failure of the caller's input, not a 404.
+		// §13.4: an Auth ID that is not pending is a validation failure of the caller's input, not a 404. The patched
+		// build (P2-T10a, patch 0001) refuses the Auth ID of an SSH-check session with 400 "auth session is not for
+		// node registration" (the official 0.29.7 panics and exits — V-26): same class, nothing was registered.
 		if strings.Contains(msg, "registration cache") || strings.Contains(msg, "no pending auth session") ||
-			strings.Contains(msg, "auth id has invalid") || strings.Contains(msg, "invalid auth_id") {
+			strings.Contains(msg, "auth id has invalid") || strings.Contains(msg, "invalid auth_id") ||
+			strings.Contains(msg, "not for node registration") {
 			e.Kind = KindValidation
 			return e
 		}

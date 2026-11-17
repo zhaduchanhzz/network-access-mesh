@@ -86,6 +86,16 @@ func TestClassifyTable(t *testing.T) {
 		{"observed: AuthApprove malformed", OpAuthApprove, 400,
 			gw(3, `invalid auth_id: auth ID has invalid prefix: expected prefix "hskey-authreq-"`), KindValidation, 0, false},
 		{"AuthReject malformed", OpAuthReject, 400, gw(3, "invalid auth_id: auth ID has invalid length: expected 38, got 5"), KindValidation, 0, false},
+		// --- V-26 on the patched build (P2-T10a): AuthRegister with the Auth ID of an SSH-check session
+		{"observed (patched): AuthRegister SSH-check Auth ID", OpAuthRegister, 400, gw(3, "auth session is not for node registration"), KindValidation, 0, false},
+		{"patched: same text under another code", OpAuthRegister, 500, gw(2, "auth session is not for node registration"), KindValidation, 0, false},
+		{"observed (official 0.29.7): the instance exits, the edge cannot route", OpAuthRegister, 404, "", KindUnavailable, 0, true},
+		// --- a handler panic recovered by the patched build (patch 0002): a write may have been applied
+		{"patched: recovered panic on a write", OpCreateUser, 500, gw(13, "internal error: request handler panicked"), KindUpstreamRejected, OutcomeUnknown, false},
+		{"patched: recovered panic on AuthRegister", OpAuthRegister, 500, gw(13, "internal error: request handler panicked"), KindUpstreamRejected, OutcomeUnknown, false},
+		{"patched: recovered panic on SetPolicy", OpSetPolicy, 500, gw(13, "internal error: request handler panicked"), KindUpstreamRejected, OutcomeUnknown, false},
+		{"patched: recovered panic on a read", OpListNodes, 500, gw(13, "internal error: request handler panicked"), KindUpstreamRejected, OutcomeNotApplied, false},
+		{"another internal error is not a recovered panic", OpCreateUser, 500, gw(13, "internal error"), KindUpstreamRejected, OutcomeNotApplied, false},
 		// --- policy
 		{"observed: GetPolicy none stored", OpGetPolicy, 500, gw(2, "loading ACL from database: acl policy not found"), KindNoPolicy, 0, false},
 		{"observed: CheckPolicy rejected", OpCheckPolicy, 400, gw(3, `parsing policy: group not defined in policy: "group:nope"`), KindPolicyRejected, 0, false},
@@ -153,6 +163,21 @@ func TestProblemCodes(t *testing.T) {
 	}
 	if errors.Is(&Error{Kind: KindNotFound}, ErrConflict) {
 		t.Fatal("an error matched the sentinel of another kind")
+	}
+}
+
+// TestSSHCheckAuthIDProblem: the refusal of the patched build (P2-T10a) reaches a tenant as validation_failed with the
+// generic detail — never Headscale's text nor the Auth ID.
+func TestSSHCheckAuthIDProblem(t *testing.T) {
+	id := testAuthID("s")
+	e := classify(OpAuthRegister, 400, []byte(gw(3, "auth session is not for node registration for "+id)))
+	if e.ProblemCode() != ProblemValidationFailed || !errors.Is(e, ErrValidation) || e.Outcome != OutcomeNotApplied {
+		t.Fatalf("problem %s, outcome %s, kind %s", e.ProblemCode(), e.Outcome, e.Kind)
+	}
+	for _, leak := range []string{"auth session", "registration", id, "hskey-"} {
+		if strings.Contains(e.Detail(), leak) {
+			t.Errorf("Detail %q leaks %q", e.Detail(), leak)
+		}
 	}
 }
 

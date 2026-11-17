@@ -33,8 +33,13 @@ func TestP1_FreshInstance(t *testing.T) {
 	if err != nil || !h.DatabaseConnectivity {
 		t.Fatalf("Health = %+v, %v", h, err)
 	}
-	e.record(t, "version", "GET /version qua listener admin", fmt.Sprintf("version=%s; supported range %s; health databaseConnectivity=%v",
-		v, headscale.SupportedVersions(), h.DatabaseConnectivity), "ForTenant kiểm version trước khi chọn implementation; ngoài dải ⇒ unsupported_version")
+	_, commit := e.versionInfo(t)
+	if commit != e.expectCommit {
+		t.Fatalf("GET /version commit = %s, want the patched build's %s", commit, e.expectCommit)
+	}
+	e.record(t, "version", "GET /version qua listener admin", fmt.Sprintf("version=%s commit=%s (bản vá P2-T10a; image chính thức: %s); supported range %s; health databaseConnectivity=%v",
+		v, commit, e.officialCommit, headscale.SupportedVersions(), h.DatabaseConnectivity),
+		"ForTenant kiểm version trước khi chọn implementation; ngoài dải ⇒ unsupported_version — bản vá giữ version v0.29.7, dấu bản vá nằm ở commit")
 
 	_, firstRead := inst.GetPolicy(c)
 	if !errors.Is(firstRead, headscale.ErrNoPolicy) {
@@ -62,6 +67,19 @@ func TestP1_FreshInstance(t *testing.T) {
 	s := e.loadState(t)
 	s.Nodes["observer"] = o
 	e.saveState(t, s)
+}
+
+// TestP1_DBCreatedByOfficialImage: before phase 1 the runner started the OFFICIAL image on the empty data volume (it
+// created and migrated the database and the user ct-boot), then replaced it with the patched build (P2-T10a).
+func TestP1_DBCreatedByOfficialImage(t *testing.T) {
+	e := setup(t)
+	inst := e.inst(t)
+	users, err := inst.ListUsers(ctx(t), headscale.UserFilter{Name: userBoot})
+	if err != nil || len(users) != 1 {
+		t.Fatalf("user created by the official image: %v %+v", err, users)
+	}
+	e.record(t, "P2-T10a", "DB do image CHÍNH THỨC tạo, bản vá mở",
+		fmt.Sprintf("user %s (id %d, tạo bằng CLI của image chính thức) đọc được qua bản vá; instance healthy", users[0].Name, users[0].ID), "")
 }
 
 func TestP1_EdgeHeaderScheme(t *testing.T) {
