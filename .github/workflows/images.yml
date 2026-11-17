@@ -1,4 +1,5 @@
-# Build image tự làm (P1-T04, P2-T01, P2-T05): edge (Caddy + module), stund, api, worker, idp (Keycloak). Mỗi image:
+# Build image tự làm (P1-T04, P2-T01, P2-T05, P2-T03a): edge (Caddy + module), stund, api, worker, idp (Keycloak),
+# backup (meshguard-backup + pg_dump 18.7 + age — project mg-backup). Mỗi image:
 # build từ base pin theo digest, kiểm nội dung, sinh SBOM (syft), quét lỗ hổng (grype — chặn nếu có mức Critical), rồi
 # mới push lên GHCR. Digest đưa vào versions.lock bằng commit riêng. Action và công cụ pin theo commit SHA / SHA-256,
 # chọn bản đã ≥ 14 ngày tuổi. Ngoại lệ grype chỉ qua file riêng của từng image (cột grype_config — hiện chỉ idp), bắt
@@ -29,6 +30,8 @@ jobs:
           - {image: worker, dockerfile: infrastructure/docker/app/Dockerfile,   context: ".",                         app: worker, grype_config: ""}
           # idp: ngoại lệ CVE-2026-91403 có hạn — P2-T05 mục 7
           - {image: idp,    dockerfile: infrastructure/docker/idp/Dockerfile,   context: infrastructure/docker/idp,   app: "",     grype_config: infrastructure/docker/idp/grype.yaml}
+          # backup: pg-backup/idp-backup/edge-backup (P2-T03a, P2-T05b) — context gốc repo (apps/backup, internal/kit)
+          - {image: backup, dockerfile: infrastructure/docker/backup/Dockerfile, context: ".",                        app: backup, grype_config: ""}
     env:
       IMAGE: ghcr.io/${{ github.repository }}/${{ matrix.image }}
       SYFT_VERSION: "1.56.0"
@@ -125,6 +128,45 @@ jobs:
               docker run --rm --network none --read-only --cap-drop ALL "${IMAGE}:${GITHUB_SHA}" --version > "${RUNNER_TEMP}/idp-version.txt"
               cat "${RUNNER_TEMP}/idp-version.txt"
               grep -qxF "Keycloak ${kc}" "${RUNNER_TEMP}/idp-version.txt" ;;
+            backup)
+              test "$user" = "10007:20007"
+              run=(docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges)
+              # pg_dump/pg_dumpall/pg_restore là bản 18.7 của image postgres pin; age đúng sha256 của build tái lập (versions.lock)
+              for b in pg_dump pg_dumpall pg_restore; do
+                "${run[@]}" --entrypoint "/usr/local/bin/$b" "${IMAGE}:${GITHUB_SHA}" --version | grep -E "^$b \(PostgreSQL\) 18\.7 "
+              done
+              test "$("${run[@]}" --entrypoint /usr/local/bin/age "${IMAGE}:${GITHUB_SHA}" --version)" = "v1.3.2"
+              "${run[@]}" "${IMAGE}:${GITHUB_SHA}" version
+              cid=$(docker create "${IMAGE}:${GITHUB_SHA}")
+              docker export "$cid" > "${RUNNER_TEMP}/backup-fs.tar"
+              docker rm "$cid" >/dev/null
+              want=$(python3 -c 'import tomllib; print(tomllib.load(open("versions.lock", "rb"))["sources"]["age"]["age_linux_amd64_sha256"])')
+              test "$(tar -xOf "${RUNNER_TEMP}/backup-fs.tar" usr/local/bin/age | sha256sum | cut -d' ' -f1)" = "$want"
+              # tệp thực thi trong các thư mục bin: đúng dash (/bin/sh — pg_dumpall gọi popen) + 5 công cụ; không bash/perl/coreutils
+              tar -tvf "${RUNNER_TEMP}/backup-fs.tar" | awk '$1 ~ /^-..x/ && $6 ~ /^(usr\/)?(local\/)?s?bin\// {print $6}' | sort > "${RUNNER_TEMP}/backup-exec.txt"
+              cat "${RUNNER_TEMP}/backup-exec.txt"
+              printf '%s\n' usr/bin/dash usr/local/bin/age usr/local/bin/meshguard-backup usr/local/bin/pg_dump \
+                usr/local/bin/pg_dumpall usr/local/bin/pg_restore | cmp - "${RUNNER_TEMP}/backup-exec.txt"
+              # thiếu recipient ⇒ từ chối (exit 2), không ghi gì
+              rc=0; "${run[@]}" -e MG_BACKUP_TARGET=edge "${IMAGE}:${GITHUB_SHA}" check || rc=$?; test "$rc" = 2
+              # smoke: pg_dump thật tới PostgreSQL 18.7 (versions.lock [images.postgres]) → 2 file ciphertext age + status.
+              # Recipient = khóa VÍ DỤ công khai trong README của age (không phải khóa của nền tảng); giải mã/restore được
+              # diễn tập ở tests/backup/drill.sh với khóa dùng một lần.
+              pg=docker.io/library/postgres@sha256:2ea8630df176ad090ec92136dee850397c5af8781e4bcf2e4162593691c61bbc
+              d="${RUNNER_TEMP}/bk"; mkdir -p "$d/out"; chmod 0777 "$d/out"
+              printf 'ci-%s\n' "${GITHUB_RUN_ID}" > "$d/pw"; chmod 0644 "$d/pw"
+              docker network create bk-smoke >/dev/null
+              docker run -d --name bk-pg --network bk-smoke -e POSTGRES_PASSWORD_FILE=/pw -v "$d/pw:/pw:ro" -e POSTGRES_DB=meshguard "$pg" >/dev/null
+              for i in $(seq 1 60); do docker exec bk-pg pg_isready -q -h 127.0.0.1 -U postgres && break; sleep 1; done
+              docker run --rm --network bk-smoke --read-only --cap-drop ALL --security-opt no-new-privileges \
+                --tmpfs /run/mgbackup:size=1m,mode=0700,uid=10007,gid=20007 -v "$d/out:/backups" -v "$d/pw:/run/secrets/pw:ro" \
+                -e MG_BACKUP_TARGET=postgres -e MG_BACKUP_RECIPIENT=age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p \
+                -e MG_BACKUP_PG_HOST=bk-pg -e MG_BACKUP_PG_DATABASE=meshguard -e MG_BACKUP_PG_USER=postgres \
+                -e MG_BACKUP_PG_PASSWORD_FILE=/run/secrets/pw "${IMAGE}:${GITHUB_SHA}" once --label manual | tail -3
+              docker rm -f bk-pg >/dev/null; docker network rm bk-smoke >/dev/null
+              ls -l "$d/out"
+              n=0; for f in "$d"/out/*.age; do test "$(head -c 21 "$f")" = "age-encryption.org/v1"; n=$((n + 1)); done; test "$n" = 2
+              python3 -c 'import json, sys; s = json.load(open(sys.argv[1])); assert s["last_attempt"]["ok"] and len(s["last_success"]["files"]) == 2' "$d/out/status.json" ;;
           esac
           echo "user=$user OK"
 

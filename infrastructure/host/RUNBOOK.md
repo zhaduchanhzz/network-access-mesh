@@ -41,6 +41,10 @@ tailscale up --login-server=https://<slug>.mesh.$MG_BASE_DOMAIN --auth-key=file:
 
 Sinh KEK `kek-app`/`kek-ops`, khóa khôi phục backup và khóa ký manifest ngay trên host, với chủ dự án giữ 2 bản giấy: [docs/operations/key-ceremony.md](../../docs/operations/key-ceremony.md), bộ công cụ ở [key-ceremony/](key-ceremony/ceremony.sh). Hai bước có vật liệu khóa (`show-offline`, `verify-offline`) chỉ chạy trong terminal của chủ dự án (`ssh -t`); mọi bước khác chạy được qua SSH không TTY và không in bí mật.
 
+## Backup và restore (P2-T03a, P2-T05b)
+
+Project compose `mg-backup` (`pg-backup`, `idp-backup`, `edge-backup` — lịch riêng, mã hóa tới recipient khôi phục trước khi ghi, file trạng thái cho cảnh báo quá hạn), trigger bắt buộc trước migration, restore PostgreSQL/IdP/volume ACME và **thu hồi toàn bộ session sau khi restore vào môi trường đang dùng**: [docs/operations/backup-restore.md](../../docs/operations/backup-restore.md). Kích hoạt trên host ở P2-T16, sau nghi thức khóa.
+
 ## Sau khi recreate edge
 
 Network tenant được gắn lúc chạy nên mất khi container edge bị recreate: chạy lại `sudo bash infrastructure/host/reattach-edge.sh` (mọi instance) — đo được ~16 s cho 100 network ([P1-T20](../../docs/planning/evidence/P1-T20.md)).

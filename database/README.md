@@ -37,7 +37,17 @@ cùng grant; role hệ thống không còn trong seed ⇒ seed dừng (gỡ role
 | `mg_partition_maint` | có | — | job `partition.maintain` | owner `audit_events` + partition; `CREATE` trên schema `partitions` | `mg-sec-worker` |
 | `mg_readonly` | có | — | báo cáo | chỉ schema `report` (chưa có view — đến cùng 0016/P6-T11); không có cả `USAGE` trên `public` | (chưa cấp) |
 | `mg_migrator` | có | — | job `migrate` | owner database, CREATEROLE (ADMIN trên role nó tạo) | `mg-sec-migrate` |
-| `mg_backup` | có | — | `pg-backup` (P2-T03a) | `pg_read_all_data` + BYPASSRLS, `default_transaction_read_only` | `mg-sec-backup` |
+| `mg_backup` | có | — | `pg-backup` (P2-T03a) | `pg_read_all_data` + BYPASSRLS, `default_transaction_read_only` — không gì khác (kiểm ở `internal/store/backup_role_test.go`, xem dưới) | `mg-sec-backup` |
+
+**`mg_backup` (P2-T03a):** `pg_dump` đặt `row_security = off`, điều mà trên bảng `FORCE ROW LEVEL SECURITY` chỉ role
+`BYPASSRLS` làm được (owner và role ứng dụng nhận lỗi 42501 thay vì dump thiếu hàng — `TestRowSecurityOffNeedsBypassRLS`).
+Ngoài đọc, role này không làm được gì: `default_transaction_read_only` chỉ là mặc định (role tự tắt được), nên
+`TestBackupRoleCannotWriteOrEscalate` tắt nó trước rồi chứng minh quyền đơn thuần từ chối 33 câu lệnh (ghi mọi loại bảng,
+partition, schema `river`, sequence, DDL, `TEMP`, `CREATE ROLE/DATABASE`, `ALTER ROLE`, `SET ROLE`/`SESSION
+AUTHORIZATION`, khóa độc quyền, `COPY` file/program, `pg_read_file`, `pg_terminate_backend`, hàm `mg_partition_*`/`app_*`);
+`TestBackupRoleCatalog` kiểm thuộc tính, membership (chỉ `pg_read_all_data`, không ADMIN, không với tới role nào khác) và
+quyền theo catalog trên mọi đối tượng. Còn lại (như mọi role, không chặn được bằng quyền): tự `ALTER ROLE mg_backup SET …`,
+`NOTIFY`, advisory lock, large object khi đã tự tắt read-only — chỉ là DoS trong chính DB, không sửa được dữ liệu.
 
 Mọi role ứng dụng `NOSUPERUSER NOBYPASSRLS`, không DDL (không `CREATE` trên schema, không `TEMPORARY`), không bao giờ
 `TRUNCATE`; quyền chỉ cấp tường minh (không default privileges); cột bất biến (vd. `identities.idp_id/tenant_id/scope`)
@@ -123,7 +133,9 @@ ngoài tham chiếu `provisioning_jobs.id` (+ kind) trong args. Bằng chứng: 
    Lệnh quản trị gói các bước này chưa có — P2-T16.
 3. `mg_migrator`: `store.MigrateAll(ctx, url, store.Credentials{User: "mg_migrator", PasswordFile: …})` — goose
    (`store.OpenMigrator` + `store.Migrate`, session lock), rồi `seeds/*.sql` (`store.Seed`, cùng lệnh `store.Migrate`),
-   rồi schema River (`store.MigrateQueue`) và quyền của nó; luôn có dump trước migration — P2-T03a.
+   rồi schema River (`store.MigrateQueue`) và quyền của nó; **luôn có dump trước migration** — P2-T03a: bước migrate
+   chạy trước `docker compose -p mg-backup … run --rm -T pg-backup once --label pre-migration` và dừng nếu exit ≠ 0
+   ([runbook backup/restore](../docs/operations/backup-restore.md) mục 5).
 4. Tiến trình: `store.Open(ctx, store.Config{URL: "postgres://postgres:5432/meshguard?sslmode=…", Tenant: …,
    Platform: …})` — URL không chứa user/mật khẩu; mật khẩu đọc lại từ file ở mỗi kết nối mới (xoay không cần restart).
    Đường audit detached (api và worker): `store.OpenAuditWriter(ctx, url, store.Credentials{User: "mg_audit_writer",

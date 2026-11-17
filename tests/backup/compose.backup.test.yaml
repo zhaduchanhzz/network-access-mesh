@@ -1,0 +1,63 @@
+# P2-T03a/P2-T05b — CHỈ cho diễn tập trên máy build/CI (tests/backup/drill.sh); không bao giờ dùng trên host
+# staging/production. Ghép SAU compose.backup.yaml đã render: chỉ đổi tên network/volume ACME (tiền tố riêng của lượt
+# diễn tập) và đường dẫn bind/secret sang thư mục làm việc. Không ghi đè thiết lập nào của service (image, user,
+# read_only, cap, tmpfs, biến môi trường giữ nguyên như bản render).
+services:
+  pg-backup:
+    volumes:
+      - type: bind
+        source: ${MGT_WORK}/backups/postgres
+        target: /backups
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${MGT_WORK}/keys/backup-recovery.age-recipient
+        target: /run/meshguard/backup-recovery.age-recipient
+        read_only: true
+        bind:
+          create_host_path: false
+  idp-backup:
+    volumes:
+      - type: bind
+        source: ${MGT_WORK}/backups/idp
+        target: /backups
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${MGT_WORK}/keys/backup-recovery.age-recipient
+        target: /run/meshguard/backup-recovery.age-recipient
+        read_only: true
+        bind:
+          create_host_path: false
+  edge-backup:
+    volumes:
+      - type: bind
+        source: ${MGT_WORK}/backups/edge
+        target: /backups
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${MGT_WORK}/keys/backup-recovery.age-recipient
+        target: /run/meshguard/backup-recovery.age-recipient
+        read_only: true
+        bind:
+          create_host_path: false
+
+secrets:
+  pg_backup_password:
+    file: ${MGT_WORK}/secrets/backup/pg_backup_password
+  idp_backup_password:
+    file: ${MGT_WORK}/secrets/backup/idp_backup_password
+
+volumes:
+  edge-data:
+    external: true
+    name: ${MGT_PREFIX}-edge-data
+
+networks:
+  mg-data:
+    name: ${MGT_PREFIX}-data
+    external: true
+  mg-idp-data:
+    name: ${MGT_PREFIX}-idp-data
+    external: true

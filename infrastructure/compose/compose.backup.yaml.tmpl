@@ -1,0 +1,144 @@
+# Sinh bởi tools/render_backup.py từ infrastructure/compose/compose.backup.yaml.tmpl (template_version ${template_version}).
+# KHÔNG sửa tay — render lại. Project mg-backup (P2-T03a, P2-T05b; §14.4, §17.1): ba dịch vụ backup có lịch riêng,
+# cùng một image (infrastructure/docker/backup) — pg-backup (PostgreSQL của nền tảng), idp-backup (DB của Keycloak),
+# edge-backup (volume ACME của edge). Tách khỏi mg-core/mg-idp/mg-edge để nâng cấp image backup không recreate dịch vụ
+# nào khác và vì image tự build chỉ pin được sau khi workflow `images` chạy (như mg-idp — P2-T05 Q15).
+# Đặt tại /opt/meshguard/core/compose.backup.yaml. Network do infrastructure/host/networks.sh tạo trước (external);
+# volume ACME thuộc project mg-edge (external, chỉ-đọc).
+#
+# Bất biến (tools/test_render_backup.py kiểm): mã hóa tới recovery recipient ${recipient} (đường DR, §17.1) TRƯỚC khi
+# ghi — dịch vụ đối chiếu với file recipient của nghi thức khóa trên host và từ chối chạy khi trống/sai/lệch (exit 2,
+# không ghi gì); không secret trong biến môi trường (mật khẩu DB là file secret); non-root, rootfs chỉ-đọc,
+# cap_drop ALL, no-new-privileges; mỗi dịch vụ chỉ mount ghi đúng thư mục đích của nó; không Docker socket.
+#
+# Trước migration (P2-T03a — bắt buộc; P2-T16 gọi trong bước migrate, dừng nếu exit ≠ 0):
+#   docker compose -p mg-backup -f /opt/meshguard/core/compose.backup.yaml run --rm pg-backup once --label pre-migration
+name: mg-backup
+
+x-backup: &backup
+  image: ${image}
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  mem_limit: 256m
+  pids_limit: 64
+  restart: unless-stopped
+  stop_grace_period: 60s
+  logging:
+    driver: json-file
+    options: {max-size: "10m", max-file: "5"}
+  labels:
+    meshguard.role: backup
+
+x-backup-env: &backup-env
+  MG_BACKUP_RECIPIENT: ${recipient}
+  MG_BACKUP_RECIPIENT_FILE: /run/meshguard/backup-recovery.age-recipient
+  MG_BACKUP_DEST: /backups
+  MG_BACKUP_KEEP_DAYS: "14"         # bản theo lịch: giữ 14 ngày, luôn giữ ≥ 7 bản mới nhất
+  MG_BACKUP_KEEP_MIN: "7"
+  MG_BACKUP_KEEP_ONDEMAND: "5"      # pre-migration / manual: giữ 5 bản mới nhất của mỗi loại
+  MG_BACKUP_MAX_AGE: 26h            # status quá hạn (cảnh báo §16.3): 24 giờ + 2 giờ ân hạn
+
+services:
+  pg-backup:
+    <<: *backup
+    user: "10007:20007"             # UID riêng của dịch vụ backup, nhóm mg-sec-backup (versions.lock [ids])
+    environment:
+      <<: *backup-env
+      MG_BACKUP_TARGET: postgres
+      MG_BACKUP_DAILY_AT: "02:30"   # UTC
+      MG_BACKUP_PG_HOST: postgres
+      MG_BACKUP_PG_DATABASE: meshguard
+      MG_BACKUP_PG_USER: mg_backup  # BYPASSRLS + pg_read_all_data, mặc định read-only (database/bootstrap/superuser.sql)
+      MG_BACKUP_PG_PASSWORD_FILE: /run/secrets/pg_backup_password
+    secrets:
+      - pg_backup_password
+    tmpfs:
+      - /run/mgbackup:size=1m,mode=0700,uid=10007,gid=20007   # pgpass của một lượt chạy (xóa sau lượt)
+    volumes:
+      - type: bind                  # mount ghi DUY NHẤT
+        source: /opt/meshguard/backups/postgres
+        target: /backups
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /opt/meshguard/core/keys/backup-recovery.age-recipient
+        target: /run/meshguard/backup-recovery.age-recipient
+        read_only: true
+        bind:
+          create_host_path: false
+    networks: [mg-data]
+
+  idp-backup:
+    <<: *backup
+    user: "10007:20007"
+    environment:
+      <<: *backup-env
+      MG_BACKUP_TARGET: idp
+      MG_BACKUP_DAILY_AT: "02:40"
+      MG_BACKUP_PG_HOST: idp-db
+      MG_BACKUP_PG_DATABASE: keycloak
+      MG_BACKUP_PG_USER: idp_backup  # chỉ đọc (pg_read_all_data) — infrastructure/idp/initdb/20-idp-backup-role.sql
+      MG_BACKUP_PG_PASSWORD_FILE: /run/secrets/idp_backup_password
+    secrets:
+      - idp_backup_password
+    tmpfs:
+      - /run/mgbackup:size=1m,mode=0700,uid=10007,gid=20007
+    volumes:
+      - type: bind
+        source: /opt/meshguard/backups/idp
+        target: /backups
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /opt/meshguard/core/keys/backup-recovery.age-recipient
+        target: /run/meshguard/backup-recovery.age-recipient
+        read_only: true
+        bind:
+          create_host_path: false
+    networks: [mg-idp-data]
+
+  edge-backup:
+    <<: *backup
+    user: "10001:20007"             # UID của edge: đọc được khóa TLS/ACME (0600) mà không cần capability nào
+    environment:
+      <<: *backup-env
+      MG_BACKUP_TARGET: edge
+      MG_BACKUP_DAILY_AT: "02:50"
+      MG_BACKUP_SOURCE: /source
+    volumes:
+      - type: volume                # volume ACME của edge — CHỈ-ĐỌC
+        source: edge-data
+        target: /source
+        read_only: true
+        volume:
+          nocopy: true
+      - type: bind
+        source: /opt/meshguard/backups/edge
+        target: /backups
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /opt/meshguard/core/keys/backup-recovery.age-recipient
+        target: /run/meshguard/backup-recovery.age-recipient
+        read_only: true
+        bind:
+          create_host_path: false
+    network_mode: none
+
+secrets:
+  pg_backup_password:               # root:mg-sec-backup 0440 — mật khẩu role mg_backup
+    file: /opt/meshguard/secrets/backup/pg_backup_password
+  idp_backup_password:              # root:mg-sec-backup 0440 — cùng giá trị với secrets/idp/backup_db_password
+    file: /opt/meshguard/secrets/backup/idp_backup_password
+
+volumes:
+  edge-data:
+    external: true
+    name: ${edge_volume}
+
+networks:
+  mg-data:
+    external: true
+  mg-idp-data:
+    external: true

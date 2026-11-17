@@ -283,6 +283,11 @@ def readme(front: list[str], sections: dict[str, Section]) -> list[str]:
         "khóa ký manifest, 2 bản offline, diễn tập nạp lại KEK (không sinh từ master; P2-T04a) |"
     )
     out.append(
+        "| [operations/backup-restore.md](operations/backup-restore.md) | Runbook backup và restore PostgreSQL, IdP, "
+        "volume ACME của edge: project mg-backup, trigger trước migration, file trạng thái cho cảnh báo, retention, "
+        "thu hồi session sau restore (không sinh từ master; P2-T03a, P2-T05b) |"
+    )
+    out.append(
         "| [planning/evidence/](planning/evidence/README.md) | Bằng chứng thực hiện: quy ước, biên bản phê duyệt kiến trúc, "
         "task bị chặn, sổ kết quả kiểm chứng, báo cáo gate (không sinh từ master) |"
     )
