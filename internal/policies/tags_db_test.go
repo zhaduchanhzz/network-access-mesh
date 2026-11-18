@@ -350,7 +350,11 @@ func TestTagDeleteReferences(t *testing.T) {
 	if err := deleteIt(); err != nil {
 		t.Fatalf("delete without references: %v", err)
 	}
-	if n := f.count(t, `SELECT count(*) FROM tenant_tags WHERE name = 'tag:srv'`); n != 1 {
+	// scoped to this fixture's two tenants: the database is shared by every run (-count=N) and every test of the package
+	if n := f.count(t, `SELECT count(*) FROM tenant_tags WHERE name = 'tag:srv' AND tenant_id = $1`, f.a.id); n != 0 {
+		t.Fatalf("tenant A's tag must be gone (%d left)", n)
+	}
+	if n := f.count(t, `SELECT count(*) FROM tenant_tags WHERE name = 'tag:srv' AND tenant_id = $1`, f.b.id); n != 1 {
 		t.Fatalf("tenant B's tag must stay (%d left)", n)
 	}
 }

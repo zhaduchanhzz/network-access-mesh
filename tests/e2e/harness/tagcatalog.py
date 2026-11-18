@@ -21,6 +21,7 @@ import json
 import secrets
 import time
 
+from backend import psql
 from dualcontrol import psql_one, tenant_id
 from lifecycle import admin_session
 from phase3 import policy_apply, stored_sha
@@ -51,9 +52,12 @@ def _wait_apply(st: Stack, a_id: str, since: str, timeout: float = 120) -> str:
     return status or "none"
 
 
-def _last_application(st: Stack, a_id: str) -> str:
-    return psql_one(st, "SELECT trigger || '|' || state || '|' || applied_sha256 FROM policy_applications "
-                    f"WHERE tenant_id = '{a_id}' ORDER BY created_at DESC LIMIT 1")
+def _last_application(st: Stack, a_id: str) -> list:
+    """[trigger, state, applied_sha256] of the newest application of tenant a — three columns of one row (psql() splits
+    on '|' already, so a '|'-joined single column would come back as its first piece only)."""
+    rows = psql(st, "SELECT trigger, state, coalesce(applied_sha256, '') FROM policy_applications "
+                f"WHERE tenant_id = '{a_id}' ORDER BY created_at DESC, id DESC LIMIT 1")
+    return rows[0] if rows else ["", "", ""]
 
 
 def _node_tags(st: Stack, name_part: str) -> list:
@@ -92,7 +96,7 @@ def check_catalog(r, st: Stack) -> None:
          f"duplicate {dup.status}; router {router.status}")
     status = _wait_apply(st, a_id, since)
     stored = st.headscale(SLUG, "policy", "get").stdout
-    app = _last_application(st, a_id).split("|")
+    app = _last_application(st, a_id)
     owned = ('"' + TAG + '": []') in stored
     cond("rendered", status == "succeeded" and owned and '"tagOwners"' in stored
          and app[:2] == ["tag_change", "applied"] and app[-1] == stored_sha(st),
@@ -145,7 +149,7 @@ def check_catalog(r, st: Stack) -> None:
     status = _wait_apply(st, a_id, since)
     stored = st.headscale(SLUG, "policy", "get").stdout
     cond("delete", code == 0 and gone.status == 204 and status == "succeeded" and "tagOwners" not in stored
-         and _last_application(st, a_id).split("|")[-1] == stored_sha(st),
+         and _last_application(st, a_id)[-1] == stored_sha(st),
          f"baseline again exit {code}; DELETE {gone.status}; policy.apply {status}; Headscale without tagOwners "
          f"{'tagOwners' not in stored}")
     audit = psql_one(st, "SELECT string_agg(action, ',' ORDER BY occurred_at, id) FROM audit_events WHERE "
