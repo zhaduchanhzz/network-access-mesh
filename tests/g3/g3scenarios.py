@@ -75,11 +75,29 @@ def deprovision(t: Target, pf: Platform, tenant_id: str, slug: str, timeout: flo
     return d
 
 
-def orphan_delta(t: Target, scope: str, baseline: list[dict], settled: bool = True) -> dict:
-    o = g3host.orphans(t, scope, settled)
-    if o.get("error"):
-        return o
-    o["new"] = g3stats.new_findings(baseline, o["findings"])
+# A one-shot helper container (backup/restore/configtest of the Host Agent) exists only for the RPC that made it: on
+# staging the scheduled instance.backup of a freshly provisioned tenant can run while the detector looks (round 16 of
+# the first official run, 2026-11-18: backup 16:00:28.156–.821, detector 16:00:29). A helper finding is an orphan only
+# if it is still there after the RPC had time to end — checked again HELPER_SETTLE_S later, up to HELPER_RECHECKS times.
+HELPER_KIND = "helper_container_left"
+HELPER_SETTLE_S = 5.0
+HELPER_RECHECKS = 3
+
+
+def orphan_delta(t: Target, scope: str, baseline: list[dict], settled: bool = True, sleep=time.sleep) -> dict:
+    transient: list[dict] = []
+    for attempt in range(HELPER_RECHECKS + 1):
+        o = g3host.orphans(t, scope, settled)
+        if o.get("error"):
+            return o
+        o["new"] = g3stats.new_findings(baseline, o["findings"])
+        helpers = [f for f in o["new"] if f.get("kind") == HELPER_KIND]
+        if not helpers or attempt == HELPER_RECHECKS:
+            break
+        transient.extend(h for h in helpers if h not in transient)
+        sleep(HELPER_SETTLE_S)
+    if transient:
+        o["transient_helpers"] = [h for h in transient if h not in o["new"]]
     return o
 
 

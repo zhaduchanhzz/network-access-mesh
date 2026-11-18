@@ -177,4 +177,21 @@ check(ts.edge_ip and ts.edge_ip == ts.env["MG_LAN_IPV4"] and ts.domain == ts.env
 src = "\n".join(p.read_text(encoding="utf-8") for p in sorted(HERE.glob("*.py")) if p.name != "test_g3.py")
 check(ts.env["MG_LAN_IPV4"] not in src and ts.env["MG_BASE_DOMAIN"] not in src and ts.env["MG_PUBLIC_IPV4"] not in src,
       "tool source: no IP or domain of staging written in code")
+# ---- transient helper containers (round 16 of the first official staging run)
+import g3host  # noqa: E402
+import g3scenarios  # noqa: E402
+helper = {"kind": "helper_container_left", "subject": "mg-helper-g3-x-backup-1"}
+seq = [[helper], []]
+real_orphans = g3host.orphans
+g3host.orphans = lambda *_a, **_k: {"findings": seq.pop(0) if seq else [], "summary": ""}
+waits: list[float] = []
+o = g3scenarios.orphan_delta(None, "g3-", [], sleep=waits.append)
+check(o["new"] == [] and o.get("transient_helpers") == [helper] and waits == [g3scenarios.HELPER_SETTLE_S],
+      "orphan_delta: a helper container gone after the settle delay is not an orphan (reported as transient)")
+g3host.orphans = lambda *_a, **_k: {"findings": [helper], "summary": ""}
+waits.clear()
+o = g3scenarios.orphan_delta(None, "g3-", [], sleep=waits.append)
+check(o["new"] == [helper] and len(waits) == g3scenarios.HELPER_RECHECKS,
+      "orphan_delta: a helper container still there after every recheck is an orphan")
+g3host.orphans = real_orphans
 sys.exit(1 if failures else 0)
