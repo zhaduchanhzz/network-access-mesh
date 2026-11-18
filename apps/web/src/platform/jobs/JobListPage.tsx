@@ -5,7 +5,9 @@ import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 import { JOB_STATUSES, type Job, type JobStatus } from "../../api/jobs";
 import { useCursorPager } from "../../api/pagination";
-import { DateTime, EmptyState, Pager, QueryBlock, StatusBadge } from "../../components/Data";
+import { EmptyState, Pager, QueryBlock } from "../../ui/Data";
+import { StatusBadge } from "../../ui/Status";
+import { Timestamp } from "../../ui/time";
 import { Page } from "../../components/Page";
 import { useJobList } from "../api";
 
@@ -19,7 +21,7 @@ export function JobTable({ jobs, showTenant, caption }: { jobs: readonly Job[]; 
   const { t } = useTranslation();
   return (
     <div className="overflow-x-auto rounded-lg border border-line bg-surface">
-      <table className="table">
+      <table className="data-table">
         <caption className="sr-only">{caption}</caption>
         <thead>
           <tr>
@@ -50,11 +52,11 @@ export function JobTable({ jobs, showTenant, caption }: { jobs: readonly Job[]; 
                 </td>
               ) : null}
               <td>
-                <StatusBadge status={j.status} label={t(`status.job.${j.status}`)} />
+                <StatusBadge status={j.status}>{t(`status.job.${j.status}`)}</StatusBadge>
               </td>
               <td>{j.current_step ? <code>{j.current_step}</code> : <span className="text-muted">{t("common.none")}</span>}</td>
               <td>
-                <DateTime value={j.created_at} />
+                <Timestamp iso={j.created_at} emptyKey="common.none" />
               </td>
             </tr>
           ))}

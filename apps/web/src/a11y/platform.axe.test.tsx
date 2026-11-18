@@ -4,10 +4,13 @@
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import axe from "axe-core";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { i18n } from "../i18n";
 import { json, mockApi, platformSession, renderApp } from "../test/helpers";
 import { approval, APPR1, failedJob, instance, JOB1, JOB2, provisionedJob, relayList, safeJob, T1, tenant } from "../test/platformFixtures";
+
+// luồng dài (nhiều bước UI, axe, route lazy): trên runner chậm / nhiều file song song vượt 5 s mặc định của Vitest
+vi.setConfig({ testTimeout: 30_000 });
 
 async function violations(): Promise<string[]> {
   const r = await axe.run(document.body, {

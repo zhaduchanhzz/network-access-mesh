@@ -1,4 +1,4 @@
-// Hộp xác nhận thao tác phá hủy (dùng chung): alertdialog có tên + mô tả, gõ lại giá trị mới bật nút, Esc đóng (trừ
+// Hộp xác nhận thao tác phá hủy (bản duy nhất — P4-T02 + P4-T04): alertdialog có tên + mô tả, gõ lại giá trị mới bật nút, Esc đóng (trừ
 // khi đang gửi), lỗi server hiện trong hộp, focus vào trong hộp và trả về nút đã mở; không chèn <style> (CSP).
 import { QueryClientProvider } from "@tanstack/react-query";
 import { render as rtlRender, screen, waitFor } from "@testing-library/react";
@@ -10,6 +10,9 @@ import { MemoryRouter } from "react-router";
 import { ApiError } from "../api/problem";
 import { createQueryClient } from "../api/queryClient";
 import { ConfirmDialog } from "./ConfirmDialog";
+
+// luồng dài (nhiều bước UI, axe, route lazy): trên runner chậm / nhiều file song song vượt 5 s mặc định của Vitest
+vi.setConfig({ testTimeout: 30_000 });
 
 const render = (ui: ReactElement) =>
   rtlRender(
@@ -103,5 +106,43 @@ describe("ConfirmDialog", () => {
     } finally {
       process.env.NODE_ENV = env;
     }
+  });
+
+  it("không có ô gõ xác nhận: focus vào Hủy, Tab/Shift+Tab giữ trong hộp, Escape đóng và trả focus (ca của P4-T04)", async () => {
+    const onConfirm = vi.fn();
+    function Simple() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => { setOpen(true); }}>
+            open
+          </button>
+          <ConfirmDialog isOpen={open} onOpenChange={setOpen} title="T" description={<p>mô tả</p>} confirmLabel="OK" destructive onConfirm={onConfirm} />
+        </>
+      );
+    }
+    render(<Simple />);
+    const opener = screen.getByRole("button", { name: "open" });
+    await userEvent.click(opener);
+    const dialog = await screen.findByRole("alertdialog", { name: "T" });
+    expect(dialog).toHaveAccessibleDescription("mô tả");
+    expect(screen.getByRole("button", { name: "Hủy" })).toHaveFocus();
+    await userEvent.tab();
+    expect(screen.getByRole("button", { name: "OK" })).toHaveFocus();
+    await userEvent.tab();
+    expect(screen.getByRole("button", { name: "Hủy" })).toHaveFocus();
+    await userEvent.tab({ shift: true });
+    expect(screen.getByRole("button", { name: "OK" })).toHaveFocus();
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => {
+      expect(screen.queryByRole("alertdialog")).toBeNull();
+    });
+    await waitFor(() => {
+      expect(opener).toHaveFocus();
+    });
+    expect(onConfirm).not.toHaveBeenCalled();
+    await userEvent.click(opener);
+    await userEvent.click(await screen.findByRole("button", { name: "OK" }));
+    expect(onConfirm).toHaveBeenCalledOnce();
   });
 });

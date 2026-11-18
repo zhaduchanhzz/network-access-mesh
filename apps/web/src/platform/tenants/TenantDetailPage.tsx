@@ -9,7 +9,9 @@ import { ApiError } from "../../api/problem";
 import { isUuid } from "../../api/queryClient";
 import { useCursorPager } from "../../api/pagination";
 import { can } from "../../auth/permissions";
-import { DateTime, EmptyState, Field, Pager, QueryBlock, StatusBadge } from "../../components/Data";
+import { EmptyState, Field, Pager, QueryBlock } from "../../ui/Data";
+import { StatusBadge } from "../../ui/Status";
+import { Timestamp } from "../../ui/time";
 import { Loading, Page } from "../../components/Page";
 import { ProblemAlert } from "../../components/ProblemAlert";
 import { NotFoundPage } from "../../pages/StatusPages";
@@ -78,7 +80,7 @@ function Summary({ tenant }: { tenant: Tenant }) {
           <code>{tenant.slug}</code>
         </Field>
         <Field label={t("platform.tenants.col.status")}>
-          <StatusBadge status={tenant.status} label={t(`status.tenant.${tenant.status}`)} />
+          <StatusBadge status={tenant.status}>{t(`status.tenant.${tenant.status}`)}</StatusBadge>
         </Field>
         <Field label={t("platform.tenants.col.plan")}>
           <code>{tenant.plan}</code>
@@ -91,10 +93,10 @@ function Summary({ tenant }: { tenant: Tenant }) {
           <code className="text-xs">{tenant.id}</code>
         </Field>
         <Field label={t("platform.tenants.col.created")}>
-          <DateTime value={tenant.created_at} />
+          <Timestamp iso={tenant.created_at} emptyKey="common.none" />
         </Field>
         <Field label={t("platform.tenantDetail.updated")}>
-          <DateTime value={tenant.updated_at} />
+          <Timestamp iso={tenant.updated_at} emptyKey="common.none" />
         </Field>
         <Field label={t("platform.tenantDetail.limits")}>
           {limits.length === 0 ? (
@@ -139,14 +141,14 @@ function InstanceSection({ tenantId, enabled }: { tenantId: string; enabled: boo
                   <li key={i.id} data-testid="instance">
                     <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                       <Field label={t("platform.tenantDetail.instanceStatus")}>
-                        <StatusBadge status={i.status} label={t(`status.instance.${i.status}`)} />
+                        <StatusBadge status={i.status}>{t(`status.instance.${i.status}`)}</StatusBadge>
                       </Field>
                       <Field label={t("platform.tenantDetail.health")}>
-                        <StatusBadge status={i.health.status} label={t(`status.health.${i.health.status}`)} />
+                        <StatusBadge status={i.health.status}>{t(`status.health.${i.health.status}`)}</StatusBadge>
                         {i.health.reason ? <code className="ms-2 text-xs">{i.health.reason}</code> : null}
                       </Field>
                       <Field label={t("platform.tenantDetail.checkedAt")}>
-                        <DateTime value={i.health.checked_at} />
+                        <Timestamp iso={i.health.checked_at} emptyKey="common.none" />
                       </Field>
                       <Field label={t("platform.tenantDetail.version")}>
                         <code>{i.headscale_version}</code>
@@ -164,7 +166,7 @@ function InstanceSection({ tenantId, enabled }: { tenantId: string; enabled: boo
                         {i.derp_region_id === undefined ? t("common.none") : String(i.derp_region_id)}
                       </Field>
                       <Field label={t("platform.tenantDetail.apiKeyExpires")}>
-                        <DateTime value={i.api_key_expires_at} />
+                        <Timestamp iso={i.api_key_expires_at} emptyKey="common.none" />
                       </Field>
                     </dl>
                   </li>
@@ -193,7 +195,7 @@ function RelaySection({ tenantId, enabled }: { tenantId: string; enabled: boolea
                 <EmptyState>{t("platform.tenantDetail.noRelay")}</EmptyState>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="table">
+                  <table className="data-table">
                     <caption className="sr-only">{t("platform.tenantDetail.relay")}</caption>
                     <thead>
                       <tr>
@@ -217,14 +219,14 @@ function RelaySection({ tenantId, enabled }: { tenantId: string; enabled: boolea
                             <code>{`${r.region.hostname}:${String(r.region.derp_port)}`}</code>
                           </td>
                           <td>
-                            <StatusBadge status={r.region.status} label={t(`status.relay.${r.region.status}`)} />
+                            <StatusBadge status={r.region.status}>{t(`status.relay.${r.region.status}`)}</StatusBadge>
                           </td>
                           <td>
-                            <StatusBadge status={r.health.status} label={t(`status.health.${r.health.status}`)} />
+                            <StatusBadge status={r.health.status}>{t(`status.health.${r.health.status}`)}</StatusBadge>
                             {r.health.reason ? <code className="ms-2 text-xs">{r.health.reason}</code> : null}
                           </td>
                           <td>
-                            <DateTime value={r.health.checked_at} />
+                            <Timestamp iso={r.health.checked_at} emptyKey="common.none" />
                           </td>
                         </tr>
                       ))}

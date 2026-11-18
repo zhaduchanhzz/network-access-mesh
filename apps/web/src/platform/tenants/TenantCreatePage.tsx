@@ -13,7 +13,7 @@ import { jobFromLocation } from "../../api/jobs";
 import { useQueryClient } from "@tanstack/react-query";
 import { can } from "../../auth/permissions";
 import { SLUG_RE } from "../../auth/session";
-import { Field } from "../../components/Data";
+import { Field } from "../../ui/Data";
 import { Page } from "../../components/Page";
 import { ProblemAlert } from "../../components/ProblemAlert";
 import { ForbiddenPage } from "../../pages/StatusPages";
@@ -127,7 +127,7 @@ export function TenantCreatePage() {
     onSuccess: async (r) => {
       setForm(EMPTY); // xóa client_secret khỏi bộ nhớ của form
       await invalidatePlatform(queryClient, "tenants");
-      const ref = jobFromLocation(r.headers.get("Location"));
+      const ref = jobFromLocation(r.response.headers.get("Location"));
       void navigate(`/platform/jobs/${ref?.jobId ?? r.data.id}`, { state: { createdTenant: r.data.tenant_id } });
     },
   });
@@ -159,7 +159,7 @@ export function TenantCreatePage() {
           <li
             key={s}
             aria-current={i === step ? "step" : undefined}
-            className={i === step ? "badge badge-ok" : i < step ? "badge badge-neutral" : "badge badge-neutral opacity-70"}
+            className={i === step ? "badge badge-ok" : i < step ? "badge" : "badge opacity-70"}
           >
             {t("platform.tenantCreate.stepLabel", { n: i + 1, name: t(`platform.tenantCreate.step.${s}`) })}
           </li>

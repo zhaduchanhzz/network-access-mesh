@@ -13,8 +13,10 @@ import { isSettled, jobFromLocation, plannedSteps, type JobStepStatus, type Plat
 import { ApiError } from "../../api/problem";
 import { isUuid } from "../../api/queryClient";
 import { can } from "../../auth/permissions";
-import { ConfirmDialog } from "../../components/ConfirmDialog";
-import { DateTime, Field, JsonBlock, StatusBadge } from "../../components/Data";
+import { ConfirmDialog } from "../../ui/ConfirmDialog";
+import { Field, JsonBlock } from "../../ui/Data";
+import { StatusBadge } from "../../ui/Status";
+import { Timestamp } from "../../ui/time";
 import { Loading, Page } from "../../components/Page";
 import { ProblemAlert } from "../../components/ProblemAlert";
 import { NotFoundPage } from "../../pages/StatusPages";
@@ -91,7 +93,7 @@ function JobDetail({ jobId }: { jobId: string }) {
       <div className="card mb-6">
         <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <Field label={t("platform.jobs.col.status")}>
-            <StatusBadge status={j.status} label={t(`status.job.${j.status}`)} />
+            <StatusBadge status={j.status}>{t(`status.job.${j.status}`)}</StatusBadge>
           </Field>
           <Field label={t("platform.jobs.col.kind")}>
             <code>{j.kind}</code>
@@ -107,7 +109,7 @@ function JobDetail({ jobId }: { jobId: string }) {
           </Field>
           <Field label={t("platform.jobs.col.step")}>{j.current_step ? <code>{j.current_step}</code> : t("common.none")}</Field>
           <Field label={t("platform.jobs.col.created")}>
-            <DateTime value={j.created_at} />
+            <Timestamp iso={j.created_at} emptyKey="common.none" />
           </Field>
           <Field label={t("platform.job.resource")}>
             {j.resource ? <code className="text-xs">{`${j.resource.type}:${j.resource.id}`}</code> : t("common.none")}
@@ -174,9 +176,9 @@ function StepItem({ index, row, current, kind }: { index: number; row: Row; curr
         <span className="w-6 text-right text-xs text-muted tabular-nums">{index}</span>
         <code className="font-medium">{row.name}</code>
         {label ? <span className="text-sm text-muted">{label}</span> : null}
-        <StatusBadge status={status} label={t(`status.step.${status}`)} />
+        <StatusBadge status={status}>{t(`status.step.${status}`)}</StatusBadge>
         {s?.compensation_status ? (
-          <StatusBadge status={s.compensation_status} label={t("platform.job.compensation", { status: t(`status.step.${s.compensation_status}`) })} />
+          <StatusBadge status={s.compensation_status}>{t("platform.job.compensation", { status: t(`status.step.${s.compensation_status}`) })}</StatusBadge>
         ) : null}
       </div>
       {s ? (
@@ -184,9 +186,9 @@ function StepItem({ index, row, current, kind }: { index: number; row: Row; curr
           <p className="text-muted">
             {t("platform.job.attempt", { n: s.attempt })}
             {" · "}
-            {t("platform.job.started")} <DateTime value={s.started_at} />
+            {t("platform.job.started")} <Timestamp iso={s.started_at} emptyKey="common.none" />
             {" · "}
-            {t("platform.job.finished")} <DateTime value={s.finished_at} />
+            {t("platform.job.finished")} <Timestamp iso={s.finished_at} emptyKey="common.none" />
           </p>
           {s.message ? <p>{s.message}</p> : null}
           {s.detail && Object.keys(s.detail).length > 0 ? (
@@ -222,7 +224,7 @@ function JobControls({ job }: { job: PlatformJob }) {
     },
     onSuccess: async (r) => {
       setOpen(null);
-      const next = jobFromLocation(r.headers.get("Location"))?.jobId ?? r.data.id;
+      const next = jobFromLocation(r.response.headers.get("Location"))?.jobId ?? r.data.id;
       await Promise.all([
         invalidatePlatform(queryClient, "job", job.id),
         invalidatePlatform(queryClient, "jobs"),

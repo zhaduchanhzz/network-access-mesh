@@ -8,7 +8,7 @@
 //   - thao tác đã thành công ⇒ lần bấm sau là ý định mới ⇒ khóa mới.
 // Khóa sinh lúc gửi (trong mutationFn), không lúc render; chỉ nằm trong bộ nhớ của trang (không Web Storage).
 import { useMutation, type UseMutationOptions } from "@tanstack/react-query";
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 /** Khóa mới: UUID v4 (36 ký tự ASCII in được — khớp `^[\x21-\x7E]+$`, 8–255 của spec). */
 export function newIdempotencyKey(): string {
@@ -33,6 +33,25 @@ export class IdempotencyKeys {
   settle(): void {
     this.fingerprint = null;
   }
+}
+
+/** Biến thể tường minh (P4-T04): `current()` = khóa của ý định đang mở (tạo khi gọi lần đầu), `reset()` khi ý định kết
+ * thúc (thành công, hộp xác nhận đóng). */
+export interface IdempotencyKey {
+  current: () => string;
+  reset: () => void;
+}
+
+export function useIdempotencyKey(): IdempotencyKey {
+  const ref = useRef<string | null>(null);
+  const current = useCallback(() => {
+    ref.current ??= newIdempotencyKey();
+    return ref.current;
+  }, []);
+  const reset = useCallback(() => {
+    ref.current = null;
+  }, []);
+  return { current, reset };
 }
 
 export function useIdempotencyKeys(): IdempotencyKeys {

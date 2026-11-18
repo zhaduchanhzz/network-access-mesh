@@ -10,7 +10,7 @@ import { api, callWithResponse } from "../../api/client";
 import { useIdempotentMutation } from "../../api/idempotency";
 import { approvalFromLocation, jobFromLocation } from "../../api/jobs";
 import { can } from "../../auth/permissions";
-import { ConfirmDialog } from "../../components/ConfirmDialog";
+import { ConfirmDialog } from "../../ui/ConfirmDialog";
 import { invalidatePlatform, type Tenant } from "../api";
 
 type Dialog = "suspend" | "resume" | "delete" | null;
@@ -43,7 +43,7 @@ export function TenantActions({ tenant, role }: { tenant: Tenant; role: string |
     onSuccess: async (r) => {
       setOpen(null);
       await refresh();
-      toJob(r.headers.get("Location"), r.data.id);
+      toJob(r.response.headers.get("Location"), r.data.id);
     },
   });
 
@@ -58,7 +58,7 @@ export function TenantActions({ tenant, role }: { tenant: Tenant; role: string |
     onSuccess: async (r) => {
       setOpen(null);
       await Promise.all([refresh(), invalidatePlatform(queryClient, "approvals")]);
-      const id = approvalFromLocation(r.headers.get("Location")) ?? r.data.id;
+      const id = approvalFromLocation(r.response.headers.get("Location")) ?? r.data.id;
       void navigate(`/platform/approvals/${id}`, { state: { requested: true } });
     },
   });

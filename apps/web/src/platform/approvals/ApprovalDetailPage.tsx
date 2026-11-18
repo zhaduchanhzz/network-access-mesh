@@ -13,8 +13,10 @@ import { ApiError } from "../../api/problem";
 import { isUuid } from "../../api/queryClient";
 import { can } from "../../auth/permissions";
 import { useSession } from "../../auth/session";
-import { ConfirmDialog } from "../../components/ConfirmDialog";
-import { DateTime, Field, JsonBlock, StatusBadge } from "../../components/Data";
+import { ConfirmDialog } from "../../ui/ConfirmDialog";
+import { Field, JsonBlock } from "../../ui/Data";
+import { StatusBadge } from "../../ui/Status";
+import { Timestamp } from "../../ui/time";
 import { Loading, Page } from "../../components/Page";
 import { ProblemAlert } from "../../components/ProblemAlert";
 import { NotFoundPage } from "../../pages/StatusPages";
@@ -76,7 +78,7 @@ function ApprovalDetail({ approvalId }: { approvalId: string }) {
           </h2>
           <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <Field label={t("platform.approvals.col.status")}>
-              <StatusBadge status={a.status} label={t(`status.approval.${a.status}`)} />
+              <StatusBadge status={a.status}>{t(`status.approval.${a.status}`)}</StatusBadge>
             </Field>
             <Field label={t("platform.approvals.col.resource")}>
               {a.resource_type === "tenant" && a.resource_id && isUuid(a.resource_id) ? (
@@ -91,14 +93,14 @@ function ApprovalDetail({ approvalId }: { approvalId: string }) {
             </Field>
             <Field label={t("platform.approvals.col.requestedBy")}>{a.requested_by.display_name}</Field>
             <Field label={t("platform.approvals.col.created")}>
-              <DateTime value={a.created_at} />
+              <Timestamp iso={a.created_at} emptyKey="common.none" />
             </Field>
             <Field label={t("platform.approvals.col.expires")}>
-              <DateTime value={a.expires_at} />
+              <Timestamp iso={a.expires_at} emptyKey="common.none" />
             </Field>
             {a.decided_by ? (
               <Field label={t("platform.approval.decidedBy")}>
-                {a.decided_by.display_name} · <DateTime value={a.decided_at} />
+                {a.decided_by.display_name} · <Timestamp iso={a.decided_at} emptyKey="common.none" />
               </Field>
             ) : null}
             {a.job_id ? (
@@ -157,11 +159,11 @@ function PayloadSection({ approval: a }: { approval: ApprovalRequest }) {
         {local.isPending ? (
           t("platform.approval.hashChecking")
         ) : matches ? (
-          <StatusBadge status="succeeded" label={t("platform.approval.hashMatch")} />
+          <StatusBadge status="succeeded">{t("platform.approval.hashMatch")}</StatusBadge>
         ) : local.data === null ? (
-          <StatusBadge status="unknown" label={t("platform.approval.hashUnverifiable")} />
+          <StatusBadge status="unknown">{t("platform.approval.hashUnverifiable")}</StatusBadge>
         ) : (
-          <StatusBadge status="failed" label={t("platform.approval.hashMismatch")} />
+          <StatusBadge status="failed">{t("platform.approval.hashMismatch")}</StatusBadge>
         )}
       </p>
       {a.status === "pending" ? (

@@ -1,95 +1,123 @@
-// Hạ tầng UI dùng chung (P4-T04): hộp xác nhận cho thao tác phá hủy/nhạy cảm — modal có ARIA (`role="alertdialog"`,
-// `aria-modal`, tiêu đề + mô tả), focus vào nút an toàn (Hủy) khi mở, Tab/Shift+Tab không ra khỏi hộp, Escape = Hủy,
-// trả focus về phần tử đã mở hộp khi đóng. Không phụ thuộc thư viện ngoài (cây phụ thuộc của vỏ P4-T01 giữ nhỏ).
-import { useEffect, useId, useRef, type KeyboardEvent, type ReactNode } from "react";
+// Xác nhận thao tác phá hủy/nhạy cảm — bản duy nhất (P4-T02 + P4-T04; §12.2 "Xóa: dual control + step-up"): alertdialog
+// (React Aria: bẫy focus, Esc, trả focus), focus đầu tiên vào nút an toàn (Hủy) hoặc ô gõ xác nhận, mô tả hậu quả, tùy chọn bắt người dùng GÕ LẠI một giá trị (slug của tenant) trước khi nút xác nhận bật, ô nhập thêm
+// (lý do…), lỗi của server hiển thị ngay trong hộp (step-up 401 reauth_required còn có lời nhắc chung ở đầu trang).
+// Nút xác nhận chỉ là UX: server mới là nơi quyết định (quyền, 2P, step-up, `confirm_slug`).
+import { useId, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { ApiError } from "../api/problem";
+import { useStepUp } from "../components/Banners";
+import { ProblemAlert } from "../components/ProblemAlert";
+import { ModalDialog } from "./Dialog";
 
 export interface ConfirmDialogProps {
-  open: boolean;
+  isOpen: boolean;
+  onOpenChange: (open: boolean) => void;
   title: string;
-  /** hậu quả của thao tác, nói rõ (§12.4 — không mơ hồ) */
-  children: ReactNode;
+  description: ReactNode;
   confirmLabel: string;
-  /** nút xác nhận kiểu nguy hiểm (xóa, thu hồi) */
+  /** phá hủy (nút đỏ) hay chỉ cần xác nhận */
   destructive?: boolean;
-  /** đang gửi: khóa nút xác nhận, Escape/Hủy vẫn dùng được */
-  busy?: boolean;
+  /** người dùng phải gõ đúng `expected` (phân biệt hoa thường) */
+  typedConfirmation?: { expected: string; label: string };
+  /** ô nhập/ghi chú thêm (lý do…) */
+  children?: ReactNode;
+  /** điều kiện thêm của form con (ví dụ lý do không rỗng) */
+  canConfirm?: boolean;
+  pending?: boolean;
+  error?: unknown;
   onConfirm: () => void;
-  onCancel: () => void;
 }
 
-const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
-export function ConfirmDialog({ open, title, children, confirmLabel, destructive, busy, onConfirm, onCancel }: ConfirmDialogProps) {
-  const { t } = useTranslation();
-  const titleId = useId();
+export function ConfirmDialog(props: ConfirmDialogProps) {
   const descId = useId();
-  const boxRef = useRef<HTMLDivElement>(null);
-  const cancelRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    cancelRef.current?.focus();
-    return () => {
-      opener?.focus();
-    };
-  }, [open]);
-
-  if (!open) return null;
-
-  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      onCancel();
-      return;
-    }
-    if (e.key !== "Tab" || !boxRef.current) return;
-    const items = [...boxRef.current.querySelectorAll<HTMLElement>(FOCUSABLE)];
-    const first = items[0];
-    const last = items[items.length - 1];
-    if (!first || !last) return;
-    if (e.shiftKey && document.activeElement === first) {
-      e.preventDefault();
-      last.focus();
-    } else if (!e.shiftKey && document.activeElement === last) {
-      e.preventDefault();
-      first.focus();
-    }
-  };
-
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
-      <div
-        ref={boxRef}
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        aria-describedby={descId}
-        className="w-full max-w-md rounded-lg border border-line bg-surface p-5 text-fg shadow-lg"
-        onKeyDown={onKeyDown}
-      >
-        <h2 id={titleId} className="text-lg font-semibold">
-          {title}
-        </h2>
-        <div id={descId} className="mt-2 space-y-2 text-sm">
-          {children}
+    <ModalDialog
+      isOpen={props.isOpen}
+      onOpenChange={props.onOpenChange}
+      title={props.title}
+      role="alertdialog"
+      busy={props.pending}
+      describedBy={descId}
+    >
+      {/* thân hộp chỉ mount khi mở ⇒ giá trị đã gõ mất khi đóng */}
+      <ConfirmBody {...props} descId={descId} />
+    </ModalDialog>
+  );
+}
+
+function ConfirmBody({
+  description,
+  confirmLabel,
+  destructive = false,
+  typedConfirmation,
+  children,
+  canConfirm = true,
+  pending = false,
+  error,
+  onConfirm,
+  onOpenChange,
+  descId,
+}: ConfirmDialogProps & { descId: string }) {
+  const { t } = useTranslation();
+  const stepUp = useStepUp();
+  const inputId = useId();
+  const [typed, setTyped] = useState("");
+  const typedOk = !typedConfirmation || typed === typedConfirmation.expected;
+  return (
+    <form
+      className="space-y-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (typedOk && canConfirm && !pending) onConfirm();
+      }}
+    >
+      <div id={descId}>{description}</div>
+      {children}
+      {typedConfirmation ? (
+        <div>
+          <label htmlFor={inputId} className="label">
+            {typedConfirmation.label}
+          </label>
+          <input
+            id={inputId}
+            className="input font-mono"
+            // focus đầu tiên vào ô gõ xác nhận (không vào nút phá hủy)
+            autoFocus
+            autoComplete="off"
+            spellCheck={false}
+            value={typed}
+            aria-invalid={typed !== "" && !typedOk}
+            onChange={(e) => {
+              setTyped(e.target.value);
+            }}
+          />
+          <p className="hint">{t("confirm.typeHint", { value: typedConfirmation.expected })}</p>
         </div>
-        <div className="mt-5 flex flex-wrap justify-end gap-2">
-          <button ref={cancelRef} type="button" className="btn-secondary" onClick={onCancel}>
-            {t("ui.cancel")}
-          </button>
-          <button
-            type="button"
-            className={destructive ? "btn-danger" : "btn-primary"}
-            disabled={busy}
-            aria-busy={busy}
-            onClick={onConfirm}
-          >
-            {confirmLabel}
-          </button>
-        </div>
+      ) : null}
+      {error ? <ProblemAlert error={error} /> : null}
+      {error instanceof ApiError && error.code === "reauth_required" ? (
+        // lời nhắc step-up chung nằm sau lớp modal: cho xác thực lại ngay từ hộp
+        <button type="button" className="btn-secondary" onClick={stepUp}>
+          {t("stepUp.action")}
+        </button>
+      ) : null}
+      <div className="flex justify-end gap-2 pt-2">
+        <button
+          type="button"
+          className="btn-secondary"
+          // alertdialog: focus đầu tiên vào thao tác an toàn khi không có ô gõ xác nhận (WAI-ARIA APG)
+          autoFocus={!typedConfirmation}
+          disabled={pending}
+          onClick={() => {
+            onOpenChange(false);
+          }}
+        >
+          {t("ui.cancel")}
+        </button>
+        <button type="submit" className={destructive ? "btn-danger" : "btn-primary"} disabled={!typedOk || !canConfirm || pending}>
+          {pending ? t("common.working") : confirmLabel}
+        </button>
       </div>
-    </div>
+    </form>
   );
 }

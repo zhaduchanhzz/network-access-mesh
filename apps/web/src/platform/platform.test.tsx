@@ -23,6 +23,9 @@ import {
   tenant,
 } from "../test/platformFixtures";
 
+// luồng dài (nhiều bước UI, axe, route lazy): trên runner chậm / nhiều file song song vượt 5 s mặc định của Vitest
+vi.setConfig({ testTimeout: 30_000 });
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 function session(role = "super_admin") {

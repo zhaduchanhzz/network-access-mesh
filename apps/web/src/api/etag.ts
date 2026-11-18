@@ -16,7 +16,7 @@ export async function callWithETag<T>(
   opts: { notify?: boolean } = {},
 ): Promise<Versioned<T>> {
   const r = await callWithResponse(pending, opts);
-  return { data: r.data, etag: r.headers.get("ETag") };
+  return { data: r.data, etag: r.response.headers.get("ETag") };
 }
 
 /** Header If-Match cho lệnh sửa. Không có ETag ⇒ ném lỗi ngay (không gửi request sẽ chắc chắn bị 428). */

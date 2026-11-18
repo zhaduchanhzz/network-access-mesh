@@ -5,7 +5,9 @@ import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 import { useCursorPager } from "../../api/pagination";
 import { useSession } from "../../auth/session";
-import { DateTime, EmptyState, Pager, QueryBlock, StatusBadge } from "../../components/Data";
+import { EmptyState, Pager, QueryBlock } from "../../ui/Data";
+import { StatusBadge } from "../../ui/Status";
+import { Timestamp } from "../../ui/time";
 import { Page } from "../../components/Page";
 import { APPROVAL_STATUSES, useApprovalList, type ApprovalStatus } from "../api";
 import { ActionLabel } from "./ApprovalDetailPage";
@@ -84,7 +86,7 @@ export function ApprovalListPage() {
           ) : (
             <>
               <div className="overflow-x-auto rounded-lg border border-line bg-surface">
-                <table className="table">
+                <table className="data-table">
                   <caption className="sr-only">{t("platform.approvals.caption")}</caption>
                   <thead>
                     <tr>
@@ -112,13 +114,13 @@ export function ApprovalListPage() {
                           {a.requested_by.identity_id === me ? <span className="hint block">{t("platform.approvals.you")}</span> : null}
                         </td>
                         <td>
-                          <StatusBadge status={a.status} label={t(`status.approval.${a.status}`)} />
+                          <StatusBadge status={a.status}>{t(`status.approval.${a.status}`)}</StatusBadge>
                         </td>
                         <td>
-                          <DateTime value={a.created_at} />
+                          <Timestamp iso={a.created_at} emptyKey="common.none" />
                         </td>
                         <td>
-                          <DateTime value={a.expires_at} />
+                          <Timestamp iso={a.expires_at} emptyKey="common.none" />
                         </td>
                       </tr>
                     ))}

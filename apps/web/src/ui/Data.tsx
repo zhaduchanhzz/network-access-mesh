@@ -1,66 +1,11 @@
-// Mảnh hiển thị dữ liệu dùng chung (§12.4): nhãn trạng thái (chữ + màu, không chỉ màu), thời điểm theo locale, JSON
-// thô, trạng thái rỗng, phân trang con trỏ, khối truy vấn (đang tải / lỗi / rỗng / có dữ liệu).
+// Mảnh hiển thị dữ liệu dùng chung (P4-T02, §12.4): JSON thô, trạng thái rỗng, phân trang con trỏ, khối truy vấn (đang tải
+// / lỗi / có dữ liệu), cặp nhãn – giá trị. Nhãn trạng thái: ui/Status.tsx; thời điểm: ui/time.tsx.
 import type { UseQueryResult } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { CursorPager } from "../api/pagination";
-import { formatDateTime } from "../i18n";
-import { Loading } from "./Page";
-import { ProblemAlert } from "./ProblemAlert";
-
-export type Tone = "ok" | "warn" | "danger" | "neutral";
-
-const TONES: Record<string, Tone> = {
-  // tenant / instance / relay / approval / job / step / health
-  active: "ok",
-  running: "ok",
-  succeeded: "ok",
-  healthy: "ok",
-  executed: "ok",
-  approved: "ok",
-  provisioning: "warn",
-  pending: "warn",
-  queued: "warn",
-  allocated: "warn",
-  starting: "warn",
-  suspended: "warn",
-  compensating: "warn",
-  failed_resumable: "danger",
-  deprovisioning: "warn",
-  failed: "danger",
-  unhealthy: "danger",
-  quarantined: "danger",
-  rejected: "danger",
-  deleted: "neutral",
-  removed: "neutral",
-  stopped: "neutral",
-  disabled: "neutral",
-  cancelled: "neutral",
-  rolled_back: "neutral",
-  expired: "neutral",
-  skipped: "neutral",
-  unknown: "neutral",
-};
-
-export function toneOf(status: string): Tone {
-  return TONES[status] ?? "neutral";
-}
-
-/** Nhãn trạng thái: `label` đã dịch; `status` (giá trị máy) chỉ chọn màu và nằm trong data-status cho test. */
-export function StatusBadge({ status, label }: { status: string; label: string }) {
-  return (
-    <span className={`badge badge-${toneOf(status)}`} data-status={status}>
-      {label}
-    </span>
-  );
-}
-
-/** Thời điểm theo ngôn ngữ đang chọn; `null` ⇒ "—". */
-export function DateTime({ value }: { value: string | null | undefined }) {
-  const { i18n, t } = useTranslation();
-  if (!value) return <span className="text-muted">{t("common.none")}</span>;
-  return <time dateTime={value}>{formatDateTime(value, i18n.language)}</time>;
-}
+import { Loading } from "../components/Page";
+import { ProblemAlert } from "../components/ProblemAlert";
 
 /** JSON thô (đã redaction ở server), có thanh cuộn bàn phím được; tiêu đề hiển thị nằm ở chỗ gọi. */
 export function JsonBlock({ value }: { value: unknown }) {

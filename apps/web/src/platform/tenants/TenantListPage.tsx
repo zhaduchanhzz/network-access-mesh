@@ -4,7 +4,9 @@ import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 import { useCursorPager } from "../../api/pagination";
 import { can } from "../../auth/permissions";
-import { DateTime, EmptyState, Pager, QueryBlock, StatusBadge } from "../../components/Data";
+import { EmptyState, Pager, QueryBlock } from "../../ui/Data";
+import { StatusBadge } from "../../ui/Status";
+import { Timestamp } from "../../ui/time";
 import { Page } from "../../components/Page";
 import { TENANT_STATUSES, useTenantList, type TenantStatus } from "../api";
 import { usePlatformRole } from "../PlatformScope";
@@ -90,7 +92,7 @@ export function TenantListPage() {
           ) : (
             <>
               <div className="overflow-x-auto rounded-lg border border-line bg-surface">
-                <table className="table">
+                <table className="data-table">
                   <caption className="sr-only">{t("platform.tenants.caption")}</caption>
                   <thead>
                     <tr>
@@ -112,14 +114,14 @@ export function TenantListPage() {
                         </td>
                         <td>{tn.name}</td>
                         <td>
-                          <StatusBadge status={tn.status} label={t(`status.tenant.${tn.status}`)} />
+                          <StatusBadge status={tn.status}>{t(`status.tenant.${tn.status}`)}</StatusBadge>
                         </td>
                         <td>
                           <code>{tn.plan}</code>
                         </td>
                         <td>{tn.deployment_region}</td>
                         <td>
-                          <DateTime value={tn.created_at} />
+                          <Timestamp iso={tn.created_at} emptyKey="common.none" />
                         </td>
                       </tr>
                     ))}
