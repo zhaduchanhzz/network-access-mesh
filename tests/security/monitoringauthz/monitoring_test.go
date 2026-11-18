@@ -217,7 +217,7 @@ func TestMonitoringThroughTheComposedAPI(t *testing.T) {
 		for _, u := range d.Unavailable {
 			got[u.Section] = u.Reason
 		}
-		if len(got) != 4 || got["policies"] != "no_source" || got["relay"] != "no_source" || got["routes"] != "not_served" ||
+		if len(got) != 4 || got["policies"] != "no_source" || got["relay"] != "not_served" || got["routes"] != "not_served" ||
 			got["security_events"] != "not_served" {
 			t.Errorf("%s: unavailable sections %v", who, got)
 		}

@@ -208,7 +208,7 @@ func (q *Queries) GetProvisionTenant(ctx context.Context, id uuid.UUID) (GetProv
 }
 
 const getTenantRelayRegionByCode = `-- name: GetTenantRelayRegionByCode :one
-SELECT id, code, name, kind, derp_region_id, hostname, ipv4, ipv6, stun_port, derp_port, verify_mode, host_id, tenant_id, status, created_at, updated_at, version FROM relay_regions
+SELECT id, code, name, kind, derp_region_id, hostname, ipv4, ipv6, stun_port, derp_port, verify_mode, host_id, tenant_id, status, created_at, updated_at, version, last_probe, last_probe_at FROM relay_regions
 WHERE tenant_id = $1::uuid AND code = $2
 `
 
@@ -238,6 +238,8 @@ func (q *Queries) GetTenantRelayRegionByCode(ctx context.Context, arg GetTenantR
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Version,
+		&i.LastProbe,
+		&i.LastProbeAt,
 	)
 	return i, err
 }
@@ -554,7 +556,7 @@ VALUES ($1, $2, $3, 'embedded', $4, $5,
 ON CONFLICT (tenant_id, code) DO UPDATE
 SET hostname = EXCLUDED.hostname, ipv4 = EXCLUDED.ipv4, stun_port = EXCLUDED.stun_port, status = 'active',
     updated_at = now(), version = relay_regions.version + 1
-RETURNING id, code, name, kind, derp_region_id, hostname, ipv4, ipv6, stun_port, derp_port, verify_mode, host_id, tenant_id, status, created_at, updated_at, version
+RETURNING id, code, name, kind, derp_region_id, hostname, ipv4, ipv6, stun_port, derp_port, verify_mode, host_id, tenant_id, status, created_at, updated_at, version, last_probe, last_probe_at
 `
 
 type UpsertEmbeddedRelayRegionParams struct {
@@ -599,6 +601,8 @@ func (q *Queries) UpsertEmbeddedRelayRegion(ctx context.Context, arg UpsertEmbed
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Version,
+		&i.LastProbe,
+		&i.LastProbeAt,
 	)
 	return i, err
 }

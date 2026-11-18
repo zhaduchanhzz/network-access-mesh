@@ -76,7 +76,7 @@ Rủi ro tồn dư của mọi relay dùng chung: node của tenant này có th�
 |---|---|---|
 | Relay ingress/egress bytes | Headscale **không** xuất metrics của relay (UNSUPPORTED). Ước lượng bằng bộ đếm network theo container và số byte của request `/derp` theo hostname trong access log của edge — là **xấp xỉ**, gộp cả lưu lượng control | `bytes_received`, `bytes_sent` |
 | Concurrent connections | Số stream nâng cấp đang mở theo hostname tại edge — REQUIRES VALIDATION khả năng đo (V-25) | `gauge_current_connections` |
-| Relay health | Probe tổng hợp: `GET https://<host>/derp/probe`, probe UDP STUN, `tailscale debug derp <region>` từ canary client | Như bên + `/debug/check` |
+| Relay health | Probe tổng hợp: `GET https://<host>/derp/probe`, probe UDP STUN, `tailscale debug derp <region>` từ canary client. P3-T05c: job `relay.probe` (prober — `/derp/probe` qua listener công khai của edge + STUN tới địa chỉ STUN của region) ghi kết quả kèm `checked_at`, đọc qua `GET /tenants/{t}/relay` và `GET /platform/relay-regions`; các dòng còn lại của bảng này trả về trong `unavailable` kèm lý do, không bao giờ là con số | Như bên + `/debug/check` |
 | Authentication failures | Metric dựng từ log của Headscale (định dạng dòng log cần xác nhận) | Log/counter của derper |
 | Throughput | Suy ra từ bộ đếm byte | Như bên |
 | Network latency | `tailscale netcheck --format=json` từ canary client ngoài host (tùy chọn) | Như bên |

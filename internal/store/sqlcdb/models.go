@@ -358,6 +358,8 @@ type RelayRegion struct {
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 	Version      int64
+	LastProbe    []byte
+	LastProbeAt  *time.Time
 }
 
 type Role struct {

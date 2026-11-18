@@ -27,6 +27,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/monitoringapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/notificationsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/provisioningapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/relayapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/tenantsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/identity"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/idp"
@@ -37,6 +38,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/platform"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/lifecycle"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/orchestrator"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/relay"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/usage"
 )
@@ -65,7 +67,8 @@ import (
 //	                 (invitationsapi over tenants + authz.GuardInvitationRole), IdPConsole (idpconsoleapi over
 //	                 approvals — P3-T15), Provisioning (provisioningapi over orchestrator.Creator — steps 1–2 of
 //	                 tenant.provision with usage's quota checks — and orchestrator.Control, P3-T05), Lifecycle
-//	                 (lifecycleapi over lifecycle.Requester — suspend/resume, P3-T08)
+//	                 (lifecycleapi over lifecycle.Requester — suspend/resume, P3-T08), Relay (relayapi over relay —
+//	                 the tenant's relays and the platform's regions with the last probe, reads only, P3-T05c)
 //	readiness        postgres, secretstore, edge_admin (§16.2)
 func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prometheus.Registerer) (_ *component, err error) {
 	d, err := openDeps(ctx, cfg, log, idp.PlatformOIDCPaths)
@@ -119,6 +122,10 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 	if err != nil {
 		return nil, err
 	}
+	relays, err := relay.New(d.st, relay.Config{Logger: log, Registerer: reg}) // reads only — the worker probes
+	if err != nil {
+		return nil, err
+	}
 	creator, err := orchestrator.NewCreator(orchestrator.CreatorConfig{Store: d.st, Secrets: d.secrets,
 		Quota: usage.NewChecker(d.st), QuotaTx: usage.TenantCreationTx, BaseDomain: cfg.BaseDomain})
 	if err != nil {
@@ -147,6 +154,7 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 			IdPConsole:    idpconsoleapi.New(appr),
 			Provisioning:  provisioningapi.New(creator, orchestrator.NewControl(d.st)),
 			Lifecycle:     lifecycleapi.New(lifecycle.NewRequester(d.st)),
+			Relay:         relayapi.New(relays),
 		},
 	})
 	if err != nil {

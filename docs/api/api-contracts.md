@@ -205,6 +205,7 @@ Hành vi upstream phải được mã hóa trong adapter và ghim bằng contrac
 | `enrollment.reconcile` | Lịch | `tenant:<id>:enroll:<slot>` | Đối chiếu key đã dùng/hết hạn; chuyển request quá hạn (chờ duyệt hoặc chờ `issue` 24 giờ; mã 10 phút) sang `expired` |
 | `usage.collect` | Lịch (hằng ngày) | `tenant:<id>:usage:<date>` | Ghi `usage_records` |
 | `health.probe` | Lịch | `instance:<id>:health:<slot>` | Cập nhật `tenant_instances.last_health` |
+| `relay.probe` (P3-T05c) | Lịch (mỗi 5 phút, lệch theo hash của region; region chưa từng probe ⇒ ngay ở lượt lịch đầu tiên thấy nó) | `relay:<region>:probe:<slot>` | Chỉ region `embedded` đang `active` có instance đang chạy: Prober `Relay` (`GET /derp/probe` qua listener công khai của edge + STUN binding tới địa chỉ STUN của region) ⇒ cập nhật `relay_regions.last_probe`/`last_probe_at`; probe không chạy được (prober không tới được, đích ngoài allow-list) ⇒ job lỗi, không ghi gì; chỉ chạy khi worker có `MG_PROBER_URL` (+ `MG_PROVISION_EDGE_ADDR` — được đặt riêng, không cần orchestrator); theo yêu cầu: `meshguard-worker admin relay-probe --tenant …` |
 | `job.reaper` | Lịch (mỗi phút) | theo slot | Job `running` đã quá `timeout_at`, hoặc job mà queue đã loại bỏ ⇒ job nhóm lifecycle: `failed_resumable` (vẫn giữ khóa chạy tới khi `/retry` hoặc `/rollback`), job khác: `failed`; phát cảnh báo |
 | `grant.expire` / `session.gc` / `retention.sweep` | Lịch | theo slot | Dọn dẹp theo giá trị retention ở §6.4 |
 

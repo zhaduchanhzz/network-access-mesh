@@ -64,7 +64,7 @@ func TestTenantDashboardIsolation(t *testing.T) {
 			t.Errorf("%s instance %+v, want %s/%q checked at %v (its own instance)", ten.slug, d.Instance, w.status, w.reason, row.healthAt)
 		}
 		got := sections(d)
-		if len(got) != 4 || got[SectionPolicies] != ReasonNoSource || got[SectionRelay] != ReasonNoSource ||
+		if len(got) != 4 || got[SectionPolicies] != ReasonNoSource || got[SectionRelay] != ReasonNotServed ||
 			got[SectionRoutes] != ReasonNotServed || got[SectionSecurityEvents] != ReasonNotServed {
 			t.Errorf("%s unavailable sections %v", ten.slug, got)
 		}

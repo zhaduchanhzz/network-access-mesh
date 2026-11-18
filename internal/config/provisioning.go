@@ -24,7 +24,9 @@ type Provisioning struct {
 	// EdgeAddr (MG_PROVISION_EDGE_ADDR, ip:port): the edge's public listener as the prober reaches it (steps 17, 18).
 	EdgeAddr string
 	// ProberURL (MG_PROBER_URL, http://host:port): the prober RPC (apps/probe, P3-T03a). Empty: steps 17/18 stop the
-	// job in failed_resumable (prober_not_configured) — the edge is never declared verified without it.
+	// job in failed_resumable (prober_not_configured) — the edge is never declared verified without it — and the worker
+	// runs no relay.probe (P3-T05c). It may be set without the orchestrator (only MG_PROBER_URL + MG_PROVISION_EDGE_ADDR):
+	// the worker then probes the relays of the registry and provisions nothing.
 	ProberURL string
 	// DNSCheck (MG_PROVISION_DNS_CHECK): "resolve" (default — step 4 resolves <slug>.mesh.<domain>) or "skip" (dev/ci
 	// stacks without public DNS only).
@@ -61,6 +63,15 @@ func LoadProvisioning(service, env string, getenv func(string) string) (Provisio
 	if service != "worker" {
 		return p, []error{errors.New("MG_PROVISION_*, MG_PROBER_URL: the Tenant Orchestrator runs in the worker only")}
 	}
+	// The prober alone (relay.probe, P3-T05c): MG_PROBER_URL + the edge address it probes, no orchestrator setting.
+	proberOnly := p.ProberURL != "" && p.HeadscaleDigest == "" && p.HeadscaleVersion == "" && ns == "" && p.DNSServer == "" &&
+		strings.TrimSpace(getenv("MG_PROVISION_DNS_CHECK")) == ""
+	if proberOnly {
+		if _, err := netip.ParseAddrPort(p.EdgeAddr); err != nil {
+			errs = append(errs, errors.New("MG_PROVISION_EDGE_ADDR must be ip:port (the edge's public listener)"))
+		}
+		return p, append(errs, proberURLErrors(p.ProberURL)...)
+	}
 	if !digestRE.MatchString(p.HeadscaleDigest) || !versionRE.MatchString(p.HeadscaleVersion) {
 		errs = append(errs, errors.New("MG_PROVISION_HEADSCALE_DIGEST (sha256:<64 hex>) and MG_PROVISION_HEADSCALE_VERSION "+
 			"(vX.Y.Z) are required together"))
@@ -79,13 +90,7 @@ func LoadProvisioning(service, env string, getenv func(string) string) (Provisio
 	if _, err := netip.ParseAddrPort(p.EdgeAddr); err != nil {
 		errs = append(errs, errors.New("MG_PROVISION_EDGE_ADDR must be ip:port (the edge's public listener)"))
 	}
-	if p.ProberURL != "" {
-		u, err := url.Parse(p.ProberURL)
-		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil ||
-			(u.Path != "" && u.Path != "/") || u.RawQuery != "" {
-			errs = append(errs, errors.New("MG_PROBER_URL must be http(s)://host:port"))
-		}
-	}
+	errs = append(errs, proberURLErrors(p.ProberURL)...)
 	switch p.DNSCheck {
 	case "resolve":
 	case "skip":
@@ -101,4 +106,17 @@ func LoadProvisioning(service, env string, getenv func(string) string) (Provisio
 		}
 	}
 	return p, errs
+}
+
+// proberURLErrors checks MG_PROBER_URL ("" is valid: no prober).
+func proberURLErrors(v string) []error {
+	if v == "" {
+		return nil
+	}
+	u, err := url.Parse(v)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil ||
+		(u.Path != "" && u.Path != "/") || u.RawQuery != "" {
+		return []error{errors.New("MG_PROBER_URL must be http(s)://host:port")}
+	}
+	return nil
 }

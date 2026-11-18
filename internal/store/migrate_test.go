@@ -29,7 +29,7 @@ func TestMigrationsUpWithData(t *testing.T) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	defer e.lockCluster(t)()
-	for v := int64(1); v <= latestMigration; v++ {
+	for _, v := range migrationVersions() {
 		if err := MigrateTo(ctx, mig, v); err != nil {
 			t.Fatalf("migration %04d on a database with data: %v", v, err)
 		}

@@ -391,6 +391,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tenants/{tenantId}/relay": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Relay DERP của tenant — region được gán và kết quả probe gần nhất kèm `checked_at`
+         * @description Relay của instance chưa `removed` của tenant (`relay_assignments` + `relay_regions`, §6.3 — bước 17 `relay.assign` của provisioning tạo chúng) với health của region: kết quả probe tổng hợp gần nhất của prober (`GET /derp/probe` qua listener công khai của edge + STUN binding tới điểm vào công khai — job `relay.probe`), `checked_at` là lúc probe bắt đầu. Không có số liệu giả (§10.6): embedded DERP không xuất metrics relay — byte, throughput, số kết nối, lỗi xác thực, độ trễ phía client nằm trong `unavailable` kèm lý do. Tenant chỉ lấy từ path; không nhận tham số truy vấn nào. Tenant chưa có relay nào trong registry ⇒ `assignments` rỗng.
+         */
+        get: operations["getTenantRelay"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/relay-regions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Relay region của nền tảng — chỉ đọc ở MVP
+         * @description Mọi region (`relay_regions`, §6.3) theo `(created_at, id)`, mỗi region kèm assignment (tenant, instance, trạng thái instance) và health (cùng quy tắc với `GET /tenants/{tenantId}/relay`; region `standalone`/`shared` chưa được probe ở MVP ⇒ `unknown`/`no_probe`). Ghi (`POST`/`PATCH`/`DELETE`) thuộc P7-T04. Số liệu không đo được (§10.6) nằm trong `unavailable`.
+         */
+        get: operations["listPlatformRelayRegions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/platform/tenants": {
         parameters: {
             query?: never;
@@ -1656,6 +1696,120 @@ export interface components {
             jobs: components["schemas"]["JobQueueHealth"];
         };
         /**
+         * @description `embedded` (DERP nhúng trong Headscale của tenant — MVP, ADR-11), `standalone` (derper riêng của một tenant — phương án lùi §10.3), `shared` (relay dùng chung — research proposal §10.5, Phase 7)
+         * @enum {string}
+         */
+        RelayRegionKind: "embedded" | "standalone" | "shared";
+        /**
+         * @description Trạng thái quản trị (`relay_regions.status`, `relay_assignments.status` — 0010); sức khỏe đo được nằm ở `health`, không ở đây
+         * @enum {string}
+         */
+        RelayAdminStatus: "pending" | "active" | "disabled";
+        /** @description Một phép kiểm của lần probe gần nhất, đo bởi prober bên trong nền tảng (`duration_ms` là thời gian của phép kiểm từ prober — không phải độ trễ client thấy) */
+        RelayCheck: {
+            ok: boolean;
+            /** @description Trạng thái HTTP nhận được (chỉ `derp`); vắng khi không nhận được câu trả lời */
+            status?: number;
+            /** @description Mã lỗi ổn định của prober khi phép kiểm không đạt (`timeout`, `refused`, `unreachable`, `tls_handshake`, `tls_verify`, `bad_response`, `no_mapped_address`, `expectation_failed`…); vắng khi đạt */
+            code?: string;
+            /** Format: int64 */
+            duration_ms: number;
+        };
+        /** @description Health của region từ lần probe tổng hợp gần nhất (`derp`: `GET /derp/probe` qua listener công khai của edge ⇒ 200; `stun`: STUN binding tới địa chỉ STUN của region ⇒ có mapped address). `checked_at` là lúc probe bắt đầu, `null` khi chưa từng probe; kết quả cũ hơn ngưỡng, region/assignment không `active`, instance không chạy, hoặc loại region chưa được probe ⇒ `status = unknown` kèm `reason`; `derp`/`stun` là các phép kiểm của lần probe ở `checked_at` */
+        RelayHealth: {
+            status: components["schemas"]["HealthStatus"];
+            /** Format: date-time */
+            checked_at: string | null;
+            /** @description Lý do ổn định khi `status` khác `healthy`. Kết quả probe: `derp_probe_failed`, `stun_probe_failed`, `relay_unreachable` (cả hai). Không có kết luận: `never_checked`, `stale`, `invalid_record`, `instance_not_running`, `relay_not_active`, `no_probe`. Tập giá trị chỉ được bổ sung (cộng thêm) */
+            reason?: string;
+            derp?: components["schemas"]["RelayCheck"];
+            stun?: components["schemas"]["RelayCheck"];
+        };
+        /** @description Region relay (`relay_regions`, §6.3) — tham số công khai, như client của tenant thấy trong DERP map; không chứa secret */
+        RelayRegion: {
+            /** Format: uuid */
+            id: string;
+            /** @description `region_code` (ví dụ `mg-<slug>`, §10.1) */
+            code: string;
+            name: string;
+            kind: components["schemas"]["RelayRegionKind"];
+            derp_region_id: number;
+            hostname: string;
+            /**
+             * Format: ipv4
+             * @description Địa chỉ quảng bá của điểm vào công khai (`derp.server.ipv4`, §10.1)
+             */
+            ipv4?: string;
+            /** Format: ipv6 */
+            ipv6?: string;
+            stun_port?: number;
+            derp_port: number;
+            /**
+             * @description `in_process` (`verify_clients` của DERP nhúng) | `verify_url` (fail-closed)
+             * @enum {string}
+             */
+            verify_mode: "in_process" | "verify_url";
+            status: components["schemas"]["RelayAdminStatus"];
+        };
+        /** @description Số đo relay nền tảng KHÔNG báo — "không khả dụng" kèm lý do thay vì số giả (§10.6, §12.4) */
+        RelayUnavailable: {
+            /** @description `traffic_bytes`, `throughput`, `connections`, `auth_failures`, `client_latency` (chỉ bổ sung; một mục rời danh sách khi task xây nguồn của nó hoàn tất) */
+            metric: string;
+            /** @description `unsupported` (thành phần không cung cấp được — embedded DERP không xuất metrics relay), `no_source` (nền tảng chưa có nguồn) */
+            reason: string;
+            /** @description Câu giải thích ngắn (tiếng Anh) cho người đọc; phần ổn định là `reason` */
+            detail?: string;
+        };
+        /** @description Một relay của tenant — assignment của instance tới một region (`relay_assignments`), kèm health của region */
+        RelayAssignment: {
+            /** Format: uuid */
+            id: string;
+            priority: number;
+            status: components["schemas"]["RelayAdminStatus"];
+            region: components["schemas"]["RelayRegion"];
+            health: components["schemas"]["RelayHealth"];
+        };
+        /** @description Relay của tenant (§12.3 mục Relay) — mỗi health kèm `checked_at`; số đo không có nguồn ở `unavailable` */
+        TenantRelay: {
+            assignments: components["schemas"]["RelayAssignment"][];
+            unavailable: components["schemas"]["RelayUnavailable"][];
+        };
+        /** @description Assignment của một region như nhân sự nền tảng thấy (metadata registry) */
+        PlatformRelayAssignment: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            tenant_id: string;
+            /** Format: uuid */
+            instance_id: string;
+            priority: number;
+            status: components["schemas"]["RelayAdminStatus"];
+            instance_status: components["schemas"]["InstanceStatus"];
+        };
+        PlatformRelayRegion: {
+            region: components["schemas"]["RelayRegion"];
+            /**
+             * Format: uuid
+             * @description Tenant sở hữu region (`embedded`, `standalone`); `null` với region `shared`
+             */
+            tenant_id: string | null;
+            /** Format: uuid */
+            host_id?: string;
+            assignments: components["schemas"]["PlatformRelayAssignment"][];
+            health: components["schemas"]["RelayHealth"];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: int64 */
+            version: number;
+        };
+        RelayRegionList: {
+            items: components["schemas"]["PlatformRelayRegion"][];
+            next_cursor: string | null;
+            unavailable: components["schemas"]["RelayUnavailable"][];
+        };
+        /**
          * @description `pending` → `approved` (người thứ hai) → `executed` (thực thi một lần, cùng transaction với job — trạng thái cuối); `pending` → `rejected`; `pending`/`approved` quá `expires_at` → `expired`
          * @enum {string}
          */
@@ -2715,6 +2869,64 @@ export interface operations {
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    getTenantRelay: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Relay của tenant */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantRelay"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    listPlatformRelayRegions: {
+        parameters: {
+            query?: {
+                /** @description Số phần tử tối đa của trang */
+                limit?: components["parameters"]["Limit"];
+                /** @description Con trỏ mờ lấy từ `next_cursor` của trang trước */
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Một trang relay region */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RelayRegionList"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationFailed"];
             429: components["responses"]["RateLimited"];
             default: components["responses"]["Unexpected"];

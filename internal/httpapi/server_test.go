@@ -48,6 +48,9 @@ var operations = []struct {
 	{http.MethodGet, "/api/v1/tenants/" + tenantID + "/jobs?status=running", "", "ListTenantJobs", nil},
 	{http.MethodGet, "/api/v1/tenants/" + tenantID + "/jobs/" + itemID, "", "GetTenantJob", nil},
 	{http.MethodGet, "/api/v1/tenants/" + tenantID + "/notifications?unread=true", "", "ListNotifications", nil},
+	// relay (P3-T05c)
+	{http.MethodGet, "/api/v1/tenants/" + tenantID + "/relay", "", "GetTenantRelay", nil},
+	{http.MethodGet, "/api/v1/platform/relay-regions?limit=10", "", "ListPlatformRelayRegions", nil},
 	{http.MethodGet, "/api/v1/platform/tenants?status=active", "", "ListPlatformTenants", nil},
 	{http.MethodGet, "/api/v1/platform/tenants/" + tenantID, "", "GetPlatformTenant", nil},
 	{http.MethodGet, "/api/v1/platform/instances", "", "ListPlatformInstances", nil},

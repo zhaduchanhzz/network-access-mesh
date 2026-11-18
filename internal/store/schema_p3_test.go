@@ -12,33 +12,50 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"maps"
+	"path"
 	"reflect"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/zhaduchanhzz/network-access-mesh/database"
 )
 
 // p3Tables are the tables created by 0009–0013, in migration order.
 var p3Tables = []string{"approval_requests", "tenant_invitations", "notification_outbox", "relay_regions", "relay_assignments",
 	"backups", "subscription_plans", "subscriptions", "policy_versions", "policy_applications"}
 
-// TestLatestMigration: the embedded migrations end at latestMigration of the fixture (0015 since P3-T05) — the version
-// `meshguard-api migrate status` reports as latest_migration (current = schema_version == latest_migration,
-// ReadDeployState) — and the fixture has a step for every migration.
+// TestLatestMigration: the embedded migrations end at latestMigration of the fixture (0016 since P3-T05c — provisional
+// number) — the version `meshguard-api migrate status` reports as latest_migration (current = schema_version ==
+// latest_migration, ReadDeployState) — and the fixture has a step for every embedded migration and none for a number
+// without one (migrationVersions = the embedded versions).
 func TestLatestMigration(t *testing.T) {
 	v, err := LatestMigration()
 	if err != nil || v != latestMigration {
 		t.Fatalf("LatestMigration() = %d (%v), want latestMigration = %d", v, err, latestMigration)
 	}
-	for i := int64(1); i <= latestMigration; i++ {
-		if fixtureSteps[i] == nil {
-			t.Errorf("no fixture step for migration %04d", i)
+	names, err := fs.Glob(database.Migrations, "migrations/*.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var embedded []int64
+	for _, n := range names {
+		v, err := strconv.ParseInt(strings.SplitN(path.Base(n), "_", 2)[0], 10, 64)
+		if err != nil {
+			t.Fatalf("migration %s: %v", n, err)
 		}
+		embedded = append(embedded, v)
+	}
+	slices.Sort(embedded)
+	if got := migrationVersions(); !slices.Equal(got, embedded) || got[len(got)-1] != latestMigration {
+		t.Errorf("fixture steps for migrations %v, embedded migrations %v (latest %d)", got, embedded, latestMigration)
 	}
 }
 
@@ -349,7 +366,7 @@ func TestP3GrantMatrix(t *testing.T) {
 		}),
 		"relay_regions": with(map[string]grantSpec{
 			"mg_api_tenant": {S, nil}, "mg_worker_tenant": {S, nil}, "mg_api_platform": {S, nil},
-			"mg_worker_platform": {SID, cols("derp_port,hostname,ipv4,ipv6,name,status,stun_port,updated_at,version")},
+			"mg_worker_platform": {SID, cols("derp_port,hostname,ipv4,ipv6,last_probe,last_probe_at,name,status,stun_port,updated_at,version")},
 		}),
 		"relay_assignments": with(map[string]grantSpec{
 			"mg_api_tenant": {S, nil}, "mg_worker_tenant": {S, nil}, "mg_api_platform": {S, nil},
