@@ -20,7 +20,7 @@ import mgenv  # noqa: E402 — tools/mgenv.py: env file of the environment (no s
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 TEMPLATES = ROOT / "infrastructure" / "gateway"
-TEMPLATE_VERSION = "1"
+TEMPLATE_VERSION = "2"  # 2: F-G3-1 — TCP keepalive, health check + shutdown-sessions
 IMAGE_RE = re.compile(r"^[a-z0-9.\-/]+@sha256:[0-9a-f]{64}$")
 
 
