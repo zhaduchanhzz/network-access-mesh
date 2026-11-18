@@ -105,12 +105,22 @@ func (p *Provisioner) undoRelay(ctx context.Context, a *attempt, s jobs.Compensa
 	return nil
 }
 
+// undoConfigure revokes the Owner invitation of step 16. Its id is known only once Configure returned: a step that
+// failed (or a worker that died) between creating the invitation and recording its id left only the e-mail, recorded
+// first — the tenant's pending invitation of that e-mail is then this job's (P3-T07).
 func (p *Provisioner) undoConfigure(ctx context.Context, a *attempt, s jobs.CompensationStep) error {
 	var res configureResources
-	if found, err := s.Decode(&res); err != nil || !found || res.InvitationID == uuid.Nil {
+	if found, err := s.Decode(&res); err != nil || !found {
 		return err
 	}
-	if err := p.cfg.Store.RevokeInvitation(ctx, a.in.TenantID, res.InvitationID); err != nil {
+	var err error
+	switch {
+	case res.InvitationID != uuid.Nil:
+		err = p.cfg.Store.RevokeInvitation(ctx, a.in.TenantID, res.InvitationID)
+	case res.OwnerEmail != "":
+		err = p.cfg.Store.RevokePendingInvitation(ctx, a.in.TenantID, res.OwnerEmail)
+	}
+	if err != nil {
 		return storeErr("revoke the Owner invitation", err)
 	}
 	return nil

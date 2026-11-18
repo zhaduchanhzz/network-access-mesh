@@ -433,6 +433,33 @@ func isSuffixOf(got, want []string) bool {
 	return slices.Equal(got, want[len(want)-len(got):])
 }
 
+// TestCompensationRevokesUnrecordedInvitation (found by the fault-injection harness of P3-T07): step 16 creates the
+// Owner invitation before it can record its id; when the step fails — or the worker dies — in between, only the e-mail
+// recorded first is left, and the compensation must still revoke the tenant's pending invitation.
+func TestCompensationRevokesUnrecordedInvitation(t *testing.T) {
+	g := newRig(t)
+	g.prober.mu.Lock()
+	g.prober.edge = ProbeResult{Exposed: []string{"/api/v1/node"}}
+	g.prober.mu.Unlock()
+	err := g.run(t)
+	if jobs.CodeOf(err) != "edge_exposes_paths" {
+		t.Fatalf("run: %v", err)
+	}
+	s := g.r.step(StepConfigure)
+	if s == nil || len(g.st.invitations) != 1 {
+		t.Fatalf("step 16 %+v, invitations %v", s, g.st.invitations)
+	}
+	s.resources = []byte(`{"owner_email":"owner@acme.example"}`) // the invitation id was never recorded
+	if err := g.p.compensate(t.Context(), g.r, err); err != nil {
+		t.Fatalf("compensate: %v", err)
+	}
+	for id, st := range g.st.invitations {
+		if st != "revoked" {
+			t.Fatalf("invitation %s left %s", id, st)
+		}
+	}
+}
+
 func TestCompensationFailureResumes(t *testing.T) {
 	g := newRig(t)
 	g.prober.edge = ProbeResult{Exposed: []string{"/metrics"}}

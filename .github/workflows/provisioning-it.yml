@@ -1,0 +1,46 @@
+# Harness tiêm lỗi của máy trạng thái provisioning (P3-T07; master §11.3, §20): tests/integration/provisioning/run.sh
+# build image agent từ cây của commit (infrastructure/docker/agent/Dockerfile — mọi base và công cụ pin theo digest/SHA-256
+# trong versions.lock) và binary test (build tag dockerintegration), rồi dựng PostgreSQL [images.postgres], Host Agent
+# THẬT (hardening như compose mg-agent), edge thử và harness: orchestrator thật (River, registry, SecretStore, adapter
+# Headscale) provision tenant dùng-một-lần với image [images.mg-headscale] thật; lỗi vĩnh viễn ở từng bước 3–19 ⇒
+# compensation ⇒ rolled_back (E2E-48), worker bị SIGKILL giữa bước 13 (E2E-49), failed_resumable ⇒ /retry (E2E-50),
+# rolled_back ⇒ /retry job mới từ bước 3 (E2E-51); sau mỗi ca bộ phát hiện tài nguyên mồ côi phải sạch. Không dùng
+# secret nào (token, mật khẩu PostgreSQL, KEK sinh trong lần chạy); chỉ action đã pin theo commit SHA. Lọc theo đường dẫn
+# để tiết kiệm phút Actions: chỉ khi orchestrator, khung job, agent, driver, template instance hoặc harness thay đổi.
+name: provisioning-it
+
+on:
+  push:
+    branches: [main]
+    paths: ["internal/provisioning/**", "internal/jobs/**", "internal/headscale/**", "internal/secrets/**",
+            "internal/platform/**", "apps/agent/**", "api/agent/**", "database/migrations/**", "database/queries/**",
+            "infrastructure/docker/agent/**", "infrastructure/headscale/templates/**", "tests/integration/provisioning/**",
+            "go.mod", "go.sum", "versions.lock", ".github/workflows/provisioning-it.yml"]
+  pull_request:
+    paths: ["internal/provisioning/**", "internal/jobs/**", "internal/headscale/**", "internal/secrets/**",
+            "internal/platform/**", "apps/agent/**", "api/agent/**", "database/migrations/**", "database/queries/**",
+            "infrastructure/docker/agent/**", "infrastructure/headscale/templates/**", "tests/integration/provisioning/**",
+            "go.mod", "go.sum", "versions.lock", ".github/workflows/provisioning-it.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fault-injection:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Tiêm lỗi tại từng bước + bộ phát hiện tài nguyên mồ côi (E2E-48…E2E-51) — agent, Headscale, PostgreSQL thật
+        run: PIT_OUT="${RUNNER_TEMP}/pit" PIT_KEEP_CACHE=0 bash tests/integration/provisioning/run.sh
+      - name: Lưu log (harness, agent, edge, từng tiến trình worker) và snapshot trước/sau
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: provisioning-it
+          path: ${{ runner.temp }}/pit/
+          retention-days: 14
+          if-no-files-found: warn
