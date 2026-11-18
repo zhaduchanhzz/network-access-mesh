@@ -28,6 +28,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/monitoringapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/notificationsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/provisioningapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/quarantineapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/reconfigureapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/relayapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/tenantsapi"
@@ -41,6 +42,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/backup"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/lifecycle"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/orchestrator"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/quarantine"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/relay"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/usage"
@@ -57,7 +59,7 @@ import (
 //	                 pending invitation of its tenant by tenants.Service (P3-T05a)
 //	approvals        dual control (P3-T04a): authz.Authorizer decides the second person, the audit Logger raises the
 //	                 security events; the registry of executable actions (approvalActions): the Keycloak console
-//	                 session (P3-T15) — P3-T09/T11/T18 add theirs
+//	                 session (P3-T15), the release of a quarantined instance (P3-T18) — P3-T09/T11 add theirs
 //	idp console      the gate of the Keycloak administration console (P3-T15): GET /internal/edge/idp-console, the
 //	                 forward_auth of the edge on admin.<domain> (httpapi.Options.Internal), over the console grants
 //	                 (approval_requests), the authorizer and the audit Logger
@@ -72,7 +74,9 @@ import (
 //	                 tenant.provision with usage's quota checks — and orchestrator.Control, P3-T05), Lifecycle
 //	                 (lifecycleapi over lifecycle.Requester — suspend/resume, P3-T08), Relay (relayapi over relay —
 //	                 the tenant's relays and the platform's regions with the last probe, reads only, P3-T05c),
-//	                 Reconfigure (reconfigureapi over orchestrator.ReconfigureService — instance.reconfigure, P3-T13)
+//	                 Reconfigure (reconfigureapi over orchestrator.ReconfigureService — instance.reconfigure, P3-T13),
+//	                 Quarantine (quarantineapi over quarantine.Requester + approvals — quarantine at once, release 2P,
+//	                 P3-T18)
 //	maintenance      the gate of P3-T17 (MG_MAINTENANCE OR system_settings maintenance, polled): 503 maintenance to
 //	                 everything but the platform sign-in on admin.<domain> (httpapi.Options.Maintenance)
 //	readiness        postgres, secretstore, edge_admin (§16.2)
@@ -169,6 +173,7 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 			Lifecycle:     lifecycleapi.New(lifecycle.NewRequester(d.st)),
 			Relay:         relayapi.New(relays),
 			Reconfigure:   reconfigureapi.New(orchestrator.NewReconfigureService(d.st)),
+			Quarantine:    quarantineapi.New(quarantine.NewRequester(d.st), appr),
 		},
 	})
 	if err != nil {
@@ -196,7 +201,7 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 // break-glass (P4-T13). A request of an action not registered here can be read and rejected, never approved (409
 // action_unavailable).
 func approvalActions(backups *backup.Service) (*approvals.Registry, error) {
-	return approvals.NewRegistry(consoleSessionAction(), restoreAction(backups))
+	return approvals.NewRegistry(consoleSessionAction(), restoreAction(backups), releaseAction())
 }
 
 // consoleSessionAction executes an approved console session (P3-T15, §8.2 (3)): the executed request IS the session —

@@ -67,7 +67,8 @@ type CompensateFunc func(ctx context.Context, s CompensationStep) error
 // CompensateSteps undoes the job's steps in REVERSE order (§11.3): every step that succeeded, and every step that
 // failed or was interrupted after recording created_resources (it may have created part of what it recorded). A step
 // without a function in fns, or one that did nothing, is marked compensation `skipped`; a step already compensated
-// (succeeded or skipped — an earlier, interrupted compensation) is not touched again. The first failure stops the
+// (succeeded or skipped — an earlier, interrupted compensation) is not touched again. The worker's StepGate is consulted
+// before each step that would be undone (its refusal stops the compensation like a failure). The first failure stops the
 // compensation: the step is marked compensation `failed` with the redacted error in its detail, and the error is
 // returned (the job then ends failed_resumable with compensation_failed — the operator decides).
 func (r *Run) CompensateSteps(ctx context.Context, fns map[string]CompensateFunc) error {
@@ -92,6 +93,17 @@ func (r *Run) CompensateSteps(ctx context.Context, fns map[string]CompensateFunc
 				return err
 			}
 			continue
+		}
+		// the step gate (quarantine — P3-T18) holds a compensation too: nothing of a quarantined instance is undone
+		var gated error
+		if err := r.w.bookkeep(ctx, func(bctx context.Context, tx *store.Tx) error {
+			gated = r.gate(bctx, tx.Q)
+			return nil
+		}); err != nil {
+			return Transient("step_bookkeeping", errorf("step %s compensation: sqlstate %q", st.Name, store.SQLState(err)))
+		}
+		if gated != nil {
+			return gated
 		}
 		if err := r.markCompensation(ctx, st.Name, StepRunning, nil); err != nil {
 			return err
