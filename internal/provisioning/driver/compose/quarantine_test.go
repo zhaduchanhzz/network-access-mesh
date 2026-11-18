@@ -166,7 +166,7 @@ func TestQuarantineInstance(t *testing.T) {
 		t.Fatal("start guard: not still quarantined and stopped")
 	}
 	_ = os.Remove(key)
-	_ = os.WriteFile(key, saved, 0o600)
+	_ = os.WriteFile(key, saved, 0o600) //nolint:gosec // G703: test — the key read back from the test's own instance
 	_ = os.Chown(key, int(rg.s.RunUID), int(rg.s.RunUID))
 	// the applied policy: started through the guard, healthy, unmarked — never attached here
 	rel, err := rg.d.ReleaseInstance(ctx, agentspec.Release{Call: rg.call(), ExpectedPolicySHA256: baseline})

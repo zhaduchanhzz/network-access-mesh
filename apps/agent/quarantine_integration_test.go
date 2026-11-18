@@ -409,7 +409,7 @@ func TestQuarantineReleaseEndToEnd(t *testing.T) {
 	}
 	isolated("refused release (start guard)")
 	_ = os.Remove(key)
-	if err := os.WriteFile(key, saved, 0o600); err != nil {
+	if err := os.WriteFile(key, saved, 0o600); err != nil { //nolint:gosec // G703: test — the key read back from the test's own instance
 		t.Fatal(err)
 	}
 	_ = os.Chown(key, ta.uid, ta.uid)
