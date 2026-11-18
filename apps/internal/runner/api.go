@@ -33,6 +33,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/quarantineapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/reconfigureapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/relayapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/tagsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/tenantsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/identity"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/idp"
@@ -41,6 +42,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/monitoring"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/notifications"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/platform"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/policies"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/backup"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/deprovision"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/lifecycle"
@@ -81,7 +83,8 @@ import (
 //	                 InstanceOps (instanceopsapi over orchestrator.InstanceOpsService — instance.restart and
 //	                 instance.upgrade, P3-T13a)
 //	                 Quarantine (quarantineapi over quarantine.Requester + approvals — quarantine at once, release 2P,
-//	                 P3-T18)
+//	                 P3-T18), Tags (tagsapi over policies.TagService — the tag catalog, P4-T15; the same catalog checks
+//	                 PUT /devices/{id}/tags in devices)
 //	maintenance      the gate of P3-T17 (MG_MAINTENANCE OR system_settings maintenance, polled): 503 maintenance to
 //	                 everything but the platform sign-in on admin.<domain> (httpapi.Options.Maintenance)
 //	readiness        postgres, secretstore, edge_admin (§16.2)
@@ -119,7 +122,11 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 	if err != nil {
 		return nil, err
 	}
-	dev, err := d.newDevices(reg)
+	tags, err := policies.NewTags(d.st, policies.TagsConfig{}) // P4-T15: the tag catalog (CRUD + catalog checks)
+	if err != nil {
+		return nil, err
+	}
+	dev, err := d.newDevices(reg, tags)
 	if err != nil {
 		return nil, err
 	}
@@ -166,6 +173,7 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 			Auth:          identityapi.New(svc),
 			Tenants:       tenantsapi.New(d.tenants, platform.New(d.st)),
 			Devices:       devicesapi.New(dev),
+			Tags:          tagsapi.New(tags, devicesapi.New(dev)),
 			Audit:         auditapi.New(audit.NewReader(d.st)),
 			Jobs:          jobsapi.New(jobs.NewService(d.st)),
 			Monitoring:    monitoringapi.New(mon),

@@ -89,6 +89,11 @@ var routes = []struct {
 	{http.MethodGet, "/api/v1/tenants/" + tenantID + "/invitations", "", "ListTenantInvitations", nil},
 	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/invitations", `{"email":"a@example.test","role":"end_user"}`, "CreateTenantInvitation", idempotency},
 	{http.MethodDelete, "/api/v1/tenants/" + tenantID + "/invitations/" + itemID, "", "RevokeTenantInvitation", nil},
+	{http.MethodPut, "/api/v1/tenants/" + tenantID + "/devices/" + itemID + "/tags", `{"tags":["tag:web"]}`, "SetDeviceTags", nil},
+	{http.MethodGet, "/api/v1/tenants/" + tenantID + "/tags", "", "ListTenantTags", nil},
+	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/tags", `{"name":"tag:web"}`, "CreateTenantTag", idempotency},
+	{http.MethodPatch, "/api/v1/tenants/" + tenantID + "/tags/" + itemID, `{"description":"web"}`, "UpdateTenantTag", nil},
+	{http.MethodDelete, "/api/v1/tenants/" + tenantID + "/tags/" + itemID, "", "DeleteTenantTag", nil},
 	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/invitations/" + itemID + "/resend", `{"expires_in_hours":24}`, "ResendTenantInvitation", nil},
 	// Keycloak console session (P3-T15)
 	{http.MethodGet, "/api/v1/platform/idp-console/sessions?limit=5", "", "ListIdpConsoleSessions", nil},

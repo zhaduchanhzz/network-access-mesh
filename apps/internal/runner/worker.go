@@ -24,6 +24,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/jobs"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/monitoring"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/notifications"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/policies"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/apikey"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/backup"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/quarantine"
@@ -55,6 +56,8 @@ const partitionRole = "mg_partition_maint"
 //	                 the same agent client as reconcile); instance.reconfigure (P3-T13: MG_AGENT_* — prober optional)
 //	lifecycle        tenant.suspend + tenant.resume (P3-T08, §11.4) over a Headscale registry of their own that reaches a
 //	                 suspended tenant's instance (lifecycle.go), always wired — no Host Agent needed
+//	policies         policy.apply (P4-T15 first form: the desired version again with the tag catalog rendered — trigger
+//	                 tag_change from the catalog API) over the shared registry; full pipeline P4-T10
 //	deprovision      tenant.deprovision (P3-T09, §11.4: the final backup in-process, 15 steps, 2P upstream) over a
 //	                 registry that reaches a deprovisioning tenant (deprovision.go); tenant.keys_destroy every hour after
 //	                 MG_DEPROVISION_KEY_GRACE (crypto-shredding — §6.1)
@@ -88,7 +91,7 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 		return nil, err
 	}
 	d.closers = append(d.closers, part.Close)
-	dev, err := d.newDevices(reg)
+	dev, err := d.newDevices(reg, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -124,6 +127,15 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 		return nil, err
 	}
 	if err := life.Register(w); err != nil {
+		return nil, err
+	}
+	// P4-T15: policy.apply (level-triggered — the desired policy with the tag catalog rendered, trigger tag_change) over
+	// the shared registry: a tenant that is not active is skipped (the suspension policy stays; resume renders it)
+	pol, err := policies.New(d.st, policies.Config{Registry: d.headscale, Logger: log})
+	if err != nil {
+		return nil, err
+	}
+	if err := pol.Register(w); err != nil {
 		return nil, err
 	}
 	agent, err := newAgent(cfg, d) // one client of the Host Agent: reconcile + orchestrator

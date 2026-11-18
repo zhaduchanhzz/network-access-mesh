@@ -43,6 +43,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/quarantineapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/reconfigureapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/relayapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/tagsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/tenantsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/idp/console"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/jobs"
@@ -51,6 +52,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/monitoring"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/notifications"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/platform"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/policies"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/backup"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/deprovision"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/lifecycle"
@@ -102,7 +104,13 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 		t.Fatal(err)
 	}
 	reg := headscale.NewRegistry(loc, headscale.Options{Logger: log, Retry: headscale.RetryPolicy{Attempts: 1}})
-	dev, err := devices.New(w.Store, devices.Config{Registry: reg, Logger: log, Registerer: prometheus.NewRegistry()})
+	// P4-T15: the tag catalog of the api — CRUD (tagsapi) and the catalog check of PUT /devices/{id}/tags
+	tagSvc, err := policies.NewTags(w.Store, policies.TagsConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dev, err := devices.New(w.Store, devices.Config{Registry: reg, Logger: log, Registerer: prometheus.NewRegistry(),
+		Tags: tagSvc})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,6 +198,8 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 		Deprovision: deprovisionapi.New(deprovision.NewRequester(w.Store), appr),
 		// Quarantine (P3-T18): quarantine requests of the api; a release becomes an approval request
 		Quarantine: quarantineapi.New(quarantine.NewRequester(w.Store), appr),
+		// Tags (P4-T15): the tag catalog and PUT /devices/{id}/tags (delegated to the device handlers)
+		Tags: tagsapi.New(tagSvc, devicesapi.New(dev)),
 	}
 }
 
@@ -274,6 +284,7 @@ type objects struct {
 	job                          map[string]uuid.UUID // a job of the tenant
 	platformJob                  uuid.UUID            // a job of scope platform
 	approval, invitation         map[string]uuid.UUID // a pending approval request and invitation of the tenant
+	tag                          map[string]uuid.UUID // the tenant's catalog tag tag:server (carried by devEUTagged)
 	platformApproval             uuid.UUID            // a pending approval request of scope platform
 	host                         uuid.UUID            // the host of the instances (P3-T04: /platform/hosts/{hostId})
 	canaries                     []string             // secret values planted in the SecretStore (never in a response)
@@ -369,6 +380,7 @@ func (m *matrixWorld) createObjects(t *testing.T) objects {
 		instance: map[string]uuid.UUID{}, devEU: map[string]uuid.UUID{}, devEUTagged: map[string]uuid.UUID{},
 		devOther: map[string]uuid.UUID{}, job: map[string]uuid.UUID{}, platformJob: uuid.Must(uuid.NewV7()),
 		approval: map[string]uuid.UUID{}, invitation: map[string]uuid.UUID{}, platformApproval: uuid.Must(uuid.NewV7()),
+		tag:      map[string]uuid.UUID{},
 		canaries: []string{m.edgeToken},
 	}
 	sec := m.sec
@@ -426,6 +438,9 @@ func (m *matrixWorld) createObjects(t *testing.T) objects {
 				payload_sha256, requested_by_identity_id, expires_at)
 			VALUES ($1, 'tenant', $2, $3, 'device', 'matrix', $4::jsonb, $5, $6, now() + interval '1 day')`,
 			appr, ten.ID, matrixTenantAction, matrixTenantPayload, matrixTenantHash, m.NewActor(t, authz.RoleTenantOwner, ten).IdentityID)
+		tag := uuid.Must(uuid.NewV7())
+		o.tag[ten.Name] = tag
+		m.Exec(t, `INSERT INTO tenant_tags (id, tenant_id, name, purpose) VALUES ($1, $2, 'tag:server', 'server')`, tag, ten.ID)
 		inv := uuid.Must(uuid.NewV7())
 		o.invitation[ten.Name] = inv
 		m.Exec(t, `INSERT INTO tenant_invitations (id, tenant_id, idp_id, email, role_id, token_hash, expires_at)

@@ -904,6 +904,24 @@ func (q *Queries) SetDeviceRevocationJob(ctx context.Context, arg SetDeviceRevoc
 	return err
 }
 
+const setDeviceTags = `-- name: SetDeviceTags :exec
+UPDATE device_inventory_cache SET tags = $1, owner_membership_id = NULL
+WHERE tenant_id = $2 AND id = $3 AND removed_at IS NULL
+`
+
+type SetDeviceTagsParams struct {
+	Tags     []string
+	TenantID uuid.UUID
+	ID       uuid.UUID
+}
+
+// PUT /devices/{id}/tags (P4-T15): tập tag Headscale trả về sau SetTags. Node có tag không còn thuộc user nào (PL-09,
+// Headscale ≥ 0.28) — chủ sở hữu trong sổ bị gỡ như cách inventory.sync chuẩn hóa (normalise).
+func (q *Queries) SetDeviceTags(ctx context.Context, arg SetDeviceTagsParams) error {
+	_, err := q.db.Exec(ctx, setDeviceTags, arg.Tags, arg.TenantID, arg.ID)
+	return err
+}
+
 const settleDeviceRevocation = `-- name: SettleDeviceRevocation :one
 UPDATE device_inventory_cache
 SET revocation_state       = $1,

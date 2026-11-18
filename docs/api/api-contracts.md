@@ -75,7 +75,7 @@ Quy ước của bảng: `{t}` là viết tắt của `{tenantId}`; trong các n
 | relay; `platform/relay-regions` (đọc) | 3 | P3-T05c |
 | enrollment (gồm `instructions`) | 4 | P4-T06 |
 | policies | 4 | P4-T10 (lõi áp dụng: P3-T08a) |
-| `devices/{id}/tags` | 4 | P4-T10 |
+| `devices/{id}/tags` | 4 | P4-T15 |
 | tags (danh mục tag) | 4 | P4-T15 |
 | users (ghi, `role`, `admin-role`, `ownership-transfer`); groups | 4 | P4-T09 |
 | routes; dns; resources | 4 | P4-T12 |

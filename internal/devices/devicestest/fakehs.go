@@ -84,6 +84,9 @@ type Fake struct {
 	// call received, per node (ExpireCalls).
 	before, after map[string]func(id uint64)
 	expiries      map[uint64][]time.Time
+	// policyTags: the tags the instance's current policy declares (tagOwners); nil accepts any well-formed tag. SetTags
+	// with a tag outside it is refused like 0.29.7 (400 code 3 "requested tags […] are invalid or not permitted").
+	policyTags map[string]bool
 }
 
 // Operation names used by Refuse, Ignore and Calls.
@@ -92,6 +95,7 @@ const (
 	OpGetNode          = "GetNode"
 	OpRenameNode       = "RenameNode"
 	OpExpireNode       = "ExpireNode"
+	OpSetTags          = "SetTags"
 	OpDeleteNode       = "DeleteNode"
 	OpListPreAuthKeys  = "ListPreAuthKeys"
 	OpExpirePreAuthKey = "ExpirePreAuthKey"
@@ -173,6 +177,16 @@ func (f *Fake) SetDown(down bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.down = down
+}
+
+// SetPolicyTags sets the tags the instance's policy declares (nil: any).
+func (f *Fake) SetPolicyTags(tags ...string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.policyTags = map[string]bool{}
+	for _, t := range tags {
+		f.policyTags[t] = true
+	}
 }
 
 // SetVersion sets the version GET /version reports (default v0.29.7).
@@ -352,6 +366,34 @@ func (f *Fake) answer(w http.ResponseWriter, r *http.Request, body []byte) {
 			n.Expiry = &at
 		}
 		writeJSON(w, map[string]any{"node": n.wire(false)})
+	case OpSetTags:
+		n, ok := f.nodes[id]
+		if !ok {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(gw(5, "node not found")))
+			return
+		}
+		var in struct {
+			Tags []string `json:"tags"`
+		}
+		_ = json.Unmarshal(body, &in)
+		var bad []string
+		for _, t := range in.Tags {
+			if f.policyTags != nil && !f.policyTags[t] {
+				bad = append(bad, t)
+			}
+		}
+		if len(bad) > 0 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(gw(3, "requested tags ["+strings.Join(bad, " ")+"] are invalid or not permitted")))
+			return
+		}
+		if !f.ignore[op] {
+			n.Tags = slices.Clone(in.Tags)
+		}
+		writeJSON(w, map[string]any{"node": n.wire(false)})
 	case OpDeleteNode:
 		if _, ok := f.nodes[id]; !ok {
 			w.Header().Set("Content-Type", "application/json")
@@ -413,6 +455,8 @@ func route(r *http.Request) (op string, id uint64, rest string) {
 			return OpDeleteNode, n, ""
 		case r.Method == http.MethodPost && len(parts) == 2 && parts[1] == "expire":
 			return OpExpireNode, n, ""
+		case r.Method == http.MethodPost && len(parts) == 2 && parts[1] == "tags":
+			return OpSetTags, n, ""
 		case r.Method == http.MethodPost && len(parts) == 3 && parts[1] == "rename":
 			return OpRenameNode, n, parts[2]
 		}

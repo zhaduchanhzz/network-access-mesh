@@ -160,7 +160,7 @@ func TestIT01IdentityIsolation(t *testing.T) {
 			continue
 		}
 		path := strings.ReplaceAll(op.Path, "{tenantId}", w.B.ID.String())
-		for _, p := range []string{"{deviceId}", "{membershipId}", "{jobId}", "{approvalId}", "{invitationId}"} {
+		for _, p := range []string{"{deviceId}", "{membershipId}", "{jobId}", "{approvalId}", "{invitationId}", "{tagId}"} {
 			path = strings.ReplaceAll(path, p, uuid.NewString())
 		}
 		if strings.Contains(path, "{") {

@@ -12,6 +12,8 @@ const (
 	CodeNotFound            = "not_found"
 	CodeConflict            = "conflict"
 	CodeValidationFailed    = "validation_failed"
+	CodePreconditionFailed  = "precondition_failed"   // If-Match stale (PUT …/tags — §13.2)
+	CodePreconditionReq     = "precondition_required" // If-Match missing
 	CodeIdempotencyKeyReuse = "idempotency_key_reuse"
 	CodeInstanceUnavailable = "instance_unavailable"
 	CodeUpstreamRejected    = "upstream_rejected"
@@ -27,6 +29,8 @@ const (
 	ReasonJobInProgress        = "job_in_progress"        // a revocation job of the device is still finishing
 	ReasonNoInstance           = "no_instance"            // the tenant has no live instance
 	ReasonReadbackMismatch     = "readback_mismatch"      // Headscale answered but the read-back does not show it
+	ReasonStaleTags            = "stale_tags_etag"        // If-Match ≠ the hash of the tags Headscale holds now
+	ReasonNoTagCatalog         = "no_tag_catalog"         // the process was wired without the tag catalog (fail closed)
 )
 
 // Error is a failure of a device operation with the Problem code the API answers.
