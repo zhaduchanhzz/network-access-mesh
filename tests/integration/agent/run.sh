@@ -187,7 +187,7 @@ d run --name "$P-run" --network none --read-only --tmpfs /tmp:size=64m,mode=1777
   -e MG_IT_ROOT="$IT_ROOT" -e MG_IT_IMAGE="$HS_IMAGE" -e MG_IT_PREFIX="$P" -e MG_IT_POOL="$POOL" -e MG_IT_NET="$NET" \
   -e MG_IT_HELPER_IMAGE="$HELPER_IMAGE" -e MG_IT_ALPINE="$ALPINE_IMAGE" \
   -e MG_IT_CADDY="$CADDY_IMAGE" -e MG_IT_EDGE_CADDYFILE="$WORK/edge/Caddyfile" -v "$WORK/edge:$WORK/edge:ro" \
-  --entrypoint /it/agent.test "$IMAGE" -test.v -test.count=1 -test.timeout=40m \
+  --entrypoint /it/agent.test "$IMAGE" -test.v -test.count=1 -test.timeout=30m \
   -test.run '^(TestComposeDriverEndToEnd|TestAgentOperationsEndToEnd|TestReconcileReportsForeignObjectsUntouched|TestReconfigureEndToEnd|TestQuarantineReleaseEndToEnd)$' \
   > "$OUT/agentit.log" 2>&1 || rc=$?
 d rm -f "$P-run" >/dev/null 2>&1 || true
