@@ -227,8 +227,16 @@ func TestDeprovisionDB(t *testing.T) {
 	if err := g.sec.Put(ctx, secrets.TenantRef(ten.id, "late", 1), []byte("x")); !errors.Is(err, secrets.ErrKeyDestroyed) {
 		t.Fatalf("a new secret of the shredded tenant: %v, want ErrKeyDestroyed", err)
 	}
-	if got := g.kc.Removes(); !slices.Equal(got, []string{ten.slug + ":disable", ten.slug + ":purge"}) {
-		t.Fatalf("IdP calls %v (the realm purged before the keys)", got)
+	// the calls on this tenant's realm only: with -count=N the sweep also shreds the deleted tenants that the other tests
+	// of an earlier iteration left in the package's database (their grace period is over at the shifted clock)
+	var got []string
+	for _, c := range g.kc.Removes() {
+		if strings.HasPrefix(c, ten.slug+":") {
+			got = append(got, c)
+		}
+	}
+	if !slices.Equal(got, []string{ten.slug + ":disable", ten.slug + ":purge"}) {
+		t.Fatalf("IdP calls on the realm %s: %v (the realm purged before the keys)", ten.slug, got)
 	}
 	if n := g.count(t, `SELECT count(*) FROM audit_events WHERE action = $1 AND resource_id = $2::text`, AuditKeysDestroyed, ten.id.String()); n != 1 {
 		t.Fatalf("%d keys_destroyed audit event(s)", n)
