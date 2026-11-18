@@ -1,0 +1,219 @@
+# Bộ cảnh báo tối thiểu trước Phase 6 (P3-T16; §16.3 của master) + các tín hiệu đã có từ P3-T10, P3-T12, P3-T15.
+# File tĩnh, không giá trị theo môi trường; tools/render_monitoring.py chép nguyên vào monitoring/prometheus/rules/.
+# Test: promtool test rules infrastructure/monitoring/rules/meshguard.rules.test.yml (CI ci.yml, image prometheus pin
+# digest). Diễn tập từng rule: tools/render_monitoring.py drill (RUNBOOK mục P3-T16) và E2E-78.
+#
+# Mức: critical (§16.3 Critical) · high (High) · warning (chỉ để nén/ghi nhận). Mọi rule giữ nguyên nhãn của chuỗi gốc
+# (tenant_id, instance_id, slug, via, target, mountpoint…) để thông báo nói đúng cái gì hỏng; không annotation nào chứa
+# credential. Nhãn drill="1" chỉ có ở chuỗi diễn tập.
+groups:
+  - name: meshguard-tenant
+    rules:
+      # §16.3 "Instance down / healthcheck fail": Prometheus không đọc được /metrics của instance qua listener metrics
+      # của edge (container dừng, start guard từ chối khởi động, edge rời network của tenant, DNS của Docker không còn
+      # tên hs-<slug>…) quá 2 phút.
+      - alert: TenantInstanceDown
+        expr: up{job="headscale"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Headscale của tenant {{ $labels.slug }} không trả lời qua listener metrics của edge (> 2 phút)"
+          description: "up{job=headscale} = 0 cho instance {{ $labels.instance_id }} (tenant {{ $labels.tenant_id }}). Kiểm container mg-hs-{{ $labels.slug }}, log start guard của Agent, edge còn gắn network mg-t-{{ $labels.slug }}."
+          runbook: "infrastructure/host/RUNBOOK.md — Cảnh báo (P3-T16)"
+
+      # §16.3 "probe /key?v=<capver> fail > 2 phút": GET /key qua listener public của edge (via=edge) hoặc điểm vào
+      # công khai (via=public — VPS, tunnel) không trả 200 + publicKey mkey:…
+      - alert: TenantControlProbeFailed
+        expr: probe_success{module="key"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Probe /key của {{ $labels.slug }} thất bại qua {{ $labels.via }} (> 2 phút)"
+          description: "Client của tenant {{ $labels.slug }} không kết nối được control plane qua {{ $labels.via }}. via=edge: instance/edge; via=public: VPS, tunnel, DNS."
+          runbook: "infrastructure/host/RUNBOOK.md — Cảnh báo (P3-T16)"
+
+  - name: meshguard-certificates
+    rules:
+      # §16.3 Credential "chứng chỉ còn < 21 ngày" (Caddy gia hạn khi còn 1/3 thời hạn ≈ 30 ngày với chứng chỉ 90 ngày:
+      # cảnh báo nghĩa là gia hạn đã thất bại ~9 ngày). Nguồn: chứng chỉ thật mà edge trình ra (probe key và tls).
+      - alert: CertificateExpiringSoon
+        expr: probe_ssl_earliest_cert_expiry - time() < 21 * 86400
+        for: 2m
+        labels:
+          severity: high
+        annotations:
+          summary: "Chứng chỉ của {{ $labels.instance }} còn dưới 21 ngày"
+          description: "Hết hạn sau {{ $value | humanizeDuration }}. Kiểm log ACME (DNS-01) của edge, token DNS, CAA."
+          runbook: "infrastructure/host/RUNBOOK.md — Cảnh báo (P3-T16)"
+
+  - name: meshguard-backup
+    rules:
+      # §16.3 Backup "quá hạn lịch backup … PostgreSQL" (và IdP, volume ACME của edge): status.prom của project
+      # mg-backup (P2-T03a) qua textfile collector của node-exporter. Chưa từng thành công (timestamp 0) cũng là quá hạn.
+      - alert: PlatformBackupOverdue
+        expr: time() - meshguard_backup_last_success_timestamp_seconds > meshguard_backup_max_age_seconds
+        for: 1m
+        labels:
+          severity: high
+        annotations:
+          summary: "Backup {{ $labels.target }} quá hạn (lần thành công gần nhất cũ hơn ngưỡng max_age)"
+          description: "Xem trạng thái: `docker compose -p mg-backup -f /opt/meshguard/core/compose.backup.yaml run --rm <pg-backup|idp-backup|edge-backup> status` và log của dịch vụ."
+          runbook: "docs/operations/backup-restore.md — mục 2"
+
+      - alert: PlatformBackupFailing
+        expr: meshguard_backup_consecutive_failures >= 2
+        for: 0m
+        labels:
+          severity: high
+        annotations:
+          summary: "Backup {{ $labels.target }} thất bại {{ $value }} lượt liên tiếp"
+          description: "status.json của {{ $labels.target }}: last_attempt.error cho biết lý do (đã che secret)."
+          runbook: "docs/operations/backup-restore.md — mục 2"
+
+      # Không thấy file trạng thái: dịch vụ chưa chạy được lượt nào, thư mục không mount, hoặc node-exporter không đọc được.
+      - alert: PlatformBackupStatusMissing
+        expr: >-
+          absent(meshguard_backup_last_success_timestamp_seconds{target="postgres"})
+          or absent(meshguard_backup_last_success_timestamp_seconds{target="idp"})
+          or absent(meshguard_backup_last_success_timestamp_seconds{target="edge"})
+        for: 10m
+        labels:
+          severity: high
+        annotations:
+          summary: "Không có trạng thái backup của {{ $labels.target }} (status.prom)"
+          description: "Project mg-backup chưa chạy, hoặc node-exporter không đọc được /opt/meshguard/backups/{{ $labels.target }}."
+          runbook: "docs/operations/backup-restore.md — mục 2"
+
+      # §16.3 Backup "quá hạn lịch backup của tenant": tuổi bản backup thành công gần nhất của instance (P3-T16 —
+      # meshguard_instance_backup_*, worker) vượt 2 × chu kỳ theo plan; instance chưa từng có backup tính từ lúc tạo.
+      - alert: TenantBackupOverdue
+        expr: meshguard_instance_backup_age_seconds > meshguard_instance_backup_max_age_seconds
+        for: 2m
+        labels:
+          severity: high
+        annotations:
+          summary: "Backup của instance {{ $labels.instance_id }} (tenant {{ $labels.tenant_id }}) quá hạn"
+          description: "Bản thành công gần nhất cách đây {{ $value | humanizeDuration }}. Kiểm job instance.backup, Host Agent, MG_BACKUP_MANIFEST_PUBKEY."
+          runbook: "docs/operations/backup-restore.md"
+
+  - name: meshguard-host
+    rules:
+      # §16.3 Hạ tầng "Đĩa > 80%" — mọi filesystem thật của host, kể cả filesystem của /opt/meshguard/backups khi nó là
+      # mount riêng (§14.2); không tính tmpfs/overlay/… và các mount do Docker quản lý (loại sẵn ở node-exporter).
+      - alert: NodeFilesystemAlmostFull
+        expr: >-
+          (1 - node_filesystem_avail_bytes{fstype!~"tmpfs|ramfs|devtmpfs|squashfs|overlay|iso9660|vfat|fuse\\..*"}
+            / node_filesystem_size_bytes{fstype!~"tmpfs|ramfs|devtmpfs|squashfs|overlay|iso9660|vfat|fuse\\..*"}) > 0.80
+        for: 2m
+        labels:
+          severity: high
+        annotations:
+          summary: "Filesystem {{ $labels.mountpoint }} đã dùng {{ $value | humanizePercentage }}"
+          description: "Thiết bị {{ $labels.device }} ({{ $labels.fstype }}). Backup và dữ liệu tenant phải còn chỗ (§14.2, §17.1)."
+          runbook: "infrastructure/host/RUNBOOK.md — Cảnh báo (P3-T16)"
+
+      # Cửa sổ boot của host (§16.3): nguồn của inhibition trong Alertmanager — 10 phút (P1-T21: phục hồi đo được 24 s
+      # với 3–5 network, ước lượng thêm ~10 s/100 network và khởi động lần lượt K instance).
+      - alert: HostRebooted
+        expr: time() - node_boot_time_seconds < 600
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Host vừa khởi động lại (cách đây {{ $value | humanizeDuration }})"
+          description: "Trong 10 phút đầu sau boot, TenantInstanceDown/TenantControlProbeFailed bị nén; hết cửa sổ mà instance chưa lên thì cảnh báo như thường."
+          runbook: "infrastructure/host/RUNBOOK.md — Cảnh báo (P3-T16)"
+
+  - name: meshguard-platform
+    rules:
+      # Thành phần của nền tảng (và đích probe) không scrape được: api/worker dừng, prober/node-exporter/Alertmanager hỏng.
+      # headscale có rule riêng (TenantInstanceDown).
+      - alert: PlatformTargetDown
+        expr: up{job=~"api|worker|prober|node|alertmanager|alertsink|probe-.*"} == 0
+        for: 2m
+        labels:
+          severity: high
+        annotations:
+          summary: "Prometheus không scrape được {{ $labels.job }} ({{ $labels.instance }})"
+          description: "Thành phần dừng hoặc không còn trên mg-obs. probe-*: prober không trả lời /probe — mọi probe /key và chứng chỉ không còn được đo."
+          runbook: "infrastructure/host/RUNBOOK.md — Cảnh báo (P3-T16)"
+
+      - alert: AlertmanagerNotificationsFailing
+        expr: increase(alertmanager_notifications_failed_total[10m]) > 0
+        for: 0m
+        labels:
+          severity: high
+        annotations:
+          summary: "Alertmanager gửi thông báo qua {{ $labels.integration }} thất bại"
+          description: "Kênh {{ $labels.integration }} lỗi (SMTP, Telegram, webhook): kiểm log alertmanager, secret trong /opt/meshguard/secrets/obs/, đường ra mg-egress."
+          runbook: "infrastructure/host/RUNBOOK.md — Cảnh báo (P3-T16)"
+
+  - name: meshguard-security
+    rules:
+      # §16.3 Tenant control plane "fingerprint Noise key khác giá trị đã ghi nhận" (Critical) — cùng điều kiện mà start
+      # guard của Agent chặn (§11.4); log Critical của Agent không có đường metrics (Agent network_mode none) nên
+      # reconcile (P3-T12) là nguồn: ≤ một chu kỳ reconcile.
+      - alert: ReconcileNoiseKeyMismatch
+        expr: meshguard_reconcile_drift{kind="noise_key_mismatch"} > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Reconcile: Noise key của {{ $value }} instance khác giá trị đã ghi nhận"
+          description: "Start guard sẽ từ chối khởi động instance; xem báo cáo instance.reconcile và security_events reconcile.noise_key_mismatch."
+          runbook: "infrastructure/host/RUNBOOK.md — Cảnh báo (P3-T16)"
+
+      # §16.3 Bảo mật/Orchestrator: drift chỉ tới giả mạo hoặc ranh giới cách ly bị phá (cùng tập securityKinds của
+      # internal/provisioning/reconcile — network tenant ≠ 2 thành viên là network_extra_member).
+      - alert: ReconcileSecurityDrift
+        expr: >-
+          meshguard_reconcile_drift{kind=~"guard_refused|image_digest_mismatch|network_not_internal|network_extra_member|api_key_foreign|unknown_instance|inventory_identity_mismatch|alias_collision|unknown_alias"} > 0
+        for: 0m
+        labels:
+          severity: high
+        annotations:
+          summary: "Reconcile phát hiện drift bảo mật {{ $labels.kind }} ({{ $value }})"
+          description: "Xem báo cáo instance.reconcile/host.reconcile và security_events reconcile.{{ $labels.kind }}; reconcile chỉ báo cáo, không tự sửa."
+          runbook: "infrastructure/host/RUNBOOK.md — Cảnh báo (P3-T16)"
+
+      # §16.3 Credential "API key của instance còn < 14 ngày" (P3-T10: xoay mở 21 ngày trước hạn ⇒ cảnh báo nghĩa là xoay
+      # đã thất bại cả tuần).
+      - alert: InstanceAPIKeyExpiringSoon
+        expr: meshguard_instance_api_key_expires_in_seconds < 14 * 86400
+        for: 2m
+        labels:
+          severity: high
+        annotations:
+          summary: "API key của instance {{ $labels.instance_id }} còn {{ $value | humanizeDuration }}"
+          description: "Job apikey.rotate không xoay được: xem job lỗi của tenant {{ $labels.tenant_id }} và log worker."
+          runbook: "infrastructure/host/RUNBOOK.md — Cảnh báo (P3-T16)"
+
+      # §16.3 Bảo mật "đăng nhập console quản trị IdP" (P3-T15: security_event high + e-mail tới SA/PO; đây là đường cảnh
+      # báo không phụ thuộc relay SMTP của Portal).
+      - alert: IdPConsoleLogin
+        expr: increase(meshguard_idp_console_logins_total{outcome="success"}[10m]) > 0
+        for: 0m
+        labels:
+          severity: high
+        annotations:
+          summary: "Có đăng nhập vào console quản trị Keycloak (realm master)"
+          description: "Đối chiếu security_events idp.console_login và phiên console 2P đã duyệt (P3-T15)."
+          runbook: "infrastructure/host/RUNBOOK.md — Console quản trị Keycloak"
+
+      # P3-T15: event Keycloak bị xóa sau 30 ngày — đồng bộ ngừng là mất dấu vết quản trị IdP. Lần thành công gần nhất cũ
+      # hơn 30 phút, hoặc chưa có lần nào dù worker đã chạy hơn 30 phút (lần đầu sau khởi động trễ ngẫu nhiên ≤ 10 phút).
+      - alert: IdPAuditSyncStale
+        expr: >-
+          (time() - meshguard_idp_audit_sync_last_success_timestamp_seconds > 1800
+            and meshguard_idp_audit_sync_last_success_timestamp_seconds > 0)
+          or (meshguard_idp_audit_sync_last_success_timestamp_seconds == 0
+            and on (job, instance) (time() - process_start_time_seconds) > 1800)
+        for: 2m
+        labels:
+          severity: high
+        annotations:
+          summary: "idp.audit_sync không đọc trọn các realm đã quá 30 phút"
+          description: "Xem meshguard_idp_audit_sync_failures_total{reason} và security_events idp.audit_sync_failed."
+          runbook: "infrastructure/host/RUNBOOK.md — Console quản trị Keycloak"

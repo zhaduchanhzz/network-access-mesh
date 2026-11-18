@@ -46,6 +46,8 @@ const partitionRole = "mg_partition_maint"
 //	                 Portal records kept — refused in production by config) — P3-T05b
 //	reconcile        instance.reconcile + host.reconcile, report only, and their schedule (P3-T12; agent: MG_AGENT_*)
 //	apikey           apikey.rotate (P3-T10): its handler, its daily schedule per instance and the key expiry gauge
+//	backup           instance.backup + instance.restore (P3-T11; scheduled only with the agent and the manifest key) and
+//	                 the backup age gauges of every scheduled instance, always (P3-T16 — alert TenantBackupOverdue)
 //	orchestrator     tenant.provision — the 19 steps of §11.3 with compensation (P3-T05; MG_PROVISION_*, MG_PROBER_URL,
 //	                 the same agent client as reconcile); instance.reconfigure (P3-T13: MG_AGENT_* — prober optional)
 //	lifecycle        tenant.suspend + tenant.resume (P3-T08, §11.4) over a Headscale registry of their own that reaches a
@@ -132,6 +134,10 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 	if err := bk.Register(w); err != nil {
 		return nil, err
 	}
+	fresh, err := bk.NewFreshness(reg, 0) // P3-T16: backup age per instance (alert TenantBackupOverdue), always
+	if err != nil {
+		return nil, err
+	}
 	drivers, kc, provisioned, err := idpDrivers(ctx, cfg, d)
 	if err != nil {
 		return nil, err
@@ -190,6 +196,8 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 			"reconcile":      rec.NewScheduler(reconcile.SchedulerConfig{}).Run,
 			"apikey.rotate":  keys.NewScheduler(apikey.SchedulerConfig{}).Run,
 			"relay.probe":    relaySchedule(relays),
+			// P3-T16: read even when this worker schedules no backup — its instances then become overdue, not absent
+			"backup.freshness": fresh.Run,
 		}
 		if backupsEnabled(cfg, agent) {
 			schedules["instance.backup"] = bk.NewScheduler(0).Run

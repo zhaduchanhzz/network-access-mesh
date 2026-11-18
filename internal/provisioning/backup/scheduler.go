@@ -63,8 +63,14 @@ func offset(id uuid.UUID, period time.Duration) time.Duration {
 
 // period is the backup period of an instance: its plan's, or the worker's default.
 func (sc *Scheduler) period(minutes int32) time.Duration {
+	return periodOf(minutes, sc.svc.cfg.Interval)
+}
+
+// periodOf is the backup period of a plan's backup_interval_minutes (clamped to minPeriod…maxPeriod), def when the
+// tenant has none — shared by the schedule and the freshness gauges (P3-T16).
+func periodOf(minutes int32, def time.Duration) time.Duration {
 	if minutes <= 0 {
-		return sc.svc.cfg.Interval
+		return def
 	}
 	return min(max(time.Duration(minutes)*time.Minute, minPeriod), maxPeriod)
 }

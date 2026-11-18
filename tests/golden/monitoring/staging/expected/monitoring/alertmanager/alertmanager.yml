@@ -1,0 +1,31 @@
+# Sinh bởi tools/render_monitoring.py từ infrastructure/monitoring/alertmanager.yml.tmpl (template_version 1).
+# KHÔNG sửa tay — render lại. Alertmanager của project mg-obs (P3-T16; §16.3 của master). Không chứa secret: mật khẩu
+# SMTP, token bot Telegram, URL webhook ngoài là file secret root:mg-sec-obs 0440 (/opt/meshguard/secrets/obs/,
+# infrastructure/host/obs-secrets.sh) mount vào /run/secrets/ — config chỉ trỏ tới đường dẫn (*_file).
+#
+# Kênh của môi trường này: alertsink nội bộ (webhook, mg-obs)
+# Bật kênh khác: điền MG_ALERT_* trong file tham số môi trường, nạp secret bằng obs-secrets.sh, render lại, rồi
+# `docker compose -p mg-obs -f compose.monitoring.yaml up -d alertmanager` (RUNBOOK mục P3-T16).
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: meshguard
+  group_by: [alertname, job, via, target, mountpoint]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+# §16.3: trong cửa sổ boot của host (HostRebooted — node_boot_time_seconds), "instance down"/probe fail theo tenant được
+# nén vào một cảnh báo "host vừa khởi động lại"; hết cửa sổ mà instance chưa lên thì cảnh báo như thường. Chuỗi diễn tập
+# (nhãn drill="1") không bao giờ nén cảnh báo thật.
+inhibit_rules:
+  - source_matchers: [alertname="HostRebooted", drill!="1"]
+    target_matchers: [alertname=~"TenantInstanceDown|TenantControlProbeFailed"]
+
+receivers:
+  - name: meshguard
+    webhook_configs:
+      - url: http://10.249.3.7:8080/v1/alerts   # alertsink nội bộ (mg-obs)
+        send_resolved: true
+        max_alerts: 50

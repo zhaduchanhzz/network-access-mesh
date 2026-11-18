@@ -1,6 +1,7 @@
 # Build image tự làm (P1-T04, P2-T01, P2-T05, P2-T10a, P2-T03a, P3-T01): edge (Caddy + module), stund, api, worker, idp
 # (Keycloak), headscale (Headscale v0.29.7 + bản vá V-26 — infrastructure/docker/headscale, ADR-02 sửa đổi 2026-11-17),
-# backup (meshguard-backup + pg_dump 18.7 + age — project mg-backup), probe (meshguard-probe — P3-T03a), agent (Host Agent — P3-T01). Mỗi image:
+# backup (meshguard-backup + pg_dump 18.7 + age — project mg-backup), probe (meshguard-probe — P3-T03a; /probe + alertsink —
+# P3-T16), agent (Host Agent — P3-T01), node-exporter (node_exporter v1.12.1 build lại từ nguồn — P3-T16). Mỗi image:
 # build từ base pin theo digest, kiểm nội dung, sinh SBOM (syft), quét lỗ hổng (grype — chặn nếu có mức Critical), rồi
 # mới push lên GHCR. Digest đưa vào versions.lock bằng commit riêng. Action và công cụ pin theo commit SHA / SHA-256,
 # chọn bản đã ≥ 14 ngày tuổi. Ngoại lệ grype chỉ qua file riêng của từng image (cột grype_config — hiện chỉ idp), bắt
@@ -39,6 +40,9 @@ jobs:
           - {image: probe,  dockerfile: infrastructure/docker/probe/Dockerfile,  context: ".",                        app: probe,  grype_config: ""}
           # agent: Host Agent (P3-T01) — thành phần duy nhất có Docker socket; chạy root, chỉ Unix socket
           - {image: agent,  dockerfile: infrastructure/docker/agent/Dockerfile,  context: ".",                        app: agent,  grype_config: ""}
+          # node-exporter: node_exporter v1.12.1 build lại từ nguồn với Go 1.27.4 + golang.org/x đã vá (P3-T16 — bản chính thức
+          # không qua gate Critical; versions.lock [sources.node-exporter])
+          - {image: node-exporter, dockerfile: infrastructure/docker/node-exporter/Dockerfile, context: infrastructure/docker/node-exporter, app: "", grype_config: ""}
     env:
       IMAGE: ghcr.io/${{ github.repository }}/${{ matrix.image }}
       SYFT_VERSION: "1.56.0"
@@ -204,7 +208,22 @@ jobs:
               rc=0; echo '{"target":"192.0.2.1:3478"}' | docker exec -i smoke /usr/local/bin/meshguard-probe call \
                 --url http://127.0.0.1:8080 stun > "${RUNNER_TEMP}/probe-call.txt" || rc=$?
               test "$rc" = 3; grep -q target_not_allowed "${RUNNER_TEMP}/probe-call.txt"
+              # P3-T16: /probe chỉ cho caller trong MG_PROBE_ALLOW_SCRAPERS (không đặt ⇒ 403); alertsink thiếu allow-list ⇒ exit 2
+              test "$(docker exec smoke /usr/local/bin/meshguard-probe version | cut -d' ' -f1)" = meshguard-probe
+              rc=0; "${run[@]}" "${IMAGE}:${GITHUB_SHA}" alertsink || rc=$?; test "$rc" = 2
               docker logs smoke 2>&1 | tail -3
+              docker rm -f smoke >/dev/null ;;
+            node-exporter)
+              # P3-T16: đúng bản 1.12.1 của tag, build bằng go1.27.4; chạy nobody với rootfs chỉ đọc, phục vụ /metrics
+              test "$user" = "65534:65534"
+              docker run --rm --network none --read-only --cap-drop ALL "${IMAGE}:${GITHUB_SHA}" --version 2>&1 \
+                | tee "${RUNNER_TEMP}/ne-version.txt"
+              grep -q 'version 1.12.1 (branch: HEAD, revision: 6044da783597cc3b57aef7580ddcdcff58a4ee99)' "${RUNNER_TEMP}/ne-version.txt"
+              grep -q 'go version: *go1.27.4' "${RUNNER_TEMP}/ne-version.txt"
+              docker run -d --name smoke --read-only --cap-drop ALL --security-opt no-new-privileges -p 127.0.0.1:19100:9100 \
+                "${IMAGE}:${GITHUB_SHA}"
+              for i in $(seq 1 20); do curl -fsS http://127.0.0.1:19100/metrics >/dev/null 2>&1 && break; sleep 1; done
+              curl -fsS http://127.0.0.1:19100/metrics | grep -q '^node_exporter_build_info{.*version="1.12.1"'
               docker rm -f smoke >/dev/null ;;
             agent)
               # P3-T01: chạy root (compose của agent thả capability); chỉ Unix socket 0660 nhóm mg-sec-worker (20003) trong
