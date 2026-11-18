@@ -1,7 +1,7 @@
 """Tenant Portal API (P4-T04) on the dev/CI stack — FUNCTIONAL only (§22.1): the api built from the tree behind the
 rendered edge, a Tenant Owner of tenant-a signed in through Keycloak with TOTP (dualcontrol.owner_session).
 
-  E2E-85  the in-portal inbox and the device review report through the edge on app.:
+  E2E-87  the in-portal inbox and the device review report through the edge on app.:
           - three Portal notifications are written as the producer writes them (superuser, the shape of
             notifications.Enqueue: status sent, recipient membership, payload of the kind): one to the Owner, one to
             another member of tenant-a, one to a member of tenant-b;
@@ -91,7 +91,7 @@ def check_portal(r, st: Stack) -> None:
     filters_ok = (st_all == 200 and all(ok for ok, _ in parts.values()) and union == sorted(d["id"] for d in every)
                   and 400 <= bad.status < 500 and bad.header("Content-Type").startswith("application/problem+json")
                   and (cross is None or cross.status == 422))
-    r.add("E2E-85", "P4-T04: hộp thông báo qua edge — GET ?unread=true chỉ thông báo của chính Owner; POST …/{id}/read "
+    r.add("E2E-87", "P4-T04: hộp thông báo qua edge — GET ?unread=true chỉ thông báo của chính Owner; POST …/{id}/read "
           "thiếu CSRF ⇒ 403, có ⇒ 200 + read_at, lặp lại giữ read_at; của thành viên khác / tenant-b / không tồn tại ⇒ "
           "cùng 404 (audit denied not_own_resource), hai hàng kia vẫn chưa đọc; audit notification.mark_read 2 (1 lặp); "
           "lọc thiết bị tagged × has_expiry chia đúng danh sách (báo cáo rà soát tagged node không hết hạn), giá trị lạ "
@@ -105,4 +105,4 @@ def check_portal(r, st: Stack) -> None:
 
 
 def run_all(r, st: Stack, guarded) -> None:
-    guarded(r, "E2E-85", check_portal, st)
+    guarded(r, "E2E-87", check_portal, st)

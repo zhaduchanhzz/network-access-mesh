@@ -34,7 +34,7 @@ import lifecycle  # noqa: E402 — E2E-56 … E2E-58 (P3-T08)
 import mailrelay  # noqa: E402 — E2E-82, E2E-83 (P3-T05b-mail: relay thư ra, Worker giả)
 import monitoring  # noqa: E402 — E2E-76 … E2E-78 (P3-T16)
 import phase3  # noqa: E402 — E2E-32 … E2E-36 (P3-T14a, P3-T03a, P3-T08a)
-import portal  # noqa: E402 — E2E-85 (P4-T04: hộp thông báo, lọc rà soát tagged node)
+import portal  # noqa: E402 — E2E-87 (P4-T04: hộp thông báo, lọc rà soát tagged node)
 import postrestore  # noqa: E402 — E2E-70, E2E-71 (P3-T17)
 import restore  # noqa: E402 — E2E-59, E2E-60 (P3-T11: V-11)
 from stack import CLIENTS, SECRET_RE, TENANTS, Stack, StackError, log  # noqa: E402
@@ -202,7 +202,7 @@ def test(st: Stack, r: checks.Results) -> None:
         dualcontrol.run_all(r, st, guarded)
     with timed("ca E2E-40 … E2E-43 (Phase 3: quản trị IdP P3-T15 — idp.audit_sync, console Keycloak sau 2P)"):
         idpadmin.run_all(r, st, guarded)
-    with timed("ca E2E-85 (P4-T04: Tenant Portal API — đánh dấu thông báo đã đọc qua edge, lọc tagged/has_expiry)"):
+    with timed("ca E2E-87 (P4-T04: Tenant Portal API — đánh dấu thông báo đã đọc qua edge, lọc tagged/has_expiry)"):
         portal.run_all(r, st, guarded)
     with timed("ca E2E-82, E2E-83 (P3-T05b-mail: relay thư ra — thông báo + thư Keycloak qua mailrelay STARTTLS tới Worker "
                "giả, HMAC đúng/sai, Worker từ chối timestamp cũ/chữ ký sai, không gửi lại)"):
