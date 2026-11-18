@@ -26,8 +26,10 @@ package provisioning
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
 	"io"
+	"net/netip"
 	"net/url"
 	"os"
 	"slices"
@@ -161,8 +163,25 @@ func registryPolicySHA(t *testing.T, reg headscale.Registry, tenant uuid.UUID) s
 	return policies.SHA256Hex(p.Data)
 }
 
+// lastSubnet is the last /bits subnet of p (p itself when it is not larger).
+func lastSubnet(p netip.Prefix, bits int) netip.Prefix {
+	p = p.Masked()
+	if !p.Addr().Is4() || p.Bits() >= bits {
+		return p
+	}
+	a := p.Addr().As4()
+	n := binary.BigEndian.Uint32(a[:]) + (uint32(1) << (32 - p.Bits())) - (uint32(1) << (32 - bits))
+	binary.BigEndian.PutUint32(a[:], n)
+	return netip.PrefixFrom(netip.AddrFrom4(a), bits)
+}
+
 func TestPostRestoreReconcile(t *testing.T) {
 	h := newHarness(t)
+	// TestProvisioningFaultInjection, earlier in the same run, leaves its activated instance directories to run.sh: the
+	// agent refuses a new instance whose net_cidr (or run_uid) one of them holds. This database is fresh, so its placer
+	// would hand out the same lowest values again — its tenants are placed at the top of the run's UID range and pool.
+	h.exec(t, `UPDATE hosts SET run_uid_range = int4range($1, $2, '[]'), tenant_net_pool = $3::cidr`,
+		h.e.runUIDs[1]-15, h.e.runUIDs[1], lastSubnet(h.e.pool, 27).String())
 	w := h.startWorker(t, "pr", faultinject.Plan{})
 	ctx := t.Context()
 

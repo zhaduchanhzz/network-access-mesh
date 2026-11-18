@@ -193,7 +193,7 @@ func (s *Service) preflight(ctx context.Context, r *run) error {
 		r.rep.StartedAt = now.UTC()
 		r.rep.Gap = Gap{From: r.req.RestorePoint.UTC(), To: now.UTC(), Seconds: int64(now.Sub(r.req.RestorePoint).Seconds())}
 		m, err := platform.ReadMaintenance(ctx, q)
-		if err != nil {
+		if err != nil && !m.Enabled { // an unreadable flag counts as ON: step 1 writes a valid one
 			return err
 		}
 		r.rep.Maintenance.Previous = m.Enabled

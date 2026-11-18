@@ -502,9 +502,11 @@ func TestPostRestoreReconcile(t *testing.T) {
 }
 
 // TestPostRestoreWithoutAgent — no Host Agent configured (dev/CI stack): the instance step cannot run — reported
-// unavailable, the run is incomplete, nothing is marked lost — and everything else is done.
+// unavailable, the run is incomplete, nothing is marked lost — and everything else is done. The maintenance flag of the
+// database is unreadable (damaged): it counts as ON and the run writes a valid one.
 func TestPostRestoreWithoutAgent(t *testing.T) {
 	w := newWorld(t, false)
+	w.exec(`INSERT INTO system_settings (key, value) VALUES ('maintenance', '"damaged"')`)
 	rep := w.run(false)
 	if rep.Status != postrestore.StatusIncomplete || !slices.Equal(rep.Incomplete, []string{"instances:host:agent_not_configured"}) ||
 		rep.Instances.Inventory != "unavailable" || len(rep.Instances.Lost) != 0 || len(rep.Instances.Orphans) != 0 ||
@@ -512,9 +514,11 @@ func TestPostRestoreWithoutAgent(t *testing.T) {
 		t.Fatalf("report:\n%s", dump(rep))
 	}
 	var status string
-	if err := w.su.QueryRow(context.Background(), `SELECT value->'post_restore'->>'status' FROM system_settings WHERE key = 'maintenance'`).
-		Scan(&status); err != nil || status != platform.PostRestoreReconciled {
-		t.Fatalf("post_restore status %q %v", status, err)
+	var enabled bool
+	if err := w.su.QueryRow(context.Background(), `SELECT value->'post_restore'->>'status', (value->>'enabled')::boolean
+		FROM system_settings WHERE key = 'maintenance'`).Scan(&status, &enabled); err != nil ||
+		status != platform.PostRestoreReconciled || !enabled || !rep.Maintenance.Previous || rep.Maintenance.SetByRun {
+		t.Fatalf("post_restore status %q, enabled %v, report %+v (%v)", status, enabled, rep.Maintenance, err)
 	}
 }
 
