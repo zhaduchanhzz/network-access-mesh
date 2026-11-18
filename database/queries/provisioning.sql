@@ -131,6 +131,11 @@ RETURNING *;
 SELECT * FROM relay_regions
 WHERE tenant_id = sqlc.arg(tenant_id)::uuid AND code = sqlc.arg(code);
 
+-- name: CountRelayAssignmentsOfInstance :one
+-- Backfill instance đã adopt (P3-T14b): instance đã có assignment tới region nhúng của tenant chưa (bước 17).
+SELECT count(*)::bigint FROM relay_assignments
+WHERE tenant_id = sqlc.arg(tenant_id) AND instance_id = sqlc.arg(instance_id) AND relay_region_id = sqlc.arg(relay_region_id);
+
 -- name: DeleteRelayAssignment :execrows
 -- Compensation bước 17: xóa hàng do job tạo.
 DELETE FROM relay_assignments

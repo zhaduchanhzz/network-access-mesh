@@ -14,6 +14,7 @@
 #   PIT_WAIT=3600 bash ...                                           # chờ (tối đa N giây) khi dải mạng đang bị giữ
 #   PIT_RUN='^TestProvisioningFaultInjection$/^E2E-49' bash ...      # chỉ một phần các ca (phát triển; PASS cần cả bộ)
 #   PIT_RUN='^TestPostRestoreReconcile$' bash ...                     # chỉ E2E-72 (P3-T17: restore PostgreSQL cũ hơn)
+#   PIT_RUN='^TestBackfillAdoptedInstance$' bash ...                  # chỉ E2E-84 (P3-T14b: instance dựng tay + adopt → backfill)
 #   make provisioning-it
 #
 # Dựng (mọi image pin digest trong versions.lock, mọi tài nguyên mang tiền tố $PIT_PREFIX, xóa khi thoát):
@@ -233,8 +234,8 @@ d create --name "$P-run" --label "pit.run=$P" --network "$P-net" --user "$WORKER
   -e "PIT_EDGE_ADMIN=http://$P-edge:8081" -e "PIT_EDGE_PUBLIC=$P-edge:8080" -e "PIT_PG_CONTAINER=$P-pg" \
   -e "PIT_MANIFEST_PUBKEY=$MANIFEST_PUBKEY" -e "PIT_KEY_GRACE=$KEY_GRACE" \
   --entrypoint /pit/pit.test "$ALPINE_IMAGE" -test.v -test.count=1 -test.timeout=70m \
-  -test.run "${PIT_RUN:-^(TestProvisioningFaultInjection|TestPostRestoreReconcile)\$}" >/dev/null
-log "chạy các ca E2E-48…E2E-51 (P3-T07), E2E-73…E2E-75 + deprovision cuối lần chạy (P3-T09) và E2E-72 (P3-T17)…"
+  -test.run "${PIT_RUN:-^(TestBackfillAdoptedInstance|TestProvisioningFaultInjection|TestPostRestoreReconcile)\$}" >/dev/null
+log "chạy các ca E2E-84 (P3-T14b: backfill instance dựng tay + adopt), E2E-48…E2E-51 (P3-T07), E2E-73…E2E-75 + deprovision cuối lần chạy (P3-T09) và E2E-72 (P3-T17)…"
 rc=0
 d start -a "$P-run" > "$OUT/pit.log" 2>&1 || rc=$?
 d logs "$P-agent" > "$OUT/agent.log" 2>&1 || true
@@ -256,8 +257,9 @@ d run --rm --network none -v "$IT_ROOT:/r" "$ALPINE_IMAGE" sh -c 'rm -rf /r/* /r
 rmdir "$IT_ROOT" || { log "gốc tạm $IT_ROOT không xóa được"; rc=1; }
 snapshot > "$OUT/after.txt"
 
-grep -E '^(=== RUN|--- (PASS|FAIL|SKIP)|PASS|FAIL|ok)|cases_test.go:|postrestore_test.go:|summary of the cases|^ +E2E-' "$OUT/pit.log" | grep -v '=== RUN' || true
+grep -E '^(=== RUN|--- (PASS|FAIL|SKIP)|PASS|FAIL|ok)|cases_test.go:|backfill_test.go:|postrestore_test.go:|summary of the cases|^ +E2E-' "$OUT/pit.log" | grep -v '=== RUN' || true
 grep -A 7 'E2E-72 summary:' "$OUT/pit.log" || true
+grep -E "E2E-84 (summary|refused|backfill:)" "$OUT/pit.log" || true
 log "còn lại sau các ca (trước khi gỡ hạ tầng của harness): $(grep -c . "$OUT/leftovers.txt" || true) đối tượng Docker; $dirs thư mục instance (của TestPostRestoreReconcile, gỡ với KEEP — run.sh xóa; TestProvisioningFaultInjection tự kiểm 0 thư mục sau deprovision cuối lần chạy); $archives archive backup cuối ($manifests manifest ký) giữ theo retention; $keys_in_agent_log dòng log agent có API key"
 [ -s "$OUT/leftovers.txt" ] && { log "TÀI NGUYÊN CÒN LẠI:"; cat "$OUT/leftovers.txt"; rc=1; }
 [ "$keys_in_agent_log" = 0 ] || { log "API key trong log agent"; rc=1; }
@@ -267,7 +269,7 @@ else
   log "snapshot trước = sau: $(grep -c . "$OUT/before.txt" || true) dòng (đối tượng mang tiền tố $P)"
 fi
 if [ "$rc" = 0 ] && [ -z "${PIT_RUN:-}" ] && grep -q '^--- PASS: TestProvisioningFaultInjection' "$OUT/pit.log" &&
-  grep -q '^--- PASS: TestPostRestoreReconcile' "$OUT/pit.log"; then
+  grep -q '^--- PASS: TestPostRestoreReconcile' "$OUT/pit.log" && grep -q '^--- PASS: TestBackfillAdoptedInstance' "$OUT/pit.log"; then
   log "PROVISIONING FAULT INJECTION: PASS"
 else
   log "PROVISIONING FAULT INJECTION: FAIL (log: $OUT/pit.log)"; tail -80 "$OUT/pit.log"; exit 1

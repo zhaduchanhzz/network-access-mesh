@@ -90,6 +90,9 @@ func admin(ctx context.Context, args []string, stdin stdinFile, stdout, stderr i
 	if len(args) > 0 && args[0] == "upgrade-wave" { // P3-T13a — upgradewave.go
 		return upgradeWave(ctx, args[1:], stdout, stderr, upgradeWaveEnv{getenv: getenv, environ: environ, open: openWaveStore})
 	}
+	if len(args) > 0 && args[0] == "backfill-instance" { // P3-T14b — backfill.go
+		return backfillInstance(ctx, args[1:], stdout, stderr, backfillEnv{getenv: getenv, environ: environ, open: openBackfiller})
+	}
 	if len(args) > 0 && args[0] == "mail-test" { // P3-T05b-mail — mailtest.go
 		return mailTest(ctx, args[1:], stdout, stderr, mailTestEnv{getenv: getenv, environ: environ, open: openMailer})
 	}
@@ -99,7 +102,7 @@ func admin(ctx context.Context, args []string, stdin stdinFile, stdout, stderr i
 	}
 	if len(args) == 0 || args[0] != "idp-bootstrap" {
 		_, _ = io.WriteString(stderr, "meshguard-worker admin: unknown command\n"+adminUsage+policyApplyUsage+auditSyncUsage+
-			apikeyRotateUsage+relayProbeUsage+postRestoreUsage+mailTestUsage+upgradeWaveUsage)
+			apikeyRotateUsage+relayProbeUsage+postRestoreUsage+mailTestUsage+upgradeWaveUsage+backfillUsage)
 		return 2
 	}
 	fset := flag.NewFlagSet("idp-bootstrap", flag.ContinueOnError)

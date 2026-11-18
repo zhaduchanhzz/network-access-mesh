@@ -62,19 +62,52 @@ func Collect(ctx context.Context, src Sources, scope Scope) (Inventory, error) {
 	inScope := scopeInstances(inv)
 	if src.Agent != nil {
 		inv.Keys = readKeys(ctx, src, inScope)
-		rep, _ := (&reconcile.Inspector{Agent: scopedAgent{next: src.Agent, scope: scope, ids: inScope},
-			AgentTimeout: src.Timeout, Now: src.Now}).Host(ctx, registered(inScope))
-		inv.Reconcile = []HostFinding{}
-		for _, f := range rep.Findings {
-			inv.Reconcile = append(inv.Reconcile, HostFinding{Kind: f.Kind, Subject: f.Subject})
-		}
-		for _, ch := range rep.Checks {
-			if ch.Outcome == reconcile.OutcomeUnavailable {
-				inv.Reconcile = append(inv.Reconcile, HostFinding{Kind: "check_unavailable", Subject: ch.Name + ":" + ch.Reason})
-			}
-		}
+		inv.Reconcile = hostReconcile(ctx, scopedAgent{next: src.Agent, scope: scope, ids: inScope}, src, inv, inScope)
 	}
 	return inv, nil
+}
+
+// hostReconcile runs reconcile's host check (P3-T12) over the scoped inventory. The inventory keeps EVERY entry of the
+// run's tenants directory (scopedAgent), so the registry it is compared with is the whole registry — as the worker's
+// host.reconcile compares it (ListInstancesForHostReconcile) and as dirs() judges the directories: an instance of a
+// tenant outside the slug scope (on staging: tenant-a/b, adopted in Phase 2, beside the g3-* tenants of a G3 run) is
+// known, not "unknown_instance" (P3-T14b — the cause of the two findings of the G3 baseline on staging). What only the
+// scope may own stays scoped: "registered_instance_missing" is reported for the scope's instances only.
+func hostReconcile(ctx context.Context, agent reconcile.Agent, src Sources, inv Inventory, inScope map[uuid.UUID]Instance) []HostFinding {
+	rep, _ := (&reconcile.Inspector{Agent: agent, AgentTimeout: src.Timeout, Now: src.Now}).Host(ctx,
+		registered(allInstances(inv)))
+	return hostFindings(rep, inScope)
+}
+
+// allInstances are every instance of the registry, by id.
+func allInstances(inv Inventory) map[uuid.UUID]Instance {
+	out := make(map[uuid.UUID]Instance, len(inv.Registry.Instances))
+	for _, i := range inv.Registry.Instances {
+		out[i.ID] = i
+	}
+	return out
+}
+
+// hostFindings are the findings of the host report that belong to the run: every finding, except a registered instance
+// missing from the host when it is outside the scope; an unavailable check is a finding too.
+func hostFindings(rep reconcile.Report, inScope map[uuid.UUID]Instance) []HostFinding {
+	out := []HostFinding{}
+	for _, f := range rep.Findings {
+		if f.Kind == reconcile.DriftRegisteredMissing {
+			if id, err := uuid.Parse(f.Subject); err == nil {
+				if _, ok := inScope[id]; !ok {
+					continue
+				}
+			}
+		}
+		out = append(out, HostFinding{Kind: f.Kind, Subject: f.Subject})
+	}
+	for _, ch := range rep.Checks {
+		if ch.Outcome == reconcile.OutcomeUnavailable {
+			out = append(out, HostFinding{Kind: "check_unavailable", Subject: ch.Name + ":" + ch.Reason})
+		}
+	}
+	return out
 }
 
 // scopeInstances are the instances of the scope's tenants, by id.
