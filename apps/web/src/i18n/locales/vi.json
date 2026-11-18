@@ -487,5 +487,257 @@
       "typeSlug": "Gõ lại slug của tenant sẽ bị xóa",
       "hashLabel": "payload_sha256:"
     }
+  },
+  "ui": {
+    "cancel": "Hủy",
+    "never": "chưa từng",
+    "syncedAt": "Đồng bộ từ Headscale lúc",
+    "checkedAt": "Kiểm lúc",
+    "unavailable": "không khả dụng",
+    "unknownCode": "Lý do khác (mã {{code}}).",
+    "navCount_other": "{{count}}{{more}} thông báo chưa đọc",
+    "readOnlyActions": "Tenant đang ở chế độ chỉ-đọc: các thao tác thay đổi bị khóa.",
+    "loadMore": "Tải thêm",
+    "pagination": "Phân trang",
+    "prevPage": "Trang trước",
+    "nextPage": "Trang sau"
+  },
+  "notif": {
+    "filterLabel": "Lọc thông báo",
+    "all": "Tất cả",
+    "unread": "Chưa đọc",
+    "empty": "Chưa có thông báo nào.",
+    "emptyUnread": "Không có thông báo chưa đọc.",
+    "openDevice": "Xem thiết bị",
+    "read": "Đã đọc",
+    "new": "Mới",
+    "markRead": "Đánh dấu đã đọc",
+    "kinds": {
+      "tenant_activated": "Tenant {{tenant}} đã được kích hoạt.",
+      "tenant_invitation": "Lời mời tham gia tenant {{tenant}} với role {{role}}.",
+      "tenant_suspended": "Tenant {{tenant}} đã bị tạm ngưng — dữ liệu chỉ đọc.",
+      "tenant_resumed": "Tenant {{tenant}} đã hoạt động trở lại.",
+      "tenant_deleted": "Tenant {{tenant}} đã bị xóa; khóa dữ liệu sẽ bị hủy sau {{keys_destroy_after}}.",
+      "device_new": "Thiết bị mới {{device_name}} đã tham gia tailnet.",
+      "device_expiring": "Thiết bị {{device_name}} sẽ hết hạn lúc {{expires_at}} — cần xác thực lại.",
+      "policy_applied": "Policy phiên bản {{version}} đã được áp dụng (trigger {{trigger}}).",
+      "support_grant_requested": "Nhân sự nền tảng {{staff}} yêu cầu Support Access Grant — cần tenant quyết định.",
+      "support_break_glass": "Break-glass: {{staff}} được cấp quyền hỗ trợ khẩn cấp (người duyệt {{approver}}).",
+      "support_grant_used": "Nhân sự nền tảng {{staff}} đã thao tác trong tenant qua Support Access Grant.",
+      "approval_requested": "Có yêu cầu phê duyệt mới: {{action}}.",
+      "idp_admin_change": "Thay đổi quản trị tại Identity Provider: {{action}} (bởi {{actor}}).",
+      "instance_restored": "Control plane của tenant đã được khôi phục từ bản backup lúc {{backup_created_at}}.",
+      "unknown": "Thông báo {{kind}}."
+    }
+  },
+  "dashboard": {
+    "devices": "Thiết bị",
+    "total": "Tổng số",
+    "online": "Trực tuyến",
+    "onlineNote": "Trực tuyến theo control plane tại lần đồng bộ gần nhất — không phải phép đo đường truyền.",
+    "openDevices": "Xem danh sách thiết bị",
+    "instance": "Control plane (Headscale)",
+    "unavailableTitle": "Mục chưa có số liệu",
+    "reasons": {
+      "never_synced": "Sổ thiết bị chưa từng được đồng bộ — chưa có số liệu.",
+      "no_source": "Nền tảng chưa có nguồn dữ liệu cho mục này.",
+      "not_served": "Có nguồn nhưng tổng quan chưa phục vụ số liệu này."
+    },
+    "sections": {
+      "devices": "Thiết bị",
+      "policies": "Policy",
+      "routes": "Routes",
+      "relay": "Relay",
+      "security_events": "Security events",
+      "other": "Mục {{code}}"
+    }
+  },
+  "health": {
+    "status": {
+      "healthy": "Khỏe",
+      "unhealthy": "Lỗi",
+      "unknown": "Chưa rõ"
+    },
+    "reasonOther": "Lý do khác (mã {{code}}).",
+    "reason": {
+      "instance_unavailable": "Instance không phản hồi.",
+      "circuit_open": "Tạm ngừng gọi instance sau nhiều lỗi liên tiếp.",
+      "database_unreachable": "Headscale không tới được cơ sở dữ liệu.",
+      "unsupported_version": "Phiên bản Headscale không được hỗ trợ.",
+      "api_key_rejected": "API key của nền tảng bị từ chối.",
+      "edge_rejected": "Edge từ chối lời gọi quản trị.",
+      "not_located": "Chưa xác định được instance của tenant.",
+      "upstream_rejected": "Headscale từ chối yêu cầu.",
+      "incomplete_probe": "Lần kiểm chưa hoàn tất.",
+      "internal": "Lỗi nội bộ khi kiểm.",
+      "no_instance": "Tenant chưa có instance.",
+      "never_checked": "Chưa từng được kiểm.",
+      "stale": "Kết quả kiểm đã cũ.",
+      "instance_not_running": "Instance không ở trạng thái chạy.",
+      "invalid_record": "Bản ghi kết quả không hợp lệ."
+    }
+  },
+  "devices": {
+    "online": "Trực tuyến",
+    "offline": "Ngoại tuyến",
+    "neverExpires": "Không hết hạn",
+    "expired": "Đã hết hạn",
+    "ownedByTags": "Thuộc tag (không có chủ)",
+    "noOwner": "Không rõ chủ",
+    "noTags": "Không có tag",
+    "fresh": "Làm mới từ Headscale",
+    "empty": "Không có thiết bị nào khớp bộ lọc.",
+    "noOsNote": "Không hiển thị hệ điều hành, phiên bản client hay endpoint: Headscale API không cung cấp các thông tin này (HS-14).",
+    "filters": "Lọc thiết bị",
+    "search": "Tên thiết bị",
+    "tagFilter": "Tag",
+    "tagPlaceholder": "tag:server",
+    "tagInvalid": "Tag phải có dạng tag:<tên> (chữ thường, số, dấu gạch ngang).",
+    "applyFilters": "Lọc",
+    "any": "Tất cả",
+    "taggedFilter": "Loại node",
+    "taggedYes": "Gắn tag",
+    "taggedNo": "Của người dùng",
+    "expiryYes": "Có hạn",
+    "mine": "Chỉ thiết bị của tôi",
+    "backToList": "← Danh sách thiết bị",
+    "col": {
+      "name": "Tên",
+      "owner": "Chủ sở hữu",
+      "tags": "Tag",
+      "addresses": "Địa chỉ tailnet",
+      "status": "Trạng thái",
+      "lastSeen": "Thấy lần cuối",
+      "expiry": "Hạn"
+    },
+    "review": {
+      "title": "Rà soát tagged node không hết hạn",
+      "description": "Tagged node không bao giờ hết hạn và không có chủ sở hữu (HS-19, PL-09) — rà soát định kỳ (hằng quý) và thu hồi node không còn dùng (§7.4, ADR-23).",
+      "open": "Mở báo cáo rà soát",
+      "exit": "Thoát chế độ rà soát",
+      "empty": "Không có tagged node nào không hết hạn."
+    },
+    "revocation": {
+      "kind": {
+        "expire": "thu hồi (expire)",
+        "delete": "xóa"
+      },
+      "state": {
+        "none": "Không thu hồi",
+        "pending": "Đang chờ {{kind}}",
+        "applied": "Đã áp dụng {{kind}}",
+        "failed": "{{kind}} thất bại"
+      },
+      "explain": {
+        "none": "Chưa có yêu cầu thu hồi.",
+        "pending": "Đã nhận yêu cầu {{kind}} — đang chờ Headscale xác nhận (đọc lại). Thiết bị CHƯA bị thu hồi cho tới khi trạng thái là \"đã áp dụng\".",
+        "applied": "Đã áp dụng {{kind}}: Headscale đã xác nhận khi đọc lại.",
+        "failed": "{{kind}} thất bại: Headscale từ chối hoặc hết lượt thử lại. Thiết bị có thể vẫn truy cập được — hãy thử lại."
+      },
+      "requestedAt": "Yêu cầu lúc",
+      "verifiedAt": "Xác nhận lúc"
+    },
+    "sync": {
+      "action": "Đồng bộ từ Headscale"
+    },
+    "deleted": {
+      "title": "Đã xóa thiết bị",
+      "description": "Headscale đã xác nhận xóa: thiết bị không còn trong sổ thiết bị."
+    },
+    "detail": {
+      "info": "Thông tin",
+      "hostname": "Hostname (client báo)",
+      "tagsLater": "Đổi tag: chưa khả dụng (P4-T10).",
+      "registerMethod": "Cách đăng ký",
+      "routesAdvertised": "Route quảng bá",
+      "routesApproved": "Route đã duyệt"
+    },
+    "rename": {
+      "title": "Đổi tên",
+      "label": "Tên trong tailnet (nhãn DNS)",
+      "hint": "Chữ thường, số và dấu gạch ngang; 1–63 ký tự; không bắt đầu/kết thúc bằng dấu gạch ngang.",
+      "submit": "Lưu tên",
+      "done": "Đã đổi tên (đọc lại từ Headscale)."
+    },
+    "revoke": {
+      "title": "Thu hồi",
+      "description": "Thu hồi là hai pha: yêu cầu được ghi nhận ngay, chỉ \"đã áp dụng\" khi Headscale xác nhận.",
+      "expire": "Thu hồi (expire)",
+      "delete": "Xóa thiết bị",
+      "confirmExpireTitle": "Thu hồi thiết bị {{name}}?",
+      "confirmDeleteTitle": "Xóa thiết bị {{name}}?",
+      "confirmExpire": "Khóa của thiết bị hết hạn ngay: thiết bị mất kết nối tailnet cho tới khi đăng nhập lại.",
+      "confirmDelete": "Thiết bị bị xóa khỏi tailnet và khỏi sổ thiết bị. Muốn dùng lại phải đăng ký lại.",
+      "twoPhase": "Màn hình sẽ theo dõi tới khi Headscale xác nhận."
+    }
+  },
+  "jobs": {
+    "status": {
+      "queued": "Đang chờ",
+      "running": "Đang chạy",
+      "failed_resumable": "Lỗi — có thể chạy tiếp",
+      "compensating": "Đang hoàn tác",
+      "rolled_back": "Đã hoàn tác",
+      "succeeded": "Thành công",
+      "failed": "Thất bại",
+      "cancelled": "Đã hủy"
+    }
+  },
+  "relay": {
+    "intro": "Relay DERP của tenant: region được gán và kết quả probe gần nhất của nền tảng.",
+    "empty": "Tenant chưa có relay nào được gán.",
+    "unavailableTitle": "Số đo relay không khả dụng",
+    "metrics": {
+      "traffic_bytes": "Lưu lượng (byte)",
+      "throughput": "Thông lượng",
+      "connections": "Số kết nối",
+      "auth_failures": "Lỗi xác thực",
+      "client_latency": "Độ trễ phía client",
+      "other": "Số đo {{code}}"
+    },
+    "reasons": {
+      "unsupported": "Thành phần không cung cấp số đo này (DERP nhúng không xuất metrics relay).",
+      "no_source": "Nền tảng chưa có nguồn cho số đo này."
+    },
+    "healthReason": {
+      "derp_probe_failed": "Probe DERP không đạt.",
+      "stun_probe_failed": "Probe STUN không đạt.",
+      "relay_unreachable": "Không tới được relay (cả DERP và STUN).",
+      "never_checked": "Chưa từng được probe.",
+      "stale": "Kết quả probe đã cũ.",
+      "invalid_record": "Bản ghi kết quả không hợp lệ.",
+      "instance_not_running": "Instance không ở trạng thái chạy.",
+      "relay_not_active": "Relay chưa ở trạng thái hoạt động.",
+      "no_probe": "Loại region này chưa được probe."
+    },
+    "kind": "Loại",
+    "kinds": {
+      "embedded": "DERP nhúng trong Headscale",
+      "standalone": "Derper riêng",
+      "shared": "Relay dùng chung"
+    },
+    "hostname": "Hostname",
+    "derpRegion": "DERP region ID",
+    "ports": "Cổng",
+    "portsBoth": "DERP {{derp}} · STUN {{stun}}",
+    "portsDerp": "DERP {{derp}}",
+    "addresses": "Địa chỉ công khai",
+    "verifyMode": "Xác thực client",
+    "verify": {
+      "in_process": "Trong tiến trình (verify_clients)",
+      "verify_url": "Qua verify URL (fail-closed)"
+    },
+    "adminStatus": "Trạng thái quản trị",
+    "adminStatuses": {
+      "pending": "Đang chờ",
+      "active": "Hoạt động",
+      "disabled": "Đã tắt"
+    },
+    "priority": "Ưu tiên",
+    "checks": "Phép kiểm của lần probe",
+    "checkOk": "Đạt",
+    "checkFailed": "Không đạt",
+    "duration": "{{ms}} ms (đo từ prober)",
+    "httpStatus": "HTTP {{status}}"
   }
 }

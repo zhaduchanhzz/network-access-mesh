@@ -489,5 +489,258 @@
       "typeSlug": "Type the slug of the tenant to delete",
       "hashLabel": "payload_sha256:"
     }
+  },
+  "ui": {
+    "cancel": "Cancel",
+    "never": "never",
+    "syncedAt": "Synced from Headscale at",
+    "checkedAt": "Checked at",
+    "unavailable": "unavailable",
+    "unknownCode": "Other reason (code {{code}}).",
+    "navCount_one": "{{count}}{{more}} unread notification",
+    "navCount_other": "{{count}}{{more}} unread notifications",
+    "readOnlyActions": "The tenant is read-only: changes are disabled.",
+    "loadMore": "Load more",
+    "pagination": "Pagination",
+    "prevPage": "Previous page",
+    "nextPage": "Next page"
+  },
+  "notif": {
+    "filterLabel": "Filter notifications",
+    "all": "All",
+    "unread": "Unread",
+    "empty": "No notifications yet.",
+    "emptyUnread": "No unread notifications.",
+    "openDevice": "View device",
+    "read": "Read",
+    "new": "New",
+    "markRead": "Mark as read",
+    "kinds": {
+      "tenant_activated": "Tenant {{tenant}} has been activated.",
+      "tenant_invitation": "Invitation to tenant {{tenant}} with role {{role}}.",
+      "tenant_suspended": "Tenant {{tenant}} has been suspended — data is read-only.",
+      "tenant_resumed": "Tenant {{tenant}} is active again.",
+      "tenant_deleted": "Tenant {{tenant}} was deleted; its data keys will be destroyed after {{keys_destroy_after}}.",
+      "device_new": "New device {{device_name}} joined the tailnet.",
+      "device_expiring": "Device {{device_name}} expires at {{expires_at}} — it must re-authenticate.",
+      "policy_applied": "Policy version {{version}} was applied (trigger {{trigger}}).",
+      "support_grant_requested": "Platform staff {{staff}} requests a Support Access Grant — the tenant must decide.",
+      "support_break_glass": "Break-glass: {{staff}} was granted emergency support access (approved by {{approver}}).",
+      "support_grant_used": "Platform staff {{staff}} acted in the tenant through a Support Access Grant.",
+      "approval_requested": "A new approval request is waiting: {{action}}.",
+      "idp_admin_change": "Administrative change at the Identity Provider: {{action}} (by {{actor}}).",
+      "instance_restored": "The tenant's control plane was restored from the backup of {{backup_created_at}}.",
+      "unknown": "Notification {{kind}}."
+    }
+  },
+  "dashboard": {
+    "devices": "Devices",
+    "total": "Total",
+    "online": "Online",
+    "onlineNote": "Online as seen by the control plane at the last sync — not a measurement of the network path.",
+    "openDevices": "Open the device list",
+    "instance": "Control plane (Headscale)",
+    "unavailableTitle": "Sections without figures",
+    "reasons": {
+      "never_synced": "The device inventory has never been synced — no figures yet.",
+      "no_source": "The platform has no data source for this section yet.",
+      "not_served": "A source exists but the overview does not serve this figure yet."
+    },
+    "sections": {
+      "devices": "Devices",
+      "policies": "Policies",
+      "routes": "Routes",
+      "relay": "Relay",
+      "security_events": "Security events",
+      "other": "Section {{code}}"
+    }
+  },
+  "health": {
+    "status": {
+      "healthy": "Healthy",
+      "unhealthy": "Unhealthy",
+      "unknown": "Unknown"
+    },
+    "reasonOther": "Other reason (code {{code}}).",
+    "reason": {
+      "instance_unavailable": "The instance does not respond.",
+      "circuit_open": "Calls to the instance paused after repeated failures.",
+      "database_unreachable": "Headscale cannot reach its database.",
+      "unsupported_version": "Unsupported Headscale version.",
+      "api_key_rejected": "The platform's API key was rejected.",
+      "edge_rejected": "The edge refused the administrative call.",
+      "not_located": "The tenant's instance could not be located.",
+      "upstream_rejected": "Headscale rejected the request.",
+      "incomplete_probe": "The check did not complete.",
+      "internal": "Internal error while checking.",
+      "no_instance": "The tenant has no instance.",
+      "never_checked": "Never checked.",
+      "stale": "The last check result is stale.",
+      "instance_not_running": "The instance is not running.",
+      "invalid_record": "The stored result is invalid."
+    }
+  },
+  "devices": {
+    "online": "Online",
+    "offline": "Offline",
+    "neverExpires": "Never expires",
+    "expired": "Expired",
+    "ownedByTags": "Owned by tags (no owner)",
+    "noOwner": "Unknown owner",
+    "noTags": "No tags",
+    "fresh": "Refresh from Headscale",
+    "empty": "No device matches the filters.",
+    "noOsNote": "Operating system, client version and endpoints are not shown: the Headscale API does not provide them (HS-14).",
+    "filters": "Filter devices",
+    "search": "Device name",
+    "tagFilter": "Tag",
+    "tagPlaceholder": "tag:server",
+    "tagInvalid": "A tag looks like tag:<name> (lowercase letters, digits, hyphens).",
+    "applyFilters": "Filter",
+    "any": "All",
+    "taggedFilter": "Node type",
+    "taggedYes": "Tagged",
+    "taggedNo": "User-owned",
+    "expiryYes": "Has an expiry",
+    "mine": "Only my devices",
+    "backToList": "← Device list",
+    "col": {
+      "name": "Name",
+      "owner": "Owner",
+      "tags": "Tags",
+      "addresses": "Tailnet addresses",
+      "status": "Status",
+      "lastSeen": "Last seen",
+      "expiry": "Expiry"
+    },
+    "review": {
+      "title": "Review of tagged nodes that never expire",
+      "description": "Tagged nodes never expire and have no owner (HS-19, PL-09) — review them periodically (quarterly) and revoke the ones no longer used (§7.4, ADR-23).",
+      "open": "Open the review report",
+      "exit": "Leave the review",
+      "empty": "No tagged node that never expires."
+    },
+    "revocation": {
+      "kind": {
+        "expire": "revocation (expire)",
+        "delete": "deletion"
+      },
+      "state": {
+        "none": "Not revoked",
+        "pending": "{{kind}} pending",
+        "applied": "{{kind}} applied",
+        "failed": "{{kind}} failed"
+      },
+      "explain": {
+        "none": "No revocation requested.",
+        "pending": "The {{kind}} was accepted — waiting for Headscale to confirm (read-back). The device is NOT revoked until the state is \"applied\".",
+        "applied": "The {{kind}} is applied: Headscale confirmed it on read-back.",
+        "failed": "The {{kind}} failed: Headscale refused or the retries ran out. The device may still have access — try again."
+      },
+      "requestedAt": "Requested at",
+      "verifiedAt": "Confirmed at"
+    },
+    "sync": {
+      "action": "Sync from Headscale"
+    },
+    "deleted": {
+      "title": "Device deleted",
+      "description": "Headscale confirmed the deletion: the device is no longer in the inventory."
+    },
+    "detail": {
+      "info": "Details",
+      "hostname": "Hostname (reported by the client)",
+      "tagsLater": "Changing tags: not available yet (P4-T10).",
+      "registerMethod": "Registration method",
+      "routesAdvertised": "Advertised routes",
+      "routesApproved": "Approved routes"
+    },
+    "rename": {
+      "title": "Rename",
+      "label": "Name in the tailnet (DNS label)",
+      "hint": "Lowercase letters, digits and hyphens; 1–63 characters; no leading or trailing hyphen.",
+      "submit": "Save name",
+      "done": "Renamed (read back from Headscale)."
+    },
+    "revoke": {
+      "title": "Revocation",
+      "description": "Revocation has two phases: the request is recorded at once, and it is \"applied\" only once Headscale confirms it.",
+      "expire": "Revoke (expire)",
+      "delete": "Delete device",
+      "confirmExpireTitle": "Revoke device {{name}}?",
+      "confirmDeleteTitle": "Delete device {{name}}?",
+      "confirmExpire": "The device's key expires now: it loses tailnet access until it signs in again.",
+      "confirmDelete": "The device is removed from the tailnet and from the inventory. Using it again requires a new registration.",
+      "twoPhase": "This page follows the request until Headscale confirms it."
+    }
+  },
+  "jobs": {
+    "status": {
+      "queued": "Queued",
+      "running": "Running",
+      "failed_resumable": "Failed — can resume",
+      "compensating": "Rolling back",
+      "rolled_back": "Rolled back",
+      "succeeded": "Succeeded",
+      "failed": "Failed",
+      "cancelled": "Cancelled"
+    }
+  },
+  "relay": {
+    "intro": "The tenant's DERP relays: the assigned regions and the platform's latest probe.",
+    "empty": "No relay is assigned to this tenant yet.",
+    "unavailableTitle": "Relay figures not available",
+    "metrics": {
+      "traffic_bytes": "Traffic (bytes)",
+      "throughput": "Throughput",
+      "connections": "Connections",
+      "auth_failures": "Authentication failures",
+      "client_latency": "Client-side latency",
+      "other": "Figure {{code}}"
+    },
+    "reasons": {
+      "unsupported": "The component does not provide this figure (the embedded DERP exports no relay metrics).",
+      "no_source": "The platform has no source for this figure yet."
+    },
+    "healthReason": {
+      "derp_probe_failed": "The DERP probe failed.",
+      "stun_probe_failed": "The STUN probe failed.",
+      "relay_unreachable": "The relay is unreachable (DERP and STUN).",
+      "never_checked": "Never probed.",
+      "stale": "The last probe result is stale.",
+      "invalid_record": "The stored result is invalid.",
+      "instance_not_running": "The instance is not running.",
+      "relay_not_active": "The relay is not active.",
+      "no_probe": "This kind of region is not probed yet."
+    },
+    "kind": "Kind",
+    "kinds": {
+      "embedded": "DERP embedded in Headscale",
+      "standalone": "Dedicated derper",
+      "shared": "Shared relay"
+    },
+    "hostname": "Hostname",
+    "derpRegion": "DERP region ID",
+    "ports": "Ports",
+    "portsBoth": "DERP {{derp}} · STUN {{stun}}",
+    "portsDerp": "DERP {{derp}}",
+    "addresses": "Public addresses",
+    "verifyMode": "Client verification",
+    "verify": {
+      "in_process": "In process (verify_clients)",
+      "verify_url": "Through a verify URL (fail-closed)"
+    },
+    "adminStatus": "Administrative status",
+    "adminStatuses": {
+      "pending": "Pending",
+      "active": "Active",
+      "disabled": "Disabled"
+    },
+    "priority": "Priority",
+    "checks": "Checks of the probe",
+    "checkOk": "Passed",
+    "checkFailed": "Failed",
+    "duration": "{{ms}} ms (measured by the prober)",
+    "httpStatus": "HTTP {{status}}"
   }
 }

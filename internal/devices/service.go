@@ -125,8 +125,8 @@ func (s *Service) List(ctx context.Context, tenantID uuid.UUID, a Access, q List
 		return Page{}, invalid("q", "q must be at most 64 characters")
 	}
 	bind := binding(tenantID, a, q)
-	p := sqlcdb.ListDevicesPageParams{TenantID: tenantID, Owner: q.Owner, Online: q.Online,
-		RowLimit: int32(q.Limit + 1)} //nolint:gosec // 1–201
+	p := sqlcdb.ListDevicesPageParams{TenantID: tenantID, Owner: q.Owner, Online: q.Online, Tagged: q.Tagged,
+		HasExpiry: q.HasExpiry, RowLimit: int32(q.Limit + 1)} //nolint:gosec // 1–201
 	if a.OwnOnly {
 		m := a.MembershipID
 		p.OwnMembership = &m

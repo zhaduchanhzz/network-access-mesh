@@ -467,6 +467,21 @@ paths:
             type: string
             minLength: 1
             maxLength: 64
+        - name: tagged
+          in: query
+          required: false
+          description: >-
+            `true`: chỉ node gắn tag (thuộc tag, không còn chủ sở hữu — PL-09); `false`: chỉ node của một user (P4-T04)
+          schema:
+            type: boolean
+        - name: has_expiry
+          in: query
+          required: false
+          description: >-
+            `false`: chỉ node không hết hạn (`expiry` null — tagged node luôn miễn hết hạn, HS-19); `true`: chỉ node có
+            hạn. `tagged=true&has_expiry=false` là báo cáo rà soát định kỳ tagged node (§7.4, ADR-23 — P4-T04)
+          schema:
+            type: boolean
         - name: fresh
           in: query
           required: false
@@ -924,6 +939,43 @@ paths:
           $ref: '#/components/responses/NotFound'
         '422':
           $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/notifications/{notificationId}/read:
+    post:
+      tags: [notifications]
+      operationId: markNotificationRead
+      summary: Đánh dấu một thông báo của chính người gọi là đã đọc
+      description: >-
+        Chỉ thông báo gửi cho membership của chính người gọi trong tenant này (§8.6 — ô ○ của mọi role); thông báo của
+        thành viên khác hoặc của tenant khác ⇒ `404` thống nhất. Lũy đẳng: thông báo đã đọc giữ nguyên `read_at` cũ
+        (không cần `Idempotency-Key` — không tạo tài nguyên hay job). Tenant bị suspend ⇒ `403 tenant_suspended` như mọi
+        thao tác ghi (§8.4 bất biến 5).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.notification:read
+      x-own-resource: true
+      x-task: P4-T04
+      x-audit-action: notification.mark_read
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/NotificationId'
+      responses:
+        '200':
+          description: Thông báo sau khi đánh dấu (`read_at` khác `null`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Notification'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '429':
           $ref: '#/components/responses/RateLimited'
         default:
@@ -2826,6 +2878,14 @@ components:
       in: path
       required: true
       description: ID thiết bị của nền tảng (UUID), ánh xạ `(tenant, headscale_node_id)` — không nhận node id thô của Headscale
+      schema:
+        type: string
+        format: uuid
+    NotificationId:
+      name: notificationId
+      in: path
+      required: true
+      description: ID thông báo (`notification_outbox.id`) gửi cho chính người gọi
       schema:
         type: string
         format: uuid
