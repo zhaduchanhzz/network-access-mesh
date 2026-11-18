@@ -16,9 +16,10 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store/sqlcdb"
 )
 
-// TestListFiltersAndPages: stable pages through the cursor, filters, the own-only view of the End User (own untagged
-// devices only), cursor misuse, fresh=true (bounded sync first; with a cursor ⇒ 422; instance down ⇒ 503), and RLS
-// (tenant B never sees A's devices, whatever it asks).
+// TestListFiltersAndPages: stable pages through the cursor, filters (the tagged/has_expiry pair of the periodic review
+// of tagged nodes that never expire — P4-T04), the own-only view of the End User (own untagged devices only), cursor
+// misuse, fresh=true (bounded sync first; with a cursor ⇒ 422; instance down ⇒ 503), and RLS (tenant B never sees A's
+// devices, whatever it asks).
 func TestListFiltersAndPages(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
@@ -35,6 +36,7 @@ func TestListFiltersAndPages(t *testing.T) {
 		if i == 7 {
 			n.Tags = []string{"tag:server"}
 			n.GivenName = "build-server"
+			n.Expiry = nil // a tagged node never expires (HS-19)
 		}
 		a.hs.PutNode(n)
 	}
@@ -77,12 +79,24 @@ func TestListFiltersAndPages(t *testing.T) {
 	check("search", Access{}, ListQuery{Search: "LAPTOP-1"}, 1)
 	check("search hostname", Access{}, ListQuery{Search: "host-"}, 7)
 	check("search with LIKE wildcards is literal", Access{}, ListQuery{Search: "%"}, 0)
+	check("tagged", Access{}, ListQuery{Tagged: &on}, 1)
+	check("untagged", Access{}, ListQuery{Tagged: &off}, 6)
+	check("never expires", Access{}, ListQuery{HasExpiry: &off}, 1)
+	check("has an expiry", Access{}, ListQuery{HasExpiry: &on}, 6)
+	check("review: tagged + never expires", Access{}, ListQuery{Tagged: &on, HasExpiry: &off}, 1)
+	check("tagged + has an expiry", Access{}, ListQuery{Tagged: &on, HasExpiry: &on}, 0)
+	if p, _ := f.api.List(ctx, a.id, Access{}, ListQuery{Tagged: &on, HasExpiry: &off}); len(p.Items) != 1 ||
+		p.Items[0].Expiry != nil || !slices.Equal(p.Items[0].Tags, []string{"tag:server"}) || p.Items[0].Owner != nil {
+		t.Errorf("review report: %+v", p.Items)
+	}
 	// The End User sees her own untagged devices only, whatever filter she asks for.
 	own := Access{OwnOnly: true, MembershipID: a.alice}
 	check("own", own, ListQuery{}, 3)
 	bob := a.bob
 	check("own + owner Bob", own, ListQuery{Owner: &bob}, 0)
 	check("own + tag", own, ListQuery{Tag: "tag:server"}, 0)
+	check("own + tagged", own, ListQuery{Tagged: &on}, 0)
+	check("own + never expires", own, ListQuery{HasExpiry: &off}, 0)
 	f.exec(t, `UPDATE device_inventory_cache SET owner_membership_id = $1 WHERE headscale_node_id = 7`, a.alice)
 	check("own never shows a tagged device, even owned", own, ListQuery{}, 3)
 
@@ -94,6 +108,12 @@ func TestListFiltersAndPages(t *testing.T) {
 	} {
 		if _, err := f.api.List(ctx, a.id, Access{}, q); !isCode(err, CodeValidationFailed) || fromAdapter(err).Field != what {
 			t.Errorf("%s: %v, want validation_failed on %s", what, err, what)
+		}
+	}
+	for what, q := range map[string]ListQuery{"tagged": {Cursor: p1.NextCursor, Tagged: &off},
+		"has_expiry": {Cursor: p1.NextCursor, HasExpiry: &on}} {
+		if _, err := f.api.List(ctx, a.id, Access{}, q); !isCode(err, CodeValidationFailed) {
+			t.Errorf("cursor of the unfiltered list with %s: %v", what, err)
 		}
 	}
 	if _, err := f.api.List(ctx, a.id, own, ListQuery{Cursor: p1.NextCursor}); !isCode(err, CodeValidationFailed) {

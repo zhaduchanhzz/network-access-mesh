@@ -70,6 +70,12 @@ type NotificationHandlers interface {
 	ListNotifications(ctx context.Context, request gen.ListNotificationsRequestObject) (gen.ListNotificationsResponseObject, error)
 }
 
+// PortalHandlers — P4-T04 (Tenant Portal: dashboard, devices, relay, notification inbox): the read state of the
+// caller's own Portal notifications.
+type PortalHandlers interface {
+	MarkNotificationRead(ctx context.Context, request gen.MarkNotificationReadRequestObject) (gen.MarkNotificationReadResponseObject, error)
+}
+
 // ApprovalHandlers — P3-T04a (`authz` approvals): dual control of the platform and of a tenant (§8.5/§8.6 2P rule).
 type ApprovalHandlers interface {
 	ListPlatformApprovals(ctx context.Context, request gen.ListPlatformApprovalsRequestObject) (gen.ListPlatformApprovalsResponseObject, error)
@@ -186,13 +192,14 @@ type Handlers struct {
 	InstanceOps   InstanceOpsHandlers  // P3-T13a
 	Deprovision   DeprovisionHandlers  // P3-T09
 	Quarantine    QuarantineHandlers   // P3-T18
+	Portal        PortalHandlers       // P4-T04
 }
 
 func (h Handlers) mounted() bool {
 	return h.Auth != nil || h.Tenants != nil || h.Devices != nil || h.Audit != nil || h.Jobs != nil || h.Monitoring != nil ||
 		h.Notifications != nil || h.Approvals != nil || h.Invitations != nil || h.Hosts != nil || h.IdPConsole != nil ||
 		h.Provisioning != nil || h.Lifecycle != nil || h.Relay != nil || h.Reconfigure != nil || h.Backups != nil ||
-		h.InstanceOps != nil || h.Quarantine != nil || h.Deprovision != nil
+		h.InstanceOps != nil || h.Quarantine != nil || h.Deprovision != nil || h.Portal != nil
 }
 
 // dispatcher implements gen.StrictServerInterface by promotion from the disjoint interfaces.
@@ -216,6 +223,7 @@ type dispatcher struct {
 	InstanceOpsHandlers
 	QuarantineHandlers
 	DeprovisionHandlers
+	PortalHandlers
 }
 
 var _ gen.StrictServerInterface = dispatcher{}
@@ -223,7 +231,10 @@ var _ gen.StrictServerInterface = dispatcher{}
 func newDispatcher(h Handlers) dispatcher {
 	d := dispatcher{h.Auth, h.Tenants, h.Devices, h.Audit, h.Jobs, h.Monitoring, h.Notifications, h.Approvals, h.Invitations,
 		h.Hosts, h.IdPConsole, h.Provisioning, h.Lifecycle, h.Relay, h.Reconfigure, h.Backups, h.InstanceOps,
-		h.Quarantine, h.Deprovision}
+		h.Quarantine, h.Deprovision, h.Portal}
+	if d.PortalHandlers == nil {
+		d.PortalHandlers = NotImplemented{}
+	}
 	if d.InstanceOpsHandlers == nil {
 		d.InstanceOpsHandlers = NotImplemented{}
 	}
@@ -544,4 +555,8 @@ func (NotImplemented) QuarantinePlatformInstance(context.Context, gen.Quarantine
 
 func (NotImplemented) ReleasePlatformInstance(context.Context, gen.ReleasePlatformInstanceRequestObject) (gen.ReleasePlatformInstanceResponseObject, error) {
 	return nil, problem.NotImplemented("ReleasePlatformInstance")
+}
+
+func (NotImplemented) MarkNotificationRead(context.Context, gen.MarkNotificationReadRequestObject) (gen.MarkNotificationReadResponseObject, error) {
+	return nil, problem.NotImplemented("MarkNotificationRead")
 }

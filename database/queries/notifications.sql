@@ -97,6 +97,21 @@ WHERE tenant_id = sqlc.arg(tenant_id)::uuid AND recipient_membership_id = sqlc.a
 ORDER BY created_at DESC, id DESC
 LIMIT sqlc.arg(row_limit);
 
+-- name: LockTenantNotification :one
+-- POST /tenants/{t}/notifications/{id}/read (P4-T04): khóa hàng của một thông báo của tenant (RLS + điều kiện tenant
+-- tường minh); service kiểm người nhận là membership của chính người gọi trước khi ghi.
+SELECT * FROM notification_outbox
+WHERE tenant_id = sqlc.arg(tenant_id)::uuid AND id = sqlc.arg(id)
+FOR UPDATE;
+
+-- name: MarkNotificationRead :one
+-- Đặt read_at một lần (lũy đẳng: hàng đã đọc giữ read_at cũ) — chỉ hàng gửi cho đúng membership đó (mg_api_tenant chỉ
+-- có UPDATE (read_at), 0009).
+UPDATE notification_outbox SET read_at = COALESCE(read_at, now())
+WHERE tenant_id = sqlc.arg(tenant_id)::uuid AND id = sqlc.arg(id)
+  AND recipient_membership_id = sqlc.arg(membership_id)::uuid
+RETURNING *;
+
 -- name: DeleteOldNotifications :execrows
 -- retention.sweep (§6.4: 90 ngày sau sent_at; hàng failed/cancelled — không có sent_at — 90 ngày sau created_at).
 -- Pool platform (mg_worker_platform có DELETE; RLS nhánh platform thấy mọi hàng).
