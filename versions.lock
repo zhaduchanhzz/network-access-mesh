@@ -189,33 +189,33 @@ note = "tailscale.com/cmd/stund tại tag v1.104.7 (commit cbc74fe…), Go 1.27.
 
 [images.mg-api]
 image = "ghcr.io/zhaduchanhzz/network-access-mesh/api"
-tag = "c3a226e19824edabdf448809e979a4978cbc8524"
-index = "sha256:59e59e5a12943171a4664c26dd11c8075b9e099063573769e5227f13cecf35f6"   # một manifest linux/amd64 (docker v2 schema 2)
-amd64 = "sha256:59e59e5a12943171a4664c26dd11c8075b9e099063573769e5227f13cecf35f6"
+tag = "d8a4223866733c73a77bf64ed178346c2f9f4833"
+index = "sha256:2afa8196416c1d6bbbc5b0a161354f5c820b8b5e75b3cf5d800a72053a3964f6"   # một manifest linux/amd64 (docker v2 schema 2)
+amd64 = "sha256:2afa8196416c1d6bbbc5b0a161354f5c820b8b5e75b3cf5d800a72053a3964f6"
 user = "65532:65532"
 run_as = "65532:65532 + nhóm mg-sec-app (20001) / mg-sec-api (20002); job migrate 20004; rootfs chỉ đọc, cap_drop ALL; project mg-app (P2-T16)"
 released = "2026-11-18"
-note = "meshguard-api build từ c3a226e (+ P3-T14b; trước đó 8da6c77, 031b813); workflow images run 44312213904 xanh; digest, user và label org.opencontainers.image.revision đọc từ GHCR ngày 2026-11-18. CÙNG commit với [images.mg-worker] (tools/render_app.py từ chối nếu khác)"
+note = "meshguard-api build từ d8a4223 (+ sửa khóa restore P3-T11, P3-T14b; trước đó c3a226e, 8da6c77); workflow images run 44333410957 xanh; digest, user và label org.opencontainers.image.revision đọc từ GHCR ngày 2026-11-18. CÙNG commit với [images.mg-worker] (tools/render_app.py từ chối nếu khác)"
 
 [images.mg-worker]
 image = "ghcr.io/zhaduchanhzz/network-access-mesh/worker"
-tag = "c3a226e19824edabdf448809e979a4978cbc8524"
-index = "sha256:16c438549bbebe04f43c6e6a621659d370d79ade4cba8cd111b11ae664e765c8"   # một manifest linux/amd64 (docker v2 schema 2)
-amd64 = "sha256:16c438549bbebe04f43c6e6a621659d370d79ade4cba8cd111b11ae664e765c8"
+tag = "d8a4223866733c73a77bf64ed178346c2f9f4833"
+index = "sha256:826303e688a9832bb994039cfa0baf18c9c4111e8e3baf0e556c2022802a9b94"   # một manifest linux/amd64 (docker v2 schema 2)
+amd64 = "sha256:826303e688a9832bb994039cfa0baf18c9c4111e8e3baf0e556c2022802a9b94"
 user = "65532:65532"
 run_as = "65532:65532 + nhóm mg-sec-app (20001) / mg-sec-worker (20003); rootfs chỉ đọc, cap_drop ALL; project mg-app (P2-T16)"
 released = "2026-11-18"
-note = "meshguard-worker build từ c3a226e (+ P3-T14b admin backfill-instance; trước đó 8da6c77); workflow images run 44312213904 xanh; digest, user và label revision đọc từ GHCR ngày 2026-11-18. CÙNG commit với [images.mg-api]"
+note = "meshguard-worker build từ d8a4223 (+ restore preflight GetInstanceStatus, rolled_back khi Agent từ chối trước thay đổi; trước đó c3a226e); workflow images run 44333410957 xanh; digest, user và label revision đọc từ GHCR ngày 2026-11-18. CÙNG commit với [images.mg-api]"
 
 [images.mg-agent]
 image = "ghcr.io/zhaduchanhzz/network-access-mesh/agent"
-tag = "8da6c7738e890f14562d5c5e4e0b564c81969cec"
-index = "sha256:b2c91d22fc366cdd79f801837ffd36aeec3371810531db4f2d2fcf4d893b15ed"   # một manifest linux/amd64 (docker v2 schema 2)
-amd64 = "sha256:b2c91d22fc366cdd79f801837ffd36aeec3371810531db4f2d2fcf4d893b15ed"
+tag = "d8a4223866733c73a77bf64ed178346c2f9f4833"
+index = "sha256:f89784f2967d79342bd0c0c305acb7c28f7c396a7aa9bd69f8f91212976f6969"   # một manifest linux/amd64 (docker v2 schema 2)
+amd64 = "sha256:f89784f2967d79342bd0c0c305acb7c28f7c396a7aa9bd69f8f91212976f6969"
 user = "0:0"
 run_as = "root (Host Agent — thành phần DUY NHẤT có Docker socket, ADR-05); compose: network_mode none, cap_drop ALL + CHOWN/FOWNER/DAC_OVERRIDE, rootfs chỉ đọc; chỉ Unix socket 0660 nhóm mg-sec-worker (P3-T01/P3-T02)"
 released = "2026-11-18"
-note = "meshguard-agent build từ 8da6c77 (+ P3-T13a InspectImage, PreflightUpgrade, UpgradeInstance có spec; trước đó 031b813); workflow images run 44302950155 xanh (gồm bước kiểm image); digest, user và label revision đọc từ GHCR ngày 2026-11-18"
+note = "meshguard-agent build từ d8a4223 (+ Refusal.unchanged cho Restore; trước đó 8da6c77); workflow images run 44333410957 xanh (gồm bước kiểm image); digest, user và label revision đọc từ GHCR ngày 2026-11-18"
 
 [images.mg-probe]
 image = "ghcr.io/zhaduchanhzz/network-access-mesh/probe"
