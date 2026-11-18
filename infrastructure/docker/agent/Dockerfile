@@ -5,7 +5,10 @@
 # P3-T02 thêm Docker Compose (binary độc lập `docker-compose`, build lại từ mã nguồn bản phát hành — cùng chương trình
 # với CLI plugin `docker compose`): compose driver chạy `docker-compose --project-name mg-t-<slug> …`; trạng thái/inventory/
 # network đi qua Docker Engine API (moby client trong binary Go) nên KHÔNG cần CLI `docker`. Binary compose build tĩnh
-# (CGO tắt) ⇒ giữ base distroless static, không đổi base. sqlite3 (≥ 3.51.3 — §17.1) và age thêm ở P3-T11.
+# (CGO tắt) ⇒ giữ base distroless static, không đổi base. P3-T11 thêm hai công cụ của container trợ giúp backup/restore
+# (§17.1 — chạy chính image này với run_uid của tenant): sqlite3 3.54.1 (≥ 3.51.3 — bản sửa WAL-reset; build TĨNH từ
+# amalgamation autoconf của sqlite.org, sha256 + SHA3-256 công bố, versions.lock [sources.sqlite]) và age v1.3.2 (công
+# thức của build-age.sh / image backup — versions.lock [sources.age]).
 # Base và công cụ pin theo digest/SHA-256 (versions.lock [images.golang], [images.distroless-static],
 # [sources.docker-compose]); module Go kiểm bằng go.sum; template instance nhúng vào binary (infrastructure/headscale/templates).
 #   docker build -f infrastructure/docker/agent/Dockerfile --build-arg VERSION=… --build-arg COMMIT=… .
@@ -47,9 +50,40 @@ RUN go mod download "github.com/docker/compose/v5@${COMPOSE_VERSION}" \
  && echo "${COMPOSE_BUILD_SHA256}  /docker-compose" | sha256sum -c - \
  && /docker-compose version | grep -qx "Docker Compose version ${COMPOSE_VERSION}"
 
+# sqlite3 — versions.lock [sources.sqlite]: autoconf tarball (sha256 kiểm trong build), build tĩnh với glibc của image golang
+# pin (tái lập: cùng sha256 build_sha256), không extension nạp động, không readline; chỉ dùng trong container trợ giúp.
+FROM ${GOLANG} AS sqlite
+ARG SQLITE_URL=https://www.sqlite.org/2026/sqlite-autoconf-3540100.tar.gz
+ARG SQLITE_SHA256=926ef8d3eab93fbf6e06011901273eec076b25594a4e1cdadd50c987f4f6d64e
+ARG SQLITE_BUILD_SHA256=37b9e2b6256885d3896badda51797a460306f263614fb5c6f3b681eb9be9571d
+WORKDIR /tmp
+RUN curl -fsSLo s.tgz "${SQLITE_URL}" \
+ && echo "${SQLITE_SHA256}  s.tgz" | sha256sum -c - \
+ && tar xzf s.tgz && cd sqlite-autoconf-3540100 \
+ && gcc -Os -static -DSQLITE_OMIT_LOAD_EXTENSION -DSQLITE_THREADSAFE=0 -DSQLITE_DQS=0 -DSQLITE_DEFAULT_MEMSTATUS=0 \
+      -DSQLITE_OMIT_DEPRECATED -DHAVE_READLINE=0 shell.c sqlite3.c -lm -o /sqlite3 2>/dev/null \
+ && strip /sqlite3 \
+ && echo "${SQLITE_BUILD_SHA256}  /sqlite3" | sha256sum -c - \
+ && /sqlite3 -version | grep -q "^3.54.1 "
+
+# age — versions.lock [sources.age] (công thức của infrastructure/host/key-ceremony/build-age.sh, như image backup)
+FROM ${GOLANG} AS age
+ARG AGE_MODULE=filippo.io/age
+ARG AGE_VERSION=v1.3.2
+ARG AGE_SHA256=e442c7bc47bb52e08ccb02dfa5fc09ecf58ce6bce5de0cdda8443b918ae7055e
+ENV HOME=/tmp CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS=-trimpath GOBIN=/out \
+    GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GONOSUMDB= GOPRIVATE= GOINSECURE= \
+    GOMODCACHE=/tmp/modcache GOCACHE=/tmp/gocache
+WORKDIR /tmp
+RUN go install "${AGE_MODULE}/cmd/age@${AGE_VERSION}" \
+ && echo "${AGE_SHA256}  /out/age" | sha256sum -c - \
+ && /out/age --version
+
 FROM ${RUNTIME}
 COPY --from=build /out/meshguard-agent /usr/local/bin/meshguard-agent
 COPY --from=compose /docker-compose /usr/local/bin/docker-compose
+COPY --from=sqlite /sqlite3 /usr/local/bin/sqlite3
+COPY --from=age /out/age /usr/local/bin/age
 USER 0:0
 ENV MG_AGENT_COMPOSE_BIN=/usr/local/bin/docker-compose
 # Không EXPOSE: agent chỉ nghe Unix socket /run/meshguard/agent.sock (không TCP).

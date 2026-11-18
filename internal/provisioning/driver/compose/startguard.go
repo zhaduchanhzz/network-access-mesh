@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -44,7 +45,30 @@ const (
 	reasonNoiseKeyInvalid   = "noise_key_invalid"
 	reasonNotRecorded       = "fingerprint_not_recorded"
 	reasonFingerprintDiffer = "fingerprint_mismatch"
+	// P3-T11 (IT-15): a guarded file larger than its bound (a huge sparse file), a hard link, a database file that is
+	// no SQLite database.
+	reasonFileOversized   = "data_file_oversized"
+	reasonFileHardLinked  = "data_file_hard_linked"
+	reasonDatabaseInvalid = "database_invalid"
 )
+
+// dataFileBound is the size bound of a guarded file of data/ (the agent only lstat's them).
+func (d *Driver) dataFileBound(name string) int64 {
+	switch name {
+	case "noise_private.key":
+		return noiseKeyMaxBytes
+	case "derp_server_private.key":
+		return maxKeyFileBytes
+	}
+	if d.cfg.MaxDBBytes > 0 {
+		return d.cfg.MaxDBBytes
+	}
+	return DefaultMaxDBBytes
+}
+
+// dataCheckTriggers are the start paths where the start guard also checks the database file's structure through the
+// data-check helper (an uncached helper run: not on every supervisor cycle).
+var dataCheckTriggers = map[string]bool{"start": true, "restart": true, "compose_up": true}
 
 // guardCheck is the outcome of the start guard for one instance.
 type guardCheck struct {
@@ -87,6 +111,10 @@ func (d *Driver) checkData(ctx context.Context, t *tree, l layout, n agentspec.N
 			return guardCheck{violation: reasonFileMissing, detail: name}
 		case !fi.Mode().IsRegular():
 			return guardCheck{violation: reasonFileNotRegular, detail: name}
+		case fi.Size() > d.dataFileBound(name):
+			return guardCheck{violation: reasonFileOversized, detail: name}
+		case nlinkOf(fi) > 1:
+			return guardCheck{violation: reasonFileHardLinked, detail: name}
 		}
 		if name == "noise_private.key" {
 			keyID = identity(fi)
@@ -119,6 +147,39 @@ func (d *Driver) startGuard(ctx context.Context, t *tree, l layout, n agentspec.
 		return guardCheck{violation: reasonFingerprintDiffer}
 	}
 	return g
+}
+
+// dataCheck runs the data-check helper (data/ read-only, run_uid, no network): the database file must be a regular
+// file within its bound with a valid SQLite header (IT-15 "DB hỏng"). Unsafe or invalid ⇒ violation; a helper that
+// could not run ⇒ indeterminate.
+func (d *Driver) dataCheck(ctx context.Context, n agentspec.Names, ref agentspec.Ref, runUID uint32) guardCheck {
+	if d.cfg.HelperImage == "" {
+		return guardCheck{err: errHelper{errors.New("no helper image configured (MG_AGENT_HELPER_IMAGE)")}}
+	}
+	spec, err := d.helperSpec(ref, runUID, "datacheck", DataCheckCommand,
+		[]Bind{{Source: n.DataDir, Target: helperDataDir, ReadOnly: true}}, nil, fingerprintTimeout)
+	if err != nil {
+		return guardCheck{err: errHelper{err}}
+	}
+	spec.MemoryBytes, spec.PIDs = 32<<20, 16
+	spec.Tmpfs = nil
+	if err := d.cfg.Engine.EnsureImage(ctx, spec.Image); err != nil {
+		return guardCheck{err: errHelper{err}}
+	}
+	res, err := d.cfg.Engine.RunOnce(ctx, spec)
+	if err != nil {
+		return guardCheck{err: errHelper{err}}
+	}
+	switch res.ExitCode {
+	case 0:
+		return guardCheck{}
+	case HelperExitUnsafe, HelperExitIntegrity:
+		var out HelperResult
+		_ = json.Unmarshal(bytes.TrimSpace(res.Stdout), &out)
+		return guardCheck{violation: reasonDatabaseInvalid, detail: out.Reason}
+	default:
+		return guardCheck{err: errHelper{fmt.Errorf("data-check: exit code %d", res.ExitCode)}}
+	}
 }
 
 // instanceState is what the guard paths read about one instance.
@@ -160,6 +221,9 @@ func (d *Driver) enforceStartGuard(ctx context.Context, t *tree, l layout, n age
 		return nil
 	}
 	g := d.startGuard(ctx, t, l, n, ref, st.runUID, st.meta)
+	if g.ok() && dataCheckTriggers[trigger] {
+		g = d.dataCheck(ctx, n, ref, st.runUID)
+	}
 	switch {
 	case g.err != nil:
 		d.cfg.Log.Error("start_guard_indeterminate", "instance_id", l.id, "trigger", trigger, "error", g.err)

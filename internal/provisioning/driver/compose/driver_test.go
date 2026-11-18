@@ -19,8 +19,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 
 	agentv1 "github.com/zhaduchanhzz/network-access-mesh/api/agent/v1"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/kit/logx"
@@ -409,7 +407,8 @@ func TestRemoveInstance(t *testing.T) {
 	}
 	_ = rg.e.RemoveContainer(ctx, "spy", 0)
 	arch := agentspec.Remove{Call: rg.call(), Data: agentv1.DataDisposition_DATA_DISPOSITION_DELETE_ARCHIVED, ArchiveSequence: 7}
-	if _, err := rg.d.RemoveInstance(ctx, arch); status.Code(err) != codes.Unimplemented {
+	// without a valid signed final backup (here: backups not even configured), nothing is touched (P3-T11)
+	if _, err := rg.d.RemoveInstance(ctx, arch); reason(err) != agentv1.RefusalReason_REFUSAL_REASON_STATE {
 		t.Fatalf("DELETE_ARCHIVED: %v", err)
 	}
 	if after := rg.snapshot(t); after != before {

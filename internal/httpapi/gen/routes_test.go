@@ -55,6 +55,9 @@ var routes = []struct {
 	{http.MethodGet, "/api/v1/platform/tenants/" + tenantID, "", "GetPlatformTenant", nil},
 	{http.MethodGet, "/api/v1/platform/instances", "", "ListPlatformInstances", nil},
 	{http.MethodGet, "/api/v1/platform/instances/" + itemID, "", "GetPlatformInstance", nil},
+	{http.MethodPost, "/api/v1/platform/instances/" + itemID + "/backup", "", "BackupPlatformInstance", idempotency},
+	{http.MethodPost, "/api/v1/platform/instances/" + itemID + "/restore", `{"backup_id":"` + itemID + `","reason":"incident 7"}`, "RestorePlatformInstance", idempotency},
+	{http.MethodGet, "/api/v1/platform/backups?instance=" + itemID + "&status=succeeded", "", "ListPlatformBackups", nil},
 	// platform hosts (P3-T04)
 	{http.MethodGet, "/api/v1/platform/hosts?status=draining&region=lab", "", "ListPlatformHosts", nil},
 	{http.MethodPost, "/api/v1/platform/hosts", `{"name":"h1","region":"lab","run_uid_range":{"first":30000,"last":39999},"tenant_net_pool":"10.250.0.0/16"}`, "CreatePlatformHost", idempotency},

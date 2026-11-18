@@ -115,6 +115,12 @@ var recipes = map[string]recipe{
 	"retryPlatformJob":    {idempotent: true},
 	"cancelPlatformJob":   {idempotent: true},
 	"rollbackPlatformJob": {idempotent: true},
+	// Backup/restore (P3-T11, backupapi — mounted with the restore action, world_test.go): a backup of instance A now
+	// (202, the same job for the next granted caller); a restore request is always 2P — a backup id that is no backup of
+	// the instance ⇒ 422, any answer that is not a refusal; the backup book
+	"backupPlatformInstance":  {idempotent: true},
+	"restorePlatformInstance": {idempotent: true, body: `{"backup_id":"0190a000-0000-7000-8000-0000000000b1","reason":"matrix"}`},
+	"listPlatformBackups":     {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
 }
 
 // objectKind is what a path parameter (other than the {tenantId} context of a tenant route) designates.

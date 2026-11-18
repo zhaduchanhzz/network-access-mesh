@@ -43,13 +43,13 @@ services:
       MG_AGENT_EDGE_CONTAINER: mg-edge
       MG_AGENT_EDGE_NETWORK: mg-edge
       # P3-T03: the one-shot helper that fingerprints a tenant's Noise key (start guard, §11.5) runs this same image
-      MG_AGENT_HELPER_IMAGE: ${agent_image}
+      MG_AGENT_HELPER_IMAGE: ${agent_image}${backup_env}
       MG_AGENT_COMPOSE_BIN: /usr/local/bin/docker-compose
       DOCKER_HOST: unix:///var/run/docker.sock
       DOCKER_CONFIG: /tmp/docker
     secrets:
       - source: agent_token
-        target: agent_token
+        target: agent_token${backup_secret}
     volumes:
       - type: bind
         source: /var/run/docker.sock
@@ -94,4 +94,4 @@ services:
 
 secrets:
   agent_token:
-    file: /opt/meshguard/secrets/worker/agent_token
+    file: /opt/meshguard/secrets/worker/agent_token${backup_secret_def}

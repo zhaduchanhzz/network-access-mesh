@@ -84,7 +84,7 @@ Quy ước của bảng: `{t}` là viết tắt của `{tenantId}`; trong các n
 | diagnostics | 5 | P5-T08 |
 | `platform/security-events` | 6 | P6-T02a |
 | usage; billing; `platform/usage` | 6 | P6-T11 |
-| `platform/backups` | 6 | P6-T04 |
+| `platform/backups` | 3 | P3-T11, P6-T04 |
 | Gỡ ban CrowdSec (endpoint và quyền chốt trong task) | 6 | P6-T07a |
 | internal: `healthz`, `readyz`, `metrics` | 2 | P2-T01 (kiểm tra readiness bổ sung dần theo P2-T04, P2-T09) |
 | internal: `prometheus/sd` | 6 | P6-T01 |
@@ -188,7 +188,7 @@ Hành vi upstream phải được mã hóa trong adapter và ghim bằng contrac
 | `tenant.provision` / `tenant.suspend` / `tenant.resume` / `tenant.deprovision` | API | `tenant:<id>:lifecycle` | State machine §11; một lifecycle job tại một thời điểm cho mỗi tenant |
 | `instance.reconfigure` / `instance.restart` / `instance.upgrade` | API / lịch | `instance:<id>:<kind>` | Có health gate + rollback; hai yêu cầu restart nối tiếp tạo hai lần restart |
 | `instance.quarantine` / `instance.release` | API | `instance:<id>:quarantine` | §11.4; `release` chỉ chạy sau phê duyệt 2P |
-| `instance.backup` | Lịch | `instance:<id>:backup:<slot>` | §17.1 |
+| `instance.backup` | Lịch; API `POST /platform/instances/{id}/backup` (P3-T11) | `instance:<id>:backup:<slot>` | §17.1. Hiện thực (P3-T11): chu kỳ theo plan — `PlanLimits.backup_interval_minutes` của subscription còn hiệu lực (override của subscription trước), kẹp trong 15 phút…24 giờ; tenant không có subscription ⇒ `MG_BACKUP_INTERVAL` (mặc định 1 giờ); `<slot>` = `<phút>m-<số chu kỳ>`, mỗi instance một độ lệch riêng trong chu kỳ (hash của id); job từ API dùng `<slot>` = `api` (đang chờ hoặc đang chạy ⇒ trả lại đúng job đó) |
 | `instance.restore` | API (sau phê duyệt 2P) | `instance:<id>:restore` | §17.2; khóa không chứa `<slot>` của backup; chờ job backup đang chạy của cùng instance kết thúc rồi mới bắt đầu |
 | `apikey.rotate` | Lịch (trước hạn ≥ 14 ngày) | `instance:<id>:apikey:<period>` | Tạo key mới → kiểm tra → expire key cũ. **P3-T10:** lịch đọc registry mỗi 5 phút; key còn ≤ 21 ngày (14 ngày của §16.3 + một tuần thử lại) hoặc chưa ghi hạn ⇒ tối đa một job mỗi chu kỳ 24 giờ của instance (`<period>` = số thứ tự chu kỳ, lệch theo hash `instance_id`); bỏ qua instance `quarantined`/`removed`/không chạy, tenant ngoài `provisioning`/`active`/`suspended` và tenant có job nhóm lifecycle đang chạy; theo yêu cầu: `meshguard-worker admin apikey-rotate --tenant … [--force]` |
 | `backup.purge` (từ P6-T04) | Lịch (tenant đã xóa, hết retention) | `instance:<id>:purge` | Bản offsite của tenant đã xóa được xóa bằng lifecycle rule của kho (ưu tiên) hoặc do người vận hành xóa bằng credential riêng giữ **ngoài host** — `backup-shipper` chỉ có quyền append; job này **xác minh** bằng cách liệt kê kho (credential chỉ liệt kê): không còn object/snapshot nào của `instance_id`, rồi cập nhật `backups`, ghi audit, và cảnh báo nếu quá hạn mà dữ liệu vẫn còn |

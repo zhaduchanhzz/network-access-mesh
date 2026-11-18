@@ -73,6 +73,9 @@ type Config struct {
 	SMTP SMTP
 	// Provisioning (MG_PROVISION_*, MG_PROBER_URL, worker, optional): the Tenant Orchestrator — LoadProvisioning (P3-T05).
 	Provisioning Provisioning
+	// Backup (MG_BACKUP_MANIFEST_PUBKEY, MG_BACKUP_INTERVAL, MG_BACKUP_RETENTION, worker): per-tenant backups — LoadBackup
+	// (P3-T11).
+	Backup Backup
 }
 
 // SMTP is the notification relay of the worker (MG_SMTP_*). The password is a file secret (MG_SMTP_PASSWORD_FILE), never
@@ -217,6 +220,9 @@ func Load(service string, getenv func(string) string, environ []string) (Config,
 	if cfg.Provisioning.Enabled() && !cfg.Agent.Configured() {
 		errs = append(errs, errors.New("MG_PROVISION_*: the Tenant Orchestrator needs the Host Agent (MG_AGENT_SOCKET, MG_AGENT_TOKEN_FILE)"))
 	}
+	var backupErrs []error
+	cfg.Backup, backupErrs = LoadBackup(service, getenv)
+	errs = append(errs, backupErrs...)
 	cfg.Wired = cfg.Env != "dev" || strings.TrimSpace(getenv("MG_DB_URL")) != ""
 	if cfg.Wired && services[service] {
 		errs = append(errs, cfg.loadDependencies(getenv)...)

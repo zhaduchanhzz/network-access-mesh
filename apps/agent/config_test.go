@@ -171,7 +171,7 @@ func chmod(t *testing.T, p string, mode os.FileMode) {
 func write(t *testing.T, p, content string, mode os.FileMode) {
 	t.Helper()
 	_ = os.Chmod(p, 0o600)
-	if err := os.WriteFile(p, []byte(content), mode); err != nil {
+	if err := os.WriteFile(p, []byte(content), mode); err != nil { //nolint:gosec // G703: paths of the test host (MG_IT_ROOT)
 		t.Fatal(err)
 	}
 	chmod(t, p, mode)
