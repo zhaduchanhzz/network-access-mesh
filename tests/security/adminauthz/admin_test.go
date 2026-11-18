@@ -367,10 +367,14 @@ func TestSecuritySettings(t *testing.T) {
 	if !v.Settings.Policy.FourEyes || len(v.Settings.Policy.SensitiveGroups) != 1 || *v.Settings.NodeExpiry != "90d" {
 		t.Fatalf("settings after tightening: %+v", v.Settings)
 	}
-	want(t, "PATCH /settings with a security key", e.do(t, sAdmin, http.MethodPatch, base, `{"policy":{"four_eyes":false}}`,
+	want(t, "PATCH /settings with a security key", e.do(t, sAdmin, http.MethodPatch, base, `{"policy":{"four_eyes":false},"notifications":{"new_device":false}}`,
 		"If-Match", v.Etag), http.StatusUnprocessableEntity, gen.ProblemCodeValidationFailed)
 	want(t, "PATCH /settings with sensitive_groups", e.do(t, sAdmin, http.MethodPatch, base,
-		`{"policy":{"sensitive_groups":[]}}`, "If-Match", v.Etag), http.StatusUnprocessableEntity, gen.ProblemCodeValidationFailed)
+		`{"policy":{"sensitive_groups":[]},"notifications":{"new_device":false}}`, "If-Match", v.Etag), http.StatusUnprocessableEntity, gen.ProblemCodeValidationFailed)
+	// a refused key never lets the rest of the patch through: nothing was written
+	if got := decode[gen.TenantSettingsView](t, e.do(t, sOp, http.MethodGet, base, "")); got.Etag != v.Etag {
+		t.Fatal("a PATCH carrying a security key changed the settings")
+	}
 
 	// lifting 4-eyes and the sensitive group: an approval request, nothing written
 	rec = e.do(t, sOwner, http.MethodPut, base+"/security", sec(false, ""), "If-Match", v.Etag)
