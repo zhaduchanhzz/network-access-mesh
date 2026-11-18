@@ -197,6 +197,55 @@ check("MG_BACKUP_MANIFEST_PUBKEY" not in ra.render(ENV, API, WORKER)["compose.ap
 raises(lambda: ra.render({**ENV, "MG_BACKUP_MANIFEST_PUBKEY": "not-a-key"}, API, WORKER), "a malformed manifest key is refused")
 raises(lambda: ra.render({**ENV, "MG_TENANT_NAMESERVERS": "10.0.0.1"}, API, WORKER), "private tenant nameservers are refused")
 
+# outbound e-mail relay (P3-T05b-mail): nothing without MG_MAILRELAY_URL; with it, service mail-bridge (SMTP host
+# mailrelay — an alias on `mail` only) + the worker's SMTP
+check(not any(x in c for x in ("\n  mail-bridge:\n", "MG_SMTP_", "name: mail", "secrets/mail/")) and "\n      mail: {}" not in c,
+      "relay: no MG_MAILRELAY_URL ⇒ no mailrelay, no MG_SMTP_* (e-mail notifications cancelled, Portal kept)")
+URL = "https://meshguard-mailrelay-staging.acct.workers.dev/v1/send"
+mc = ra.render({**ENV, "MG_MAILRELAY_URL": URL}, API, WORKER)["compose.app.yaml"]
+check("$" not in mc and mc == ra.render({**ENV, "MG_MAILRELAY_URL": URL}, API, WORKER)["compose.app.yaml"],
+      "relay: deterministic, no placeholder left")
+c_saved = c
+c = mc   # service() and env_of() read the global compose text
+relay, mworker = service("mail-bridge"), service("worker")
+renv = dict(re.findall(r"^      ([A-Z][A-Z0-9_]+): (\S+)", relay, re.M))
+check(relay.startswith("    <<: *hardening\n") and f"image: {WORKER}" in relay and 'command: ["mailrelay"]' in relay
+      and 'user: "65532:65532"' in relay and 'group_add: ["20009"]' in relay and all(x in relay for x in ("mem_limit:", "cpus:", "pids_limit:"))
+      and "ports:" not in relay and "volumes:" not in relay,
+      "relay: worker image, subcommand mailrelay, hardened, non-root, only group mg-sec-mail 20009, no port, no volume")
+check(renv.get("MG_MAILRELAY_URL") == URL and renv.get("MG_MAILRELAY_ALLOWED_FROM") == "no-reply@example.com"
+      and renv.get("MG_MAILRELAY_SMTP_CIDR") == "10.249.8.0/24" and renv.get("MG_MAILRELAY_HOSTNAME") == "mailrelay"
+      and renv.get("MG_ENV") == "staging" and renv.get("MG_MAILRELAY_TLS_CERT_FILE") == "/run/secrets/mail_tls_cert"
+      and renv.get("MG_MAILRELAY_TLS_KEY_FILE") == "/run/secrets/mail_tls_key"
+      and renv.get("MG_MAILRELAY_HMAC_KEY_FILE") == "/run/secrets/mail_relay_hmac_key",
+      "relay: Worker URL, the one sender, listener on the mail network only, STARTTLS pair, HMAC key file", str(renv))
+bad = [k for k in renv if re.search(r"PASSWORD|SECRET|TOKEN|KEK|_KEY", k) and not k.endswith(("_FILE", "_DIR"))]
+check(not bad and set(re.findall(r"\{source: (\S+), target:", relay)) == {"app_mail_relay_hmac_key", "app_mail_tls_key", "app_mail_tls_cert"},
+      "relay: only file secrets, exactly its key, TLS key and certificate", str(bad))
+check(re.findall(r"^      ([a-z][a-z-]*):", relay.split("    networks:\n", 1)[1].split("    mem_limit:", 1)[0], re.M) == ["mail", "mg-obs", "mg-egress"]
+      and "aliases: [mailrelay]" in relay and "gw_priority: 1" in relay.split("mg-egress:", 1)[1][:60],
+      "relay: networks mail (alias mailrelay), mg-obs (/metrics), mg-egress (default route, HTTPS to the Worker) — nothing else")
+check('test: ["CMD", "/usr/local/bin/meshguard", "healthcheck"]' in relay, "relay: healthcheck = /readyz of the process")
+check("MG_SMTP_ADDR: mailrelay:587" in mworker and "MG_SMTP_TLS: starttls" in mworker
+      and "MG_SMTP_CA_FILE: /run/secrets/mail_ca_cert" in mworker and 'MG_SMTP_FROM: "MeshGuard <no-reply@example.com>"' in mworker
+      and "{source: app_mail_ca, target: mail_ca_cert}" in mworker and re.search(r"^      mail: \{\}", mworker, re.M)
+      and "relay_hmac_key" not in mworker and "tls_key" not in mworker and "20009" not in mworker,
+      "relay: worker → mailrelay:587 STARTTLS with the internal CA, sender From; it never sees the HMAC or TLS key")
+check(not any(x in service("api") for x in ("MG_SMTP_", "mail_", "\n      mail:")), "relay: api has no SMTP and is not on `mail`")
+check(all(f"  {name}: {{file: /opt/meshguard/secrets/mail/{f}}}" in mc for f, name in
+          {"relay_hmac_key": "app_mail_relay_hmac_key", "tls_key": "app_mail_tls_key", "tls_cert": "app_mail_tls_cert",
+           "ca.crt": "app_mail_ca"}.items()), "relay: 4 files under /opt/meshguard/secrets/mail (mail-secrets.sh)")
+check(mc.endswith("\n  mail:                                           # internal: worker, idp, alertmanager → mailrelay\n"
+                  "    name: mail\n    external: true\n"), "relay: `mail` is the external network `mail` of networks.sh")
+c = c_saved
+raises(lambda: ra.render({**ENV, "MG_MAILRELAY_URL": "http://relay.example.com/v1/send"}, API, WORKER), "relay: http URL refused outside ci")
+raises(lambda: ra.render({**ENV, "MG_MAILRELAY_URL": URL, "MG_SMTP_FROM": "MeshGuard <x@other.example>"}, API, WORKER),
+       "relay: a sender outside the environment's domain is refused")
+cim = ra.render({"MG_ENV": "ci", "MG_BASE_DOMAIN": "meshguard-ci.test", "MG_MAILRELAY_URL": "http://fakeworker:8787/v1/send"},
+                "sha256:" + "0" * 64, "sha256:" + "1" * 64)["compose.app.yaml"]
+check("MG_MAILRELAY_URL: http://fakeworker:8787/v1/send" in cim and "MG_SMTP_TLS: starttls" in cim,
+      "relay: ci stack — fake Worker over http, STARTTLS still on the SMTP side")
+
 # refusals
 raises(lambda: ra.render(ENV, "ghcr.io/x/api:latest", WORKER), "image by tag is refused")
 raises(lambda: ra.render({**ENV, "MG_ENV": "dev"}, API, WORKER), "MG_ENV dev is refused (deployments only)")

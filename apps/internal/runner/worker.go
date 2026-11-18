@@ -341,20 +341,7 @@ func newNotificationSender(cfg config.Config, st *store.Store, log *slog.Logger)
 		sc.ConsoleURL = "https://" + h
 	}
 	if cfg.SMTP.Addr != "" {
-		mc := notifications.SMTPConfig{Addr: cfg.SMTP.Addr, TLS: cfg.SMTP.TLS, ServerName: cfg.SMTP.ServerName,
-			Username: cfg.SMTP.Username, PasswordFile: cfg.SMTP.PasswordFile, From: cfg.SMTP.From}
-		if cfg.SMTP.CAFile != "" {
-			pool, err := x509.SystemCertPool()
-			if err != nil {
-				pool = x509.NewCertPool()
-			}
-			pem, err := os.ReadFile(cfg.SMTP.CAFile) //nolint:gosec // G304: deployment configuration (MG_SMTP_CA_FILE)
-			if err != nil || !pool.AppendCertsFromPEM(pem) {
-				return nil, fmt.Errorf("MG_SMTP_CA_FILE: no PEM certificate could be read from %s", cfg.SMTP.CAFile)
-			}
-			mc.RootCAs = pool
-		}
-		m, err := notifications.NewSMTPMailer(mc)
+		m, err := NewSMTPMailer(cfg.SMTP)
 		if err != nil {
 			return nil, err
 		}
@@ -366,4 +353,23 @@ func newNotificationSender(cfg config.Config, st *store.Store, log *slog.Logger)
 			"auth", cfg.SMTP.Username != "")
 	}
 	return notifications.NewSender(st, sc)
+}
+
+// NewSMTPMailer is the worker's SMTP client of MG_SMTP_* (notification.send, `admin mail-test`): the relay's address and
+// TLS mode, the system roots plus MG_SMTP_CA_FILE (the internal CA of the mail relay — P3-T05b-mail).
+func NewSMTPMailer(c config.SMTP) (*notifications.SMTPMailer, error) {
+	mc := notifications.SMTPConfig{Addr: c.Addr, TLS: c.TLS, ServerName: c.ServerName, Username: c.Username,
+		PasswordFile: c.PasswordFile, From: c.From}
+	if c.CAFile != "" {
+		pool, err := x509.SystemCertPool()
+		if err != nil {
+			pool = x509.NewCertPool()
+		}
+		pem, err := os.ReadFile(c.CAFile) //nolint:gosec // G304: deployment configuration (MG_SMTP_CA_FILE)
+		if err != nil || !pool.AppendCertsFromPEM(pem) {
+			return nil, fmt.Errorf("MG_SMTP_CA_FILE: no PEM certificate could be read from %s", c.CAFile)
+		}
+		mc.RootCAs = pool
+	}
+	return notifications.NewSMTPMailer(mc)
 }

@@ -2,11 +2,12 @@
 # P1-T03 — bố cục /opt/meshguard (§14.2), nhóm secret với GID cố định (versions.lock [ids]) và secret ban đầu của
 # Phase 1. Giá trị secret sinh ngay trên host, KHÔNG bao giờ in ra. Chạy lại an toàn: secret đã có thì giữ nguyên.
 # Hoàn tác: sudo rm -rf /opt/meshguard && for g in mg-sec-app mg-sec-api mg-sec-worker mg-sec-migrate mg-sec-edge \
-#           mg-sec-obs mg-sec-backup mg-sec-ship; do sudo groupdel "$g"; done
+#           mg-sec-obs mg-sec-backup mg-sec-ship mg-sec-mail; do sudo groupdel "$g"; done
 set -euo pipefail
 R=/opt/meshguard
 declare -A GIDS=([mg-sec-app]=20001 [mg-sec-api]=20002 [mg-sec-worker]=20003 [mg-sec-migrate]=20004
-                 [mg-sec-edge]=20005 [mg-sec-obs]=20006 [mg-sec-backup]=20007 [mg-sec-ship]=20008)
+                 [mg-sec-edge]=20005 [mg-sec-obs]=20006 [mg-sec-backup]=20007 [mg-sec-ship]=20008
+                 [mg-sec-mail]=20009)   # mg-sec-mail: relay thư ra (P3-T05b-mail — mail-secrets.sh)
 for g in "${!GIDS[@]}"; do
   want=${GIDS[$g]}
   have=$(getent group "$g" | cut -d: -f3 || true)

@@ -40,6 +40,11 @@ CHECKS=(
   "migrate/mg_worker_platform|65532:65532|20004|65532:65532/20001;65532:65532/20002"
   "migrate/mg_partition_maint|65532:65532|20004|65532:65532/20001;65532:65532/20002"
   "migrate/mg_audit_writer|65532:65532|20004|65532:65532/20002;65532:65532/20003"
+  # P3-T05b-mail — relay thư ra (infrastructure/host/mail-secrets.sh): chỉ mailrelay (65532 + mg-sec-mail 20009) đọc khóa
+  # HMAC và khóa TLS; worker (65532 + 20001/20003), Keycloak (1000), alertmanager/prometheus (65534 + 20006) thì không.
+  # ca.crt và tls_cert là chứng chỉ công khai (0444) — không thuộc danh sách này.
+  "mail/relay_hmac_key|65532:65532|20009|65532:65532/20001;65532:65532/20003;1000:1000/;65534:65534/20006;10001:10001/20005"
+  "mail/tls_key|65532:65532|20009|65532:65532/20001;65532:65532/20003;1000:1000/;65534:65534/20006;10001:10001/20005"
   # P3-T16 — kênh cảnh báo của Alertmanager (65534 + mg-sec-obs; obs-secrets.sh): tiền tố "?" = chỉ kiểm khi file có
   # (kênh chưa bật thì không có file). Prometheus cùng UID/nhóm nhưng file chỉ được mount vào alertmanager.
   "?obs/smtp_password|65534:65534|20006|65534:65534/;65532:65532/20001;10001:10001/20005;10007:10007/20007"

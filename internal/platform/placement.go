@@ -97,7 +97,7 @@ var (
 // container runs as run_uid:run_uid, so none of them may be allocated (a tenant process with GID 20003 could read the
 // worker's secrets — §14.2). Same list as the agent's (agentspec.reservedIDs); TestReservedIDsCoverVersionsLock keeps it
 // in step with versions.lock.
-var ReservedIDs = []int32{0, 999, 1000, 10001, 10007, 20001, 20002, 20003, 20004, 20005, 20006, 20007, 20008, 65532, 65534}
+var ReservedIDs = []int32{0, 999, 1000, 10001, 10007, 20001, 20002, 20003, 20004, 20005, 20006, 20007, 20008, 20009, 65532, 65534}
 
 // ReservedPorts are the ports the platform itself listens on at a host or its public entry (edge 80/443, tunnel
 // listeners 8080/8443, shared STUN 3478): never a per-tenant STUN port (agentspec.reservedPorts).

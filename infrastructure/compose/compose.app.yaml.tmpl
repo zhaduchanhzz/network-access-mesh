@@ -1,6 +1,7 @@
 # Sinh bởi tools/render_app.py từ infrastructure/compose/compose.app.yaml.tmpl (template_version ${template_version}).
 # KHÔNG sửa tay — render lại. Project mg-app (P2-T16, §4.2, §14.4): backend của Management Plane — api, worker và hai
-# job một lần của database (migrate, db-bootstrap). Tách khỏi mg-core (postgres, crowdsec) như mg-edge/mg-idp/mg-backup:
+# job một lần của database (migrate, db-bootstrap) — và `mail-bridge` (P3-T05b-mail: cầu SMTP `mailrelay:587` của relay thư ra qua Cloudflare
+# Email Service, cùng image với worker) khi môi trường có MG_MAILRELAY_URL. Tách khỏi mg-core (postgres, crowdsec) như mg-edge/mg-idp/mg-backup:
 # deploy backend thường xuyên không bao giờ recreate PostgreSQL, và file này cần giá trị của môi trường (domain, dải bị
 # chặn của HTTP client IdP…) còn compose.core.yaml thì không. Đặt tại /opt/meshguard/core/compose.app.yaml. Network
 # do infrastructure/host/networks.sh tạo trước (external); PostgreSQL là service `postgres` của mg-core trên mg-data.
@@ -15,7 +16,7 @@
 #   một lần:  docker compose -p mg-app -f compose.app.yaml --profile bootstrap run --rm -T db-bootstrap
 #   mỗi lần nâng cấp: sudo bash infrastructure/host/migrate.sh  (backup pre-migration của mg-backup, dừng nếu lỗi,
 #             rồi `--profile migrate run --rm -T migrate`)
-#   rồi:      docker compose -p mg-app -f compose.app.yaml up -d api worker
+#   rồi:      docker compose -p mg-app -f compose.app.yaml up -d api worker [mail-bridge]
 name: mg-app
 
 x-hardening: &hardening
@@ -115,12 +116,12 @@ services:
       MG_DB_TENANT_PASSWORD_FILE: /run/secrets/db_worker_tenant_password
       MG_DB_PLATFORM_USER: mg_worker_platform
       MG_DB_PLATFORM_PASSWORD_FILE: /run/secrets/db_worker_platform_password
-      MG_DB_PARTITION_PASSWORD_FILE: /run/secrets/db_partition_password${worker_agent_env}
+      MG_DB_PARTITION_PASSWORD_FILE: /run/secrets/db_partition_password${worker_agent_env}${worker_mail_env}
     secrets:
       - {source: app_db_worker_tenant_password, target: db_worker_tenant_password}
       - {source: app_db_worker_platform_password, target: db_worker_platform_password}
       - {source: app_db_partition_password, target: db_partition_password}
-      - {source: app_edge_admin_token, target: edge_admin_token}${worker_agent_secret}
+      - {source: app_edge_admin_token, target: edge_admin_token}${worker_agent_secret}${worker_mail_secret}
     volumes:
       - *keyring-app
       - type: bind
@@ -134,7 +135,7 @@ services:
         ipv4_address: ${worker_edge_ip}           # nguồn DUY NHẤT edge cho tới Admin API/realm master của auth. (P2-T05a)
       mg-data: {}
       mg-admin: {}
-      mg-obs: {}
+      mg-obs: {}${worker_mail_network}
       mg-egress:
         gw_priority: 1
     mem_limit: 512m
@@ -150,7 +151,7 @@ services:
     restart: unless-stopped
     stop_grace_period: 45s                        # job đang chạy có SoftStopTimeout 30 s (§11.3)
 
-  # Job migrate (§6.1): goose + seed + River bằng mg_migrator, rồi mật khẩu các role đăng nhập từ bản của job này,
+${mailrelay_service}  # Job migrate (§6.1): goose + seed + River bằng mg_migrator, rồi mật khẩu các role đăng nhập từ bản của job này,
   # rồi kiểm (schema mới nhất, River, seed RBAC, không quyền trên partition). Không bao giờ chạy bằng `up`.
   migrate:
     <<: *hardening
@@ -206,7 +207,7 @@ secrets:
   app_db_worker_platform_password: {file: /opt/meshguard/secrets/worker/db_worker_platform_password}
   app_db_partition_password: {file: /opt/meshguard/secrets/worker/db_partition_password}
   app_pg_superuser_password: {file: /opt/meshguard/secrets/postgres/superuser_password}
-  app_pg_backup_password: {file: /opt/meshguard/secrets/backup/pg_backup_password}${agent_secret_def}
+  app_pg_backup_password: {file: /opt/meshguard/secrets/backup/pg_backup_password}${agent_secret_def}${mail_secret_def}
 
 networks:
   mg-edge:
@@ -218,4 +219,4 @@ networks:
   mg-obs:
     external: true
   mg-egress:
-    external: true
+    external: true${mail_network_def}

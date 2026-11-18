@@ -34,6 +34,15 @@ name can leave from the worker's mg-edge address and be refused (caller_not_allo
 Agent) MG_PROBER_URL alone gives the prober-only configuration of P3-T05c: MG_PROVISION_EDGE_ADDR + MG_PROBER_URL,
 relay.probe without the orchestrator.
 
+Outbound e-mail (P3-T05b-mail, tools/render_mail.py): when the environment file sets MG_MAILRELAY_URL (the deployed
+Cloudflare Worker), the service `mail-bridge` — the worker image with the subcommand `mailrelay`; SMTP host `mailrelay`,
+an alias on `mail` only (a service name is an alias on EVERY network of the service: a client also on mg-egress could
+resolve it to the bridge's mg-egress address, where nothing listens — E2E-82) — joins the internal
+network `mail` (infrastructure/host/networks.sh; alias mailrelay, SMTP 587 bound to its address there only),
+mg-obs (/metrics) and mg-egress (HTTPS to the Worker), with the HMAC key and the TLS key (secrets/mail/, root:mg-sec-mail
+0440 — infrastructure/host/mail-secrets.sh); the worker joins `mail` and gets MG_SMTP_ADDR=mailrelay:587, MG_SMTP_TLS=
+starttls, MG_SMTP_CA_FILE (the internal CA, public) and MG_SMTP_FROM. Without MG_MAILRELAY_URL nothing of it is rendered.
+
 Writes compose.app.yaml into <out_dir> (on the host: /opt/meshguard/core/compose.app.yaml). tools/test_render_app.py
 checks the invariants. Standard library only.
 """
@@ -51,9 +60,10 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import mgenv  # noqa: E402 — env file of the environment (no secrets)
 import render_monitoring  # noqa: E402 — the prober's address on mg-admin (MG_PROBER_URL, P3-T16)
 from render_edge import APP_IPS, DOMAIN_RE, EDGE_IPS, INTERNAL  # noqa: E402 — the edge's and the worker's addresses
+import render_mail  # noqa: E402 — sender, Worker URL, mail network and files of the outbound relay (P3-T05b-mail)
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-TEMPLATE_VERSION = "2"   # 2: Host Agent + Tenant Orchestrator in the worker (P3-T05)
+TEMPLATE_VERSION = "3"   # 2: Host Agent + Tenant Orchestrator in the worker (P3-T05); 3: mailrelay (P3-T05b-mail)
 COMPOSE_TMPL = ROOT / "infrastructure" / "compose" / "compose.app.yaml.tmpl"
 VERSIONS = ROOT / "versions.lock"
 IMAGE_RE = re.compile(r"^(?:[a-z0-9][a-z0-9._/:-]*@)?sha256:[0-9a-f]{64}$")   # name@sha256:… or a local image ID
@@ -173,6 +183,88 @@ def agent_blocks(env: dict[str, str]) -> dict[str, str]:
     }
 
 
+MAILRELAY_SERVICE = """\
+  # Relay thư ra (P3-T05b-mail — internal/mailrelay, lệnh `meshguard mailrelay` của image worker): SMTP CHỈ trên network
+  # `mail` (internal — worker, idp, alertmanager gửi tới mailrelay:587, STARTTLS bắt buộc, CA nội bộ); ra mg-egress tới
+  # Worker Cloudflare (HTTPS, chữ ký HMAC); /metrics trên mg-obs (mail-bridge:9090). Không AUTH: chỉ nhận đúng địa chỉ
+  # gửi $sender. Tên service KHÁC tên SMTP `mailrelay`: tên service là alias trên MỌI network của service, nên client
+  # cũng ở mg-egress (worker, idp, alertmanager) có thể nhận địa chỉ mg-egress của cầu — nơi không có listener SMTP.
+  # `mailrelay` chỉ là alias trên network mail ⇒ luôn phân giải ra địa chỉ có listener.
+  mail-bridge:
+    <<: *hardening
+    image: $worker_image
+    command: ["mailrelay"]
+    user: "65532:65532"
+    group_add: ["$mail_gid"]                          # mg-sec-mail (khóa HMAC, khóa TLS) — không nhóm nào khác
+    environment:
+      MG_ENV: $env
+      MG_LOG_LEVEL: info
+      MG_INTERNAL_ADDR: ":9090"
+      MG_MAILRELAY_SMTP_ADDR: ":$smtp_port"
+      MG_MAILRELAY_SMTP_CIDR: $mail_subnet           # nghe SMTP chỉ trên địa chỉ của nó trong network mail
+      MG_MAILRELAY_HOSTNAME: $smtp_host
+      MG_MAILRELAY_TLS_CERT_FILE: /run/secrets/mail_tls_cert
+      MG_MAILRELAY_TLS_KEY_FILE: /run/secrets/mail_tls_key
+      MG_MAILRELAY_URL: $relay_url
+      MG_MAILRELAY_HMAC_KEY_FILE: /run/secrets/mail_relay_hmac_key
+      MG_MAILRELAY_ALLOWED_FROM: $sender
+    secrets:
+      - {source: app_mail_relay_hmac_key, target: mail_relay_hmac_key}
+      - {source: app_mail_tls_key, target: mail_tls_key}
+      - {source: app_mail_tls_cert, target: mail_tls_cert}
+    networks:
+      mail:
+        aliases: [$smtp_host]
+      mg-obs: {}
+      mg-egress:
+        gw_priority: 1                            # đường ra duy nhất: HTTPS tới Worker
+    mem_limit: 128m
+    cpus: 0.5
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/meshguard", "healthcheck"]   # /readyz: smtp_listener, hmac_key, tls_certificate
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+      start_interval: 2s
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+"""
+
+
+def mail_blocks(env: dict[str, str], worker_image: str) -> dict[str, str]:
+    """The relay (P3-T05b-mail) — empty while the environment has no MG_MAILRELAY_URL."""
+    keys = ("worker_mail_env", "worker_mail_secret", "worker_mail_network", "mailrelay_service", "mail_secret_def",
+            "mail_network_def")
+    try:
+        url = render_mail.relay_url(env)
+        if not url:
+            return dict.fromkeys(keys, "")
+        _, addr = render_mail.sender(env)
+        header = render_mail.from_header(env)
+    except render_mail.ParamError as e:
+        raise ParamError(str(e)) from e
+    host, port = render_mail.SMTP_HOST, render_mail.SMTP_PORT
+    service = string.Template(MAILRELAY_SERVICE).substitute(
+        worker_image=worker_image, env=env["MG_ENV"], mail_gid=render_mail.mail_gid(), smtp_port=port,
+        mail_subnet=render_mail.MAIL_NET["subnet"], smtp_host=host, relay_url=url, sender=addr)
+    files = render_mail.FILES
+    return {
+        "worker_mail_env": (f"\n      MG_SMTP_ADDR: {host}:{port}                 # relay thư ra (P3-T05b-mail): STARTTLS bắt buộc"
+                            "\n      MG_SMTP_TLS: starttls"
+                            "\n      MG_SMTP_CA_FILE: /run/secrets/mail_ca_cert  # CA nội bộ của mailrelay (công khai)"
+                            f'\n      MG_SMTP_FROM: "{header}"'),
+        "worker_mail_secret": f"\n      - {{source: {files['ca.crt']}, target: mail_ca_cert}}",
+        "worker_mail_network": "\n      mail: {}                                    # → mailrelay:587 (P3-T05b-mail)",
+        "mailrelay_service": service,
+        "mail_secret_def": "".join(f"\n  {name}: {{file: {render_mail.SECRETS}/{f}}}" for f, name in files.items()),
+        "mail_network_def": (f"\n  mail:                                           # internal: worker, idp, alertmanager → mailrelay"
+                             f"\n    name: {render_mail.MAIL_NET['name']}\n    external: true"),
+    }
+
+
 def render(env: dict[str, str], api_image: str, worker_image: str) -> dict[str, str]:
     for name, ref in (("api", api_image), ("worker", worker_image)):
         if not IMAGE_RE.match(ref):
@@ -195,6 +287,7 @@ def render(env: dict[str, str], api_image: str, worker_image: str) -> dict[str, 
         "worker_edge_ip": APP_IPS["worker_edge_ip"],
         "egress_deny": egress_deny(env),
         **agent_blocks(env),
+        **mail_blocks(env, worker_image),
     }
     return {"compose.app.yaml": string.Template(COMPOSE_TMPL.read_text(encoding="utf-8")).substitute(values)}
 

@@ -18,8 +18,15 @@ Optional SMTP sink (staging/dev only): MG_IDP_MAIL_SINK=mailpit in the env file 
 ([images.mailpit]) to project mg-idp on a project-internal network `mail` (internal: no route out, no relay) that only
 idp and mailsink join, and gives every realm an unauthenticated smtpServer → mailsink:1025, from
 noreply@<MG_BASE_DOMAIN>. Mail never leaves the host; read it with the Mailpit UI (port 8025 on the `mail` network,
-through an SSH tunnel). Unset/empty = no SMTP (the P2-T05 default). Any other value is refused. A real SMTP relay
-(auth, TLS, password as a secret) is P3-T05a — never put an SMTP password in a realm template.
+through an SSH tunnel). Unset/empty = no SMTP (the P2-T05 default). Any other value is refused. Never put an SMTP
+password in a realm template.
+
+Outbound relay (P3-T05b-mail): MG_IDP_MAIL_SINK=mailrelay gives every realm smtpServer → mailrelay:587 with STARTTLS
+and no authentication, from the relay's one sender (tools/render_mail.py: MG_SMTP_FROM, default
+MeshGuard <no-reply@<MG_BASE_DOMAIN>>); idp joins the shared internal network `mail` (external, networks.sh — the
+relay is service `mail-bridge` of mg-app, SMTP host mailrelay) and trusts the relay's internal CA through KC_TRUSTSTORE_PATHS (the CA
+certificate secrets/mail/ca.crt, public; Keycloak keeps the JVM's default roots and checks the host name mailrelay).
+Realms that already exist are not re-imported: infrastructure/idp/realm-update.sh applies smtpServer to them.
 
 Writes, relative to /opt/meshguard/core on the host:
   compose.idp.yaml                  compose project mg-idp (idp + idp-db)
@@ -46,6 +53,7 @@ import uuid
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import mgenv  # noqa: E402 — env file of the environment (no secrets)
 from render_edge import DOMAIN_RE, EDGE_IPS  # noqa: E402 — same domain rule and the edge's static IP on mg-idp
+import render_mail  # noqa: E402 — sender, host/port, CA file and network of the outbound relay (P3-T05b-mail)
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 TEMPLATE_VERSION = "2"
@@ -104,7 +112,7 @@ def pinned_image(name: str = "mg-idp") -> str:
     return f"{entry['image']}@{entry['index']}"
 
 
-MAIL_SINKS = {"", "mailpit"}
+MAIL_SINKS = {"", "mailpit", "mailrelay"}
 SMTP_SINK_PORT = "1025"
 # Mailpit — staging/dev only. Text inserted into the rendered compose (two-space service indent, like the template).
 MAILSINK_SERVICE = """\
@@ -151,6 +159,41 @@ def smtp_server(base_domain: str) -> dict:
     """smtpServer of a realm for the Mailpit sink: no auth, no TLS (internal network), no secret."""
     return {"host": "mailsink", "port": SMTP_SINK_PORT, "from": f"noreply@{base_domain}",
             "fromDisplayName": "MeshGuard (staging)", "auth": "false", "ssl": "false", "starttls": "false"}
+
+
+def smtp_relay(env: dict[str, str]) -> dict:
+    """smtpServer of a realm for the outbound relay (P3-T05b-mail): STARTTLS to mailrelay:587, no auth, no secret."""
+    try:
+        name, addr = render_mail.sender(env)
+    except render_mail.ParamError as e:
+        raise ParamError(str(e)) from e
+    return {"host": render_mail.SMTP_HOST, "port": str(render_mail.SMTP_PORT), "from": addr, "fromDisplayName": name,
+            "auth": "false", "ssl": "false", "starttls": "true"}
+
+
+RELAY_IDP_LINE = "      mail: {}                      # → mailrelay:587 (relay thư ra, STARTTLS — P3-T05b-mail)\n"
+RELAY_ENV_ANCHOR = "      KC_LOG_CONSOLE_OUTPUT: json\n"
+RELAY_ENV_LINE = ("      KC_TRUSTSTORE_PATHS: /run/secrets/mailrelay-ca.pem   # CA nội bộ của mailrelay (công khai), thêm vào kho CA"
+                  " của JVM\n")
+RELAY_SECRET_ANCHOR = "        target: keycloak.conf\n"
+RELAY_SECRET = "      - source: idp_mailrelay_ca     # chứng chỉ CA nội bộ của mailrelay — không phải secret\n" \
+               "        target: mailrelay-ca.pem\n"
+RELAY_SECRET_DEF = ("  idp_mailrelay_ca:                 # infrastructure/host/mail-secrets.sh (0444, công khai)\n"
+                    f"    file: {render_mail.SECRETS}/ca.crt\n")
+RELAY_NETWORK = ("  mail:                             # dùng chung (networks.sh, internal): idp, worker, alertmanager → mailrelay\n"
+                 f"    name: {render_mail.MAIL_NET['name']}\n    external: true\n")
+
+
+def add_mail_relay(compose: str) -> str:
+    """idp joins the shared `mail` network and trusts the relay's internal CA (KC_TRUSTSTORE_PATHS)."""
+    for anchor in (IDP_DATA_LINE, RELAY_ENV_ANCHOR, RELAY_SECRET_ANCHOR, "\n\nvolumes:\n", "\nnetworks:\n  mg-idp:\n"):
+        if compose.count(anchor) != 1:
+            raise ParamError(f"compose.idp.yaml.tmpl đã đổi — không tìm thấy đúng một chỗ chèn {anchor!r}")
+    compose = compose.replace(IDP_DATA_LINE, IDP_DATA_LINE + RELAY_IDP_LINE)
+    compose = compose.replace(RELAY_ENV_ANCHOR, RELAY_ENV_ANCHOR + RELAY_ENV_LINE)
+    compose = compose.replace(RELAY_SECRET_ANCHOR, RELAY_SECRET_ANCHOR + RELAY_SECRET)
+    compose = compose.replace("\n\nvolumes:\n", "\n" + RELAY_SECRET_DEF + "\nvolumes:\n")
+    return compose.rstrip("\n") + "\n" + RELAY_NETWORK
 
 
 def add_mail_sink(compose: str, mailpit_image: str) -> str:
@@ -221,6 +264,12 @@ def check_realm(rep: dict, realm: str, base_domain: str, idp_id: str) -> list[st
     smtp = rep.get("smtpServer") or {}
     need(not ({"password", "authTokenUrl", "authTokenClientSecret"} & set(smtp)) and smtp.get("auth", "false") == "false",
          "smtpServer không được mang mật khẩu/xác thực (SMTP thật có secret — P3-T05a, qua Admin API)")
+    if smtp:
+        need((smtp.get("host"), smtp.get("port")) in {("mailsink", SMTP_SINK_PORT), (render_mail.SMTP_HOST, str(render_mail.SMTP_PORT))},
+             "smtpServer chỉ tới mailsink:1025 (Mailpit) hoặc mailrelay:587 (relay thư ra — P3-T05b-mail)")
+        if smtp.get("host") == render_mail.SMTP_HOST:
+            need(smtp.get("starttls") == "true" and smtp.get("ssl", "false") == "false",
+                 "smtpServer → mailrelay: STARTTLS bắt buộc (CA nội bộ, KC_TRUSTSTORE_PATHS — P3-T05b-mail)")
 
     # MFA bắt buộc: browser flow = cookie | (mật khẩu REQUIRED + OTP REQUIRED), không có nhánh điều kiện
     flows = {f.get("alias"): f for f in rep.get("authenticationFlows", [])}
@@ -310,7 +359,8 @@ def render(env: dict[str, str], image: str) -> dict[str, str]:
         raise ParamError("MG_IDP_ID_* phải khác nhau")
     sink = env.get("MG_IDP_MAIL_SINK", "")
     if sink not in MAIL_SINKS:
-        raise ParamError(f"MG_IDP_MAIL_SINK chỉ nhận 'mailpit' hoặc để trống, có {sink!r}")
+        raise ParamError(f"MG_IDP_MAIL_SINK chỉ nhận 'mailpit', 'mailrelay' hoặc để trống, có {sink!r}")
+    smtp = smtp_relay(env) if sink == "mailrelay" else smtp_server(base_domain) if sink else None
     files: dict[str, str] = {}
     problems: list[str] = []
     for realm in REALMS:
@@ -319,8 +369,8 @@ def render(env: dict[str, str], image: str) -> dict[str, str]:
             rep = json.loads(text)
         except json.JSONDecodeError as e:
             raise ParamError(f"{realm}: JSON không hợp lệ sau khi render: {e}") from e
-        if sink:
-            rep["smtpServer"] = smtp_server(base_domain)
+        if smtp:
+            rep["smtpServer"] = dict(smtp)
             text = json.dumps(rep, ensure_ascii=False, indent=2) + "\n"
         problems += check_realm(rep, realm, base_domain, ids[realm])
         files[f"idp/realms/{realm}.json"] = text
@@ -329,8 +379,10 @@ def render(env: dict[str, str], image: str) -> dict[str, str]:
     values = {"template_version": TEMPLATE_VERSION, "idp_image": image, "auth_host": f"auth.{base_domain}",
               "edge_idp_ip": EDGE_IPS["edge_idp_ip"]}
     files["compose.idp.yaml"] = string.Template(COMPOSE_TMPL.read_text(encoding="utf-8")).substitute(values)
-    if sink:
+    if sink == "mailpit":
         files["compose.idp.yaml"] = add_mail_sink(files["compose.idp.yaml"], pinned_image("mailpit"))
+    elif sink == "mailrelay":
+        files["compose.idp.yaml"] = add_mail_relay(files["compose.idp.yaml"])
     for f in INITDB:
         files[f"idp/initdb/{f.name}"] = f.read_text(encoding="utf-8")
     return files

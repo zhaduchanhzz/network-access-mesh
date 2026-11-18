@@ -186,7 +186,7 @@ func TestPatchApplyAndChanged(t *testing.T) {
 
 func TestUsageOf(t *testing.T) {
 	h := Host{RunUIDFirst: 19999, RunUIDLast: 20010, TenantNetPool: netip.MustParsePrefix("10.250.0.0/27")}
-	// 12 UIDs, 8 of them reserved (20001…20008) ⇒ 4 usable; /27 ⇒ 4 slots
+	// 12 UIDs, 9 of them reserved (20001…20009 — 20009 = mg-sec-mail since P3-T05b-mail) ⇒ 3 usable; /27 ⇒ 4 slots
 	rows := []sqlcdb.ListHostAllocationsRow{
 		{Status: "running", RunUid: 19999, NetCidr: netip.MustParsePrefix("10.250.0.0/29")},
 		{Status: "removed", RunUid: 20000, NetCidr: netip.MustParsePrefix("10.250.0.8/29")}, // UID consumed, slot free
