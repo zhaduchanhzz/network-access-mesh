@@ -142,7 +142,9 @@ describe("nav theo role", () => {
     expect(router.state.location.pathname).toBe("/platform/health");
     expect(within(nav()).getByRole("link", { name: /Nhân sự nền tảng/ })).toBeInTheDocument();
     await router.navigate("/platform/security-events");
-    expect(await screen.findByTestId("unavailable")).toHaveTextContent("P6-T02a");
+    // chờ trang mới (trang trước cũng có data-testid="unavailable")
+    await screen.findByRole("heading", { name: "Security Events", level: 1 });
+    expect(screen.getByTestId("unavailable")).toHaveTextContent("P6-T02a");
     expect(screen.getByTestId("unavailable")).toHaveTextContent("sau MVP");
     unmount();
 
