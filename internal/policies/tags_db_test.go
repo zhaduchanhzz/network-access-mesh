@@ -56,13 +56,15 @@ func (f *tagsFx) create(t *testing.T, ten *tenantFx, name string) TagChange {
 	return c
 }
 
-func wantTagErr(t *testing.T, what string, err, kind error, reason string) *TagError {
+// wantTagErr fails unless err is the catalog refusal kind (reason when given) and returns a copy of it (a value: the
+// helper's result is not an error to check).
+func wantTagErr(t *testing.T, what string, err, kind error, reason string) TagError {
 	t.Helper()
 	te, ok := AsTagError(err)
 	if !ok || !errors.Is(err, kind) || (reason != "" && te.Reason != reason) {
 		t.Fatalf("%s: got %v, want %v (%s)", what, err, kind, reason)
 	}
-	return te
+	return *te
 }
 
 // TestTagCatalogCRUD — the catalog API's rules: a tenant tag (custom by default) is created once (409 on the same name,

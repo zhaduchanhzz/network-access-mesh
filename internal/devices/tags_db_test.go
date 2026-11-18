@@ -145,7 +145,7 @@ func TestSetTags(t *testing.T) {
 		t.Errorf("node gone: %v", err)
 	}
 	// catalog infrastructure error ⇒ internal, never a validation
-	if e := catalogError(errors.New("db down")); e.(*Error).Code != CodeInternal {
+	if e, ok := AsError(catalogError(errors.New("db down"))); !ok || e.Code != CodeInternal {
 		t.Errorf("catalog error mapped to %v", e)
 	}
 }
