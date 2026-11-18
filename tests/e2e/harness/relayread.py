@@ -11,8 +11,8 @@ public entry = the edge's address, STUN 3478, verify in_process, active; the ins
           is ignored; B's relay on A's session ⇒ 404; GET /platform/relay-regions on app. ⇒ refused; the Super Admin
           (admin.) lists both regions, each with its tenant and assignment
   E2E-66  `meshguard-worker admin relay-probe --tenant tenant-a` in the running worker with the stack's prober
-          (MG_PROBER_URL + MG_PROVISION_EDGE_ADDR, the prober-only configuration — the worker of the stack has no
-          prober configured): the real prober (apps/probe) probes GET /derp/probe of tenant-a through the real Caddyfile
+          (MG_PROBER_URL = the prober's address on the admin network + MG_PROVISION_EDGE_ADDR, the prober-only
+          configuration — the worker of the stack has no prober configured): the real prober (apps/probe) probes GET /derp/probe of tenant-a through the real Caddyfile
           (Headscale's embedded DERP) and STUN of the stack's stund ⇒ recorded healthy, checked_at = last_probe_at of the
           database; then GET /tenants/{A}/relay shows that verdict, time and checks; tenant-b's region pointed at a closed
           STUN port (3479) ⇒ recorded unhealthy/stun_probe_failed with the prober's code; the platform list shows both
@@ -125,11 +125,20 @@ def check_relay_read(r, st: Stack, state: dict) -> None:
     state["relay"] = {"a": ra, "b": rb}
 
 
-def relay_probe(st: Stack, slug: str):
+def prober_admin_ip(st: Stack) -> str:
+    """The prober's address on the admin network. It answers callers of that network only (MG_PROBE_ALLOW_CALLERS); the
+    worker sits on the admin AND the edge networks, where the prober's name resolves to its edge address — a call there
+    leaves from the worker's edge address and is refused (caller_not_allowed, E2E-35). MG_PROBER_URL therefore names the
+    admin address (the same holds on the host — P3-T16)."""
+    return st.docker("inspect", "-f", "{{(index .NetworkSettings.Networks \"" + st.name("admin") + "\").IPAddress}}",
+                     st.name("prober")).stdout.strip()
+
+
+def relay_probe(st: Stack, slug: str, prober_ip: str):
     """`meshguard admin relay-probe` in the running worker, with the stack's prober (the prober-only configuration)."""
-    p = st.docker("exec", "-e", f"MG_PROBER_URL=http://{st.name('prober')}:8080", "-e",
-                  f"MG_PROVISION_EDGE_ADDR={st.edge_ip}:443", container(st, "worker"), "/usr/local/bin/meshguard", "admin",
-                  "relay-probe", "--tenant", slug, check=False, timeout=180)
+    p = st.docker("exec", "-e", f"MG_PROBER_URL=http://{prober_ip}:8080", "-e", f"MG_PROVISION_EDGE_ADDR={st.edge_ip}:443",
+                  container(st, "worker"), "/usr/local/bin/meshguard", "admin", "relay-probe", "--tenant", slug,
+                  check=False, timeout=180)
     lines = [json.loads(ln) for ln in p.stdout.splitlines() if ln.startswith("{")]
     return p, lines
 
@@ -138,14 +147,15 @@ def check_relay_probe(r, st: Stack, state: dict) -> None:
     b = state["browser"]
     a_id = state["tenant_ids"]["tenant-a"]
     app = f"https://app.{st.domain}/api/v1"
-    pa, la = relay_probe(st, "tenant-a")
+    ip = prober_admin_ip(st)
+    pa, la = relay_probe(st, "tenant-a", ip)
     ra = _region(st, "tenant-a")
     rb0 = _region(st, "tenant-b")
     got = b.get(f"{app}/tenants/{a_id}/relay")
     asg = (got.json().get("assignments") or [{}])[0]
     health = asg.get("health", {})
     psql(st, "UPDATE relay_regions SET stun_port = 3479 WHERE code = 'mg-tenant-b'")   # a closed port of the entry
-    pb, lb = relay_probe(st, "tenant-b")
+    pb, lb = relay_probe(st, "tenant-b", ip)
     rb = _region(st, "tenant-b")
     ra2 = _region(st, "tenant-a")
     plat = state["sa"]["browser"].get(f"https://admin.{st.domain}/api/v1/platform/relay-regions?limit=200")
@@ -165,7 +175,7 @@ def check_relay_probe(r, st: Stack, state: dict) -> None:
           and (rb.get("probe") or {}).get("reason") == "stun_probe_failed" and ra2.get("probe_at") == ra.get("probe_at")
           and plat.status == 200 and ha.get("status") == "healthy" and hb.get("status") == "unhealthy"
           and hb.get("reason") == "stun_probe_failed" and ha.get("checked_at") and hb.get("checked_at")
-          and st.edge_ip not in out and "prober:8080" not in out)
+          and ip and st.edge_ip not in out and ip not in out)
     r.add("E2E-66", "P3-T05c: `meshguard-worker admin relay-probe` (prober thật của stack, cấu hình chỉ-prober) ⇒ "
           "/derp/probe của tenant-a qua Caddyfile thật (DERP nhúng của Headscale) + STUN của stund ⇒ ghi healthy, "
           "checked_at = last_probe_at; GET /tenants/{A}/relay hiển thị đúng kết luận/thời điểm/phép kiểm; region của B "
@@ -175,7 +185,8 @@ def check_relay_probe(r, st: Stack, state: dict) -> None:
           f"{(a_line.get('stun') or {}).get('ok')} recorded {a_line.get('recorded')}; db {ra.get('probe_at')}; api "
           f"{health.get('status')} at {health.get('checked_at')} (same {same_time}); B before {rb0.get('probe_at') or 'null'}; "
           f"B exit {pb.returncode} {b_line.get('status')}/{b_line.get('reason')} stun "
-          f"{(b_line.get('stun') or {}).get('code')}; platform A {ha.get('status')} B {hb.get('status')}/{hb.get('reason')}")
+          f"{(b_line.get('stun') or {}).get('code')}; platform A {ha.get('status')} B {hb.get('status')}/{hb.get('reason')}; "
+          f"stderr {st.redact(pa.stderr + pb.stderr)[-200:]}")
 
 
 def run_all(r, st: Stack, guarded, state: dict) -> None:
