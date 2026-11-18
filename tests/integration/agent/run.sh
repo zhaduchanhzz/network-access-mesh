@@ -195,7 +195,11 @@ d run --name "$P-run" --network none --read-only --tmpfs /tmp:size=64m,mode=1777
   --cap-add CHOWN --cap-add FOWNER --cap-add DAC_OVERRIDE --security-opt no-new-privileges --user 0:0 \
   -v /var/run/docker.sock:/var/run/docker.sock -v "$IT_ROOT:$IT_ROOT" -v "$WORK/bin/agent.test:/it/agent.test:ro" \
   -e MG_IT_ROOT="$IT_ROOT" -e MG_IT_IMAGE="$HS_IMAGE" -e MG_IT_PREFIX="$P" -e MG_IT_POOL="$POOL" -e MG_IT_NET="$NET" \
-  -e MG_IT_HELPER_IMAGE="$HELPER_IMAGE" -e MG_IT_ALPINE="$ALPINE_IMAGE" -e MG_IT_V12_ROUNDS="${MG_IT_V12_ROUNDS:-3}" \n  -e MG_IT_CADDY="$CADDY_IMAGE" -e MG_IT_EDGE_CADDYFILE="$WORK/edge/Caddyfile" -v "$WORK/edge:$WORK/edge:ro" \n  --entrypoint /it/agent.test "$IMAGE" -test.v -test.count=1 -test.timeout=60m \n  -test.run '^(TestComposeDriverEndToEnd|TestAgentOperationsEndToEnd|TestReconcileReportsForeignObjectsUntouched|TestReconfigureEndToEnd|TestBackupRestoreEndToEnd|TestQuarantineReleaseEndToEnd)$' \n  > "$OUT/agentit.log" 2>&1 || rc=$?
+  -e MG_IT_HELPER_IMAGE="$HELPER_IMAGE" -e MG_IT_ALPINE="$ALPINE_IMAGE" -e MG_IT_V12_ROUNDS="${MG_IT_V12_ROUNDS:-3}" \
+  -e MG_IT_CADDY="$CADDY_IMAGE" -e MG_IT_EDGE_CADDYFILE="$WORK/edge/Caddyfile" -v "$WORK/edge:$WORK/edge:ro" \
+  --entrypoint /it/agent.test "$IMAGE" -test.v -test.count=1 -test.timeout=60m \
+  -test.run '^(TestComposeDriverEndToEnd|TestAgentOperationsEndToEnd|TestReconcileReportsForeignObjectsUntouched|TestReconfigureEndToEnd|TestBackupRestoreEndToEnd|TestQuarantineReleaseEndToEnd)$' \
+  > "$OUT/agentit.log" 2>&1 || rc=$?
 d rm -f "$P-run" >/dev/null 2>&1 || true
 snapshot > "$OUT/after.txt"
 grep -E '^(=== RUN|--- (PASS|FAIL)|PASS|FAIL|ok)|(integration(_ops|_backup)?|reconfigure_integration|quarantine_integration)_test.go:' "$OUT/agentit.log" | grep -v '=== RUN' || true
@@ -205,7 +209,9 @@ else
   log "snapshot trước = sau: $(grep -c . "$OUT/before.txt") dòng (container, network, cây thư mục gốc)"
 fi
 if [ "$rc" = 0 ] && grep -q '^--- PASS: TestComposeDriverEndToEnd' "$OUT/agentit.log" && grep -q '^--- PASS: TestAgentOperationsEndToEnd' "$OUT/agentit.log" \
-  && grep -q '^--- PASS: TestReconcileReportsForeignObjectsUntouched' "$OUT/agentit.log" && grep -q '^--- PASS: TestReconfigureEndToEnd' "$OUT/agentit.log" \n  && grep -q '^--- PASS: TestBackupRestoreEndToEnd' "$OUT/agentit.log" \n  && grep -q '^--- PASS: TestQuarantineReleaseEndToEnd' "$OUT/agentit.log"; then
+  && grep -q '^--- PASS: TestReconcileReportsForeignObjectsUntouched' "$OUT/agentit.log" && grep -q '^--- PASS: TestReconfigureEndToEnd' "$OUT/agentit.log" \
+  && grep -q '^--- PASS: TestBackupRestoreEndToEnd' "$OUT/agentit.log" \
+  && grep -q '^--- PASS: TestQuarantineReleaseEndToEnd' "$OUT/agentit.log"; then
   log "AGENT DRIVER IT: PASS"
 else
   log "AGENT DRIVER IT: FAIL (log: $OUT/agentit.log)"; tail -60 "$OUT/agentit.log"; exit 1
