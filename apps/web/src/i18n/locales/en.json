@@ -1,0 +1,171 @@
+{
+  "app": {
+    "name": "MeshGuard"
+  },
+  "common": {
+    "loading": "Loading…",
+    "retry": "Retry",
+    "dismiss": "Dismiss",
+    "home": "Go to home"
+  },
+  "shell": {
+    "skipToContent": "Skip to main content",
+    "platformConsole": "Platform Console",
+    "tenantPortal": "Tenant Portal",
+    "switchTenant": "Switch tenant",
+    "signOut": "Sign out",
+    "navigation": "Main navigation"
+  },
+  "prefs": {
+    "language": "Language",
+    "theme": "Theme",
+    "languages": {
+      "vi": "Tiếng Việt",
+      "en": "English"
+    },
+    "themes": {
+      "system": "System",
+      "light": "Light",
+      "dark": "Dark"
+    }
+  },
+  "login": {
+    "title": "Sign in",
+    "tenantHeading": "Sign in to the Tenant Portal",
+    "platformHeading": "Sign in to the Platform Console",
+    "tenantLabel": "Tenant ID (slug)",
+    "tenantHint": "For example: tenant-a — lowercase letters, digits and hyphens.",
+    "tenantInvalid": "Invalid tenant ID: 3–32 characters, starting with a letter, lowercase letters, digits and hyphens only.",
+    "platformHint": "For platform staff. Signing in always requires a password and a second factor.",
+    "submit": "Continue to sign-in page",
+    "expired": "Your session has expired or was revoked. Please sign in again."
+  },
+  "tenantSelect": {
+    "title": "Choose a tenant",
+    "noMemberships": "This account is not a member of any active tenant.",
+    "noGrants": "No active Support Access Grant. Access to a tenant is only possible through a grant approved by that tenant.",
+    "grantExpires": "expires {{at}}"
+  },
+  "tenant": {
+    "suspendedBanner": "This tenant is suspended: every write is refused, data is read-only."
+  },
+  "nav": {
+    "soon": "Soon",
+    "groups": {
+      "overview": "Overview",
+      "devices": "Devices",
+      "access": "Access",
+      "network": "Network",
+      "people": "People",
+      "governance": "Governance",
+      "operations": "Operations"
+    },
+    "tenant": {
+      "overview": "Overview",
+      "notifications": "Notifications",
+      "devices": "Devices",
+      "enroll": "Add device",
+      "enrollmentKeys": "Enrollment keys",
+      "relay": "Relay",
+      "policies": "Access policies",
+      "routes": "Routes",
+      "dns": "DNS",
+      "resources": "Network resources",
+      "diagnostics": "Diagnostics",
+      "users": "Users",
+      "groups": "Groups",
+      "invitations": "Invitations",
+      "audit": "Audit log",
+      "approvals": "Pending approvals",
+      "supportAccess": "Support access",
+      "settings": "Settings",
+      "identityProvider": "Identity provider",
+      "usage": "Usage",
+      "billing": "Plan and billing"
+    },
+    "platform": {
+      "health": "Platform health",
+      "tenants": "Tenants",
+      "approvals": "Pending approvals (2P)",
+      "jobs": "Jobs",
+      "instances": "Instances",
+      "hosts": "Hosts",
+      "relayRegions": "Relay regions",
+      "plans": "Plans",
+      "settings": "System settings",
+      "users": "Platform staff",
+      "identityProviders": "Identity providers",
+      "supportAccess": "Support access",
+      "audit": "Audit log",
+      "securityEvents": "Security events",
+      "usage": "Usage",
+      "backups": "Backups"
+    }
+  },
+  "roles": {
+    "super_admin": "Super Admin",
+    "platform_operator": "Platform Operator",
+    "platform_support": "Platform Support",
+    "platform_viewer": "Platform Viewer",
+    "tenant_owner": "Tenant Owner",
+    "tenant_admin": "Tenant Admin",
+    "tenant_operator": "Tenant Operator",
+    "tenant_viewer": "Tenant Viewer",
+    "end_user": "End User",
+    "support_operator": "Support Operator",
+    "support_admin": "Support Admin"
+  },
+  "unavailable": {
+    "title": "Not available yet",
+    "planned": "This screen has not been built yet (task {{task}}). No placeholder figures are shown.",
+    "postMvp": "Post-MVP feature (task {{task}}) — there is no data source yet, so no figures are shown."
+  },
+  "notFound": {
+    "title": "Not found",
+    "description": "This page or resource does not exist, or you do not have access to it."
+  },
+  "forbidden": {
+    "title": "Not allowed",
+    "description": "Your current role is not allowed to view this screen."
+  },
+  "error": {
+    "title": "Something went wrong"
+  },
+  "stepUp": {
+    "title": "Re-authentication required",
+    "description": "This action is sensitive and requires that you authenticated within the last 15 minutes. Re-authenticate, then repeat the action.",
+    "action": "Re-authenticate"
+  },
+  "rateLimit": {
+    "wait_one": "Too many requests. Try again in {{count}} second.",
+    "wait_other": "Too many requests. Try again in {{count}} seconds.",
+    "ready": "You can try again now."
+  },
+  "maintenance": {
+    "banner": "The platform is under maintenance. Some features are temporarily unavailable."
+  },
+  "problem": {
+    "requestId": "Request ID:",
+    "retryAfter_one": "Try again in {{count}} second.",
+    "retryAfter_other": "Try again in {{count}} seconds.",
+    "unauthenticated": "You are not signed in or your session has expired.",
+    "reauth_required": "Re-authentication is required for this action.",
+    "forbidden": "You are not allowed to perform this action.",
+    "tenant_suspended": "This tenant is suspended — writes are refused.",
+    "quota_exceeded": "The plan's quota has been exceeded.",
+    "not_found": "Not found.",
+    "conflict": "Conflicts with the current state — reload and try again.",
+    "precondition_failed": "The data was changed by someone else — reload and try again.",
+    "precondition_required": "The data version (If-Match) is missing — reload and try again.",
+    "validation_failed": "The data is not valid.",
+    "idempotency_key_reuse": "The idempotency key was reused with a different request.",
+    "rate_limited": "Too many requests — wait, then try again.",
+    "upstream_rejected": "An upstream system refused the request.",
+    "instance_unavailable": "The tenant's control plane is temporarily not responding.",
+    "maintenance": "The platform is under maintenance.",
+    "internal_error": "Internal server error.",
+    "not_implemented": "This function is not implemented on the server yet.",
+    "network_error": "Could not reach the server.",
+    "unexpected_response": "The server answered unexpectedly."
+  }
+}
