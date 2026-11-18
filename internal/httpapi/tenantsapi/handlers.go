@@ -296,15 +296,21 @@ func toTenant(t tenants.Tenant) gen.Tenant {
 	}
 }
 
-func toMembership(m tenants.Member) gen.Membership {
+// ToMembership is schema Membership of a member — shared with the write operations of P4-T09 (membersapi).
+func ToMembership(m tenants.Member) gen.Membership {
 	out := gen.Membership{Id: m.ID, IdentityId: m.IdentityID, DisplayName: m.DisplayName, Role: m.Role,
 		Status: m.Status, HeadscaleUsername: m.HeadscaleUsername, Version: m.Version}
 	if m.Email != "" {
 		e := m.Email
 		out.Email = &e
 	}
+	if o := m.Offboarding; o != nil {
+		out.Offboarding = &gen.MembershipOffboarding{State: gen.MembershipOffboardingState(o.State), JobId: o.JobID}
+	}
 	return out
 }
+
+func toMembership(m tenants.Member) gen.Membership { return ToMembership(m) }
 
 func toInstance(i platform.Instance) gen.Instance {
 	out := gen.Instance{

@@ -33,10 +33,16 @@ const (
 	TriggerRestore     = "restore"
 	TriggerDriftRepair = "drift_repair"
 	TriggerRollback    = "rollback"
+	// TriggerGroupChange, TriggerResourceChange, TriggerTagChange: a change of the tables rendered at apply time
+	// (§7.3) re-applies the desired version through the policy.apply job (P4-T09: groups; P4-T12/T15 the others).
+	TriggerGroupChange    = "group_change"
+	TriggerResourceChange = "resource_change"
+	TriggerTagChange      = "tag_change"
 )
 
 var coreTriggers = map[string]bool{TriggerBootstrap: true, TriggerManual: true, TriggerSuspend: true,
-	TriggerResume: true, TriggerRestore: true, TriggerDriftRepair: true, TriggerRollback: true}
+	TriggerResume: true, TriggerRestore: true, TriggerDriftRepair: true, TriggerRollback: true,
+	TriggerGroupChange: true, TriggerResourceChange: true, TriggerTagChange: true}
 
 // Application states (policy_applications.state).
 const (

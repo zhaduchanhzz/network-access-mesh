@@ -76,7 +76,7 @@ WITH seed (key, scope, description) AS (VALUES
     ('tenant.job:read', 'tenant', 'GET /tenants/{tenantId}/jobs, GET /tenants/{tenantId}/jobs/{id}'),
     ('tenant.lifecycle:request_delete', 'tenant', 'POST /tenants/{tenantId}/request-deletion'),
     ('tenant.membership:assign', 'tenant', 'PUT /tenants/{tenantId}/users/{id}/role'),
-    ('tenant.membership:assign_admin', 'tenant', 'POST /tenants/{tenantId}/ownership-transfer'),
+    ('tenant.membership:assign_admin', 'tenant', 'POST /tenants/{tenantId}/ownership-transfer, PUT /tenants/{tenantId}/users/{id}/admin-role'),
     ('tenant.notification:read', 'tenant', 'GET /tenants/{tenantId}/notifications, POST /tenants/{tenantId}/notifications/{id}/read'),
     ('tenant.policy:apply', 'tenant', 'POST /tenants/{tenantId}/policies/{id}/apply, POST /tenants/{tenantId}/policies/{id}/rollback'),
     ('tenant.policy:approve', 'tenant', 'POST /tenants/{tenantId}/policies/{id}/approve, POST /tenants/{tenantId}/policies/{id}/reject'),

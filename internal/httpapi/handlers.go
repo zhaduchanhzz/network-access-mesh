@@ -168,6 +168,23 @@ type QuarantineHandlers interface {
 	ReleasePlatformInstance(ctx context.Context, request gen.ReleasePlatformInstanceRequestObject) (gen.ReleasePlatformInstanceResponseObject, error)
 }
 
+// MemberHandlers — P4-T09 (`members`): the write side of the users of a tenant (lock, roles, ownership transfer,
+// sessions, two-phase offboarding) and its groups (sensitive groups through a tenant-scope approval — §7.3).
+type MemberHandlers interface {
+	UpdateTenantUser(ctx context.Context, request gen.UpdateTenantUserRequestObject) (gen.UpdateTenantUserResponseObject, error)
+	OffboardTenantUser(ctx context.Context, request gen.OffboardTenantUserRequestObject) (gen.OffboardTenantUserResponseObject, error)
+	SetTenantUserRole(ctx context.Context, request gen.SetTenantUserRoleRequestObject) (gen.SetTenantUserRoleResponseObject, error)
+	SetTenantUserAdminRole(ctx context.Context, request gen.SetTenantUserAdminRoleRequestObject) (gen.SetTenantUserAdminRoleResponseObject, error)
+	TransferTenantOwnership(ctx context.Context, request gen.TransferTenantOwnershipRequestObject) (gen.TransferTenantOwnershipResponseObject, error)
+	RevokeTenantUserSessions(ctx context.Context, request gen.RevokeTenantUserSessionsRequestObject) (gen.RevokeTenantUserSessionsResponseObject, error)
+	ListTenantGroups(ctx context.Context, request gen.ListTenantGroupsRequestObject) (gen.ListTenantGroupsResponseObject, error)
+	CreateTenantGroup(ctx context.Context, request gen.CreateTenantGroupRequestObject) (gen.CreateTenantGroupResponseObject, error)
+	GetTenantGroup(ctx context.Context, request gen.GetTenantGroupRequestObject) (gen.GetTenantGroupResponseObject, error)
+	UpdateTenantGroup(ctx context.Context, request gen.UpdateTenantGroupRequestObject) (gen.UpdateTenantGroupResponseObject, error)
+	DeleteTenantGroup(ctx context.Context, request gen.DeleteTenantGroupRequestObject) (gen.DeleteTenantGroupResponseObject, error)
+	SetTenantGroupMembers(ctx context.Context, request gen.SetTenantGroupMembersRequestObject) (gen.SetTenantGroupMembersResponseObject, error)
+}
+
 // Handlers is the extension point of the API: one handler set per building task. A nil set answers every operation
 // of its interface with 501 not_implemented. A set may also implement only part of its interface by embedding
 // NotImplemented. Handlers return a *problem.Error for an expected failure (not_found, conflict…); any other error
@@ -241,6 +258,7 @@ type Handlers struct {
 	InstanceOps   InstanceOpsHandlers        // P3-T13a
 	Deprovision   DeprovisionHandlers        // P3-T09
 	Quarantine    QuarantineHandlers         // P3-T18
+	Members       MemberHandlers             // P4-T09
 	Portal        PortalHandlers             // P4-T04
 	TenantView    PlatformTenantViewHandlers // P4-T02
 }
@@ -249,7 +267,7 @@ func (h Handlers) mounted() bool {
 	return h.Auth != nil || h.Tenants != nil || h.Devices != nil || h.Audit != nil || h.Jobs != nil || h.Monitoring != nil ||
 		h.Notifications != nil || h.Approvals != nil || h.Invitations != nil || h.Hosts != nil || h.IdPConsole != nil ||
 		h.Provisioning != nil || h.Lifecycle != nil || h.Relay != nil || h.Reconfigure != nil || h.Backups != nil ||
-		h.InstanceOps != nil || h.Quarantine != nil || h.Deprovision != nil || h.Portal != nil || h.TenantView != nil
+		h.InstanceOps != nil || h.Quarantine != nil || h.Deprovision != nil || h.Members != nil || h.Portal != nil || h.TenantView != nil
 }
 
 // dispatcher implements gen.StrictServerInterface by promotion from the disjoint interfaces.
@@ -273,6 +291,7 @@ type dispatcher struct {
 	InstanceOpsHandlers
 	QuarantineHandlers
 	DeprovisionHandlers
+	MemberHandlers
 	PortalHandlers
 	PlatformTenantViewHandlers
 }
@@ -282,7 +301,10 @@ var _ gen.StrictServerInterface = dispatcher{}
 func newDispatcher(h Handlers) dispatcher {
 	d := dispatcher{h.Auth, h.Tenants, h.Devices, h.Audit, h.Jobs, h.Monitoring, h.Notifications, h.Approvals, h.Invitations,
 		h.Hosts, h.IdPConsole, h.Provisioning, h.Lifecycle, h.Relay, h.Reconfigure, h.Backups, h.InstanceOps,
-		h.Quarantine, h.Deprovision, h.Portal, h.TenantView}
+		h.Quarantine, h.Deprovision, h.Members, h.Portal, h.TenantView}
+	if d.MemberHandlers == nil {
+		d.MemberHandlers = NotImplemented{}
+	}
 	if d.PortalHandlers == nil {
 		d.PortalHandlers = NotImplemented{}
 	}
@@ -621,6 +643,54 @@ func (NotImplemented) ListPlatformTenantInstances(context.Context, gen.ListPlatf
 
 func (NotImplemented) ListPlatformTenantRelayRegions(context.Context, gen.ListPlatformTenantRelayRegionsRequestObject) (gen.ListPlatformTenantRelayRegionsResponseObject, error) {
 	return nil, problem.NotImplemented("ListPlatformTenantRelayRegions")
+}
+
+func (NotImplemented) UpdateTenantUser(context.Context, gen.UpdateTenantUserRequestObject) (gen.UpdateTenantUserResponseObject, error) {
+	return nil, problem.NotImplemented("UpdateTenantUser")
+}
+
+func (NotImplemented) OffboardTenantUser(context.Context, gen.OffboardTenantUserRequestObject) (gen.OffboardTenantUserResponseObject, error) {
+	return nil, problem.NotImplemented("OffboardTenantUser")
+}
+
+func (NotImplemented) SetTenantUserRole(context.Context, gen.SetTenantUserRoleRequestObject) (gen.SetTenantUserRoleResponseObject, error) {
+	return nil, problem.NotImplemented("SetTenantUserRole")
+}
+
+func (NotImplemented) SetTenantUserAdminRole(context.Context, gen.SetTenantUserAdminRoleRequestObject) (gen.SetTenantUserAdminRoleResponseObject, error) {
+	return nil, problem.NotImplemented("SetTenantUserAdminRole")
+}
+
+func (NotImplemented) TransferTenantOwnership(context.Context, gen.TransferTenantOwnershipRequestObject) (gen.TransferTenantOwnershipResponseObject, error) {
+	return nil, problem.NotImplemented("TransferTenantOwnership")
+}
+
+func (NotImplemented) RevokeTenantUserSessions(context.Context, gen.RevokeTenantUserSessionsRequestObject) (gen.RevokeTenantUserSessionsResponseObject, error) {
+	return nil, problem.NotImplemented("RevokeTenantUserSessions")
+}
+
+func (NotImplemented) ListTenantGroups(context.Context, gen.ListTenantGroupsRequestObject) (gen.ListTenantGroupsResponseObject, error) {
+	return nil, problem.NotImplemented("ListTenantGroups")
+}
+
+func (NotImplemented) CreateTenantGroup(context.Context, gen.CreateTenantGroupRequestObject) (gen.CreateTenantGroupResponseObject, error) {
+	return nil, problem.NotImplemented("CreateTenantGroup")
+}
+
+func (NotImplemented) GetTenantGroup(context.Context, gen.GetTenantGroupRequestObject) (gen.GetTenantGroupResponseObject, error) {
+	return nil, problem.NotImplemented("GetTenantGroup")
+}
+
+func (NotImplemented) UpdateTenantGroup(context.Context, gen.UpdateTenantGroupRequestObject) (gen.UpdateTenantGroupResponseObject, error) {
+	return nil, problem.NotImplemented("UpdateTenantGroup")
+}
+
+func (NotImplemented) DeleteTenantGroup(context.Context, gen.DeleteTenantGroupRequestObject) (gen.DeleteTenantGroupResponseObject, error) {
+	return nil, problem.NotImplemented("DeleteTenantGroup")
+}
+
+func (NotImplemented) SetTenantGroupMembers(context.Context, gen.SetTenantGroupMembersRequestObject) (gen.SetTenantGroupMembersResponseObject, error) {
+	return nil, problem.NotImplemented("SetTenantGroupMembers")
 }
 
 func (NotImplemented) MarkNotificationRead(context.Context, gen.MarkNotificationReadRequestObject) (gen.MarkNotificationReadResponseObject, error) {

@@ -31,9 +31,19 @@ func normalizeEmail(s string) string {
 }
 
 // realmOf parses the registration's driver_ref and returns the token source of its mg-idp-driver service account.
+//
+// A driver_ref that is a bare realm name is the registration of a realm imported from the rendered template and adopted
+// by `meshguard-worker admin idp-bootstrap --adopt-realm` (tenants built in Phase 1, provisioning.KeycloakRealmIdP):
+// such a realm has no mg-idp-driver secret in the SecretStore, and the provisioning identity holds the roles of its
+// management client (minus impersonation — Bootstrap). The user operations of those realms (P4-T09: invitation,
+// offboarding) use that identity; a realm it has not adopted answers 403 (idp_forbidden). Realms created by the
+// driver always carry the JSON driver_ref and use their own service account.
 func (d *Driver) realmOf(op string, reg idp.Registration) (string, tokenSource, error) {
 	if err := reg.Validate(op); err != nil {
 		return "", tokenSource{}, err
+	}
+	if reg.Scope == idp.ScopeTenant && validRealm(reg.DriverRef) {
+		return reg.DriverRef, d.provisioner(), nil
 	}
 	ref, sref, err := ParseDriverRef(reg.DriverRef)
 	if err != nil {

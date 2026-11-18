@@ -70,6 +70,7 @@ type Fake struct {
 
 	mu     sync.Mutex
 	nodes  map[uint64]*Node
+	users  map[uint64]string // PutUser: users ListUsers answers (P4-T09)
 	keys   map[uint64]*Key
 	calls  map[string]int  // "GET /api/v1/node" → count
 	down   bool            // every call: 502 without body (the edge cannot route — instance stopped)
@@ -89,6 +90,7 @@ type Fake struct {
 // Operation names used by Refuse, Ignore and Calls.
 const (
 	OpListNodes        = "ListNodes"
+	OpListUsers        = "ListUsers"
 	OpGetNode          = "GetNode"
 	OpRenameNode       = "RenameNode"
 	OpExpireNode       = "ExpireNode"
@@ -104,7 +106,7 @@ func New(t testing.TB, slug string) *Fake {
 	t.Helper()
 	f := &Fake{Slug: slug, EdgeToken: strings.Repeat("E", 20) + strings.ReplaceAll(uuid.NewString(), "-", "")[:20],
 		APIKey: "hskey-" + "api-" + "fakeprefix12" + "-" + strings.ReplaceAll(uuid.NewString(), "-", ""),
-		nodes:  map[uint64]*Node{}, keys: map[uint64]*Key{}, calls: map[string]int{}, refuse: map[string]bool{},
+		nodes:  map[uint64]*Node{}, users: map[uint64]string{}, keys: map[uint64]*Key{}, calls: map[string]int{}, refuse: map[string]bool{},
 		ignore: map[string]bool{}, now: time.Now, version: "v0.29.7",
 		before: map[string]func(uint64){}, after: map[string]func(uint64){}, expiries: map[uint64][]time.Time{}}
 	f.Server = httptest.NewServer(http.HandlerFunc(f.serve))
@@ -125,6 +127,13 @@ func Registry(targets map[uuid.UUID]headscale.Target) *headscale.CachingRegistry
 		Timeout: 2 * time.Second, CacheTTL: time.Hour, Retry: headscale.RetryPolicy{Attempts: 1},
 		Breaker: headscale.BreakerConfig{FailureThreshold: 1 << 20, OpenFor: time.Millisecond},
 	})
+}
+
+// PutUser adds or replaces a Headscale user (ListUsers — P4-T09 offboarding).
+func (f *Fake) PutUser(id uint64, name string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.users[id] = name
 }
 
 // PutNode adds or replaces a node.
@@ -327,10 +336,28 @@ func (f *Fake) answer(w http.ResponseWriter, r *http.Request, body []byte) {
 			ids = append(ids, nid)
 		}
 		slices.Sort(ids)
+		user := r.URL.Query().Get("user") // ?user=<name>: the user's own (untagged) nodes
 		for _, nid := range ids {
-			out = append(out, f.nodes[nid].wire(true))
+			if n := f.nodes[nid]; user == "" || len(n.Tags) == 0 && n.UserName == user {
+				out = append(out, n.wire(true))
+			}
 		}
 		writeJSON(w, map[string]any{"nodes": out})
+	case OpListUsers:
+		out := []any{}
+		ids := make([]uint64, 0, len(f.users))
+		for uid := range f.users {
+			ids = append(ids, uid)
+		}
+		slices.Sort(ids)
+		name := r.URL.Query().Get("name")
+		for _, uid := range ids {
+			if name == "" || f.users[uid] == name {
+				out = append(out, map[string]any{"id": strconv.FormatUint(uid, 10), "name": f.users[uid],
+					"createdAt": f.now().UTC().Format(time.RFC3339Nano)})
+			}
+		}
+		writeJSON(w, map[string]any{"users": out})
 	case OpGetNode, OpRenameNode, OpExpireNode:
 		n, ok := f.nodes[id]
 		if !ok {
@@ -399,6 +426,8 @@ func route(r *http.Request) (op string, id uint64, rest string) {
 		return OpHealth, 0, ""
 	case r.Method == http.MethodGet && p == "node":
 		return OpListNodes, 0, ""
+	case r.Method == http.MethodGet && p == "user":
+		return OpListUsers, 0, ""
 	case r.Method == http.MethodGet && p == "preauthkey":
 		return OpListPreAuthKeys, 0, ""
 	case r.Method == http.MethodPost && p == "preauthkey/expire":
