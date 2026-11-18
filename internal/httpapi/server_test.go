@@ -88,6 +88,11 @@ var operations = []struct {
 	{http.MethodGet, "/api/v1/tenants/" + tenantID + "/invitations?status=pending", "", "ListTenantInvitations", nil},
 	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/invitations", `{"email":"a@example.test","role":"tenant_viewer"}`, "CreateTenantInvitation", []func(*http.Request){idempotency}},
 	{http.MethodDelete, "/api/v1/tenants/" + tenantID + "/invitations/" + itemID, "", "RevokeTenantInvitation", nil},
+	{http.MethodPut, "/api/v1/tenants/" + tenantID + "/devices/" + itemID + "/tags", `{"tags":["tag:web"]}`, "SetDeviceTags", nil},
+	{http.MethodGet, "/api/v1/tenants/" + tenantID + "/tags", "", "ListTenantTags", nil},
+	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/tags", `{"name":"tag:web"}`, "CreateTenantTag", []func(*http.Request){idempotency}},
+	{http.MethodPatch, "/api/v1/tenants/" + tenantID + "/tags/" + itemID, `{"description":"web"}`, "UpdateTenantTag", nil},
+	{http.MethodDelete, "/api/v1/tenants/" + tenantID + "/tags/" + itemID, "", "DeleteTenantTag", nil},
 	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/invitations/" + itemID + "/resend", "", "ResendTenantInvitation", nil},
 	// users (write) and groups (P4-T09)
 	{http.MethodPatch, "/api/v1/tenants/" + tenantID + "/users/" + itemID, `{"status":"locked"}`, "UpdateTenantUser", nil},

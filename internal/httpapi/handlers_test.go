@@ -65,6 +65,7 @@ func TestHandlerGroupsFollowSpec(t *testing.T) {
 		"P3-T13a": reflect.TypeFor[InstanceOpsHandlers](),
 		"P3-T09":  reflect.TypeFor[DeprovisionHandlers](),
 		"P3-T18":  reflect.TypeFor[QuarantineHandlers](),
+		"P4-T15":  reflect.TypeFor[TagHandlers](),
 		"P4-T09":  reflect.TypeFor[MemberHandlers](),
 		"P4-T04":  reflect.TypeFor[PortalHandlers](),
 	}

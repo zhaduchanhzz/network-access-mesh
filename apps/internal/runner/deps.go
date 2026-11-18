@@ -336,9 +336,10 @@ func clientSecretIdP(name string) (uuid.UUID, bool) {
 	return id, true
 }
 
-// newDevices builds the device inventory over the Headscale registry (P2-T13) on the store of the process.
-func (d *deps) newDevices(reg prometheus.Registerer) (*devices.Service, error) {
-	return devices.New(d.st, devices.Config{Registry: d.headscale, Logger: d.log, Registerer: reg})
+// newDevices builds the device inventory over the Headscale registry (P2-T13) on the store of the process; tags is the
+// tenant's tag catalog of PUT /devices/{id}/tags (P4-T15 — the api's; nil in the worker, which never tags a device).
+func (d *deps) newDevices(reg prometheus.Registerer, tags devices.TagCatalog) (*devices.Service, error) {
+	return devices.New(d.st, devices.Config{Registry: d.headscale, Logger: d.log, Registerer: reg, Tags: tags})
 }
 
 // deviceCounter gives monitoring the device figures of a tenant through the devices module (§13.6: monitoring never

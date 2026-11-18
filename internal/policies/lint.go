@@ -15,7 +15,8 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/headscale"
 )
 
-// Lint rules of §7.2 implemented by the core (P3-T08a). L3–L13 belong to the typed model of P4-T10.
+// Lint rules of §7.2 implemented by the core (P3-T08a; L6 for tags — RuleL6, tagref.go, P4-T15). L3–L13 otherwise
+// belong to the typed model of P4-T10.
 const (
 	// RuleL1: no "grants" member (or "grants": null, or not an array) — Headscale would allow all traffic (PL-02, V-06).
 	RuleL1 = "L1"
@@ -36,8 +37,10 @@ const MaxPolicyBytes = 1 << 20
 
 // LintError is a policy refused by the lint before any database write or Headscale call.
 type LintError struct {
-	Rule   string // RuleL1, RuleL2, RuleSyntax, RuleDecoderGuard
+	Rule   string // RuleL1, RuleL2, RuleSyntax, RuleDecoderGuard, RuleL6
 	Detail string // what is wrong, in terms of the document (never the document itself)
+	// Tags lists the undeclared tags of an L6 refusal (names with the format of a catalog tag only).
+	Tags []string
 }
 
 func (e *LintError) Error() string { return "policy lint " + e.Rule + ": " + e.Detail }
@@ -51,6 +54,8 @@ func (e *LintError) Code() string {
 		return "lint_l2_empty"
 	case RuleDecoderGuard:
 		return "lint_decoder_guard"
+	case RuleL6:
+		return "lint_l6_undeclared_tag"
 	}
 	return "lint_syntax"
 }
@@ -81,6 +86,10 @@ type Document struct {
 	// AppliedSHA256 is the hex sha256 of Applied: policy_applications.applied_sha256, the reference of the read-back
 	// after SetPolicy (and of the drift check — P4-T10).
 	AppliedSHA256 string
+	// InputsSHA256 is policy_applications.inputs_sha256: ContentSHA256 after Lint; RenderCatalog adds the catalog.
+	InputsSHA256 string
+	// TagOwners are the catalog tags RenderCatalog rendered into "tagOwners" (nil: nothing rendered).
+	TagOwners []string
 }
 
 // Lint checks a HuJSON policy before anything is stored or sent (§7.2 "Guardrail lint (chạy trước mọi lời gọi
@@ -127,7 +136,8 @@ func Lint(text string) (Document, error) {
 	if err := headscale.ValidatePolicyDocument(out); err != nil {
 		return Document{}, lintErr(RuleDecoderGuard, "%v", err)
 	}
-	return Document{HuJSON: text, ContentSHA256: SHA256Hex(text), Applied: out, AppliedSHA256: SHA256Hex(out)}, nil
+	sum := SHA256Hex(text)
+	return Document{HuJSON: text, ContentSHA256: sum, Applied: out, AppliedSHA256: SHA256Hex(out), InputsSHA256: sum}, nil
 }
 
 // checkGrants is L1: exactly one member spelled "grants", whose value is an array. A differently cased "Grants" is

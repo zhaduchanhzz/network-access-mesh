@@ -56,6 +56,9 @@ type Config struct {
 	// Notifier receives the device.expiring events in the transaction that looks for them; default
 	// notifications.Default.
 	Notifier notifications.Enqueuer
+	// Tags is the tenant's tag catalog (P4-T15 — policies.TagService, wired in apps/): PUT /devices/{id}/tags only
+	// accepts catalog tags. nil ⇒ SetTags fails closed (internal error).
+	Tags TagCatalog
 }
 
 // Service is the device inventory of every tenant: API operations, the inventory.sync and device.revoke handlers
@@ -71,6 +74,7 @@ type Service struct {
 	sysWait time.Duration // bound of the detached writes that settle a job's outcome
 	notice  time.Duration
 	notify  notifications.Enqueuer
+	tags    TagCatalog
 }
 
 // New returns the service of the process whose store is st (api: mg_api_*, worker: mg_worker_*).
@@ -79,7 +83,7 @@ func New(st *store.Store, cfg Config) (*Service, error) {
 		return nil, errors.New("devices: a store and a headscale registry are required")
 	}
 	s := &Service{st: st, reg: cfg.Registry, log: cfg.Logger, m: newMetrics(cfg.Registerer), fresh: cfg.FreshTimeout,
-		now: cfg.Now, sysWait: 10 * time.Second, notice: cfg.ExpiryNotice, notify: cfg.Notifier}
+		now: cfg.Now, sysWait: 10 * time.Second, notice: cfg.ExpiryNotice, notify: cfg.Notifier, tags: cfg.Tags}
 	if s.notice == 0 {
 		s.notice = 7 * 24 * time.Hour
 	}
