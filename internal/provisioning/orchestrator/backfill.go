@@ -108,12 +108,17 @@ type BackfillTarget struct {
 	Tenant   TenantRecord   // with the plan's instance limits
 	Instance InstanceRecord // live instance, with its host's public entry
 	Current  *ConfigVersion // version in force; nil when none
-	// LockHolder is the job holding the tenant's lifecycle lock (uuid.Nil = none).
-	LockHolder    uuid.UUID
-	LockHolderKey string
-	RelayRegion   bool // relay_regions mg-<slug> exists
-	RelayAssigned bool // a relay_assignments row of the instance exists
-	DesiredPolicy bool // tenants.desired_policy_version_id is set (P3-T08a policy-apply)
+	// LockHolder is the job holding the tenant's lifecycle lock (uuid.Nil = none), with its kind, status, error code and
+	// instance.
+	LockHolder         uuid.UUID
+	LockHolderKey      string
+	LockHolderKind     string
+	LockHolderStatus   string
+	LockHolderCode     string
+	LockHolderInstance uuid.UUID
+	RelayRegion        bool // relay_regions mg-<slug> exists
+	RelayAssigned      bool // a relay_assignments row of the instance exists
+	DesiredPolicy      bool // tenants.desired_policy_version_id is set (P3-T08a policy-apply)
 }
 
 // BackfillRecord is the registry write of a backfill (one transaction, with the audit outcome).
@@ -243,10 +248,18 @@ func (b *Backfiller) Backfill(ctx context.Context, req BackfillRequest) (Backfil
 		return plan, refuse(BackfillNotRunning, "the instance is %s, not running", inst.Status)
 	case t.Tenant.Status != tenants.StatusActive && t.Tenant.Status != tenants.StatusSuspended:
 		return plan, refuse(BackfillTenantState, "the tenant is %s", t.Tenant.Status)
-	case t.LockHolder != uuid.Nil:
-		return plan, refuse(BackfillLifecycleBusy, "job %s (%s) holds the tenant's lifecycle lock", t.LockHolder, t.LockHolderKey)
+	case t.LockHolder != uuid.Nil && !restoreRefusedUnactivated(t):
+		return plan, refuse(BackfillLifecycleBusy, "job %s (%s %s) holds the tenant's lifecycle lock", t.LockHolder,
+			t.LockHolderKind, t.LockHolderStatus)
 	case !inst.PublicEntryIPv4.IsValid() || !inst.NetCIDR.IsValid() || inst.RunUID <= 0:
 		return plan, refuse(BackfillRegistryState, "the instance has no public entry, subnet or run_uid")
+	}
+
+	if t.LockHolder != uuid.Nil {
+		plan.Notes = append(plan.Notes, fmt.Sprintf("instance.restore %s waits failed_resumable: the agent refused it "+
+			"(agent_state — it restores only an activated instance with a recorded Noise key fingerprint) before touching "+
+			"anything; it holds the tenant's lifecycle lock — /retry it after the backfill (POST /platform/jobs/%s/retry)",
+			t.LockHolder, t.LockHolder))
 	}
 
 	// 2. the host, as the agent sees it (read only)
@@ -579,4 +592,14 @@ func (b *Backfiller) activate(ctx context.Context, ref *agentv1.InstanceRef, op 
 		return refuse(BackfillHostState, "the container was restarted or recreated during the backfill")
 	}
 	return nil
+}
+
+// restoreRefusedUnactivated: the job holding the tenant's lifecycle lock is an instance.restore of this instance that the
+// agent refused at its first check — "only an activated instance with a recorded Noise key fingerprint is restored"
+// (REFUSAL_REASON_STATE ⇒ agent_state) — and that waits failed_resumable (a restore is neither cancellable nor
+// compensable). Nothing of the host was touched; the backfill is exactly what lets its /retry succeed, so it does not
+// stop the backfill (the staging restore drill of tenant-a before P3-T14b). Any other holder does.
+func restoreRefusedUnactivated(t BackfillTarget) bool {
+	return t.LockHolderKind == "instance.restore" && t.LockHolderStatus == "failed_resumable" &&
+		t.LockHolderCode == "agent_state" && t.LockHolderInstance == t.Instance.ID
 }

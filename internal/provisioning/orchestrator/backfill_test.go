@@ -365,3 +365,34 @@ func TestBackfillOrchestratorBuiltInstanceIsNoop(t *testing.T) {
 		t.Fatalf("notes %v", plan.Notes)
 	}
 }
+
+// TestBackfillRefusedRestoreDoesNotBlock: the staging restore drill of tenant-a before P3-T14b — an instance.restore of
+// this instance refused by the agent (agent_state: not activated) waits failed_resumable holding the tenant's lifecycle
+// lock; the backfill proceeds (and says to /retry it). The same job with another code, another instance, another kind
+// or another status still blocks.
+func TestBackfillRefusedRestoreDoesNotBlock(t *testing.T) {
+	b, st, _ := bfWorld(t)
+	job := uuid.New()
+	st.t.LockHolder, st.t.LockHolderKind, st.t.LockHolderStatus, st.t.LockHolderCode, st.t.LockHolderInstance =
+		job, "instance.restore", "failed_resumable", "agent_state", st.t.Instance.ID
+	plan, err := b.Backfill(t.Context(), BackfillRequest{TenantID: st.t.Tenant.ID, DryRun: true})
+	if err != nil || !plan.Changed || len(plan.Notes) != 1 || !strings.Contains(plan.Notes[0], job.String()+"/retry") {
+		t.Fatalf("refused restore: %+v %v", plan, err)
+	}
+	for name, mod := range map[string]func(*BackfillTarget){
+		"other code":     func(x *BackfillTarget) { x.LockHolderCode = "restore_check_failed" },
+		"other instance": func(x *BackfillTarget) { x.LockHolderInstance = uuid.New() },
+		"other kind":     func(x *BackfillTarget) { x.LockHolderKind = "instance.restart" },
+		"running":        func(x *BackfillTarget) { x.LockHolderStatus = "running" },
+	} {
+		b, st, _ := bfWorld(t)
+		st.t.LockHolder, st.t.LockHolderKind, st.t.LockHolderStatus, st.t.LockHolderCode, st.t.LockHolderInstance =
+			job, "instance.restore", "failed_resumable", "agent_state", st.t.Instance.ID
+		mod(&st.t)
+		_, err := b.Backfill(t.Context(), BackfillRequest{TenantID: st.t.Tenant.ID, DryRun: true})
+		var be *BackfillError
+		if !errors.As(err, &be) || be.Code != BackfillLifecycleBusy {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}

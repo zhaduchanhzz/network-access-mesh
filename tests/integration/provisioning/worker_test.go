@@ -174,8 +174,11 @@ func TestWorkerProcess(t *testing.T) {
 	if err := dep.Register(w); err != nil {
 		t.Fatal(err)
 	}
-	// instance.reconfigure (P3-T13) and instance.restart (P3-T13a), as the worker wires them: E2E-84 (P3-T14b) runs
-	// them on an instance built by hand, adopted and backfilled
+	// instance.backup + instance.restore (P3-T11), instance.reconfigure (P3-T13) and instance.restart (P3-T13a), as the
+	// worker wires them: E2E-84 (P3-T14b) runs them on an instance built by hand, adopted and backfilled
+	if err := bk.Register(w); err != nil {
+		t.Fatal(err)
+	}
 	rc, err := orchestrator.NewReconfigurer(orchestrator.ReconfigureConfig{Store: orchestrator.NewDBStore(st, nil), Agent: agent,
 		Headscale: reg, Prober: newEdgeProber(), Security: securityRecorder{st: st}, Logger: log, EdgeAddress: e.edgePublic,
 		RetryBase: 100 * time.Millisecond, RetryMax: 500 * time.Millisecond, HealthPoll: 500 * time.Millisecond})

@@ -19,11 +19,14 @@ package provisioning
 //     relay; a second run changes nothing.
 //  4. After: reconcile clean on every check; detector 0 findings (both scopes); nodes unchanged (same node keys);
 //     the edge supervisor re-attaches the edge after a detach; instance.reconfigure (no change ⇒ no restart) and
-//     instance.restart (restart, health, edge.verify with the backfilled fingerprint) succeed; the nodes are still
-//     the same; the tenant is deprovisioned the production way (final backup, DELETE_ARCHIVED).
+//     instance.restart (restart, health, post-start gate, edge.verify with the backfilled fingerprint) succeed after the
+//     policy in force was recorded through the policy core (`admin policy-apply`); instance.backup then instance.restore
+//     (P3-T11 — the agent restores only an activated instance with a recorded fingerprint) succeed with the same Noise
+//     key; the nodes are still the same; the tenant is deprovisioned the production way (final backup, DELETE_ARCHIVED).
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -31,6 +34,7 @@ import (
 	"net/netip"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -39,11 +43,14 @@ import (
 	"github.com/moby/moby/client"
 
 	agentv1 "github.com/zhaduchanhzz/network-access-mesh/api/agent/v1"
+	"github.com/zhaduchanhzz/network-access-mesh/infrastructure/headscale/templates"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/headscale"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/headscale/locator"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/jobs"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/platform"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/policies"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/backup"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/orchestrator"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/reconcile"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/secrets"
@@ -65,7 +72,7 @@ func (h *harness) nodeKeys(t *testing.T, slug string) []bfNode {
 	if err := json.Unmarshal(bytes.TrimSpace([]byte(h.hsExec(t, slug, "nodes", "list", "-o", "json"))), &l); err != nil {
 		t.Fatalf("nodes list: %v", err)
 	}
-	slices.SortFunc(l, func(a, b bfNode) int { return int(a.ID) - int(b.ID) })
+	slices.SortFunc(l, func(a, b bfNode) int { return cmp.Compare(a.ID, b.ID) })
 	return l
 }
 
@@ -162,7 +169,6 @@ func TestBackfillAdoptedInstance(t *testing.T) {
 	h.adopt(t, provisioning.Meta{TenantID: tenantID, InstanceID: instanceID, Slug: slug, RunUID: runUID, NetCIDR: netCIDR,
 		Image: "mg-headscale@" + e.hsDigest, ImageDigest: e.hsDigest, TemplateVersion: "1", ConfigSHA256: st.GetConfigSha256()},
 		headscale.NewSecret(key))
-	key = ""
 	h.devices(t, slug, 2)
 	nodes := h.nodeKeys(t, slug)
 	if len(nodes) != 2 || nodes[0].NodeKey == "" {
@@ -226,6 +232,41 @@ func TestBackfillAdoptedInstance(t *testing.T) {
 		}
 	}
 
+	// a worker of the run (instance.backup/restore, reconfigure, restart, deprovision)
+	w := h.startWorker(t, "bf", nil)
+	jobOf := func(kind string) uuid.UUID {
+		return scalar[uuid.UUID](t, h, `SELECT id FROM provisioning_jobs WHERE kind = $1 AND instance_id = $2 ORDER BY created_at DESC LIMIT 1`,
+			kind, instanceID)
+	}
+	// the scheduled backup of a hand-built instance works (staging: A/B are backed up since P3-T11) — its restore does
+	// not: the agent restores only an activated instance with a recorded Noise key fingerprint (the refusal seen on
+	// staging). Older-point branch: the tenant has no applied policy yet.
+	bsvc := backup.New(h.api, backup.Config{})
+	bj, _, err := bsvc.RequestBackup(h.reqCtx(t, backup.AuditBackup), h.actor, instanceID, nil)
+	if err != nil {
+		t.Fatalf("backup: %v", err)
+	}
+	h.waitJob(t, bj.ID, 5*time.Minute, jobs.StatusSucceeded)
+	preBackup := scalar[uuid.UUID](t, h, `SELECT id FROM backups WHERE instance_id = $1 AND status = 'succeeded' ORDER BY started_at DESC LIMIT 1`, instanceID)
+	if err := h.api.WithPlatformJobTx(h.reqCtx(t, backup.AuditRestore), func(tx *store.Tx) error {
+		_, err := bsvc.EnqueueRestore(ctx, tx, h.actor, uuid.New(), backup.RestorePayload{BackupID: preBackup, InstanceID: instanceID,
+			RestorePointOlderThanBackup: true})
+		return err
+	}); err != nil {
+		t.Fatalf("restore before the backfill: %v", err)
+	}
+	refused := jobOf(backup.KindRestore)
+	h.waitJob(t, refused, 3*time.Minute, jobs.StatusFailedResumable)
+	if code := h.jobErrorCode(t, refused); code != "agent_state" {
+		t.Fatalf("restore before the backfill: %s, want agent_state", code)
+	}
+	// the refused job keeps the instance's restore slot (failed_resumable: neither /cancel nor /rollback apply to
+	// instance.restore) — after the backfill, /retry runs it again (the staging drill's path, procedure §6)
+	if s := h.status(t, ref); !s.GetStartedAt().AsTime().Equal(st.GetStartedAt().AsTime()) || s.GetActivated() {
+		t.Fatal("the refused restore touched the instance")
+	}
+	t.Logf("E2E-84 restore before the backfill refused: %s", h.jobErrorCode(t, refused))
+
 	// ---------------------------------------------------------------------------------------- 3. backfill
 	b := &orchestrator.Backfiller{Store: orchestrator.NewDBStore(h.wrk, nil), Agent: h.agent,
 		Defaults: orchestrator.BackfillDefaults{Nameservers: nameservers}, Logger: slog.New(slog.NewTextHandler(os.Stderr, nil))}
@@ -273,6 +314,31 @@ func TestBackfillAdoptedInstance(t *testing.T) {
 		t.Fatalf("second backfill: %+v %v", plan, err)
 	}
 
+	// /retry of the refused instance.restore (P3-T11, AC-19) — the backup taken BEFORE the backfill, the staging case: its
+	// manifest carries the Noise key the helper computed, which the backfill recorded since. The device inventory holds
+	// the two nodes, as inventory.sync records them.
+	for _, n := range nodes {
+		h.exec(t, `INSERT INTO device_inventory_cache (tenant_id, instance_id, headscale_node_id, machine_key, name)
+			VALUES ($1, $2, $3, $4, $5)`, tenantID, instanceID, int64(n.ID), n.MachineKey, "node-"+strconv.FormatUint(n.ID, 10)) //nolint:gosec // a node id
+	}
+	h.retry(t, refused)
+	restoreJob := &refused
+	h.waitJob(t, *restoreJob, 8*time.Minute, jobs.StatusSucceeded)
+	restored := h.status(t, ref)
+	if !restored.GetStartedAt().AsTime().After(st.GetStartedAt().AsTime()) || restored.GetNoiseKeyFingerprint() != fp ||
+		!restored.GetActivated() || !restored.GetNetwork().GetEdgeAttached() {
+		t.Fatalf("after the restore: %+v", restored)
+	}
+	if got := h.nodeKeys(t, slug); !slices.Equal(got, nodes) {
+		t.Fatalf("nodes changed by the restore: %+v → %+v", nodes, got)
+	}
+	rep, _, err = rec.ReconcileInstance(ctx, tenantID, instanceID)
+	if err != nil || rep.Status != reconcile.StatusClean {
+		t.Fatalf("reconcile after the restore: %+v %v", rep, err)
+	}
+	t.Logf("E2E-84 restore of the pre-backfill backup %s: job %s succeeded; fingerprint unchanged %t; nodes unchanged; reconcile %s", preBackup,
+		*restoreJob, restored.GetNoiseKeyFingerprint() == fp, rep.Status)
+
 	// ---------------------------------------------------------------------------------------- 4. after
 	rep, _, err = rec.ReconcileInstance(ctx, tenantID, instanceID)
 	if err != nil {
@@ -311,18 +377,24 @@ func TestBackfillAdoptedInstance(t *testing.T) {
 		t.Fatal("the supervisor did not re-attach the backfilled instance")
 	}
 
-	// instance.reconfigure (no change: the recorded parameters render the configuration in force) and instance.restart
-	w := h.startWorker(t, "bf", nil)
-	jobOf := func(kind string) uuid.UUID {
-		return scalar[uuid.UUID](t, h, `SELECT id FROM provisioning_jobs WHERE kind = $1 AND instance_id = $2 ORDER BY created_at DESC LIMIT 1`,
-			kind, instanceID)
+	// the policy in force recorded through the policy core (`admin policy-apply`, P3-T08a — step 7 of the staging procedure):
+	// the post-start gate of restart and the normal branch of the restore compare against it
+	core, err := policies.New(h.wrk, policies.Config{Registry: src.Headscale})
+	if err != nil {
+		t.Fatal(err)
 	}
+	if res, err := core.Apply(ctx, policies.ApplyRequest{TenantID: tenantID, HuJSON: templates.BootstrapPolicy, Actor: "E2E-84"}); err != nil ||
+		res.State != policies.StateApplied {
+		t.Fatalf("policy-apply: %+v %v", res, err)
+	}
+
+	// instance.reconfigure (no change: the recorded parameters render the configuration in force) and instance.restart
 	if err := enqueue(orchestrator.ReconfigureKind); err != nil {
 		t.Fatalf("reconfigure: %v", err)
 	}
 	rj := jobOf(orchestrator.ReconfigureKind)
 	h.waitJob(t, rj, 3*time.Minute, jobs.StatusSucceeded)
-	if s := h.status(t, ref); !s.GetStartedAt().AsTime().Equal(st.GetStartedAt().AsTime()) {
+	if s := h.status(t, ref); !s.GetStartedAt().AsTime().Equal(restored.GetStartedAt().AsTime()) {
 		t.Fatal("a reconfiguration without change restarted the instance")
 	}
 	if err := enqueue(orchestrator.RestartKind); err != nil {
@@ -332,7 +404,7 @@ func TestBackfillAdoptedInstance(t *testing.T) {
 	h.waitJob(t, sj, 4*time.Minute, jobs.StatusSucceeded)
 	edgeStep, _ := stepByName(h.steps(t, sj), "edge.verify")
 	restarted := h.status(t, ref)
-	if !restarted.GetStartedAt().AsTime().After(st.GetStartedAt().AsTime()) || restarted.GetNoiseKeyFingerprint() != fp ||
+	if !restarted.GetStartedAt().AsTime().After(restored.GetStartedAt().AsTime()) || restarted.GetNoiseKeyFingerprint() != fp ||
 		!restarted.GetNetwork().GetEdgeAttached() {
 		t.Fatalf("after the restart: %+v", restarted)
 	}
@@ -344,7 +416,7 @@ func TestBackfillAdoptedInstance(t *testing.T) {
 		t.Fatalf("reconcile after the restart: %+v %v", rep, err)
 	}
 	t.Logf("E2E-84 summary: refused without overrides (%s); second run: changed=false, %s; reconcile before %v, after %v; "+
-		"nodes %d unchanged (node keys) through backfill + restart; supervisor re-attached; reconfigure %s (no restart), restart %s "+
+		"nodes %d unchanged (node keys) through backfill + restart + restore; supervisor re-attached; reconfigure %s (no restart), restart %s "+
 		"(edge.verify %s); container %s started %s → %s",
 		orchestrator.BackfillConfigDiffers, itemsOf(plan), before, afterChecks, len(nodes), rj, sj, edgeStep.Status,
 		st.GetContainerId()[:12], st.GetStartedAt().AsTime().Format(time.RFC3339), restarted.GetStartedAt().AsTime().Format(time.RFC3339))

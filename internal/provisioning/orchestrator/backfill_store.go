@@ -40,7 +40,16 @@ func (d *DBStore) BackfillTarget(ctx context.Context, tenantID uuid.UUID) (Backf
 		key := jobs.LockKey(tenantID)
 		switch j, err := q.GetLockHolder(ctx, key); {
 		case err == nil:
-			out.LockHolder, out.LockHolderKey = j.ID, key
+			out.LockHolder, out.LockHolderKey, out.LockHolderKind, out.LockHolderStatus = j.ID, key, j.Kind, j.Status
+			if j.InstanceID != nil {
+				out.LockHolderInstance = *j.InstanceID
+			}
+			var e struct {
+				Code string `json:"code"`
+			}
+			if len(j.Error) > 0 && json.Unmarshal(j.Error, &e) == nil {
+				out.LockHolderCode = e.Code
+			}
 		case !errors.Is(err, store.ErrNoRows):
 			return err
 		}
