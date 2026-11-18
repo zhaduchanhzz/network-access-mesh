@@ -137,6 +137,10 @@ services:
   db-bootstrap:
     volumes:
       - {<<: *hs-bind, source: "${MGE_WORK}/secrets/migrate", target: /run/mg-migrate}
+  # Relay thư ra (P3-T05b-mail — service của compose.app.yaml khi MG_MAILRELAY_URL có trong ci.env): chỉ đổi tên container;
+  # file của nó do chính infrastructure/host/mail-secrets.sh sinh vào <work>/secrets/mail (stack.make_mail_secrets).
+  mail-bridge:
+    container_name: ${MGE_PREFIX}-mail-bridge
 
   # ------------------------------------------------------------ service riêng của stack thử
   # PostgreSQL của Management Plane (thiết lập như compose.core.yaml), dữ liệu trên tmpfs (chỉ sống trong lượt chạy).
@@ -227,6 +231,37 @@ services:
     labels:
       meshguard.role: e2e
 
+  # Worker Cloudflare GIẢ của relay thư (P3-T05b-mail, ca E2E-82/83): mã thật infrastructure/mail/cf-worker/src/index.js
+  # chạy bằng test/devserver.mjs (node:http + binding EMAIL giả ghi lại thư sẽ gửi — không thân thư) trong image node của
+  # versions.lock; chỉ trên mg-egress (mailrelay gọi http://fakeworker:8787/v1/send — http chỉ được phép ở dev/ci). Khóa
+  # HMAC: bản của consumer này (UID 1000), cùng giá trị với của mailrelay. Không publish cổng, không ra Internet.
+  fakeworker:
+    <<: *hardening
+    image: ${MGE_IMG_NODE:?}
+    container_name: ${MGE_PREFIX}-fakeworker
+    user: "1000:1000"
+    read_only: true
+    working_dir: /worker
+    command: ["node", "test/devserver.mjs"]
+    environment:
+      RELAY_HMAC_KEY_FILE: /run/secrets/relay_hmac_key
+      RELAY_ALLOWED_FROM: ${MGE_MAIL_FROM:?}
+      DEVSERVER_PORT: "8787"
+      DEVSERVER_OUT: /out
+    secrets: [{source: fakeworker_hmac_key, target: relay_hmac_key}]
+    volumes:
+      - {<<: *hs-bind, source: ./infrastructure/mail/cf-worker, target: /worker}
+      - {<<: *hs-bind, source: "${MGE_WORK}/fakeworker", target: /out, read_only: false}
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    networks:
+      mg-egress:
+        aliases: [fakeworker]
+    mem_limit: 128m
+    pids_limit: 64
+    labels:
+      meshguard.role: e2e
+
   # Bốn client: a1, a2 (tenant-a) chạy TS_DEBUG_ALWAYS_USE_DERP — mọi lưu lượng đi qua DERP của tenant-a (qua edge);
   # b1, b2 (tenant-b) để đường trực tiếp. Pre-auth key một lần, sinh lúc chạy, gắn dạng file secret.
   ts-a1:
@@ -290,6 +325,12 @@ secrets:
   app_db_partition_password: {file: "${MGE_WORK}/secrets/worker/db_partition_password"}
   app_pg_superuser_password: {file: "${MGE_WORK}/secrets/appboot/pg_superuser_password"}
   app_pg_backup_password: {file: "${MGE_WORK}/secrets/appboot/pg_backup_password"}
+  app_mail_relay_hmac_key: {file: "${MGE_WORK}/secrets/mail/relay_hmac_key"}      # relay thư ra (P3-T05b-mail): mail-secrets.sh
+  app_mail_tls_key: {file: "${MGE_WORK}/secrets/mail/tls_key"}
+  app_mail_tls_cert: {file: "${MGE_WORK}/secrets/mail/tls_cert"}
+  app_mail_ca: {file: "${MGE_WORK}/secrets/mail/ca.crt"}
+  idp_mailrelay_ca: {file: "${MGE_WORK}/secrets/mail/ca.crt"}
+  fakeworker_hmac_key: {file: "${MGE_WORK}/secrets/fakeworker/relay_hmac_key"}
   authkey_a1: {file: "${MGE_WORK}/secrets/clients/a1.authkey"}
   authkey_a2: {file: "${MGE_WORK}/secrets/clients/a2.authkey"}
   authkey_b1: {file: "${MGE_WORK}/secrets/clients/b1.authkey"}
@@ -304,5 +345,6 @@ networks:
   mg-egress: {name: "${MGE_PREFIX}-egress", external: true}
   mg-idp-data: {name: "${MGE_PREFIX}-idp-data", external: true}
   mg-idp: {name: "${MGE_PREFIX}-idp", external: true}
+  mail: {name: "${MGE_PREFIX}-mail", external: true}
   mg-t-tenant-a: {name: "${MGE_PREFIX}-t-tenant-a", external: true}
   mg-t-tenant-b: {name: "${MGE_PREFIX}-t-tenant-b", external: true}

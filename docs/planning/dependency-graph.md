@@ -100,7 +100,7 @@ flowchart TD
 | Quyết định IdP (phương án cho ≥ 3 issuer tách biệt; đủ RAM nếu dùng Keycloak) | P2-T05 | Người dùng + kết quả discovery |
 | Thiết bị thật (≥ 4, trên ≥ 2 hệ điều hành) + mạng thứ hai ngoài LAN | P1-T05a, P1-T12, P1-T18, P5-T02…T07 | Người dùng |
 | VPS làm public gateway (đã có địa chỉ): **mật khẩu root đã đổi**, SSH key cho user triển khai, thông số VPS | P1-T15…P1-T18, phần Internet-facing của G1, AC-16 qua Internet | Người dùng |
-| SMTP (thư mời, cảnh báo) | P3-T05b; lời mời Owner ở bước 16 của provisioning | Người dùng |
+| SMTP (thư mời, cảnh báo) — **đã giải quyết** (chủ dự án 2026-11-18): Cloudflare Email Service qua Worker trả phí (`infrastructure/mail/cf-worker`, cầu SMTP `mailrelay` — P3-T05b-mail); zone của `MG_BASE_DOMAIN` đã onboard Email Sending (SPF `cf-bounce`, DMARC `p=reject`). Còn lại cho mỗi môi trường: triển khai Worker + `RELAY_HMAC_KEY`, điền `MG_MAILRELAY_URL` | P3-T05b; lời mời Owner ở bước 16 của provisioning | Người dùng (tài khoản Cloudflare, domain) |
 | Số người vận hành nền tảng (dual control cần ≥ 2; nếu chỉ 1 ⇒ chọn chế độ thay thế ở D-11) | P3-T04a, P3-T09, P3-T11 | Người dùng |
 | Tư vấn pháp lý về việc dùng official client (R-01) | Ý kiến sơ bộ bằng văn bản: G2; đầy đủ: G6 (go-live thương mại) | Người dùng |
 | Kho backup offsite; máy thứ hai cho diễn tập mất host | P6-T03, P6-T04, P6-T04a | Người dùng |

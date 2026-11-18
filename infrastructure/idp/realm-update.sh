@@ -2,7 +2,8 @@
 # G2 vòng 2 (docs/planning/evidence/G2-security-review.md, "Sửa sau vòng 2") — đưa các realm ĐANG CHẠY về template mới và
 # gia cố realm master. `--import-realm` bỏ qua realm đã tồn tại (IGNORE_EXISTING), nên realm import từ template cũ
 # không nhận thay đổi của template; script này áp đúng các khóa G2 vòng 2 đổi:
-#   realm platform/tenant-*: passwordPolicy (+ passwordBlacklist — A-3), attributes.meshguard.template;
+#   realm platform/tenant-*: passwordPolicy (+ passwordBlacklist — A-3), attributes.meshguard.template, smtpServer
+#     (P3-T05b-mail: Mailpit ⇄ mailrelay:587 STARTTLS theo MG_IDP_MAIL_SINK của bản render — không bao giờ mật khẩu);
 #     mg-portal: post.logout.redirect.uris (A-1), protocol mapper amr (A-6);
 #     flow mg-browser-forms: authenticatorConfig amr của bước mật khẩu (pwd) và OTP (otp) (A-6);
 #     required action UPDATE_PASSWORD, CONFIGURE_TOTP, delete_credential, webauthn-register(-passwordless),
@@ -129,6 +130,12 @@ def payload(cmd: str, obj) -> str:
     return f"kc {cmd} -f - <<'MGJSON'\n{json.dumps(obj, ensure_ascii=False)}\nMGJSON\n"
 
 
+def smtp_norm(smtp) -> str:
+    """smtpServer comparable between the rendered realm and Keycloak's answer: string values, no empty value, no
+    (masked) password — the templates never carry one (check_realm)."""
+    return json.dumps({k: str(v) for k, v in (smtp or {}).items() if k != "password" and v not in ("", None)}, sort_keys=True)
+
+
 def snapshot(r: str) -> dict:
     """The live values this script manages (and nothing else) of realm r."""
     first = get_many({"realm": f"realms/{q(r)}", "portal": f"clients -r {q(r)} -q clientId=mg-portal",
@@ -143,7 +150,7 @@ def snapshot(r: str) -> dict:
         if e.get("authenticationConfig"):
             reqs[f"cfg:{e['providerId']}"] = f"authentication/config/{q(e['authenticationConfig'])} -r {q(r)}"
     more = get_many(reqs)
-    s = {"passwordPolicy": first["realm"].get("passwordPolicy"),
+    s = {"passwordPolicy": first["realm"].get("passwordPolicy"), "smtpServer": smtp_norm(first["realm"].get("smtpServer")),
          "attributes.meshguard.template": (first["realm"].get("attributes") or {}).get("meshguard.template"),
          "mg-portal.post.logout.redirect.uris": (portal.get("attributes") or {}).get("post.logout.redirect.uris"),
          "mg-portal.protocolMappers": sorted((m["name"], m["protocolMapper"], json.dumps(m.get("config", {}), sort_keys=True))
@@ -166,7 +173,8 @@ def desired(r: str) -> dict:
     portal = next(c for c in rep["clients"] if c["clientId"] == render_idp.PORTAL)
     cfgs = {c["alias"]: c for c in rep.get("authenticatorConfig", [])}
     flow = next(f for f in rep["authenticationFlows"] if f["alias"] == FORMS)
-    d = {"passwordPolicy": rep["passwordPolicy"], "attributes.meshguard.template": rep["attributes"]["meshguard.template"],
+    d = {"passwordPolicy": rep["passwordPolicy"], "smtpServer": smtp_norm(rep.get("smtpServer")),
+         "attributes.meshguard.template": rep["attributes"]["meshguard.template"],
          "mg-portal.post.logout.redirect.uris": portal["attributes"]["post.logout.redirect.uris"],
          "mg-portal.protocolMappers": sorted((m["name"], m["protocolMapper"], json.dumps(m.get("config", {}), sort_keys=True))
                                              for m in portal.get("protocolMappers", []))}
@@ -191,9 +199,11 @@ def plan(r: str, live: dict, d: dict) -> tuple[list[str], str]:
     if live["attributes.meshguard.template"] != d["attributes.meshguard.template"]:
         cur = get_many({"r": f"realms/{q(r)}"})["r"].get("attributes") or {}
         upd["attributes"] = {**cur, "meshguard.template": d["attributes.meshguard.template"]}
+    if live["smtpServer"] != d["smtpServer"]:   # P3-T05b-mail: Mailpit ⇄ mailrelay ⇄ none, as rendered (never a password)
+        upd["smtpServer"] = json.loads(d["smtpServer"])
     if upd:
         body += payload(f"update realms/{q(r)}", upd)
-        changes += [k for k in ("passwordPolicy", "attributes.meshguard.template") if live[k] != d[k]]
+        changes += [k for k in ("passwordPolicy", "smtpServer", "attributes.meshguard.template") if live[k] != d[k]]
     if live["mg-portal.post.logout.redirect.uris"] != d["mg-portal.post.logout.redirect.uris"]:
         # the FULL current representation with the attribute set (never a partial PUT: Keycloak would derive webOrigins
         # from the redirect URIs — see putClient of internal/idp/keycloak); mappers have their own endpoint

@@ -57,7 +57,7 @@ with tempfile.TemporaryDirectory() as d:
               for t in stack.TENANTS), "tenant networks are /29 inside 10.250.0.0/16")
     check(st.edge_ip == str(next(nets["edge"].hosts()) + 1), "edge at .2 of the edge network", st.edge_ip)
     internal = {n for n, (_, i, _) in st.networks.items() if i}
-    check(internal == {"data", "admin", "obs", "sec", "idp-data", "idp", "t-tenant-a", "t-tenant-b"},
+    check(internal == {"data", "admin", "obs", "sec", "idp-data", "idp", "mail", "t-tenant-a", "t-tenant-b"},
           "internal networks as on the host (+ tenants)", str(sorted(internal)))
 
     # ---- render with the repository's tools
@@ -97,12 +97,19 @@ with tempfile.TemporaryDirectory() as d:
     check(f"ipv4_address: {st.edge_idp_ip}" in edge_compose and "mg-edge:" not in idp.split("\nnetworks:\n", 1)[1],
           "edge on the idp network at .7.2; idp not on the edge network (G2 round 2, A-8)")
     check(len(list((r / "idp" / "idp" / "realms").glob("*.json"))) == 3, "idp: 3 realms rendered")
+    # ---- relay thư ra (P3-T05b-mail): Keycloak + worker → mailrelay:587 on the stack's mail network → the fake Worker
+    realm = json.loads((r / "idp" / "idp" / "realms" / "tenant-b.json").read_text(encoding="utf-8"))
+    check(realm.get("smtpServer", {}).get("host") == "mailrelay" and realm["smtpServer"].get("starttls") == "true"
+          and "KC_TRUSTSTORE_PATHS: /run/secrets/mailrelay-ca.pem" in idp, "idp: realms send to mailrelay:587 (STARTTLS, internal CA)")
     # ---- backend (P2-T16): compose.app.yaml rendered by tools/render_app.py with the stack's addresses
     app = (r / "app" / "compose.app.yaml").read_text(encoding="utf-8")
     check(f"MG_TRUSTED_PROXIES: {st.edge_ip}" in app and f"ipv4_address: {st.worker_edge_ip}" in app
           and f"MG_EDGE_ADMIN_URL: http://{st.admin_ip}:8081" in app and f"MG_IDP_PLATFORM_ADDR: {st.edge_ip}:443" in app
           and "MG_ENV: ci" in app, "app: trusted proxy = edge, worker static IP, edge admin listener of the stack")
     check(f"image: {stack.DUMMY_IMAGES[0]}" in app, "app: images are the run's (dummy IDs before the build)")
+    check("MG_MAILRELAY_URL: http://fakeworker:8787/v1/send" in app and f"MG_MAILRELAY_SMTP_CIDR: {st.networks['mail'][0]}" in app
+          and "MG_SMTP_ADDR: mailrelay:587" in app and "MG_SMTP_TLS: starttls" in app and "MG_ENV: ci" in app,
+          "app: mailrelay → the fake Worker, listening on the stack's mail network; worker → mailrelay:587 STARTTLS")
     check(f"@outside_admin not remote_ip {st.host_ip}/32" in caddy and f"remote_ip {st.worker_edge_ip}\n" in caddy,
           "edge: admin. only from this host, Admin API only from the stack's worker")
     check(f"auth.{st.domain} {{" in caddy and f"app.{st.domain} {{" in caddy and f"admin.{st.domain} {{" in caddy,
@@ -125,8 +132,9 @@ with tempfile.TemporaryDirectory() as d:
     check(bool(rendered) and set(rendered) <= set(overrides), "compose.yaml re-points every secret of the rendered files",
           str(sorted(set(rendered) - set(overrides))))
     st.make_secrets()
-    missing = sorted(rel for rel in overrides.values()   # edge/tls_*: written by make_ca (openssl)
-                     if not rel.startswith("edge/tls_") and not (st.work / "secrets" / rel).is_file())
+    # edge/tls_*: written by make_ca (openssl); mail/*, fakeworker/*: by infrastructure/host/mail-secrets.sh in a container
+    missing = sorted(rel for rel in overrides.values()
+                     if not rel.startswith(("edge/tls_", "mail/", "fakeworker/")) and not (st.work / "secrets" / rel).is_file())
     check(not missing, "make_secrets writes every secret file compose.yaml mounts", str(missing))
     check((st.work / "policies" / "test-allow-intra.hujson").read_text(encoding="utf-8")
           == (ROOT / "infrastructure" / "headscale" / "templates" / "test-allow-intra.hujson").read_text(encoding="utf-8"),

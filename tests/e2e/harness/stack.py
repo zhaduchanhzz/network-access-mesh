@@ -43,6 +43,7 @@ import render_app  # noqa: E402
 import render_edge  # noqa: E402
 import render_idp  # noqa: E402
 import render_instance  # noqa: E402
+import render_mail  # noqa: E402
 
 TENANTS = ("tenant-a", "tenant-b")
 CLIENTS = {"a1": "tenant-a", "a2": "tenant-a", "b1": "tenant-b", "b2": "tenant-b"}
@@ -113,6 +114,7 @@ class Stack:
             "egress": (f"{base}.5.0/24", False, None),
             "idp-data": (f"{base}.6.0/24", True, None),
             "idp": (f"{base}.7.0/24", True, f"{base}.7.128/25"),   # edge + idp only (G2 round 2, A-8)
+            "mail": (f"{base}.8.0/24", True, None),                # mailrelay, worker, idp (P3-T05b-mail)
             "t-tenant-a": (net_a, True, None),
             "t-tenant-b": (net_b, True, None),
         }
@@ -123,7 +125,8 @@ class Stack:
         self.images = {"headscale": img(hs_key), "edge": img("mg-edge"), "stund": img("mg-stund"),
                        "idp": img("mg-idp"), "postgres": img("postgres"), "tailscale": img("tailscale"),
                        "alpine": img("alpine"), "golang": img("golang"), "distroless": img("distroless-static"),
-                       "probe": f"{self.prefix}-probe:e2e"}   # P3-T03a: built from the tree (build_probe_image)
+                       "probe": f"{self.prefix}-probe:e2e",   # P3-T03a: built from the tree (build_probe_image)
+                       "node": img("node")}                   # fake Worker of the mail relay (P3-T05b-mail)
         env.update(MG_E2E_EDGE_IPV4=self.edge_ip, MG_E2E_TENANT_A_CIDR=net_a, MG_E2E_TENANT_B_CIDR=net_b,
                    MG_E2E_HEADSCALE_IMAGE=self.images["headscale"], MG_E2E_EDGE_IMAGE=self.images["edge"],
                    MG_E2E_ADMIN_ALLOW=f"{self.host_ip}/32")
@@ -193,6 +196,7 @@ class Stack:
                                     edge_idp_ip=self.edge_idp_ip)
         render_edge.INTERNAL.update(admin_subnet=self.networks["admin"][0], obs_subnet=self.networks["obs"][0])
         render_edge.APP_IPS.update(worker_edge_ip=self.worker_edge_ip)
+        render_mail.MAIL_NET.update(subnet=self.networks["mail"][0])   # mailrelay listens on the stack's mail network
         params = mgenv.expand(json.loads((ENV_DIR / "edge.json").read_text(encoding="utf-8")), self.env)
         files = render_edge.render(params)
         files["caddy/Caddyfile"] = ci_tls(files["caddy/Caddyfile"])
@@ -257,7 +261,8 @@ class Stack:
                   "MGE_EDGE_IP": self.edge_ip, "MGE_IMG_POSTGRES": self.images["postgres"],
                   "MGE_IMG_TAILSCALE": self.images["tailscale"], "MGE_IMG_STUND": self.images["stund"],
                   "MGE_IMG_DISTROLESS": self.images["distroless"], "MGE_IMG_PROBE": self.images["probe"],
-                  "MGE_ADMIN_SUBNET": self.networks["admin"][0]}
+                  "MGE_ADMIN_SUBNET": self.networks["admin"][0], "MGE_IMG_NODE": self.images["node"],
+                  "MGE_MAIL_FROM": render_mail.sender(self.env)[1]}
         text = "# Sinh bởi tests/e2e/harness/stack.py — tham số KHÔNG bí mật của stack dev/CI (compose.yaml).\n"
         (self.work / "stack.env").write_text(text + "".join(f"{k}={v}\n" for k, v in values.items()), encoding="utf-8")
 
@@ -373,6 +378,29 @@ class Stack:
             "chmod 0755 /w/secrets/appboot; chmod 0440 /w/secrets/appboot/*",
         ])
         self.helper(script, f"{self.work}:/w")
+
+    def make_mail_secrets(self) -> None:
+        """The relay's files (P3-T05b-mail) by the host script itself — infrastructure/host/mail-secrets.sh, as root in a
+        throw-away container of the pinned golang image (bash + openssl) with MG_SECRETS_ROOT=<work>/secrets: HMAC key and
+        TLS key root:20009 0440, certificate and CA 0444, CA key gone. Then the fake Worker's copy of the key (UID 1000 of
+        the node image) and its record directory; the harness keeps the key for redaction and its own HMAC check."""
+        script = "/repo/infrastructure/host/mail-secrets.sh"
+        p = self.docker("run", "--rm", "--network", "none", "-v", f"{ROOT}:/repo:ro", "-v", f"{self.work / 'secrets'}:/s",
+                        "-e", "MG_SECRETS_ROOT=/s", "--entrypoint", "bash", self.images["golang"], script, timeout=120)
+        log("mail-secrets.sh: " + " | ".join(ln for ln in p.stdout.splitlines() if ln.startswith(("tls_cert: subject",
+                                                                                                     "ca.crt:   subject"))))
+        self.helper("mkdir -p /w/secrets/fakeworker /w/fakeworker; cp /w/secrets/mail/relay_hmac_key /w/secrets/fakeworker/; "
+                    "chown -R 1000:1000 /w/secrets/fakeworker; chmod 0500 /w/secrets/fakeworker; "
+                    "chmod 0400 /w/secrets/fakeworker/relay_hmac_key; chmod 0777 /w/fakeworker", f"{self.work}:/w")
+        self.mail_key = self.helper("cat /w/secrets/mail/relay_hmac_key", f"{self.work}:/w").stdout.strip()
+        self.secret_values.add(self.mail_key)
+        self.secret_values.add(self.helper("cat /w/secrets/mail/tls_key", f"{self.work}:/w").stdout.strip())
+
+    def set_mail_key(self, value: str) -> None:
+        """Rewrite the relay's HMAC key file IN PLACE (same inode: the running mailrelay sees it at its next message)."""
+        self.secret_values.add(value)
+        self.run([*self.docker_cmd, "run", "--rm", "-i", "--network", "none", "-v", f"{self.work}:/w", self.images["alpine"],
+                  "sh", "-c", "cat > /w/secrets/mail/relay_hmac_key"], input=value)
 
     def fresh_dir(self, rel: str) -> pathlib.Path:
         """An empty directory <work>/<rel> owned by this process (a previous run may have handed it to another UID)."""

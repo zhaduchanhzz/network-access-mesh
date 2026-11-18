@@ -235,6 +235,7 @@ Job được enqueue **trong cùng transaction** với thay đổi nghiệp vụ
 | `secrets` | — (chỉ module nền) | mọi module nghiệp vụ |
 | `jobs` | — (handler do từng module tự đăng ký) | import module nghiệp vụ |
 | `config` | `store` (chỉ để đọc/ghi `system_settings`) | mọi module khác |
+| `mailrelay` (cầu SMTP của relay thư ra — P3-T05b-mail; chạy bằng `meshguard-worker mailrelay`, nối ở `apps/worker`) | — (chỉ `kit`) | mọi module nghiệp vụ |
 | `store` | — | mọi module khác |
 
 Tên module theo đúng §4.2. Đồ thị phụ thuộc **không được có chu trình** (Go từ chối import cycle): khi module A cần gọi module B mà B đã phụ thuộc A, A khai báo interface ở phía mình và hiện thực được nối ở `apps/*` — đã áp dụng cho `tenants` ↔ `usage`; `tenants` không import `provisioning` mà chỉ enqueue job. Bảng phủ mọi module của §4.2. Module nền (`store`, `config`, `audit`, `jobs`, `notifications`) được mọi module khác dùng mà không cần liệt kê ở cột giữa. Hàng của các module hạ tầng (`httpapi`, `authz`, `platform`, `idp`, `secrets`, `jobs`, `config`, `store`) là quy tắc khởi đầu: P2-T01 rà lại rồi chuyển nguyên bảng thành cấu hình lint — muốn đổi quy tắc phải sửa bảng này trước. Quy tắc phụ thuộc được kiểm bằng lint kiến trúc trong CI. Lint kiến trúc còn kiểm ADR-05 (P3-T01): ngoài `apps/agent` và compose driver `internal/provisioning/driver/compose` (chỉ `apps/agent` được import), không mã nào của `apps/` và `internal/` được import thư viện Docker client hay nhắc tới `docker.sock` — api và worker không bao giờ link Docker client.

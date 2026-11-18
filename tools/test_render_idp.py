@@ -253,6 +253,44 @@ check((sc[:start] + sc[end:]).replace(ri.IDP_MAIL_LINE, "").replace(ri.MAIL_NETW
       "sink: compose = default + mailsink + one network line + `mail` network, nothing else")
 raises(lambda: ri.render({**ENV, "MG_IDP_MAIL_SINK": "smtp.example.com"}, IMG), "unknown MG_IDP_MAIL_SINK is refused")
 
+# outbound relay (P3-T05b-mail): smtpServer → mailrelay:587 STARTTLS, idp on the shared `mail` network, the internal CA
+RELAY_ENV = {**ENV, "MG_IDP_MAIL_SINK": "mailrelay"}
+rf = ri.render(RELAY_ENV, IMG)
+check(sorted(rf) == sorted(files) and rf == ri.render(RELAY_ENV, IMG), "relay: same 6 files, deterministic")
+for realm in ri.REALMS:
+    rep = json.loads(rf[f"idp/realms/{realm}.json"])
+    check(rep.get("smtpServer") == {"host": "mailrelay", "port": "587", "from": "no-reply@example.com",
+                                    "fromDisplayName": "MeshGuard", "auth": "false", "ssl": "false", "starttls": "true"},
+          f"relay: {realm} sends to mailrelay:587 with STARTTLS, no auth, from the relay's sender", str(rep.get("smtpServer")))
+    check(ri.check_realm(rep, realm, "example.com", ENV[ri.REALMS[realm]["idp_var"]]) == [], f"relay: {realm} invariants hold")
+    rep.pop("smtpServer")
+    check(rep == json.loads(files[f"idp/realms/{realm}.json"]), f"relay: {realm} differs from the default only by smtpServer")
+rep = json.loads(rf["idp/realms/tenant-a.json"])
+for mutate, name in ((lambda s: s.update(starttls="false"), "STARTTLS off"), (lambda s: s.update(port="25"), "another port"),
+                     (lambda s: s.update(host="smtp.example.com"), "another host")):
+    bad_rep = json.loads(json.dumps(rep))
+    mutate(bad_rep["smtpServer"])
+    check(ri.check_realm(bad_rep, "tenant-a", "example.com", ENV["MG_IDP_ID_TENANT_A"]) != [], f"relay: check_realm refuses {name}")
+custom = json.loads(ri.render({**RELAY_ENV, "MG_SMTP_FROM": "MeshGuard ID <id@example.com>"},
+                              IMG)["idp/realms/platform.json"])["smtpServer"]
+check(custom["from"] == "id@example.com" and custom["fromDisplayName"] == "MeshGuard ID", "relay: sender from MG_SMTP_FROM")
+raises(lambda: ri.render({**RELAY_ENV, "MG_SMTP_FROM": "x@other.example"}, IMG), "relay: sender outside the domain refused")
+rc = rf["compose.idp.yaml"]
+check("${" not in rc and "$" not in rc and "mailsink" not in rc and "mailpit" not in rc, "relay: no placeholder, no Mailpit")
+rsvc = rc.split("\n  idp:\n", 1)[1].split("\nsecrets:\n", 1)[0]
+rnets = re.findall(r"^      ([a-z][a-z0-9-]*):", rsvc.split("    networks:\n", 1)[1].split("    cap_drop:", 1)[0], flags=re.M)
+check(rnets == ["mg-idp", "mg-idp-data", "mail", "mg-egress"], "relay: idp joins `mail` (still not mg-edge)", str(rnets))
+check("KC_TRUSTSTORE_PATHS: /run/secrets/mailrelay-ca.pem" in rsvc and "- source: idp_mailrelay_ca" in rsvc
+      and "target: mailrelay-ca.pem" in rsvc and "idp_mailrelay_ca:" in rc.split("\nsecrets:\n", 1)[1]
+      and "file: /opt/meshguard/secrets/mail/ca.crt" in rc, "relay: Keycloak trusts the internal CA (truststore-paths, PEM file)")
+check(rc.endswith("    name: mail\n    external: true\n") and "internal: true" not in rc.split("\nnetworks:\n", 1)[1],
+      "relay: `mail` is the shared external network `mail` of networks.sh (not project-local)")
+check((rc.replace(ri.RELAY_IDP_LINE, "").replace(ri.RELAY_ENV_LINE, "").replace(ri.RELAY_SECRET, "")
+       .replace(ri.RELAY_SECRET_DEF, "").replace(ri.RELAY_NETWORK, "")) == c,
+      "relay: compose = default + network line + truststore + CA secret + `mail` network, nothing else")
+env_keys = re.findall(r"^      ([A-Z][A-Z0-9_]+): ", rc, flags=re.M)
+check(not [k for k in env_keys if re.search(r"PASSWORD|SECRET|TOKEN", k) and not k.endswith("_FILE")], "relay: no secret in the environment")
+
 # the real staging env file renders (with a stand-in image digest)
 staging = mgenv.environment(ri.ROOT / "infrastructure" / "environments" / "staging" / "staging.env")
 try:

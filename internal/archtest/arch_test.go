@@ -48,6 +48,7 @@ var allowed = map[string][]string{
 	"enrollment":   {"headscale", "tenants", "audit", "usage"},
 	"provisioning": {"tenants", "headscale", "secrets", "relay", "idp", "platform", "policies", "agentclient"},
 	"agentclient":  {},
+	"mailrelay":    {}, // SMTP bridge of the outbound e-mail relay (P3-T05b-mail): kit only, wired by apps/worker
 	"relay":        {"tenants"},
 	"monitoring":   {"tenants"},
 	"usage":        {"tenants"},
@@ -71,6 +72,7 @@ var forbidden = map[string][]string{
 	"notifications": {"*business*"},
 	"secrets":       {"*business*"},
 	"idp":           {"*business*"},
+	"mailrelay":     {"*business*"},
 	"store":         {"*"},
 	"config":        {"*except-store*"},
 }

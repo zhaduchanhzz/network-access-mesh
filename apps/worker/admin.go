@@ -87,9 +87,12 @@ func admin(ctx context.Context, args []string, stdin stdinFile, stdout, stderr i
 	if len(args) > 0 && args[0] == "relay-probe" { // P3-T05c — relayprobe.go
 		return relayProbe(ctx, args[1:], stdout, stderr, relayProbeEnv{getenv: getenv, environ: environ, open: openRelayProber})
 	}
+	if len(args) > 0 && args[0] == "mail-test" { // P3-T05b-mail — mailtest.go
+		return mailTest(ctx, args[1:], stdout, stderr, mailTestEnv{getenv: getenv, environ: environ, open: openMailer})
+	}
 	if len(args) == 0 || args[0] != "idp-bootstrap" {
 		_, _ = io.WriteString(stderr, "meshguard-worker admin: unknown command\n"+adminUsage+policyApplyUsage+auditSyncUsage+
-			apikeyRotateUsage+relayProbeUsage)
+			apikeyRotateUsage+relayProbeUsage+mailTestUsage)
 		return 2
 	}
 	fset := flag.NewFlagSet("idp-bootstrap", flag.ContinueOnError)

@@ -18,8 +18,8 @@ secret-scan: ## Quét secret trong repo (cần gitleaks; cấu hình .gitleaks.t
 	@command -v gitleaks >/dev/null || { echo "gitleaks chưa cài — xem README"; exit 1; }
 	gitleaks git --config .gitleaks.toml --redact --no-banner .
 
-render-test: ## Test tham số môi trường (mgenv) + golden test của tool render (instance Headscale, edge, IdP, backup, mg-app, mg-agent) + migrate.sh
-	$(PYTHON) tools/test_mgenv.py && $(PYTHON) tools/test_render_instance.py && $(PYTHON) tools/test_render_edge.py && $(PYTHON) tools/test_render_idp.py && $(PYTHON) tools/test_render_backup.py && $(PYTHON) tools/test_render_app.py && $(PYTHON) tools/test_render_agent.py && $(PYTHON) tools/test_host_migrate.py
+render-test: ## Test tham số môi trường (mgenv) + golden test của tool render (instance Headscale, edge, IdP, backup, mg-app, mg-agent, relay thư) + migrate.sh
+	$(PYTHON) tools/test_mgenv.py && $(PYTHON) tools/test_render_instance.py && $(PYTHON) tools/test_render_edge.py && $(PYTHON) tools/test_render_idp.py && $(PYTHON) tools/test_render_backup.py && $(PYTHON) tools/test_render_app.py && $(PYTHON) tools/test_render_agent.py && $(PYTHON) tools/test_render_mail.py && $(PYTHON) tools/test_host_migrate.py
 
 api-lint: ## Spec-lint api/openapi.yaml (x-permission hai chiều với §8.5/§8.6, x-task, tenant chỉ từ path, action path, problem+json) + seed RBAC/bảng authz đã sinh + test của lint
 	$(PYTHON) tools/openapi_lint.py && $(PYTHON) tools/test_openapi_lint.py
