@@ -4,7 +4,7 @@ run's internal CA.
 
   E2E-17  api/worker healthy: /readyz green (postgres, secretstore, edge_admin); hardened containers
   E2E-18  edge → api: unauthenticated GET /api/v1/auth/session ⇒ 401 problem+json, security headers; the api refuses
-          any peer but the edge (403)
+          any peer but the edge (403); app./ is the SPA (edge template v9 — P4-T01a, details in spa.py: E2E-85)
   E2E-19  edge → idp: public OIDC endpoints only; Admin REST API, master realm, console ⇒ 404 from any source but the
           worker; admin. only from the allowed source
   E2E-20  worker `admin idp-bootstrap` (stdin = break-glass password) through the edge from the worker's address; the
@@ -350,7 +350,7 @@ def check_edge_api(r, st: Stack) -> None:
     hdr_ok = (s.header("Strict-Transport-Security").startswith("max-age=") and s.header("X-Content-Type-Options") == "nosniff"
               and "frame-ancestors 'none'" in s.header("Content-Security-Policy") and not s.header("Server"))
     rid_ok = s.header("X-Request-Id") not in ("", "bad id") and p.get("request_id") == s.header("X-Request-Id")
-    root = b.get(f"https://app.{st.domain}/")
+    root = b.get(f"https://app.{st.domain}/")     # the SPA since edge template v9 (P4-T01a — details: E2E-85)
     adm = b.get(f"https://admin.{st.domain}/api/v1/auth/session")
     # another member of mg-edge calling the api directly (not through the edge) ⇒ 403 from the api itself; the same
     # container asking for admin. with the real SNI (its address is outside admin_allow) ⇒ the edge closes the
@@ -368,10 +368,12 @@ def check_edge_api(r, st: Stack) -> None:
     admin_refused = (len(lines) == 2 and lines[1].startswith("admin rc=") and not lines[1].startswith("admin rc=0 ")
                      and "HTTP/" not in lines[1])
     ok = (s.status == 401 and p.get("code") == "unauthenticated" and s.header("Content-Type").startswith("application/problem+json")
-          and hdr_ok and rid_ok and root.status == 404 and adm.status == 401 and lines and "403" in lines[0]
+          and hdr_ok and rid_ok and root.status == 200 and b'id="root"' in root.body and adm.status == 401 and lines
+          and "403" in lines[0]
           and admin_refused)
     r.add("E2E-18", "Edge → api: GET https://app./api/v1/auth/session không session ⇒ 401 problem+json (HSTS, nosniff, "
-          "CSP, không Server, X-Request-Id sinh mới — không lặp giá trị client); admin. từ nguồn được phép ⇒ 401; "
+          "CSP, không Server, X-Request-Id sinh mới — không lặp giá trị client); app./ ⇒ SPA (200 — P4-T01a); admin. từ "
+          "nguồn được phép ⇒ 401; "
           "container khác trên mg-edge gọi thẳng api:8080 ⇒ 403 (chỉ edge); admin. từ nguồn khác ⇒ đóng kết nối", ok,
           f"app {s.status} {p.get('code')}, headers {hdr_ok}, request id {rid_ok}, / {root.status}, admin {adm.status}, "
           f"trực tiếp {lines}")

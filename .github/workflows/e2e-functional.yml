@@ -20,6 +20,7 @@ on:
             "tools/mgenv.py", "tools/render_instance.py", "tools/render_edge.py", "tools/render_idp.py", "database/**",
             "internal/store/**", "versions.lock", "Makefile", ".github/workflows/e2e-functional.yml",
             "apps/**", "internal/**", "go.mod", "go.sum", "infrastructure/docker/app/**", "infrastructure/docker/probe/**",
+            "infrastructure/docker/web/**", "infrastructure/docker/edge/healthprobe/**",
             "infrastructure/compose/compose.app.yaml.tmpl", "tools/render_app.py",
             "infrastructure/docker/node-exporter/**", "infrastructure/monitoring/**",
             "infrastructure/compose/compose.monitoring.yaml.tmpl", "tools/render_monitoring.py"]
@@ -30,6 +31,7 @@ on:
             "tools/mgenv.py", "tools/render_instance.py", "tools/render_edge.py", "tools/render_idp.py", "database/**",
             "internal/store/**", "versions.lock", "Makefile", ".github/workflows/e2e-functional.yml",
             "apps/**", "internal/**", "go.mod", "go.sum", "infrastructure/docker/app/**", "infrastructure/docker/probe/**",
+            "infrastructure/docker/web/**", "infrastructure/docker/edge/healthprobe/**",
             "infrastructure/compose/compose.app.yaml.tmpl", "tools/render_app.py",
             "infrastructure/docker/node-exporter/**", "infrastructure/monitoring/**",
             "infrastructure/compose/compose.monitoring.yaml.tmpl", "tools/render_monitoring.py"]

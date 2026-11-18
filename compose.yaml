@@ -143,6 +143,9 @@ services:
   # file của nó do chính infrastructure/host/mail-secrets.sh sinh vào <work>/secrets/mail (stack.make_mail_secrets).
   mail-bridge:
     container_name: ${MGE_PREFIX}-mail-bridge
+  # SPA (P4-T01a — service web của compose.app.yaml, image build từ cây): chỉ đổi tên container.
+  web:
+    container_name: ${MGE_PREFIX}-web
 
   # ------------------------------------------------------------ service riêng của stack thử
   # PostgreSQL của Management Plane (thiết lập như compose.core.yaml), dữ liệu trên tmpfs (chỉ sống trong lượt chạy).

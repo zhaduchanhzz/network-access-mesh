@@ -1,20 +1,26 @@
 #!/usr/bin/env python3
 """Render the backend of one environment: compose project mg-app (P2-T16; §4.2, §14.2–§14.4, §16.2 of the master plan)
 — api, worker and the one-shot database jobs migrate and db-bootstrap, from the images built from
-infrastructure/docker/app.
+infrastructure/docker/app, and the static SPA container web (P4-T01a, image infrastructure/docker/web).
 
 Usage:
-  python3 tools/render_app.py <env file> <out_dir> [--api-image <ref> --worker-image <ref>]
+  python3 tools/render_app.py <env file> <out_dir> [--api-image <ref> --worker-image <ref> --web-image <ref>]
 
 <env file>      infrastructure/environments/<env>/<env>.env — MG_ENV, MG_BASE_DOMAIN and, outside the ci stack, the
                 addresses the SSRF-hardened IdP client must refuse on top of its built-in ranges (T-21, P2-T05a):
                 MG_LAN_CIDR, MG_TUNNEL_HOST_IPV4, MG_TUNNEL_VPS_IPV4, MG_PUBLIC_IPV4. The process environment
                 overrides the file (tools/mgenv.py).
---api-image / --worker-image
+--api-image / --worker-image / --web-image
                 images pinned by digest (<name>@sha256:<64 hex>) or local image IDs (sha256:<64 hex>, dev/CI stack),
-                always given together. Default: [images.mg-api] and [images.mg-worker] of versions.lock, which must
-                name the SAME commit (tag) — a worker pinned for another purpose (the key ceremony) is never paired
-                with a newer api by accident.
+                always given together. Default: [images.mg-api], [images.mg-worker] and [images.mg-web] of
+                versions.lock, which must name the SAME commit (tag) — a worker pinned for another purpose (the key
+                ceremony) is never paired with a newer api by accident, and the SPA's generated API client always
+                matches the api it calls.
+
+Service `web` (P4-T01a): the SPA (Caddy, static files only) on mg-edge only, alias `web` — the edge (template v9) sends
+every path of app./admin. outside /api/* (and the Keycloak console on admin.) to web:8080. No secret, no volume, no
+other network; non-root 65532, read-only rootfs, cap_drop ALL, no-new-privileges, RAM/CPU/PID limits; healthcheck by
+/usr/bin/healthprobe of the image (distroless). The browser security headers come from the edge alone.
 
 Everything else is a design constant, not an environment value: the edge's static addresses (render_edge.EDGE_IPS,
 INTERNAL) give MG_TRUSTED_PROXIES (exactly the edge's address on mg-edge), MG_EDGE_ADMIN_URL and MG_IDP_PLATFORM_ADDR;
@@ -63,7 +69,8 @@ from render_edge import APP_IPS, DOMAIN_RE, EDGE_IPS, INTERNAL  # noqa: E402 —
 import render_mail  # noqa: E402 — sender, Worker URL, mail network and files of the outbound relay (P3-T05b-mail)
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-TEMPLATE_VERSION = "3"   # 2: Host Agent + Tenant Orchestrator in the worker (P3-T05); 3: mailrelay (P3-T05b-mail)
+TEMPLATE_VERSION = "4"   # 2: Host Agent + Tenant Orchestrator in the worker (P3-T05); 3: mailrelay (P3-T05b-mail);
+#                          4: web — the SPA behind the edge (P4-T01a)
 COMPOSE_TMPL = ROOT / "infrastructure" / "compose" / "compose.app.yaml.tmpl"
 VERSIONS = ROOT / "versions.lock"
 IMAGE_RE = re.compile(r"^(?:[a-z0-9][a-z0-9._/:-]*@)?sha256:[0-9a-f]{64}$")   # name@sha256:… or a local image ID
@@ -106,17 +113,24 @@ def egress_deny(env: dict[str, str]) -> str:
     return ",".join(seen)
 
 
-def pinned_images() -> tuple[str, str]:
+IMAGE_KEYS = ("mg-api", "mg-worker", "mg-web")
+
+
+def pinned_images() -> tuple[str, str, str]:
+    """(api, worker, web) of versions.lock — the three of ONE commit (tag)."""
     images = tomllib.loads(VERSIONS.read_text(encoding="utf-8")).get("images", {})
-    api, worker = images.get("mg-api"), images.get("mg-worker")
-    if not api or not worker:
-        raise ParamError("versions.lock chưa có [images.mg-api] và [images.mg-worker] của CÙNG một commit — pin digest "
-                         "sau khi workflow `images` build commit cần triển khai (P2-T16), hoặc truyền --api-image và "
-                         "--worker-image")
-    if api.get("tag") != worker.get("tag"):
-        raise ParamError("[images.mg-api] và [images.mg-worker] không cùng commit (tag) — pin cả hai từ cùng một lượt "
-                         "workflow `images`")
-    return f"{api['image']}@{api['index']}", f"{worker['image']}@{worker['index']}"
+    missing = [k for k in IMAGE_KEYS if not images.get(k)]
+    if missing:
+        raise ParamError(f"versions.lock chưa có {', '.join(f'[images.{k}]' for k in missing)} — api, worker và web phải "
+                         "pin từ CÙNG một commit sau khi workflow `images` build commit cần triển khai (P2-T16, P4-T01a), "
+                         "hoặc truyền --api-image, --worker-image và --web-image")
+    tags = {k: images[k].get("tag") for k in IMAGE_KEYS}
+    if len(set(tags.values())) != 1:
+        raise ParamError("[images.mg-api], [images.mg-worker] và [images.mg-web] không cùng commit (tag): "
+                         + ", ".join(f"{k} {str(v)[:7]}" for k, v in tags.items())
+                         + " — pin cả ba từ cùng một lượt workflow `images`")
+    api, worker, web = (images[k] for k in IMAGE_KEYS)
+    return f"{api['image']}@{api['index']}", f"{worker['image']}@{worker['index']}", f"{web['image']}@{web['index']}"
 
 
 def headscale_runtime() -> tuple[str, str]:
@@ -265,8 +279,8 @@ def mail_blocks(env: dict[str, str], worker_image: str) -> dict[str, str]:
     }
 
 
-def render(env: dict[str, str], api_image: str, worker_image: str) -> dict[str, str]:
-    for name, ref in (("api", api_image), ("worker", worker_image)):
+def render(env: dict[str, str], api_image: str, worker_image: str, web_image: str) -> dict[str, str]:
+    for name, ref in (("api", api_image), ("worker", worker_image), ("web", web_image)):
         if not IMAGE_RE.match(ref):
             raise ParamError(f"image {name} phải pin theo digest (<name>@sha256:<64 hex>) hoặc là image ID sha256:<64 hex>")
     e = env.get("MG_ENV", "")
@@ -279,6 +293,7 @@ def render(env: dict[str, str], api_image: str, worker_image: str) -> dict[str, 
         "template_version": TEMPLATE_VERSION,
         "api_image": api_image,
         "worker_image": worker_image,
+        "web_image": web_image,
         "env": e,
         "base_domain": domain,
         "edge_ip": EDGE_IPS["edge_ip"],
@@ -298,7 +313,8 @@ def main(argv: list[str]) -> int:
             stream.reconfigure(encoding="utf-8")
     args = argv[1:]
     images: dict[str, str] = {}
-    for flag in ("--api-image", "--worker-image"):
+    flags = ("--api-image", "--worker-image", "--web-image")
+    for flag in flags:
         if flag in args:
             i = args.index(flag)
             if i + 1 >= len(args):
@@ -306,13 +322,13 @@ def main(argv: list[str]) -> int:
                 return 2
             images[flag] = args[i + 1]
             del args[i:i + 2]
-    if len(args) != 2 or len(images) == 1:
+    if len(args) != 2 or len(images) not in (0, len(flags)):
         print(__doc__)
         return 2
     try:
         env = mgenv.environment(pathlib.Path(args[0]))
-        api, worker = (images["--api-image"], images["--worker-image"]) if images else pinned_images()
-        files = render(env, api, worker)
+        refs = tuple(images[f] for f in flags) if images else pinned_images()
+        files = render(env, *refs)
     except (ParamError, mgenv.EnvError, OSError, KeyError, ValueError) as e:
         print(f"render failed: {e}", file=sys.stderr)
         return 1

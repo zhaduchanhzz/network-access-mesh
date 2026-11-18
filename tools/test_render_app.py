@@ -11,6 +11,8 @@ it uses; the networks of §14.3 (worker's static address on mg-edge = the edge's
 `compose run api admin …` works); MG_TRUSTED_PROXIES is exactly the edge's address; the egress deny list covers the
 platform pools and the environment's addresses; migrate/db-bootstrap only behind profiles; refusals (image by tag,
 one image only, unknown environment, missing deny-list values outside ci); the real staging env file renders.
+Service web (P4-T01a): the SPA on mg-edge only, hardened like the others, no secret/volume/environment/group, healthcheck
+by the image's healthprobe; versions.lock pins api, worker and web of one commit (temporary lock files).
 """
 from __future__ import annotations
 
@@ -31,6 +33,7 @@ for _stream in (sys.stdout, sys.stderr):
 failures = 0
 API = "ghcr.io/zhaduchanhzz/network-access-mesh/api@sha256:" + "ab" * 32
 WORKER = "ghcr.io/zhaduchanhzz/network-access-mesh/worker@sha256:" + "cd" * 32
+WEB = "ghcr.io/zhaduchanhzz/network-access-mesh/web@sha256:" + "ef" * 32
 ENV = {"MG_ENV": "staging", "MG_BASE_DOMAIN": "example.com", "MG_LAN_CIDR": "192.0.2.0/24",
        "MG_TUNNEL_HOST_IPV4": "10.248.0.2", "MG_TUNNEL_VPS_IPV4": "10.248.0.1", "MG_PUBLIC_IPV4": "203.0.113.10",
        "MG_TENANT_NAMESERVERS": "1.1.1.1,9.9.9.9"}
@@ -51,12 +54,13 @@ def raises(fn, name: str) -> None:
     check(False, name, "no error raised")
 
 
-files = ra.render(ENV, API, WORKER)
+files = ra.render(ENV, API, WORKER, WEB)
 check(sorted(files) == ["compose.app.yaml"], "render writes compose.app.yaml", str(sorted(files)))
-check(files == ra.render(ENV, API, WORKER), "output is deterministic")
+check(files == ra.render(ENV, API, WORKER, WEB), "output is deterministic")
 c = files["compose.app.yaml"]
 check("$" not in c, "compose: no placeholder or $ left (docker compose would interpolate it)")
-check("name: mg-app" in c and f"image: {API}" in c and f"image: {WORKER}" in c, "compose: project mg-app, images by digest")
+check("name: mg-app" in c and f"image: {API}" in c and f"image: {WORKER}" in c and f"image: {WEB}" in c,
+      "compose: project mg-app, images by digest")
 
 
 def service(name: str) -> str:
@@ -82,8 +86,8 @@ def env_of(body: str) -> dict[str, str]:
     return out
 
 
-svcs = {s: service(s) for s in ("api", "worker", "migrate", "db-bootstrap")}
-check(all(svcs.values()), "compose: api, worker, migrate, db-bootstrap defined", str({k: bool(v) for k, v in svcs.items()}))
+svcs = {s: service(s) for s in ("api", "worker", "web", "migrate", "db-bootstrap")}
+check(all(svcs.values()), "compose: api, worker, web, migrate, db-bootstrap defined", str({k: bool(v) for k, v in svcs.items()}))
 hard = re.search(r"^x-hardening: &hardening\n(.*?)^x-db", c, re.M | re.S).group(1)
 check(all(s in hard for s in ("read_only: true", "cap_drop: [ALL]", '"no-new-privileges:true"')),
       "compose: read-only rootfs, cap_drop ALL, no-new-privileges in the shared block")
@@ -92,7 +96,8 @@ for name, body in svcs.items():
           "cpus:" in body and "pids_limit:" in body, f"compose: {name} hardened, non-root 65532, CPU/RAM/PID limits")
 check("ports:" not in c and "docker.sock" not in c and "privileged" not in c and "cap_add" not in c and "network_mode" not in c,
       "compose: no published port, no Docker socket, no privilege")
-groups = {n: sorted(re.search(r'group_add: \[(.*?)\]', b).group(1).replace('"', "").split(", ")) for n, b in svcs.items()}
+groups = {n: sorted(re.search(r'group_add: \[(.*?)\]', b).group(1).replace('"', "").split(", ")) for n, b in svcs.items()
+          if "group_add:" in b}
 check(groups == {"api": ["20001", "20002"], "worker": ["20001", "20003"], "migrate": ["20004"],
                  "db-bootstrap": ["20004", "20007", "999"]}, "compose: secret groups of §14.2 per service", str(groups))
 
@@ -127,6 +132,23 @@ for path in re.findall(r"source: (/opt/meshguard/secrets/\S+)", c):
           f"compose: bind mount {path} is a keyring or the migrate job's directory")
 check(c.count("create_host_path: false") == 4 and c.count("read_only: true\n  bind:") + c.count("read_only: true\n        bind:") == 4,
       "compose: directory mounts read-only, never created on the host")
+
+# the SPA (P4-T01a): static files only — no secret, volume, environment, secret group or other network
+web = svcs["web"]
+check(f"image: {WEB}\n" in web and "group_add" not in web and "secrets:" not in web and "volumes:" not in web
+      and "environment:" not in web and "<<: *process" not in web and "<<: *db" not in web and "command:" not in web
+      and "profiles" not in web, "web: the web image, no secret group, secret, volume, environment, command or profile")
+check(re.findall(r"^      ([a-z][a-z-]*):", web.split("    networks:\n", 1)[1].split("    mem_limit:", 1)[0], re.M) == ["mg-edge"]
+      and "ipv4_address" not in web and "aliases" not in web,
+      "web: on mg-edge only, reached by its service name (web:8080 of the edge's template v9) — no DB, no egress")
+check('test: ["CMD", "/usr/bin/healthprobe", "http://127.0.0.1:8080/", "200"]' in web and "restart: unless-stopped" in web,
+      "web: healthcheck by the image's healthprobe (GET / ⇒ 200 index.html)")
+lim = dict(re.findall(r"^    (mem_limit|cpus|pids_limit): (\S+)", web, re.M))
+check(lim == {"mem_limit": "128m", "cpus": "0.5", "pids_limit": "64"}, "web: RAM 128m, 0.5 CPU, 64 PID", str(lim))
+edge_tmpl = (ra.ROOT / "infrastructure" / "caddy" / "Caddyfile.tmpl").read_text(encoding="utf-8")
+check("reverse_proxy web.:8080 {" in edge_tmpl and render_edge.TEMPLATE_VERSION == "9",
+      "the edge (template v9) proxies to web.:8080 — the name of this service")
+raises(lambda: ra.render(ENV, API, WORKER, "ghcr.io/x/web:latest"), "web image by tag is refused")
 
 # configuration values
 api, worker = env_of(svcs["api"]), env_of(svcs["worker"])
@@ -177,33 +199,33 @@ check(worker.get("MG_PROVISION_HEADSCALE_DIGEST") == hs["mg-headscale"]["index"]
       "compose: orchestrator parameters from versions.lock and the environment (prober only when set)")
 # P3-T16: MG_PROBER_URL is exactly the prober's static address on mg-admin (render_monitoring) — never its name (P3-T05c)
 purl = render_monitoring.prober_url()
-pw = env_of(re.search(r"^  worker:\n(.*?)(?=^  [a-z][a-z-]*:\n|^[a-z]+:)", ra.render({**ENV, "MG_PROBER_URL": purl}, API, WORKER)
+pw = env_of(re.search(r"^  worker:\n(.*?)(?=^  [a-z][a-z-]*:\n|^[a-z]+:)", ra.render({**ENV, "MG_PROBER_URL": purl}, API, WORKER, WEB)
                       ["compose.app.yaml"], flags=re.M | re.S).group(1))
 check(pw.get("MG_PROBER_URL") == purl == "http://10.249.2.3:8080" and pw.get("MG_AGENT_SOCKET"),
       "compose: MG_PROBER_URL = the prober's address on mg-admin, next to the orchestrator")
 check(ipaddress.ip_address("10.249.2.3") in ipaddress.ip_network(render_edge.INTERNAL["admin_subnet"]),
       "the prober's address is inside the mg-admin subnet (the prober's caller allow-list)")
 for bad in ("http://prober:8080", "http://10.249.2.4:8080", "http://10.249.0.9:8080", "http://u:p@x/y", purl + "/v1"):
-    raises(lambda bad=bad: ra.render({**ENV, "MG_PROBER_URL": bad}, API, WORKER), f"MG_PROBER_URL {bad} is refused")
+    raises(lambda bad=bad: ra.render({**ENV, "MG_PROBER_URL": bad}, API, WORKER, WEB), f"MG_PROBER_URL {bad} is refused")
 ci_p = ra.render({"MG_ENV": "ci", "MG_BASE_DOMAIN": "meshguard-ci.test", "MG_PROBER_URL": purl},
-                 "sha256:" + "0" * 64, "sha256:" + "1" * 64)["compose.app.yaml"]
+                 "sha256:" + "0" * 64, "sha256:" + "1" * 64, "sha256:" + "2" * 64)["compose.app.yaml"]
 check(f"MG_PROBER_URL: {purl}" in ci_p and f"MG_PROVISION_EDGE_ADDR: {render_edge.EDGE_IPS['edge_ip']}:443" in ci_p
       and "MG_AGENT_" not in ci_p and "agent_token" not in ci_p,
       "ci stack: MG_PROBER_URL gives the prober-only configuration (relay.probe, no agent, no orchestrator)")
 # P3-T11: the worker verifies backup manifests with the public key of the key ceremony (never a private key)
-bw = ra.render({**ENV, "MG_BACKUP_MANIFEST_PUBKEY": "MCowBQYDK2VwAyEA7rQo5bebwY3AlnB9ahjZwGGUzVu39POjhZbZwbg7Wlc="}, API, WORKER)["compose.app.yaml"]
+bw = ra.render({**ENV, "MG_BACKUP_MANIFEST_PUBKEY": "MCowBQYDK2VwAyEA7rQo5bebwY3AlnB9ahjZwGGUzVu39POjhZbZwbg7Wlc="}, API, WORKER, WEB)["compose.app.yaml"]
 check("MG_BACKUP_MANIFEST_PUBKEY: MCowBQYDK2VwAyEA7rQo5bebwY3AlnB9ahjZwGGUzVu39POjhZbZwbg7Wlc=" in bw, "compose: MG_BACKUP_MANIFEST_PUBKEY rendered for the worker")
-check("MG_BACKUP_MANIFEST_PUBKEY" not in ra.render(ENV, API, WORKER)["compose.app.yaml"], "compose: no manifest key before the ceremony")
-raises(lambda: ra.render({**ENV, "MG_BACKUP_MANIFEST_PUBKEY": "not-a-key"}, API, WORKER), "a malformed manifest key is refused")
-raises(lambda: ra.render({**ENV, "MG_TENANT_NAMESERVERS": "10.0.0.1"}, API, WORKER), "private tenant nameservers are refused")
+check("MG_BACKUP_MANIFEST_PUBKEY" not in ra.render(ENV, API, WORKER, WEB)["compose.app.yaml"], "compose: no manifest key before the ceremony")
+raises(lambda: ra.render({**ENV, "MG_BACKUP_MANIFEST_PUBKEY": "not-a-key"}, API, WORKER, WEB), "a malformed manifest key is refused")
+raises(lambda: ra.render({**ENV, "MG_TENANT_NAMESERVERS": "10.0.0.1"}, API, WORKER, WEB), "private tenant nameservers are refused")
 
 # outbound e-mail relay (P3-T05b-mail): nothing without MG_MAILRELAY_URL; with it, service mail-bridge (SMTP host
 # mailrelay — an alias on `mail` only) + the worker's SMTP
 check(not any(x in c for x in ("\n  mail-bridge:\n", "MG_SMTP_", "name: mail", "secrets/mail/")) and "\n      mail: {}" not in c,
       "relay: no MG_MAILRELAY_URL ⇒ no mailrelay, no MG_SMTP_* (e-mail notifications cancelled, Portal kept)")
 URL = "https://meshguard-mailrelay-staging.acct.workers.dev/v1/send"
-mc = ra.render({**ENV, "MG_MAILRELAY_URL": URL}, API, WORKER)["compose.app.yaml"]
-check("$" not in mc and mc == ra.render({**ENV, "MG_MAILRELAY_URL": URL}, API, WORKER)["compose.app.yaml"],
+mc = ra.render({**ENV, "MG_MAILRELAY_URL": URL}, API, WORKER, WEB)["compose.app.yaml"]
+check("$" not in mc and mc == ra.render({**ENV, "MG_MAILRELAY_URL": URL}, API, WORKER, WEB)["compose.app.yaml"],
       "relay: deterministic, no placeholder left")
 c_saved = c
 c = mc   # service() and env_of() read the global compose text
@@ -238,44 +260,72 @@ check(all(f"  {name}: {{file: /opt/meshguard/secrets/mail/{f}}}" in mc for f, na
 check(mc.endswith("\n  mail:                                           # internal: worker, idp, alertmanager → mailrelay\n"
                   "    name: mail\n    external: true\n"), "relay: `mail` is the external network `mail` of networks.sh")
 c = c_saved
-raises(lambda: ra.render({**ENV, "MG_MAILRELAY_URL": "http://relay.example.com/v1/send"}, API, WORKER), "relay: http URL refused outside ci")
-raises(lambda: ra.render({**ENV, "MG_MAILRELAY_URL": URL, "MG_SMTP_FROM": "MeshGuard <x@other.example>"}, API, WORKER),
+raises(lambda: ra.render({**ENV, "MG_MAILRELAY_URL": "http://relay.example.com/v1/send"}, API, WORKER, WEB), "relay: http URL refused outside ci")
+raises(lambda: ra.render({**ENV, "MG_MAILRELAY_URL": URL, "MG_SMTP_FROM": "MeshGuard <x@other.example>"}, API, WORKER, WEB),
        "relay: a sender outside the environment's domain is refused")
 cim = ra.render({"MG_ENV": "ci", "MG_BASE_DOMAIN": "meshguard-ci.test", "MG_MAILRELAY_URL": "http://fakeworker:8787/v1/send"},
-                "sha256:" + "0" * 64, "sha256:" + "1" * 64)["compose.app.yaml"]
+                "sha256:" + "0" * 64, "sha256:" + "1" * 64, "sha256:" + "2" * 64)["compose.app.yaml"]
 check("MG_MAILRELAY_URL: http://fakeworker:8787/v1/send" in cim and "MG_SMTP_TLS: starttls" in cim,
       "relay: ci stack — fake Worker over http, STARTTLS still on the SMTP side")
 
 # refusals
-raises(lambda: ra.render(ENV, "ghcr.io/x/api:latest", WORKER), "image by tag is refused")
-raises(lambda: ra.render({**ENV, "MG_ENV": "dev"}, API, WORKER), "MG_ENV dev is refused (deployments only)")
-raises(lambda: ra.render({**ENV, "MG_BASE_DOMAIN": "Example.COM"}, API, WORKER), "invalid domain is refused")
+raises(lambda: ra.render(ENV, "ghcr.io/x/api:latest", WORKER, WEB), "image by tag is refused")
+raises(lambda: ra.render({**ENV, "MG_ENV": "dev"}, API, WORKER, WEB), "MG_ENV dev is refused (deployments only)")
+raises(lambda: ra.render({**ENV, "MG_BASE_DOMAIN": "Example.COM"}, API, WORKER, WEB), "invalid domain is refused")
 noentry = {k: v for k, v in ENV.items() if k != "MG_PUBLIC_IPV4"}
-raises(lambda: ra.render(noentry, API, WORKER), "staging without MG_PUBLIC_IPV4 is refused (deny list)")
-raises(lambda: ra.render({**ENV, "MG_LAN_CIDR": "192.0.2.1/24"}, API, WORKER), "a CIDR with host bits is refused")
-ci = ra.render({"MG_ENV": "ci", "MG_BASE_DOMAIN": "meshguard-ci.test"}, "sha256:" + "0" * 64, "sha256:" + "1" * 64)
+raises(lambda: ra.render(noentry, API, WORKER, WEB), "staging without MG_PUBLIC_IPV4 is refused (deny list)")
+raises(lambda: ra.render({**ENV, "MG_LAN_CIDR": "192.0.2.1/24"}, API, WORKER, WEB), "a CIDR with host bits is refused")
+ci = ra.render({"MG_ENV": "ci", "MG_BASE_DOMAIN": "meshguard-ci.test"}, "sha256:" + "0" * 64, "sha256:" + "1" * 64, "sha256:" + "2" * 64)
 check("MG_ENV: ci" in ci["compose.app.yaml"], "ci stack: local image IDs, no LAN/tunnel/public values needed")
 check(all(x not in ci["compose.app.yaml"] for x in ("MG_AGENT_", "MG_PROVISION_", "agent_token", "/opt/meshguard/run")),
       "ci stack: no Host Agent, no orchestrator (the stack has no agent)")
 _stdout, sys.stdout = sys.stdout, open(__import__("os").devnull, "w", encoding="utf-8")   # main prints the usage
 try:
-    usage_rc = ra.main(["render_app.py", "x.env", "out", "--api-image", API])
+    usage_rc = [ra.main(["render_app.py", "x.env", "out", "--api-image", API]),
+                ra.main(["render_app.py", "x.env", "out", "--api-image", API, "--worker-image", WORKER])]
 finally:
     sys.stdout.close()
     sys.stdout = _stdout
-check(usage_rc == 2, "one image without the other is a usage error")
+check(usage_rc == [2, 2], "one or two images without the third is a usage error", str(usage_rc))
+
+# versions.lock: api, worker and web of ONE commit (temporary lock files)
+import tempfile  # noqa: E402
+
+
+def lock(entries: dict[str, str]) -> str:
+    out = '[ids]\nplatform_net_pool = "10.249.0.0/16"\ntenant_net_pool = "10.250.0.0/16"\n'
+    for key, tag in entries.items():
+        name = key.removeprefix("mg-")
+        out += f'[images.{key}]\nimage = "ghcr.io/x/{name}"\ntag = "{tag}"\nindex = "sha256:{name[0] * 64}"\n'
+    return out
+
+
+_versions = ra.VERSIONS
+with tempfile.TemporaryDirectory() as d:
+    ra.VERSIONS = pathlib.Path(d) / "versions.lock"
+    try:
+        ra.VERSIONS.write_text(lock({"mg-api": "c1", "mg-worker": "c1", "mg-web": "c1"}), encoding="utf-8")
+        refs = ra.pinned_images()
+        check(refs == ("ghcr.io/x/api@sha256:" + "a" * 64, "ghcr.io/x/worker@sha256:" + "w" * 64,
+                       "ghcr.io/x/web@sha256:" + "w" * 64), "lock: api, worker, web of one commit ⇒ the three refs", str(refs))
+        ra.VERSIONS.write_text(lock({"mg-api": "c1", "mg-worker": "c1", "mg-web": "c2"}), encoding="utf-8")
+        raises(ra.pinned_images, "lock: web of another commit is refused")
+        ra.VERSIONS.write_text(lock({"mg-api": "c1", "mg-worker": "c1"}), encoding="utf-8")
+        raises(ra.pinned_images, "lock: no [images.mg-web] is refused")
+    finally:
+        ra.VERSIONS = _versions
 
 # the real staging env file
 staging = mgenv.environment(ra.ROOT / "infrastructure" / "environments" / "staging" / "staging.env")
 try:
-    s = ra.render(staging, API, WORKER)["compose.app.yaml"]
+    s = ra.render(staging, API, WORKER, WEB)["compose.app.yaml"]
     check(f"MG_BASE_DOMAIN: {staging['MG_BASE_DOMAIN']}" in s and staging["MG_PUBLIC_IPV4"] in s,
           "staging.env renders mg-app with its domain and public entry in the deny list")
 except ra.ParamError as e:
     check(False, "staging.env renders mg-app", str(e))
 try:
     ra.pinned_images()
-    check(True, "versions.lock pins api and worker of the same commit")
+    check(True, "versions.lock pins api, worker and web of the same commit")
 except ra.ParamError as e:
     print(f"INFO versions.lock: {e} (pinned after the `images` workflow — P2-T16 runbook)")
 sys.exit(1 if failures else 0)

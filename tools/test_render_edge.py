@@ -151,6 +151,70 @@ def site_block(code: str, address: str) -> str:
     return m.group(1) if m else ""
 
 
+def snippet(code: str, name: str) -> str:
+    m = re.search(r"(?m)^\(" + re.escape(name) + r"\) \{\n(.*?)\n\}\n", code, re.S)
+    return m.group(1) if m else ""
+
+
+CSP = "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'"
+# path (decoded, not cleaned) → must the edge refuse it before routing (@dot_segment, template v9)?
+DOT_SAMPLES = {"/.env": True, "/.git/config": True, "/api/../metrics": True, "/api/./v1/auth/session": True,
+               "/t/x/..": True, "/assets/.hidden.js": True, "/..": True, "/": False, "/api/v1/auth/session": False,
+               "/assets/index-9lcqj5sB.js": False, "/favicon.svg": False, "/t/0190a000/devices": False,
+               "/platform/tenants": False, "/a..b/c.d": False}
+
+
+def check_portal_route(body: str) -> list[str]:
+    """app./admin. (template v9, P4-T01a): the steps of the route, in order — guards, (console), dot segments ⇒ 404,
+    /api/* → api, everything else → web."""
+    errors = []
+    if "\timport portal_site\n" not in body:
+        errors.append("portal_site (dot segments, error page) not imported")
+    route = body[body.find("\troute {"):]
+    steps = [s for s in re.findall(r"(?m)^\t\t(\S[^\n]*)$", route) if s != "}"]
+    want = [s for s in ("abort @direct_tunnel", "abort @from_tenant_pool", "abort @outside_admin",
+                        "respond @unsafe_path 404", "route @idp_console {", "respond @dot_segment 404",
+                        "reverse_proxy /api/* api.:8080 {", "reverse_proxy web.:8080 {") if s in steps]
+    tail = ["respond @dot_segment 404", "reverse_proxy /api/* api.:8080 {", "reverse_proxy web.:8080 {"]
+    if steps != want or want[-3:] != tail or "abort @from_tenant_pool" not in want:
+        errors.append(f"route steps {steps}, want the order {want} ending with dot segments ⇒ 404, api, web")
+    return errors
+
+
+def check_portal_snippets(code: str) -> list[str]:
+    """Headers of app./admin. come from one place (portal_headers + platform_headers), also on the edge's own error page;
+    @dot_segment matches the raw path's dot segments only."""
+    errors = []
+    ph, plh, site = snippet(code, "portal_headers"), snippet(code, "platform_headers"), snippet(code, "portal_site")
+    for must in (f'Content-Security-Policy "{CSP}"', "X-Frame-Options DENY", "Referrer-Policy no-referrer",
+                 "Cross-Origin-Opener-Policy same-origin", "Cross-Origin-Resource-Policy same-origin",
+                 'Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"', "defer"):
+        if must not in ph:
+            errors.append(f"portal_headers: missing {must!r}")
+    for must in ('Strict-Transport-Security "max-age=31536000"', "X-Content-Type-Options nosniff", "-Server", "defer"):
+        if must not in plh:
+            errors.append(f"platform_headers: missing {must!r}")
+    if "import platform_headers" not in snippet(code, "platform_site"):
+        errors.append("platform_site does not import platform_headers")
+    if code.count("Content-Security-Policy") != 1:
+        errors.append("Content-Security-Policy set in more than one place")
+    errs = re.search(r"\thandle_errors 502 503 504 \{\n(.*?)\n\t\}", site, re.S)
+    eb = errs.group(1) if errs else ""
+    for must in ("import platform_headers", "import portal_headers *", "header Cache-Control no-store",
+                 'respond "Service temporarily unavailable" 503'):
+        if must not in eb:
+            errors.append(f"portal_site handle_errors: missing {must!r}")
+    m = re.search(r"@dot_segment vars_regexp dot \{http\.request\.uri\.path\} (\S+)$", site, re.M)
+    if not m:
+        errors.append("portal_site: @dot_segment on the raw path {http.request.uri.path} not found")
+    else:
+        rx = re.compile(m.group(1))
+        wrong = [p for p, refused in DOT_SAMPLES.items() if bool(rx.search(p)) != refused]
+        if wrong:
+            errors.append(f"@dot_segment decides wrongly for {wrong}")
+    return errors
+
+
 def check_platform_sites(caddyfile: str, params: dict) -> list[str]:
     """Invariants of the platform sites (P2-T16, §8.3, §14.6, §15.4, P2-T05a)."""
     errors = []
@@ -170,8 +234,11 @@ def check_platform_sites(caddyfile: str, params: dict) -> list[str]:
             if must not in body:
                 errors.append(f"{name}: missing {must!r}")
         route = body[body.find("\troute {"):]
-        if "\troute {" not in body or not route.rstrip().endswith("respond 404\n\t}") and "\t\trespond 404\n\t}" not in route:
-            errors.append(f"{name}: the route does not end with respond 404")
+        # auth. ends with 404; app./admin. end with the SPA (template v9, P4-T01a) — nothing may come after it
+        last = ("\t\treverse_proxy web.:8080 {\n\t\t\timport upstream_headers\n\t\t}\n\t}" if name != "auth"
+                else "\t\trespond 404\n\t}")
+        if "\troute {" not in body or not route.rstrip().endswith(last):
+            errors.append(f"{name}: the route does not end with {last.split(chr(10))[0].strip()!r}")
         if re.search(r"(?m)^\thandle\b", body):
             errors.append(f"{name}: handle blocks (sorted by Caddy) instead of one explicit route")
         for proxy in re.findall(r"reverse_proxy [^\n]*\{\n((?:\t\t\t[^\n]*\n)*)", body):
@@ -195,6 +262,14 @@ def check_platform_sites(caddyfile: str, params: dict) -> list[str]:
     for name, body in (("app", app), ("admin", admin)):
         if "reverse_proxy /api/* api.:8080 {" not in body or "import portal_headers" not in body:
             errors.append(f"{name}: /api/* is not proxied to api.:8080 with the portal headers")
+        errors += [f"{name}: {e}" for e in check_portal_route(body)]
+    errors += check_portal_snippets(code)
+    # the SPA only behind app./admin.: never on auth. (either listener) nor on the tenant wildcard
+    for name, body in (("auth", auth), ("auth (tunnel)", auth_tunnel)):
+        if "web.:8080" in body or "portal_site" in body:
+            errors.append(f"{name}: the SPA or the portal rules are routed on the IdP site")
+    if code.count("reverse_proxy web.:8080 {") != 2:
+        errors.append(f"web.:8080 proxied {code.count('reverse_proxy web.:8080 {')} times (want app. and admin. only)")
     if "remote_ip " + re_.APP_IPS["worker_edge_ip"] not in auth or "reverse_proxy @idp_worker idp.:8080" not in auth:
         errors.append("auth: the Admin REST API / master realm are not restricted to the worker")
     worker = re.search(r"@idp_worker \{\n(.*?)\n\t\}", auth, re.S)
