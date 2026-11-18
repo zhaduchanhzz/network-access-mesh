@@ -67,7 +67,7 @@ Quy ước của bảng: `{t}` là viết tắt của `{tenantId}`; trong các n
 | users (đọc) | 2 | P2-T11 |
 | audit (`tenants/{t}/audit`, `platform/audit`) | 2 | P2-T08 |
 | `platform/tenants` và `platform/instances` (đọc); `platform/jobs` (đọc) | 2 | P2-T11; P2-T12 |
-| `platform/tenants` (tạo, suspend, resume, xóa); `platform/instances/{id}/<action>`; `platform/hosts`; `platform/jobs/{id}/retry`, `/cancel`, `/rollback` | 3 | P3-T05, P3-T08, P3-T09; P3-T11, P3-T13, P3-T13a; P3-T04; P3-T05 |
+| `platform/tenants` (tạo, suspend, resume, xóa); `platform/instances/{id}/<action>`; `platform/hosts`; `platform/jobs/{id}/retry`, `/cancel`, `/rollback` | 3 | P3-T05, P3-T08, P3-T09; P3-T11, P3-T13, P3-T13a, P3-T18; P3-T04; P3-T05 |
 | `platform/approvals`; approvals (phạm vi tenant) | 3 | P3-T04a |
 | `platform/idp-console`; internal: `edge/idp-console` | 3 | P3-T15; P3-T15 |
 | invitations | 3 | P3-T05a |
