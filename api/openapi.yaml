@@ -68,6 +68,8 @@ tags:
     description: Job của tenant, phép chiếu an toàn (§13.3, §13.5) — P2-T12
   - name: notifications
     description: Thông báo trong Portal của chính người gọi (§13.2, §6.3 `notification_outbox`) — P3-T05b
+  - name: relay
+    description: Relay DERP của tenant — region được gán và kết quả probe kèm `checked_at`, chỉ đọc (§10, §10.6) — P3-T05c
   - name: platform
     description: Platform Console, chỉ phục vụ trên origin `admin.<domain>` (§12.2, §13.2) — P2-T08, P2-T11, P2-T12, P2-T13a
   - name: approvals
@@ -920,6 +922,74 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  # ---------------------------------------------------------------- relay (P3-T05c — chỉ đọc ở MVP)
+  /tenants/{tenantId}/relay:
+    get:
+      tags: [relay]
+      operationId: getTenantRelay
+      summary: Relay DERP của tenant — region được gán và kết quả probe gần nhất kèm `checked_at`
+      description: >-
+        Relay của instance chưa `removed` của tenant (`relay_assignments` + `relay_regions`, §6.3 — bước 17
+        `relay.assign` của provisioning tạo chúng) với health của region: kết quả probe tổng hợp gần nhất của prober
+        (`GET /derp/probe` qua listener công khai của edge + STUN binding tới điểm vào công khai — job `relay.probe`),
+        `checked_at` là lúc probe bắt đầu. Không có số liệu giả (§10.6): embedded DERP không xuất metrics relay —
+        byte, throughput, số kết nối, lỗi xác thực, độ trễ phía client nằm trong `unavailable` kèm lý do. Tenant chỉ
+        lấy từ path; không nhận tham số truy vấn nào. Tenant chưa có relay nào trong registry ⇒ `assignments` rỗng.
+      x-permission: tenant.relay:read
+      x-task: P3-T05c
+      x-audit-action: relay.read
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '200':
+          description: Relay của tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantRelay'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /platform/relay-regions:
+    get:
+      tags: [platform]
+      operationId: listPlatformRelayRegions
+      summary: Relay region của nền tảng — chỉ đọc ở MVP
+      description: >-
+        Mọi region (`relay_regions`, §6.3) theo `(created_at, id)`, mỗi region kèm assignment (tenant, instance, trạng
+        thái instance) và health (cùng quy tắc với `GET /tenants/{tenantId}/relay`; region `standalone`/`shared` chưa
+        được probe ở MVP ⇒ `unknown`/`no_probe`). Ghi (`POST`/`PATCH`/`DELETE`) thuộc P7-T04. Số liệu không đo được
+        (§10.6) nằm trong `unavailable`.
+      x-permission: platform.relay:read
+      x-task: P3-T05c
+      x-audit-action: platform.relay_region.list
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Một trang relay region
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RelayRegionList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '422':
           $ref: '#/components/responses/ValidationFailed'
         '429':
@@ -3660,6 +3730,225 @@ components:
           $ref: '#/components/schemas/InstanceCounts'
         jobs:
           $ref: '#/components/schemas/JobQueueHealth'
+    # ------------------------------------------------------------ relay (§6.3 `relay_regions`/`relay_assignments`, §10.6 — P3-T05c)
+    RelayRegionKind:
+      type: string
+      description: >-
+        `embedded` (DERP nhúng trong Headscale của tenant — MVP, ADR-11), `standalone` (derper riêng của một tenant —
+        phương án lùi §10.3), `shared` (relay dùng chung — research proposal §10.5, Phase 7)
+      enum: [embedded, standalone, shared]
+    RelayAdminStatus:
+      type: string
+      description: >-
+        Trạng thái quản trị (`relay_regions.status`, `relay_assignments.status` — 0010); sức khỏe đo được nằm ở `health`,
+        không ở đây
+      enum: [pending, active, disabled]
+    RelayCheck:
+      type: object
+      description: >-
+        Một phép kiểm của lần probe gần nhất, đo bởi prober bên trong nền tảng (`duration_ms` là thời gian của phép kiểm
+        từ prober — không phải độ trễ client thấy)
+      required: [ok, duration_ms]
+      properties:
+        ok:
+          type: boolean
+        status:
+          type: integer
+          minimum: 100
+          maximum: 599
+          description: Trạng thái HTTP nhận được (chỉ `derp`); vắng khi không nhận được câu trả lời
+        code:
+          type: string
+          pattern: '^[a-z][a-z0-9_]{0,63}$'
+          description: >-
+            Mã lỗi ổn định của prober khi phép kiểm không đạt (`timeout`, `refused`, `unreachable`, `tls_handshake`,
+            `tls_verify`, `bad_response`, `no_mapped_address`, `expectation_failed`…); vắng khi đạt
+        duration_ms:
+          type: integer
+          format: int64
+          minimum: 0
+    RelayHealth:
+      type: object
+      description: >-
+        Health của region từ lần probe tổng hợp gần nhất (`derp`: `GET /derp/probe` qua listener công khai của edge ⇒
+        200; `stun`: STUN binding tới địa chỉ STUN của region ⇒ có mapped address). `checked_at` là lúc probe bắt đầu,
+        `null` khi chưa từng probe; kết quả cũ hơn ngưỡng, region/assignment không `active`, instance không chạy, hoặc
+        loại region chưa được probe ⇒ `status = unknown` kèm `reason`; `derp`/`stun` là các phép kiểm của lần probe ở
+        `checked_at`
+      required: [status, checked_at]
+      properties:
+        status:
+          $ref: '#/components/schemas/HealthStatus'
+        checked_at:
+          type: [string, 'null']
+          format: date-time
+        reason:
+          type: string
+          pattern: '^[a-z][a-z0-9_]{0,63}$'
+          description: >-
+            Lý do ổn định khi `status` khác `healthy`. Kết quả probe: `derp_probe_failed`, `stun_probe_failed`,
+            `relay_unreachable` (cả hai). Không có kết luận: `never_checked`, `stale`, `invalid_record`,
+            `instance_not_running`, `relay_not_active`, `no_probe`. Tập giá trị chỉ được bổ sung (cộng thêm)
+        derp:
+          $ref: '#/components/schemas/RelayCheck'
+        stun:
+          $ref: '#/components/schemas/RelayCheck'
+    RelayRegion:
+      type: object
+      description: >-
+        Region relay (`relay_regions`, §6.3) — tham số công khai, như client của tenant thấy trong DERP map; không chứa
+        secret
+      required: [id, code, name, kind, derp_region_id, hostname, derp_port, verify_mode, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          description: '`region_code` (ví dụ `mg-<slug>`, §10.1)'
+        name:
+          type: string
+        kind:
+          $ref: '#/components/schemas/RelayRegionKind'
+        derp_region_id:
+          type: integer
+          minimum: 900
+          maximum: 999
+        hostname:
+          type: string
+        ipv4:
+          type: string
+          format: ipv4
+          description: Địa chỉ quảng bá của điểm vào công khai (`derp.server.ipv4`, §10.1)
+        ipv6:
+          type: string
+          format: ipv6
+        stun_port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        derp_port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        verify_mode:
+          type: string
+          description: '`in_process` (`verify_clients` của DERP nhúng) | `verify_url` (fail-closed)'
+          enum: [in_process, verify_url]
+        status:
+          $ref: '#/components/schemas/RelayAdminStatus'
+    RelayUnavailable:
+      type: object
+      description: Số đo relay nền tảng KHÔNG báo — "không khả dụng" kèm lý do thay vì số giả (§10.6, §12.4)
+      required: [metric, reason]
+      properties:
+        metric:
+          type: string
+          description: >-
+            `traffic_bytes`, `throughput`, `connections`, `auth_failures`, `client_latency` (chỉ bổ sung; một mục rời
+            danh sách khi task xây nguồn của nó hoàn tất)
+          pattern: '^[a-z][a-z0-9_]{0,63}$'
+        reason:
+          type: string
+          description: '`unsupported` (thành phần không cung cấp được — embedded DERP không xuất metrics relay), `no_source` (nền tảng chưa có nguồn)'
+          pattern: '^[a-z][a-z0-9_]{0,63}$'
+        detail:
+          type: string
+          description: Câu giải thích ngắn (tiếng Anh) cho người đọc; phần ổn định là `reason`
+    RelayAssignment:
+      type: object
+      description: Một relay của tenant — assignment của instance tới một region (`relay_assignments`), kèm health của region
+      required: [id, priority, status, region, health]
+      properties:
+        id:
+          type: string
+          format: uuid
+        priority:
+          type: integer
+          minimum: 0
+        status:
+          $ref: '#/components/schemas/RelayAdminStatus'
+        region:
+          $ref: '#/components/schemas/RelayRegion'
+        health:
+          $ref: '#/components/schemas/RelayHealth'
+    TenantRelay:
+      type: object
+      description: Relay của tenant (§12.3 mục Relay) — mỗi health kèm `checked_at`; số đo không có nguồn ở `unavailable`
+      required: [assignments, unavailable]
+      properties:
+        assignments:
+          type: array
+          items:
+            $ref: '#/components/schemas/RelayAssignment'
+        unavailable:
+          type: array
+          items:
+            $ref: '#/components/schemas/RelayUnavailable'
+    PlatformRelayAssignment:
+      type: object
+      description: Assignment của một region như nhân sự nền tảng thấy (metadata registry)
+      required: [id, tenant_id, instance_id, priority, status, instance_status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        instance_id:
+          type: string
+          format: uuid
+        priority:
+          type: integer
+          minimum: 0
+        status:
+          $ref: '#/components/schemas/RelayAdminStatus'
+        instance_status:
+          $ref: '#/components/schemas/InstanceStatus'
+    PlatformRelayRegion:
+      type: object
+      required: [region, tenant_id, assignments, health, created_at, updated_at, version]
+      properties:
+        region:
+          $ref: '#/components/schemas/RelayRegion'
+        tenant_id:
+          type: [string, 'null']
+          format: uuid
+          description: Tenant sở hữu region (`embedded`, `standalone`); `null` với region `shared`
+        host_id:
+          type: string
+          format: uuid
+        assignments:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlatformRelayAssignment'
+        health:
+          $ref: '#/components/schemas/RelayHealth'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+    RelayRegionList:
+      type: object
+      required: [items, next_cursor, unavailable]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlatformRelayRegion'
+        next_cursor:
+          type: [string, 'null']
+        unavailable:
+          type: array
+          items:
+            $ref: '#/components/schemas/RelayUnavailable'
     # ------------------------------------------------------------ dual control (§8.5/§8.6 2P, §6.3 — P3-T04a)
     ApprovalStatus:
       type: string

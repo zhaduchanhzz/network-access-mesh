@@ -156,6 +156,8 @@ func DefaultKinds() map[string]Kind {
 		other("enrollment.reconcile", "tenant:{tenant}:enroll:{slot}", ScopeTenant, QueueDefault, 3, 2*time.Minute),
 		other("usage.collect", "tenant:{tenant}:usage:{slot}", ScopeTenant, QueueDefault, 3, 5*time.Minute),
 		other("health.probe", "instance:{instance}:health:{slot}", ScopeInstance, QueueDefault, 1, time.Minute),
+		// P3-T05c: one probe of an embedded relay region (internal/relay); {object} = the region id
+		other("relay.probe", "relay:{object}:probe:{slot}", ScopeTenant, QueueDefault, 1, time.Minute),
 		other("job.reaper", "job.reaper:{slot}", ScopePlatform, QueueMaintenance, 1, 50*time.Second),
 		other("grant.expire", "grant.expire:{slot}", ScopePlatform, QueueMaintenance, 3, 2*time.Minute),
 		other("session.gc", "session.gc:{slot}", ScopePlatform, QueueMaintenance, 3, 2*time.Minute),

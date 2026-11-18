@@ -454,6 +454,66 @@ func (e ProblemCode) Valid() bool {
 	}
 }
 
+// Defines values for RelayAdminStatus.
+const (
+	RelayAdminStatusActive   RelayAdminStatus = "active"
+	RelayAdminStatusDisabled RelayAdminStatus = "disabled"
+	RelayAdminStatusPending  RelayAdminStatus = "pending"
+)
+
+// Valid indicates whether the value is a known member of the RelayAdminStatus enum.
+func (e RelayAdminStatus) Valid() bool {
+	switch e {
+	case RelayAdminStatusActive:
+		return true
+	case RelayAdminStatusDisabled:
+		return true
+	case RelayAdminStatusPending:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RelayRegionVerifyMode.
+const (
+	RelayRegionVerifyModeInProcess RelayRegionVerifyMode = "in_process"
+	RelayRegionVerifyModeVerifyUrl RelayRegionVerifyMode = "verify_url"
+)
+
+// Valid indicates whether the value is a known member of the RelayRegionVerifyMode enum.
+func (e RelayRegionVerifyMode) Valid() bool {
+	switch e {
+	case RelayRegionVerifyModeInProcess:
+		return true
+	case RelayRegionVerifyModeVerifyUrl:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RelayRegionKind.
+const (
+	RelayRegionKindEmbedded   RelayRegionKind = "embedded"
+	RelayRegionKindShared     RelayRegionKind = "shared"
+	RelayRegionKindStandalone RelayRegionKind = "standalone"
+)
+
+// Valid indicates whether the value is a known member of the RelayRegionKind enum.
+func (e RelayRegionKind) Valid() bool {
+	switch e {
+	case RelayRegionKindEmbedded:
+		return true
+	case RelayRegionKindShared:
+		return true
+	case RelayRegionKindStandalone:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SessionOrigin.
 const (
 	SessionOriginAdmin SessionOrigin = "admin"
@@ -1267,6 +1327,38 @@ type PlatformJobStep struct {
 	Status JobStepStatus `json:"status"`
 }
 
+// PlatformRelayAssignment Assignment của một region như nhân sự nền tảng thấy (metadata registry)
+type PlatformRelayAssignment struct {
+	Id         openapi_types.UUID `json:"id"`
+	InstanceId openapi_types.UUID `json:"instance_id"`
+
+	// InstanceStatus TenantInstanceStatus (§13.3)
+	InstanceStatus InstanceStatus `json:"instance_status"`
+	Priority       int            `json:"priority"`
+
+	// Status Trạng thái quản trị (`relay_regions.status`, `relay_assignments.status` — 0010); sức khỏe đo được nằm ở `health`, không ở đây
+	Status   RelayAdminStatus   `json:"status"`
+	TenantId openapi_types.UUID `json:"tenant_id"`
+}
+
+// PlatformRelayRegion defines model for PlatformRelayRegion.
+type PlatformRelayRegion struct {
+	Assignments []PlatformRelayAssignment `json:"assignments"`
+	CreatedAt   time.Time                 `json:"created_at"`
+
+	// Health Health của region từ lần probe tổng hợp gần nhất (`derp`: `GET /derp/probe` qua listener công khai của edge ⇒ 200; `stun`: STUN binding tới địa chỉ STUN của region ⇒ có mapped address). `checked_at` là lúc probe bắt đầu, `null` khi chưa từng probe; kết quả cũ hơn ngưỡng, region/assignment không `active`, instance không chạy, hoặc loại region chưa được probe ⇒ `status = unknown` kèm `reason`; `derp`/`stun` là các phép kiểm của lần probe ở `checked_at`
+	Health RelayHealth         `json:"health"`
+	HostId *openapi_types.UUID `json:"host_id,omitempty"`
+
+	// Region Region relay (`relay_regions`, §6.3) — tham số công khai, như client của tenant thấy trong DERP map; không chứa secret
+	Region RelayRegion `json:"region"`
+
+	// TenantId Tenant sở hữu region (`embedded`, `standalone`); `null` với region `shared`
+	TenantId  *openapi_types.UUID `json:"tenant_id"`
+	UpdatedAt time.Time           `json:"updated_at"`
+	Version   int64               `json:"version"`
+}
+
 // Principal Danh tính đã đăng nhập (`identities`, §8.1)
 type Principal struct {
 	DisplayName string             `json:"display_name"`
@@ -1325,6 +1417,101 @@ type Problem struct {
 // Headscale của tenant, IdP ở luồng đăng nhập) · `instance_unavailable` (503) · `internal_error` (500) ·
 // `not_implemented` (501, operation chưa có handler).
 type ProblemCode string
+
+// RelayAdminStatus Trạng thái quản trị (`relay_regions.status`, `relay_assignments.status` — 0010); sức khỏe đo được nằm ở `health`, không ở đây
+type RelayAdminStatus string
+
+// RelayAssignment Một relay của tenant — assignment của instance tới một region (`relay_assignments`), kèm health của region
+type RelayAssignment struct {
+	// Health Health của region từ lần probe tổng hợp gần nhất (`derp`: `GET /derp/probe` qua listener công khai của edge ⇒ 200; `stun`: STUN binding tới địa chỉ STUN của region ⇒ có mapped address). `checked_at` là lúc probe bắt đầu, `null` khi chưa từng probe; kết quả cũ hơn ngưỡng, region/assignment không `active`, instance không chạy, hoặc loại region chưa được probe ⇒ `status = unknown` kèm `reason`; `derp`/`stun` là các phép kiểm của lần probe ở `checked_at`
+	Health   RelayHealth        `json:"health"`
+	Id       openapi_types.UUID `json:"id"`
+	Priority int                `json:"priority"`
+
+	// Region Region relay (`relay_regions`, §6.3) — tham số công khai, như client của tenant thấy trong DERP map; không chứa secret
+	Region RelayRegion `json:"region"`
+
+	// Status Trạng thái quản trị (`relay_regions.status`, `relay_assignments.status` — 0010); sức khỏe đo được nằm ở `health`, không ở đây
+	Status RelayAdminStatus `json:"status"`
+}
+
+// RelayCheck Một phép kiểm của lần probe gần nhất, đo bởi prober bên trong nền tảng (`duration_ms` là thời gian của phép kiểm từ prober — không phải độ trễ client thấy)
+type RelayCheck struct {
+	// Code Mã lỗi ổn định của prober khi phép kiểm không đạt (`timeout`, `refused`, `unreachable`, `tls_handshake`, `tls_verify`, `bad_response`, `no_mapped_address`, `expectation_failed`…); vắng khi đạt
+	Code       *string `json:"code,omitempty"`
+	DurationMs int64   `json:"duration_ms"`
+	Ok         bool    `json:"ok"`
+
+	// Status Trạng thái HTTP nhận được (chỉ `derp`); vắng khi không nhận được câu trả lời
+	Status *int `json:"status,omitempty"`
+}
+
+// RelayHealth Health của region từ lần probe tổng hợp gần nhất (`derp`: `GET /derp/probe` qua listener công khai của edge ⇒ 200; `stun`: STUN binding tới địa chỉ STUN của region ⇒ có mapped address). `checked_at` là lúc probe bắt đầu, `null` khi chưa từng probe; kết quả cũ hơn ngưỡng, region/assignment không `active`, instance không chạy, hoặc loại region chưa được probe ⇒ `status = unknown` kèm `reason`; `derp`/`stun` là các phép kiểm của lần probe ở `checked_at`
+type RelayHealth struct {
+	CheckedAt *time.Time `json:"checked_at"`
+
+	// Derp Một phép kiểm của lần probe gần nhất, đo bởi prober bên trong nền tảng (`duration_ms` là thời gian của phép kiểm từ prober — không phải độ trễ client thấy)
+	Derp *RelayCheck `json:"derp,omitempty"`
+
+	// Reason Lý do ổn định khi `status` khác `healthy`. Kết quả probe: `derp_probe_failed`, `stun_probe_failed`, `relay_unreachable` (cả hai). Không có kết luận: `never_checked`, `stale`, `invalid_record`, `instance_not_running`, `relay_not_active`, `no_probe`. Tập giá trị chỉ được bổ sung (cộng thêm)
+	Reason *string `json:"reason,omitempty"`
+
+	// Status Kết quả health check gần nhất; `unknown` khi chưa từng kiểm
+	Status HealthStatus `json:"status"`
+
+	// Stun Một phép kiểm của lần probe gần nhất, đo bởi prober bên trong nền tảng (`duration_ms` là thời gian của phép kiểm từ prober — không phải độ trễ client thấy)
+	Stun *RelayCheck `json:"stun,omitempty"`
+}
+
+// RelayRegion Region relay (`relay_regions`, §6.3) — tham số công khai, như client của tenant thấy trong DERP map; không chứa secret
+type RelayRegion struct {
+	// Code `region_code` (ví dụ `mg-<slug>`, §10.1)
+	Code         string             `json:"code"`
+	DerpPort     int                `json:"derp_port"`
+	DerpRegionId int                `json:"derp_region_id"`
+	Hostname     string             `json:"hostname"`
+	Id           openapi_types.UUID `json:"id"`
+
+	// Ipv4 Địa chỉ quảng bá của điểm vào công khai (`derp.server.ipv4`, §10.1)
+	Ipv4 *string `json:"ipv4,omitempty"`
+	Ipv6 *string `json:"ipv6,omitempty"`
+
+	// Kind `embedded` (DERP nhúng trong Headscale của tenant — MVP, ADR-11), `standalone` (derper riêng của một tenant — phương án lùi §10.3), `shared` (relay dùng chung — research proposal §10.5, Phase 7)
+	Kind RelayRegionKind `json:"kind"`
+	Name string          `json:"name"`
+
+	// Status Trạng thái quản trị (`relay_regions.status`, `relay_assignments.status` — 0010); sức khỏe đo được nằm ở `health`, không ở đây
+	Status   RelayAdminStatus `json:"status"`
+	StunPort *int             `json:"stun_port,omitempty"`
+
+	// VerifyMode `in_process` (`verify_clients` của DERP nhúng) | `verify_url` (fail-closed)
+	VerifyMode RelayRegionVerifyMode `json:"verify_mode"`
+}
+
+// RelayRegionVerifyMode `in_process` (`verify_clients` của DERP nhúng) | `verify_url` (fail-closed)
+type RelayRegionVerifyMode string
+
+// RelayRegionKind `embedded` (DERP nhúng trong Headscale của tenant — MVP, ADR-11), `standalone` (derper riêng của một tenant — phương án lùi §10.3), `shared` (relay dùng chung — research proposal §10.5, Phase 7)
+type RelayRegionKind string
+
+// RelayRegionList defines model for RelayRegionList.
+type RelayRegionList struct {
+	Items       []PlatformRelayRegion `json:"items"`
+	NextCursor  *string               `json:"next_cursor"`
+	Unavailable []RelayUnavailable    `json:"unavailable"`
+}
+
+// RelayUnavailable Số đo relay nền tảng KHÔNG báo — "không khả dụng" kèm lý do thay vì số giả (§10.6, §12.4)
+type RelayUnavailable struct {
+	// Detail Câu giải thích ngắn (tiếng Anh) cho người đọc; phần ổn định là `reason`
+	Detail *string `json:"detail,omitempty"`
+
+	// Metric `traffic_bytes`, `throughput`, `connections`, `auth_failures`, `client_latency` (chỉ bổ sung; một mục rời danh sách khi task xây nguồn của nó hoàn tất)
+	Metric string `json:"metric"`
+
+	// Reason `unsupported` (thành phần không cung cấp được — embedded DERP không xuất metrics relay), `no_source` (nền tảng chưa có nguồn)
+	Reason string `json:"reason"`
+}
 
 // ResourceRef defines model for ResourceRef.
 type ResourceRef struct {
@@ -1505,6 +1692,12 @@ type TenantIdentityProviderCreateDriver string
 type TenantList struct {
 	Items      []Tenant `json:"items"`
 	NextCursor *string  `json:"next_cursor"`
+}
+
+// TenantRelay Relay của tenant (§12.3 mục Relay) — mỗi health kèm `checked_at`; số đo không có nguồn ở `unavailable`
+type TenantRelay struct {
+	Assignments []RelayAssignment  `json:"assignments"`
+	Unavailable []RelayUnavailable `json:"unavailable"`
 }
 
 // TenantSlug Slug của tenant — nhãn DNS, bất biến (§11.3 bước 1)
@@ -1811,6 +2004,15 @@ type RollbackPlatformJobParams struct {
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
 
+// ListPlatformRelayRegionsParams defines parameters for ListPlatformRelayRegions.
+type ListPlatformRelayRegionsParams struct {
+	// Limit Số phần tử tối đa của trang
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Con trỏ mờ lấy từ `next_cursor` của trang trước
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
 // ListPlatformTenantsParams defines parameters for ListPlatformTenants.
 type ListPlatformTenantsParams struct {
 	// Limit Số phần tử tối đa của trang
@@ -2069,6 +2271,9 @@ type ServerInterface interface {
 	// RollbackPlatformJob Hoàn tác job failed_resumable — compensation ngược thứ tự các step đã làm
 	// (POST /platform/jobs/{jobId}/rollback)
 	RollbackPlatformJob(w http.ResponseWriter, r *http.Request, jobId JobId, params RollbackPlatformJobParams)
+	// ListPlatformRelayRegions Relay region của nền tảng — chỉ đọc ở MVP
+	// (GET /platform/relay-regions)
+	ListPlatformRelayRegions(w http.ResponseWriter, r *http.Request, params ListPlatformRelayRegionsParams)
 	// ListPlatformTenants Tenant Registry — chỉ metadata registry
 	// (GET /platform/tenants)
 	ListPlatformTenants(w http.ResponseWriter, r *http.Request, params ListPlatformTenantsParams)
@@ -2141,6 +2346,9 @@ type ServerInterface interface {
 	// ListNotifications Thông báo trong Portal của chính người gọi
 	// (GET /tenants/{tenantId}/notifications)
 	ListNotifications(w http.ResponseWriter, r *http.Request, tenantId TenantId, params ListNotificationsParams)
+	// GetTenantRelay Relay DERP của tenant — region được gán và kết quả probe gần nhất kèm `checked_at`
+	// (GET /tenants/{tenantId}/relay)
+	GetTenantRelay(w http.ResponseWriter, r *http.Request, tenantId TenantId)
 	// ListTenantUsers Danh sách thành viên của tenant
 	// (GET /tenants/{tenantId}/users)
 	ListTenantUsers(w http.ResponseWriter, r *http.Request, tenantId TenantId, params ListTenantUsersParams)
@@ -3347,6 +3555,52 @@ func (siw *ServerInterfaceWrapper) RollbackPlatformJob(w http.ResponseWriter, r 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RollbackPlatformJob(w, r, jobId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListPlatformRelayRegions operation middleware
+func (siw *ServerInterfaceWrapper) ListPlatformRelayRegions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListPlatformRelayRegionsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListPlatformRelayRegions(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4621,6 +4875,32 @@ func (siw *ServerInterfaceWrapper) ListNotifications(w http.ResponseWriter, r *h
 	handler.ServeHTTP(w, r)
 }
 
+// GetTenantRelay operation middleware
+func (siw *ServerInterfaceWrapper) GetTenantRelay(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetTenantRelay(w, r, tenantId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListTenantUsers operation middleware
 func (siw *ServerInterfaceWrapper) ListTenantUsers(w http.ResponseWriter, r *http.Request) {
 
@@ -4891,6 +5171,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tenants/{tenantId}/jobs", wrapper.ListTenantJobs)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tenants/{tenantId}/jobs/{jobId}", wrapper.GetTenantJob)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tenants/{tenantId}/notifications", wrapper.ListNotifications)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tenants/{tenantId}/relay", wrapper.GetTenantRelay)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/platform/relay-regions", wrapper.ListPlatformRelayRegions)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/platform/tenants", wrapper.ListPlatformTenants)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/platform/tenants", wrapper.CreatePlatformTenant)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/platform/tenants/{tenantId}", wrapper.GetPlatformTenant)
@@ -8645,6 +8927,137 @@ func (response RollbackPlatformJobdefaultApplicationProblemPlusJSONResponse) Vis
 	return err
 }
 
+type ListPlatformRelayRegionsRequestObject struct {
+	Params ListPlatformRelayRegionsParams
+}
+
+type ListPlatformRelayRegionsResponseObject interface {
+	VisitListPlatformRelayRegionsResponse(w http.ResponseWriter) error
+}
+
+type ListPlatformRelayRegions200JSONResponse RelayRegionList
+
+func (response ListPlatformRelayRegions200JSONResponse) VisitListPlatformRelayRegionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPlatformRelayRegions401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response ListPlatformRelayRegions401ApplicationProblemPlusJSONResponse) VisitListPlatformRelayRegionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPlatformRelayRegions403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response ListPlatformRelayRegions403ApplicationProblemPlusJSONResponse) VisitListPlatformRelayRegionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPlatformRelayRegions422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response ListPlatformRelayRegions422ApplicationProblemPlusJSONResponse) VisitListPlatformRelayRegionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPlatformRelayRegions429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response ListPlatformRelayRegions429ApplicationProblemPlusJSONResponse) VisitListPlatformRelayRegionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPlatformRelayRegionsdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response ListPlatformRelayRegionsdefaultApplicationProblemPlusJSONResponse) VisitListPlatformRelayRegionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListPlatformTenantsRequestObject struct {
 	Params ListPlatformTenantsParams
 }
@@ -12344,6 +12757,137 @@ func (response ListNotificationsdefaultApplicationProblemPlusJSONResponse) Visit
 	return err
 }
 
+type GetTenantRelayRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+}
+
+type GetTenantRelayResponseObject interface {
+	VisitGetTenantRelayResponse(w http.ResponseWriter) error
+}
+
+type GetTenantRelay200JSONResponse TenantRelay
+
+func (response GetTenantRelay200JSONResponse) VisitGetTenantRelayResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTenantRelay401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response GetTenantRelay401ApplicationProblemPlusJSONResponse) VisitGetTenantRelayResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTenantRelay403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response GetTenantRelay403ApplicationProblemPlusJSONResponse) VisitGetTenantRelayResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTenantRelay404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response GetTenantRelay404ApplicationProblemPlusJSONResponse) VisitGetTenantRelayResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTenantRelay429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response GetTenantRelay429ApplicationProblemPlusJSONResponse) VisitGetTenantRelayResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTenantRelaydefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response GetTenantRelaydefaultApplicationProblemPlusJSONResponse) VisitGetTenantRelayResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListTenantUsersRequestObject struct {
 	TenantId TenantId `json:"tenantId"`
 	Params   ListTenantUsersParams
@@ -12712,6 +13256,9 @@ type StrictServerInterface interface {
 	// RollbackPlatformJob Hoàn tác job failed_resumable — compensation ngược thứ tự các step đã làm
 	// (POST /platform/jobs/{jobId}/rollback)
 	RollbackPlatformJob(ctx context.Context, request RollbackPlatformJobRequestObject) (RollbackPlatformJobResponseObject, error)
+	// ListPlatformRelayRegions Relay region của nền tảng — chỉ đọc ở MVP
+	// (GET /platform/relay-regions)
+	ListPlatformRelayRegions(ctx context.Context, request ListPlatformRelayRegionsRequestObject) (ListPlatformRelayRegionsResponseObject, error)
 	// ListPlatformTenants Tenant Registry — chỉ metadata registry
 	// (GET /platform/tenants)
 	ListPlatformTenants(ctx context.Context, request ListPlatformTenantsRequestObject) (ListPlatformTenantsResponseObject, error)
@@ -12784,6 +13331,9 @@ type StrictServerInterface interface {
 	// ListNotifications Thông báo trong Portal của chính người gọi
 	// (GET /tenants/{tenantId}/notifications)
 	ListNotifications(ctx context.Context, request ListNotificationsRequestObject) (ListNotificationsResponseObject, error)
+	// GetTenantRelay Relay DERP của tenant — region được gán và kết quả probe gần nhất kèm `checked_at`
+	// (GET /tenants/{tenantId}/relay)
+	GetTenantRelay(ctx context.Context, request GetTenantRelayRequestObject) (GetTenantRelayResponseObject, error)
 	// ListTenantUsers Danh sách thành viên của tenant
 	// (GET /tenants/{tenantId}/users)
 	ListTenantUsers(ctx context.Context, request ListTenantUsersRequestObject) (ListTenantUsersResponseObject, error)
@@ -13508,6 +14058,32 @@ func (sh *strictHandler) RollbackPlatformJob(w http.ResponseWriter, r *http.Requ
 	}
 }
 
+// ListPlatformRelayRegions operation middleware
+func (sh *strictHandler) ListPlatformRelayRegions(w http.ResponseWriter, r *http.Request, params ListPlatformRelayRegionsParams) {
+	var request ListPlatformRelayRegionsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListPlatformRelayRegions(ctx, request.(ListPlatformRelayRegionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListPlatformRelayRegions")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListPlatformRelayRegionsResponseObject); ok {
+		if err := validResponse.VisitListPlatformRelayRegionsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListPlatformTenants operation middleware
 func (sh *strictHandler) ListPlatformTenants(w http.ResponseWriter, r *http.Request, params ListPlatformTenantsParams) {
 	var request ListPlatformTenantsRequestObject
@@ -14182,6 +14758,32 @@ func (sh *strictHandler) ListNotifications(w http.ResponseWriter, r *http.Reques
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListNotificationsResponseObject); ok {
 		if err := validResponse.VisitListNotificationsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetTenantRelay operation middleware
+func (sh *strictHandler) GetTenantRelay(w http.ResponseWriter, r *http.Request, tenantId TenantId) {
+	var request GetTenantRelayRequestObject
+
+	request.TenantId = tenantId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetTenantRelay(ctx, request.(GetTenantRelayRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetTenantRelay")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetTenantRelayResponseObject); ok {
+		if err := validResponse.VisitGetTenantRelayResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

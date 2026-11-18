@@ -48,6 +48,8 @@ const partitionRole = "mg_partition_maint"
 //	apikey           apikey.rotate (P3-T10): its handler, its daily schedule per instance and the key expiry gauge
 //	orchestrator     tenant.provision — the 19 steps of §11.3 with compensation (P3-T05; MG_PROVISION_*, MG_PROBER_URL,
 //	                 the same agent client as reconcile)
+//	relay            relay.probe + its schedule over the prober (P3-T05c; MG_PROBER_URL towards MG_PROVISION_EDGE_ADDR —
+//	                 without a prober nothing is probed and the relay read models say never_checked/stale)
 //	idp              driver registry keycloak (narrow route to auth.<domain> incl. /admin/realms, provisioning identity
 //	                 from the SecretStore — platform_ops) + external (hardened client) — P2-T05a; idp.audit_sync every
 //	                 minute over the keycloak driver (admin + login events of every realm → audit_events, security
@@ -128,6 +130,15 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 	if err := w.RegisterPeriodic(auditsync.JobKind, auditsync.Interval, audits.Run); err != nil {
 		return nil, err
 	}
+	relays, err := NewRelayProbe(cfg, d.st, log, reg) // P3-T05c: relay.probe (nil without MG_PROBER_URL)
+	if err != nil {
+		return nil, err
+	}
+	if relays != nil {
+		if err := relays.Register(w); err != nil {
+			return nil, err
+		}
+	}
 	prov, err := newProvisioner(cfg, d, agent, drivers) // P3-T05: tenant.provision (19 steps of §11.3)
 	if err != nil {
 		return nil, err
@@ -156,6 +167,7 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 			"health.probe":   mon.NewScheduler(monitoring.SchedulerConfig{}).Run,
 			"reconcile":      rec.NewScheduler(reconcile.SchedulerConfig{}).Run,
 			"apikey.rotate":  keys.NewScheduler(apikey.SchedulerConfig{}).Run,
+			"relay.probe":    relaySchedule(relays),
 		} {
 			wg.Add(1)
 			go func() {

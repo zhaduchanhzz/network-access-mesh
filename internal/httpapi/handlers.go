@@ -114,6 +114,13 @@ type ProvisioningHandlers interface {
 	RollbackPlatformJob(ctx context.Context, request gen.RollbackPlatformJobRequestObject) (gen.RollbackPlatformJobResponseObject, error)
 }
 
+// RelayHandlers — P3-T05c (`relay`): the tenant's relays and the platform's relay regions, read-only in the MVP, each
+// health with its checked_at (§10.6).
+type RelayHandlers interface {
+	GetTenantRelay(ctx context.Context, request gen.GetTenantRelayRequestObject) (gen.GetTenantRelayResponseObject, error)
+	ListPlatformRelayRegions(ctx context.Context, request gen.ListPlatformRelayRegionsRequestObject) (gen.ListPlatformRelayRegionsResponseObject, error)
+}
+
 // Handlers is the extension point of the API: one handler set per building task. A nil set answers every operation
 // of its interface with 501 not_implemented. A set may also implement only part of its interface by embedding
 // NotImplemented. Handlers return a *problem.Error for an expected failure (not_found, conflict…); any other error
@@ -131,12 +138,13 @@ type Handlers struct {
 	Notifications NotificationHandlers // P3-T05b
 	IdPConsole    IdPConsoleHandlers   // P3-T15
 	Provisioning  ProvisioningHandlers // P3-T05
+	Relay         RelayHandlers        // P3-T05c
 }
 
 func (h Handlers) mounted() bool {
 	return h.Auth != nil || h.Tenants != nil || h.Devices != nil || h.Audit != nil || h.Jobs != nil || h.Monitoring != nil ||
 		h.Notifications != nil || h.Approvals != nil || h.Invitations != nil || h.Hosts != nil || h.IdPConsole != nil ||
-		h.Provisioning != nil
+		h.Provisioning != nil || h.Relay != nil
 }
 
 // dispatcher implements gen.StrictServerInterface by promotion from the disjoint interfaces.
@@ -153,13 +161,17 @@ type dispatcher struct {
 	HostHandlers
 	IdPConsoleHandlers
 	ProvisioningHandlers
+	RelayHandlers
 }
 
 var _ gen.StrictServerInterface = dispatcher{}
 
 func newDispatcher(h Handlers) dispatcher {
 	d := dispatcher{h.Auth, h.Tenants, h.Devices, h.Audit, h.Jobs, h.Monitoring, h.Notifications, h.Approvals, h.Invitations,
-		h.Hosts, h.IdPConsole, h.Provisioning}
+		h.Hosts, h.IdPConsole, h.Provisioning, h.Relay}
+	if d.RelayHandlers == nil {
+		d.RelayHandlers = NotImplemented{}
+	}
 	if d.ProvisioningHandlers == nil {
 		d.ProvisioningHandlers = NotImplemented{}
 	}
@@ -407,4 +419,12 @@ func (NotImplemented) CancelPlatformJob(context.Context, gen.CancelPlatformJobRe
 
 func (NotImplemented) RollbackPlatformJob(context.Context, gen.RollbackPlatformJobRequestObject) (gen.RollbackPlatformJobResponseObject, error) {
 	return nil, problem.NotImplemented("RollbackPlatformJob")
+}
+
+func (NotImplemented) GetTenantRelay(context.Context, gen.GetTenantRelayRequestObject) (gen.GetTenantRelayResponseObject, error) {
+	return nil, problem.NotImplemented("GetTenantRelay")
+}
+
+func (NotImplemented) ListPlatformRelayRegions(context.Context, gen.ListPlatformRelayRegionsRequestObject) (gen.ListPlatformRelayRegionsResponseObject, error) {
+	return nil, problem.NotImplemented("ListPlatformRelayRegions")
 }
