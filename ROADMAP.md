@@ -22,7 +22,7 @@ MeshGuard ZTNA là nền tảng SaaS Zero Trust Mesh VPN tự lưu trữ, đa te
 | Hạng mục | Trạng thái |
 |---|---|
 | Nghiên cứu 4 repository tham khảo, Headscale `v0.29.7`, Tailscale client `v1.104.7` | Xong — **chỉ đọc** mã nguồn và tài liệu, chưa chạy thử gì; các giả định trọng yếu chờ kiểm chứng thực tế ở Phase 1–5 (mục 7) |
-| Implementation Master Plan và bộ tài liệu `docs/` | Xong — Rev 3: 25 mục + Appendix A–D, 150 task |
+| Implementation Master Plan và bộ tài liệu `docs/` | Xong — Rev 3: 25 mục + Appendix A–D, 151 task |
 | Phản biện tự động: 8 agent AI phản biện độc lập, mỗi agent một góc nhìn — 186 phát hiện (1 nghiêm trọng, 50 cao, 106 trung bình, 29 thấp) | Đã tích hợp vào Rev 3 và được kiểm chứng lại: 183 đã xử lý, 3 xử lý một phần (hoãn có chủ đích, có task chịu trách nhiệm). Bảng xử lý từng phát hiện: [docs/planning/review-log.md](docs/planning/review-log.md). Phản biện tự động **không** thay cho thẩm định của chuyên gia; plan có rà soát bảo mật độc lập ở G2 và pen test bên ngoài ở Phase 6 |
 | Phê duyệt kiến trúc và 25 ADR | **Đã phê duyệt** (2026-11-16) — [biên bản](docs/planning/evidence/architecture-approval.md) |
 | Quyết định D-1…D-14 | **Đã chốt:** D-1 (`gta5web.online` tại Cloudflare, domain qua biến môi trường `MG_BASE_DOMAIN`), D-2, D-3 (Keycloak tự host, 3 realm), D-4, D-5, D-6 (lộ trình tư vấn pháp lý), D-7, D-8, D-9, D-11 (≥ 2 người vận hành), D-12 (GitHub, repo public từ 2026-11-16, **chuyển private 2026-11-17** + GitHub Actions trên runner của GitHub + GHCR), D-14 (chốt host production trước G6), D-10 (SSH key đã có; chủ dự án quyết định **không đổi** mật khẩu root đã lộ, chấp nhận rủi ro; bản sao trên máy vận hành đã xóa; tắt đăng nhập SSH bằng mật khẩu ở P1-T15). **Một phần:** D-13 (`sudo` không mật khẩu tạm thời toàn quyền, thu hẹp ở Phase 1) |
@@ -56,12 +56,12 @@ flowchart LR
 | 1 — Infrastructure Foundation | Chứng minh nền hạ tầng với client thật | 2 tenant dựng tay qua edge chung; PostgreSQL, lưu trữ bền vững, health check; VPS Public Gateway; các PoC rủi ro cao có kết quả | 28 | G1 |
 | 2 — SaaS Backend | Backend trung tâm quản lý được cả hai tenant, có xác thực và phân quyền đầy đủ | API Go, migration PostgreSQL + Row-Level Security (RLS), OIDC đa issuer, RBAC, Headscale adapter, bộ test cách ly v1 | 25 | G2 |
 | 3 — Tenant Orchestrator | Tạo, tạm dừng, xóa tenant hoàn toàn tự động và an toàn khi lỗi giữa chừng | Host Agent, state machine provisioning, dual control, backup/restore, reconcile, cảnh báo tối thiểu | 28 | G3 |
-| 4 — Web Management | Portal thống nhất cho Super Admin và Tenant Admin | Platform Console, Tenant Portal, quản lý thiết bị, enrollment, policy, DNS/routes, audit; i18n vi/en | 18 | G4a, G4b |
+| 4 — Web Management | Portal thống nhất cho Super Admin và Tenant Admin | Platform Console, Tenant Portal, quản lý thiết bị, enrollment, policy, DNS/routes, audit; i18n vi/en | 19 | G4a, G4b |
 | 5 — Zero Trust & Relay | Chứng minh đầy đủ MVP trên mạng thật | Template policy deny-by-default; 20 AC có bằng chứng; ma trận tương thích client; số đo thu hồi và lan truyền policy; Connectivity Diagnostics | 15 | **G5 (MVP)** |
 | 6 — Production Hardening | Đủ điều kiện vận hành cho khách hàng đầu tiên | Monitoring, backup offsite + PITR, diễn tập DR, load test, pen test, runbook | 16 | G6 |
 | 7 — Go-live, Scaling & Enterprise | Go-live production, rồi mở rộng theo nhu cầu đã đo | Môi trường production + khách hàng đầu tiên; multi-host, relocation, relay vùng (research), tier enterprise, billing | 12 | G7 (theo từng tính năng) |
 
-Tổng cộng 150 task, mỗi task có phụ thuộc, đầu ra và cách kiểm chứng — xem [docs/planning/task-breakdown.md](docs/planning/task-breakdown.md).
+Tổng cộng 151 task, mỗi task có phụ thuộc, đầu ra và cách kiểm chứng — xem [docs/planning/task-breakdown.md](docs/planning/task-breakdown.md).
 
 Roadmap này **chưa gắn ngày**: thứ tự do phụ thuộc và gate quyết định. Mốc thời gian chỉ nên gắn sau G0, khi đã biết nhân lực và các phụ thuộc bên ngoài ở mục 6.
 
