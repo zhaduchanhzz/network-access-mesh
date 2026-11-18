@@ -8,6 +8,8 @@
 #   <work>/render/tenant-b/compose.yaml   tools/render_instance.py  ← .../tenants/tenant-b.json
 #   <work>/render/edge/compose.edge.yaml  tools/render_edge.py      ← .../ci/edge.json (Caddyfile thật, chỉ khối tls đổi)
 #   <work>/render/idp/compose.idp.yaml    tools/render_idp.py       ← .../ci/ci.env (3 realm import sẵn)
+#   <work>/render/app/compose.app.yaml    tools/render_app.py       ← .../ci/ci.env (P2-T16)
+#   <work>/render/obs/compose.monitoring.yaml  tools/render_monitoring.py ← .../ci/ci.env (P3-T16: mg-obs + prober)
 #   compose.yaml (file này)               phần khác của stack thử so với bản render + các service riêng của stack
 # Service của bản render (hs-tenant-a, hs-tenant-b, edge, idp, idp-db) giữ nguyên image, user, rootfs chỉ đọc, cap,
 # healthcheck…; file này chỉ đổi tên container, nguồn bind (thư mục <work> thay cho /opt/meshguard), file secret và bỏ
@@ -203,33 +205,37 @@ services:
     labels:
       meshguard.role: e2e
 
-  # Prober (P3-T03a — apps/probe; image build từ cây bằng infrastructure/docker/probe/Dockerfile): chỉ trên network edge
-  # (listener public của edge + stund tại IP điểm vào) và admin (RPC cho worker — caller chỉ từ subnet admin); không
-  # secret, không publish cổng; đích chỉ là IP của edge; tin đúng CA dùng-một-lần của lượt chạy (trên host là chứng chỉ
-  # ACME công khai nên không đặt MG_PROBE_CA_FILE). Trên host, service thuộc project monitoring của P3-T16 (§14.3: thêm
-  # mg-obs, mg-egress). Ca E2E-33 … E2E-35.
+  # Project mg-obs (P3-T16 — <work>/render/obs/compose.monitoring.yaml của tools/render_monitoring.py cho môi trường ci,
+  # IP tĩnh trên subnet của stack): chỉ đổi nguồn bind (cấu hình render, thư mục status.prom/diễn tập trong <work>) và
+  # tên container. Prober (P3-T03a — image build từ cây) là service của bản render: network edge, admin (IP tĩnh — địa
+  # chỉ của MG_PROBER_URL), obs, egress; đích chỉ IP của edge; ở đây thêm CA dùng-một-lần của lượt chạy (trên host là
+  # chứng chỉ ACME công khai nên không đặt MG_PROBE_CA_FILE). Ca E2E-33 … E2E-35, E2E-76 … E2E-78.
   prober:
-    <<: *hardening
-    image: ${MGE_IMG_PROBE:?}
     container_name: ${MGE_PREFIX}-prober
-    user: "65532:65532"
-    read_only: true
     environment:
-      MG_PROBE_ALLOW_CALLERS: ${MGE_ADMIN_SUBNET:?}
-      MG_PROBE_ALLOW_TARGETS: ${MGE_EDGE_IP}
       MG_PROBE_CA_FILE: /etc/mg-ci-ca/ca.crt
     volumes:
       - {<<: *hs-bind, source: "${MGE_WORK}/ca", target: /etc/mg-ci-ca}
-    networks: [mg-edge, mg-admin]
-    mem_limit: 128m
-    pids_limit: 64
     healthcheck:
-      test: ["CMD", "/usr/local/bin/meshguard-probe", "healthcheck"]
       interval: 5s
-      timeout: 5s
       retries: 12
-    labels:
-      meshguard.role: e2e
+  prometheus:
+    container_name: ${MGE_PREFIX}-prometheus
+    volumes:
+      - {<<: *hs-bind, source: "${MGE_WORK}/render/obs/monitoring/prometheus", target: /etc/prometheus}
+  alertmanager:
+    container_name: ${MGE_PREFIX}-alertmanager
+    volumes:
+      - {<<: *hs-bind, source: "${MGE_WORK}/render/obs/monitoring/alertmanager", target: /etc/alertmanager}
+  node-exporter:
+    container_name: ${MGE_PREFIX}-node-exporter
+    volumes:
+      - {<<: *hs-bind, source: "${MGE_WORK}/obs/backups/postgres", target: /textfile/postgres}
+      - {<<: *hs-bind, source: "${MGE_WORK}/obs/backups/idp", target: /textfile/idp}
+      - {<<: *hs-bind, source: "${MGE_WORK}/obs/backups/edge", target: /textfile/edge}
+      - {<<: *hs-bind, source: "${MGE_WORK}/render/obs/monitoring/drill", target: /textfile/drill}
+  alertsink:
+    container_name: ${MGE_PREFIX}-alertsink
 
   # Worker Cloudflare GIẢ của relay thư (P3-T05b-mail, ca E2E-82/83): mã thật infrastructure/mail/cf-worker/src/index.js
   # chạy bằng test/devserver.mjs (node:http + binding EMAIL giả ghi lại thư sẽ gửi — không thân thư) trong image node của
@@ -331,6 +337,7 @@ secrets:
   app_mail_ca: {file: "${MGE_WORK}/secrets/mail/ca.crt"}
   idp_mailrelay_ca: {file: "${MGE_WORK}/secrets/mail/ca.crt"}
   fakeworker_hmac_key: {file: "${MGE_WORK}/secrets/fakeworker/relay_hmac_key"}
+  obs_edge_metrics_token: {file: "${MGE_WORK}/secrets/obs/edge_metrics_token"}                     # mg-obs (P3-T16)
   authkey_a1: {file: "${MGE_WORK}/secrets/clients/a1.authkey"}
   authkey_a2: {file: "${MGE_WORK}/secrets/clients/a2.authkey"}
   authkey_b1: {file: "${MGE_WORK}/secrets/clients/b1.authkey"}

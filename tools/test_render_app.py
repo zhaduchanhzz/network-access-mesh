@@ -23,6 +23,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import mgenv  # noqa: E402
 import render_app as ra  # noqa: E402
 import render_edge  # noqa: E402
+import render_monitoring  # noqa: E402
 
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
@@ -174,9 +175,21 @@ check(worker.get("MG_PROVISION_HEADSCALE_DIGEST") == hs["mg-headscale"]["index"]
       worker.get("MG_PROVISION_NAMESERVERS") == "1.1.1.1,9.9.9.9" and
       worker.get("MG_PROVISION_EDGE_ADDR") == render_edge.EDGE_IPS["edge_ip"] + ":443" and "MG_PROBER_URL" not in worker,
       "compose: orchestrator parameters from versions.lock and the environment (prober only when set)")
-pw = ra.render({**ENV, "MG_PROBER_URL": "http://prober:8080"}, API, WORKER)["compose.app.yaml"]
-check("MG_PROBER_URL: http://prober:8080" in pw, "compose: MG_PROBER_URL rendered when the environment sets it")
-raises(lambda: ra.render({**ENV, "MG_PROBER_URL": "http://u:p@x/y"}, API, WORKER), "a prober URL with credentials or a path is refused")
+# P3-T16: MG_PROBER_URL is exactly the prober's static address on mg-admin (render_monitoring) — never its name (P3-T05c)
+purl = render_monitoring.prober_url()
+pw = env_of(re.search(r"^  worker:\n(.*?)(?=^  [a-z][a-z-]*:\n|^[a-z]+:)", ra.render({**ENV, "MG_PROBER_URL": purl}, API, WORKER)
+                      ["compose.app.yaml"], flags=re.M | re.S).group(1))
+check(pw.get("MG_PROBER_URL") == purl == "http://10.249.2.3:8080" and pw.get("MG_AGENT_SOCKET"),
+      "compose: MG_PROBER_URL = the prober's address on mg-admin, next to the orchestrator")
+check(ipaddress.ip_address("10.249.2.3") in ipaddress.ip_network(render_edge.INTERNAL["admin_subnet"]),
+      "the prober's address is inside the mg-admin subnet (the prober's caller allow-list)")
+for bad in ("http://prober:8080", "http://10.249.2.4:8080", "http://10.249.0.9:8080", "http://u:p@x/y", purl + "/v1"):
+    raises(lambda bad=bad: ra.render({**ENV, "MG_PROBER_URL": bad}, API, WORKER), f"MG_PROBER_URL {bad} is refused")
+ci_p = ra.render({"MG_ENV": "ci", "MG_BASE_DOMAIN": "meshguard-ci.test", "MG_PROBER_URL": purl},
+                 "sha256:" + "0" * 64, "sha256:" + "1" * 64)["compose.app.yaml"]
+check(f"MG_PROBER_URL: {purl}" in ci_p and f"MG_PROVISION_EDGE_ADDR: {render_edge.EDGE_IPS['edge_ip']}:443" in ci_p
+      and "MG_AGENT_" not in ci_p and "agent_token" not in ci_p,
+      "ci stack: MG_PROBER_URL gives the prober-only configuration (relay.probe, no agent, no orchestrator)")
 # P3-T11: the worker verifies backup manifests with the public key of the key ceremony (never a private key)
 bw = ra.render({**ENV, "MG_BACKUP_MANIFEST_PUBKEY": "MCowBQYDK2VwAyEA7rQo5bebwY3AlnB9ahjZwGGUzVu39POjhZbZwbg7Wlc="}, API, WORKER)["compose.app.yaml"]
 check("MG_BACKUP_MANIFEST_PUBKEY: MCowBQYDK2VwAyEA7rQo5bebwY3AlnB9ahjZwGGUzVu39POjhZbZwbg7Wlc=" in bw, "compose: MG_BACKUP_MANIFEST_PUBKEY rendered for the worker")

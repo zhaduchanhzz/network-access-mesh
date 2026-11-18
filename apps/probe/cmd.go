@@ -31,6 +31,8 @@ type config struct {
 	internal    string
 	callers     []netip.Prefix
 	targets     []netip.Prefix
+	scrapers    []netip.Prefix // P3-T16: callers of GET /probe on the internal listener (Prometheus); empty = none
+	capver      int            // P3-T16: capability version of the key module (MG_PROBE_CAPVER, default 113)
 	roots       *x509.CertPool
 	caFile      string
 	maxInFlight int
@@ -57,6 +59,17 @@ func loadConfig(getenv func(string) string) (config, error) {
 	}
 	if c.targets, err = prober.ParsePrefixes(getenv("MG_PROBE_ALLOW_TARGETS")); err != nil {
 		errs = append(errs, fmt.Errorf("MG_PROBE_ALLOW_TARGETS (probe targets — edge, public entry): %w", err))
+	}
+	if v := getenv("MG_PROBE_ALLOW_SCRAPERS"); v != "" {
+		if c.scrapers, err = prober.ParsePrefixes(v); err != nil {
+			errs = append(errs, fmt.Errorf("MG_PROBE_ALLOW_SCRAPERS (callers of /probe — Prometheus): %w", err))
+		}
+	}
+	c.capver = prober.DefaultCapVer
+	if v := getenv("MG_PROBE_CAPVER"); v != "" {
+		if c.capver, err = strconv.Atoi(v); err != nil || c.capver < 1 || c.capver > 10000 {
+			errs = append(errs, errors.New("MG_PROBE_CAPVER must be 1-10000"))
+		}
 	}
 	if c.caFile = getenv("MG_PROBE_CA_FILE"); c.caFile != "" {
 		if c.roots, err = loadRoots(c.caFile); err != nil {
@@ -100,7 +113,7 @@ func serveCmd(ctx context.Context, getenv func(string) string, stdout, stderr io
 	log := logx.New(stdout, cfg.level, "probe")
 	log.Info("starting", "version", buildinfo.Version, "commit", buildinfo.Commit, "listen", cfg.listen,
 		"internal", cfg.internal, "callers", prefixList(cfg.callers), "targets", prefixList(cfg.targets),
-		"ca_file", cfg.caFile != "")
+		"scrapers", prefixList(cfg.scrapers), "capver", cfg.capver, "ca_file", cfg.caFile != "")
 	reg := prometheus.NewRegistry()
 	reg.MustRegister(collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 		prometheus.NewGaugeFunc(prometheus.GaugeOpts{Name: "meshguard_build_info", Help: "Build information of the running MeshGuard process.",
@@ -113,7 +126,14 @@ func serveCmd(ctx context.Context, getenv func(string) string, stdout, stderr io
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 90 * time.Second,
 		IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10,
 		ErrorLog: slog.NewLogLogger(log.Handler(), slog.LevelWarn)}
-	internal := httpx.NewServer(cfg.internal, httpx.InternalMux(map[string]httpx.Probe{}, reg, log), log)
+	// GET /probe (P3-T16): the probes Prometheus scrapes, on their own Local — same allow-list and roots, but only the
+	// failures are logged (a scrape every interval per target would otherwise flood the log).
+	quiet := logx.New(stdout, max(cfg.level, slog.LevelWarn), "probe")
+	mux := http.NewServeMux()
+	mux.Handle(prober.RouteScrape, prober.ScrapeHandler(prober.New(prober.Options{Allow: cfg.targets, RootCAs: cfg.roots,
+		Logger: quiet}), prober.ScrapeOptions{Scrapers: cfg.scrapers, CapVer: cfg.capver, Logger: log, Registerer: reg}))
+	mux.Handle("/", httpx.InternalMux(map[string]httpx.Probe{}, reg, log))
+	internal := httpx.NewServer(cfg.internal, mux, log)
 	if err := httpx.Serve(ctx, log, rpc, internal); err != nil {
 		return 1
 	}

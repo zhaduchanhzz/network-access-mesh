@@ -45,6 +45,11 @@ CHECKS=(
   # ca.crt và tls_cert là chứng chỉ công khai (0444) — không thuộc danh sách này.
   "mail/relay_hmac_key|65532:65532|20009|65532:65532/20001;65532:65532/20003;1000:1000/;65534:65534/20006;10001:10001/20005"
   "mail/tls_key|65532:65532|20009|65532:65532/20001;65532:65532/20003;1000:1000/;65534:65534/20006;10001:10001/20005"
+  # P3-T16 — kênh cảnh báo của Alertmanager (65534 + mg-sec-obs; obs-secrets.sh): tiền tố "?" = chỉ kiểm khi file có
+  # (kênh chưa bật thì không có file). Prometheus cùng UID/nhóm nhưng file chỉ được mount vào alertmanager.
+  "?obs/smtp_password|65534:65534|20006|65534:65534/;65532:65532/20001;10001:10001/20005;10007:10007/20007"
+  "?obs/telegram_bot_token|65534:65534|20006|65534:65534/;65532:65532/20001;10001:10001/20005;10007:10007/20007"
+  "?obs/alert_webhook_url|65534:65534|20006|65534:65534/;65532:65532/20001;10001:10001/20005;10007:10007/20007"
 )
 fail=0
 can_read() {  # <file> <user> <groups>
@@ -53,8 +58,12 @@ can_read() {  # <file> <user> <groups>
 }
 for c in "${CHECKS[@]}"; do
   IFS='|' read -r rel user groups intruders <<<"$c"
+  optional=0; case "$rel" in "?"*) optional=1; rel=${rel#?};; esac
   f="$R/$rel"
-  if ! sudo test -s "$f"; then echo "FAIL $rel: missing"; fail=1; continue; fi
+  if ! sudo test -s "$f"; then
+    if [ "$optional" = 1 ]; then echo "SKIP $rel: không có (kênh chưa bật)"; else echo "FAIL $rel: missing"; fail=1; fi
+    continue
+  fi
   mode=$(sudo stat -c '%a %U:%G' "$f")
   case "${mode%% *}" in *[4-7]) echo "FAIL $rel: world-readable ($mode)"; fail=1; continue;; esac
   if can_read "$f" "$user" "$groups"; then r="consumer $user${groups:++$groups} reads"; else echo "FAIL $rel: consumer $user cannot read ($mode)"; fail=1; continue; fi

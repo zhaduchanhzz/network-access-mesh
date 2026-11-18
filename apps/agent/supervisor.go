@@ -32,12 +32,13 @@ func (s *server) superviseEdge(ctx context.Context, sup edgeSupervisor, interval
 		starts      <-chan struct{}
 		subscribeAt time.Time
 		last        *compose.EdgeReport
+		seen        string // ID of the last edge seen present: a recreation seen through an absent cycle is still one
 	)
 	for {
 		if starts == nil && !time.Now().Before(subscribeAt) {
 			starts = sup.EdgeStarts(ctx)
 		}
-		last = s.edgeCycle(ctx, sup, last)
+		last = s.edgeCycle(ctx, sup, last, &seen)
 		for due := false; !due; {
 			select {
 			case <-ctx.Done():
@@ -58,7 +59,7 @@ func (s *server) superviseEdge(ctx context.Context, sup edgeSupervisor, interval
 
 // edgeCycle runs one cycle and logs it: at info when something happened or changed (the edge recreated, an
 // attachment, a detachment, a containment, other counts), at debug otherwise.
-func (s *server) edgeCycle(ctx context.Context, sup edgeSupervisor, last *compose.EdgeReport) *compose.EdgeReport {
+func (s *server) edgeCycle(ctx context.Context, sup edgeSupervisor, last *compose.EdgeReport, seen *string) *compose.EdgeReport {
 	cctx, cancel := context.WithTimeout(ctx, cycleTimeout)
 	defer cancel()
 	start := time.Now()
@@ -69,8 +70,12 @@ func (s *server) edgeCycle(ctx context.Context, sup edgeSupervisor, last *compos
 		}
 		return last
 	}
-	if last != nil && last.EdgeID != "" && rep.EdgeID != "" && last.EdgeID != rep.EdgeID {
-		s.log.Info("edge_recreated", "edge", s.edge, "previous_id", short(last.EdgeID), "id", short(rep.EdgeID))
+	if rep.EdgeID != "" { // compared with the last edge seen, not the last cycle: a cycle may fall between the removal
+		// of the old container and the start of the new one (edge absent), and the recreation is still logged
+		if *seen != "" && *seen != rep.EdgeID {
+			s.log.Info("edge_recreated", "edge", s.edge, "previous_id", short(*seen), "id", short(rep.EdgeID))
+		}
+		*seen = rep.EdgeID
 	}
 	level := slog.LevelDebug
 	if last == nil || len(rep.NewlyAttached)+len(rep.Detached)+len(rep.Contained) > 0 || rep.EdgeID != last.EdgeID ||

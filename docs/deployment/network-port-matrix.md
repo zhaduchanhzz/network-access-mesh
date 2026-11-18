@@ -26,7 +26,7 @@
 | Prometheus / Alertmanager / Loki | TCP 9090 / 9093 / 3100 (đề xuất: cổng mặc định của image) | Nội bộ | Chỉ `mg-obs` | Monitoring | **Không** publish |
 | Grafana | TCP 3000 (đề xuất: cổng mặc định của image) | Nội bộ | Qua edge (origin admin, SSO) | Dashboard platform | — |
 | CrowdSec LAPI | TCP 8080 (đề xuất: cổng mặc định của image) | Nội bộ | Chỉ edge ↔ crowdsec (network `mg-sec`) | Quyết định ban | Cổng metrics của engine nằm trên `mg-obs` |
-| prober | TCP 9115 (`/metrics`) và TCP 9116 (RPC) — đề xuất | Nội bộ | `mg-admin` (RPC từ worker), `mg-obs` (scrape) | Probe STUN/DERP/allow-list; kiểm tra bước 17–18 của provisioning | Không có secret; đi ra qua `mg-egress` tới điểm vào công khai |
+| prober | TCP 9090 (`/metrics`, `/probe` — chỉ Prometheus) và TCP 8080 (RPC) — P3-T16 | Nội bộ | `mg-admin` (RPC từ worker), `mg-obs` (scrape); alertsink (cùng image, staging/dev) TCP 8080 trên `mg-obs` | Probe STUN/DERP/allow-list; kiểm tra bước 17–18 của provisioning | Không có secret; đi ra qua `mg-egress` tới điểm vào công khai |
 | backup-shipper | Không lắng nghe | Ra | Không | Đẩy archive đã mã hóa lên kho offsite | Chỉ trên `mg-egress`; credential append-only; mount chỉ-đọc |
 | pg-backup | Không lắng nghe | Nội bộ | Không | Dump PostgreSQL qua `mg-data` (service có lịch riêng) | Mount ghi chỉ `backups/postgres`; không có đường ra ngoài |
 | Đường ra `mg-egress` | TCP 443, SMTP tới đích trong allow-list | Ra | Không publish cổng | worker, api, idp, alertmanager, prober, backup-shipper đi tới issuer OIDC, API DNS provider, SMTP, webhook, kho offsite; prometheus chỉ tới `/metrics` của VPS trên IP tunnel (Phase 6) | Allow-list bằng `DOCKER-USER` (P6-T07) |

@@ -28,6 +28,11 @@ the agent's socket directory /opt/meshguard/run mounted read-only at /run/meshgu
 MG_AGENT_TOKEN_FILE, and MG_PROVISION_* — the Headscale image of new instances ([images.mg-headscale] digest,
 [images.headscale] tag as version), MG_TENANT_NAMESERVERS of the environment, the edge's public listener on mg-edge
 (render_edge.EDGE_IPS:443) — plus MG_PROBER_URL when the environment file sets it (the prober of P3-T03a/P3-T16).
+MG_PROBER_URL must be exactly the prober's static address on mg-admin (render_monitoring.prober_url()): the prober
+serves callers of mg-admin only, and the worker also sits on mg-edge, where the prober's name may resolve — a call by
+name can leave from the worker's mg-edge address and be refused (caller_not_allowed, P3-T05c). On the ci stack (no Host
+Agent) MG_PROBER_URL alone gives the prober-only configuration of P3-T05c: MG_PROVISION_EDGE_ADDR + MG_PROBER_URL,
+relay.probe without the orchestrator.
 
 Outbound e-mail (P3-T05b-mail, tools/render_mail.py): when the environment file sets MG_MAILRELAY_URL (the deployed
 Cloudflare Worker), the service `mail-bridge` — the worker image with the subcommand `mailrelay`; SMTP host `mailrelay`,
@@ -53,6 +58,7 @@ import tomllib
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import mgenv  # noqa: E402 — env file of the environment (no secrets)
+import render_monitoring  # noqa: E402 — the prober's address on mg-admin (MG_PROBER_URL, P3-T16)
 from render_edge import APP_IPS, DOMAIN_RE, EDGE_IPS, INTERNAL  # noqa: E402 — the edge's and the worker's addresses
 import render_mail  # noqa: E402 — sender, Worker URL, mail network and files of the outbound relay (P3-T05b-mail)
 
@@ -124,11 +130,26 @@ def headscale_runtime() -> tuple[str, str]:
     return digest, version
 
 
+def prober_url(env: dict[str, str]) -> str:
+    """MG_PROBER_URL of the environment ("" = none): only the prober's static address on mg-admin is accepted."""
+    prober = env.get("MG_PROBER_URL", "").strip()
+    if prober and prober.rstrip("/") != render_monitoring.prober_url():
+        raise ParamError(f"MG_PROBER_URL phải là {render_monitoring.prober_url()} — địa chỉ tĩnh của prober trên mg-admin; "
+                         "gọi bằng tên có thể đi ra từ địa chỉ mg-edge của worker và bị từ chối caller_not_allowed (P3-T05c)")
+    return prober.rstrip("/")
+
+
 def agent_blocks(env: dict[str, str]) -> dict[str, str]:
-    """The worker's Host Agent and Tenant Orchestrator (P3-T05) — empty on the ci stack, which has no agent."""
+    """The worker's Host Agent and Tenant Orchestrator (P3-T05) — on the ci stack, which has no agent, only the
+    prober-only configuration of P3-T05c when MG_PROBER_URL is set."""
     keys = ("worker_agent_env", "worker_agent_secret", "worker_agent_volume", "agent_secret_def")
     if env.get("MG_ENV") == "ci":
-        return dict.fromkeys(keys, "")
+        out = dict.fromkeys(keys, "")
+        if prober := prober_url(env):
+            out["worker_agent_env"] = "".join("\n      " + x for x in (
+                f"MG_PROVISION_EDGE_ADDR: {EDGE_IPS['edge_ip']}:443   # listener công khai của edge (relay.probe)",
+                f"MG_PROBER_URL: {prober}   # prober trên mg-admin (P3-T16) — cấu hình chỉ-prober, không orchestrator"))
+        return out
     ns = [x.strip() for x in env.get("MG_TENANT_NAMESERVERS", "").split(",") if x.strip()]
     try:
         if not 1 <= len(ns) <= 8 or not all(ipaddress.ip_address(x).is_global for x in ns):
@@ -142,11 +163,8 @@ def agent_blocks(env: dict[str, str]) -> dict[str, str]:
              f"MG_PROVISION_HEADSCALE_VERSION: {version}",
              f"MG_PROVISION_NAMESERVERS: {','.join(ns)}",
              f"MG_PROVISION_EDGE_ADDR: {EDGE_IPS['edge_ip']}:443   # listener công khai của edge (bước 17/18)"]
-    prober = env.get("MG_PROBER_URL", "").strip()
-    if prober:
-        if not re.fullmatch(r"https?://[a-z0-9.-]+(:\d+)?/?", prober):
-            raise ParamError("MG_PROBER_URL phải là http(s)://host[:port]")
-        lines.append(f"MG_PROBER_URL: {prober}")
+    if prober := prober_url(env):
+        lines.append(f"MG_PROBER_URL: {prober}   # prober trên mg-admin (project mg-obs, P3-T16)")
     pub = env.get("MG_BACKUP_MANIFEST_PUBKEY", "").strip()
     if pub:  # P3-T11: the worker verifies every backup manifest (§17.1) — the public key of the key ceremony
         if not all(re.fullmatch(r"MCowBQYDK2VwAyEA[A-Za-z0-9+/]{43}=", k.strip()) for k in pub.split(",")):

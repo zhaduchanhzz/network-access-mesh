@@ -24,7 +24,7 @@ jobs:
         run: python3 tools/docs_check.py
       - name: docs/ khớp với master đã commit
         run: git diff --exit-code -- docs/ || { echo "::error::docs/ lệch với master — chạy 'make docs' rồi commit"; exit 1; }
-      - name: Golden test của các tool render (instance Headscale, edge, IdP, backup, backend mg-app, agent mg-agent, relay thư) + bước migrate của host
+      - name: Golden test của các tool render (instance Headscale, edge, IdP, backup, backend mg-app, agent mg-agent, relay thư, monitoring mg-obs) + bước migrate của host
         run: |
           python3 tools/test_mgenv.py
           python3 tools/test_render_instance.py
@@ -34,11 +34,46 @@ jobs:
           python3 tools/test_render_app.py
           python3 tools/test_render_agent.py
           python3 tools/test_render_mail.py
+          python3 tools/test_render_monitoring.py
           python3 tools/test_host_migrate.py
+      - name: Tự kiểm công cụ G3 (P3-T14 — thống kê p50/p95/max từng bước, parse job, baseline mồ côi, file credential, đích; không Docker)
+        run: python3 tests/g3/test_g3.py
       - name: Spec-lint api/openapi.yaml (x-permission hai chiều với §8.5/§8.6, x-task, tenant chỉ từ path, action path, problem+json; seed RBAC + bảng authz đã sinh khớp master/spec — P2-T07) + test
         run: |
           python3 tools/openapi_lint.py
           python3 tools/test_openapi_lint.py
+
+  # P3-T16: bộ cảnh báo tối thiểu — promtool/amtool của ĐÚNG image pin trong versions.lock ([images.prometheus],
+  # [images.alertmanager]; tools/test_render_monitoring.py kiểm hai digest dưới đây trùng versions.lock): cú pháp + unit
+  # test của mọi rule, và cấu hình Prometheus/Alertmanager đã render của ba môi trường mẫu (tests/golden/monitoring).
+  monitoring:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      PROMETHEUS_IMAGE: docker.io/prom/prometheus@sha256:fa3302279710be2f21a8301ec17a8b4f2301fd829bd113839b3b6b02b6f191a2   # v3.15.1
+      ALERTMANAGER_IMAGE: docker.io/prom/alertmanager@sha256:39d8bb3966c694a124428a3a88fbcffd40bd069129ecd47c059f8a3f17c55f3b   # v0.34.2
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - name: promtool check rules + test rules (mỗi rule bắn đúng nhãn/annotation, không bắn ngoài ngưỡng)
+        run: |
+          docker run --rm -v "$PWD/infrastructure/monitoring/rules:/r:ro" -w /r --entrypoint /bin/promtool "$PROMETHEUS_IMAGE" \
+            check rules meshguard.rules.yml
+          docker run --rm -v "$PWD/infrastructure/monitoring/rules:/r:ro" -w /r --entrypoint /bin/promtool "$PROMETHEUS_IMAGE" \
+            test rules meshguard.rules.test.yml
+      - name: promtool check config + amtool check-config trên bản render mẫu (staging, production, ci)
+        run: |
+          sec="${RUNNER_TEMP}/obs-secrets"; mkdir -p "$sec"
+          for f in edge_metrics_token smtp_password telegram_bot_token smtp_ca; do echo dummy > "$sec/$f"; done
+          echo https://hooks.example.invalid/x > "$sec/alert_webhook_url"; chmod 0644 "$sec"/*
+          for d in tests/golden/monitoring/*/expected/monitoring; do
+            echo "== $d"
+            docker run --rm -v "$PWD/$d/prometheus:/etc/prometheus:ro" -v "$sec/edge_metrics_token:/run/secrets/edge_metrics_token:ro" \
+              --entrypoint /bin/promtool "$PROMETHEUS_IMAGE" check config /etc/prometheus/prometheus.yml
+            docker run --rm -v "$PWD/$d/alertmanager:/etc/alertmanager:ro" -v "$sec:/run/secrets:ro" \
+              --entrypoint /bin/amtool "$ALERTMANAGER_IMAGE" check-config /etc/alertmanager/alertmanager.yml
+          done
 
   api-types:
     runs-on: ubuntu-24.04

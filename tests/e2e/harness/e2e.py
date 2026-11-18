@@ -2,8 +2,9 @@
 """Stack dev/CI của P2-T01a + kiểm thử functional (`make e2e-functional` = `all`).
 
   python3 tests/e2e/harness/e2e.py all      up → test → down (down chạy cả khi lỗi); exit 0 ⇔ mọi ca PASS
-  python3 tests/e2e/harness/e2e.py up       build api/worker/probe từ cây, render, secret, CA, network, khởi động stack
-                                            (gồm backend mg-app: db-bootstrap, migrate, api, worker; prober), enroll 4 client
+  python3 tests/e2e/harness/e2e.py up       build api/worker/probe/node-exporter từ cây, render, secret, CA, network, khởi
+                                            động stack (gồm backend mg-app: db-bootstrap, migrate, api, worker; mg-obs:
+                                            prober, prometheus, alertmanager, node-exporter, alertsink), enroll 4 client
   python3 tests/e2e/harness/e2e.py test     chạy các ca trên stack đang chạy (chạy lại được)
   python3 tests/e2e/harness/e2e.py down     lưu log (đã che secret) rồi gỡ mọi đối tượng mang tiền tố
   python3 tests/e2e/harness/e2e.py render   chỉ render (không cần Docker) vào <work>/render để xem
@@ -31,7 +32,9 @@ import dualcontrol  # noqa: E402 — E2E-37 … E2E-39 (P3-T05a, P3-T04a)
 import idpadmin  # noqa: E402 — E2E-40 … E2E-43 (P3-T15)
 import lifecycle  # noqa: E402 — E2E-56 … E2E-58 (P3-T08)
 import mailrelay  # noqa: E402 — E2E-82, E2E-83 (P3-T05b-mail: relay thư ra, Worker giả)
+import monitoring  # noqa: E402 — E2E-76 … E2E-78 (P3-T16)
 import phase3  # noqa: E402 — E2E-32 … E2E-36 (P3-T14a, P3-T03a, P3-T08a)
+import postrestore  # noqa: E402 — E2E-70, E2E-71 (P3-T17)
 import restore  # noqa: E402 — E2E-59, E2E-60 (P3-T11: V-11)
 from stack import CLIENTS, SECRET_RE, TENANTS, Stack, StackError, log  # noqa: E402
 
@@ -67,11 +70,12 @@ def ensure_users(st: Stack) -> None:
 
 
 def up(st: Stack) -> None:
-    with timed("build image api/worker/idp/probe từ cây (infrastructure/docker/app, idp, probe)"):
+    with timed("build image api/worker/idp/probe/node-exporter từ cây (infrastructure/docker/app, idp, probe, node-exporter)"):
         st.teardown(quiet=True)
         st.build_app_images()
         st.build_idp_image()
         st.build_probe_image()
+        st.build_node_exporter_image()
     with timed("chuẩn bị (render, secret, CA nội bộ, network)"):
         shutil.rmtree(st.out, ignore_errors=True)       # kết quả của lượt trước
         st.work.mkdir(parents=True, exist_ok=True)
@@ -121,6 +125,11 @@ def up(st: Stack) -> None:
         st.compose("up", "-d", "--wait", "--wait-timeout", "240", "api", "worker", "mail-bridge", "fakeworker", timeout=300)
         log("api, worker, mailrelay healthy (/readyz: postgres, secretstore, edge_admin; smtp_listener, hmac_key, "
             "tls_certificate) + Worker giả (devserver của infrastructure/mail/cf-worker)")
+    with timed("monitoring mg-obs (P3-T16): prometheus, alertmanager, node-exporter, alertsink"):
+        st.compose("up", "-d", "--wait", "--wait-timeout", "120", "prometheus", "alertmanager", "node-exporter", "alertsink",
+                   timeout=180)
+        (st.work / "state" / "obs.json").write_text(json.dumps({"started": time.time()}), encoding="utf-8")
+        log("mg-obs healthy; Prometheus scrape mỗi 5 s, rule mỗi 5 s (môi trường ci)")
     with timed("chờ IdP healthy"):
         st.compose("up", "-d", "--wait", "--wait-timeout", "420", "idp-db", "idp", timeout=480)
     with timed("enroll 4 client (pre-auth key một lần)"):
@@ -177,7 +186,7 @@ def test(st: Stack, r: checks.Results) -> None:
             guarded(r, "E2E-13", checks.check_edge_admin, st, api_keys)
         finally:
             for slug, k in api_keys.items():
-                st.headscale(slug, "apikeys", "expire", "--prefix", k.split("-")[2], check=False)
+                st.headscale(slug, "apikeys", "expire", "--prefix", k[len("hskey-api-"):][:12], check=False)  # prefix may hold "-"
     with timed("ca E2E-14 (pre-auth key chéo tenant)"):
         guarded(r, "E2E-14", checks.check_cross_tenant_key, st)
     with timed("ca E2E-15 (policy deny)"):
@@ -198,6 +207,11 @@ def test(st: Stack, r: checks.Results) -> None:
         restore.run_all(r, st, guarded)
     with timed("ca E2E-56 … E2E-58 (Phase 3: suspend/resume P3-T08 — policy suspension, TCP thật, 403 tenant_suspended)"):
         lifecycle.run_all(r, st, guarded)
+    with timed("ca E2E-76 … E2E-78 (P3-T16: mg-obs, MG_PROBER_URL của worker, diễn tập mọi rule cảnh báo tới alertsink)"):
+        monitoring.run_all(r, st, guarded)
+    # last: E2E-71 replaces the stack's database by an older dump (restore runbook) — nothing may run after it
+    with timed("ca E2E-70, E2E-71 (Phase 3: chế độ bảo trì + đối soát sau restore PostgreSQL P3-T17 — pg_dump/pg_restore thật)"):
+        postrestore.run_all(r, st, guarded)
 
 
 def versions(st: Stack) -> dict[str, str]:
@@ -208,6 +222,9 @@ def versions(st: Stack) -> dict[str, str]:
             "tailscale": first("exec", st.name("ts-b1"), "tailscale", "version"),
             "caddy (edge)": first("exec", st.name("edge"), "caddy", "version"),
             "api": st.app_images[0][:19], "worker": st.app_images[1][:19], "probe": st.images["probe"][:19],
+            "node-exporter": st.images["node-exporter"][:19],
+            "prometheus": first("exec", st.name("prometheus"), "prometheus", "--version"),
+            "alertmanager": first("exec", st.name("alertmanager"), "alertmanager", "--version"),
             "postgres": first("exec", st.name("postgres"), "postgres", "--version"),
             "docker": first("version", "--format", "{{.Server.Version}}"),
             "compose": first("compose", "version", "--short")}

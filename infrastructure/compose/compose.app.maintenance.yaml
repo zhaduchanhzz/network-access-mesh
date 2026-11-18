@@ -1,0 +1,18 @@
+# Công tắc bảo trì lúc khởi động của api và worker (P3-T17, master §17.2; docs/operations/backup-restore.md mục 6.5).
+# File tĩnh — không render, không secret. Chép sang /opt/meshguard/core/ rồi dùng KÈM compose.app.yaml:
+#
+#   docker compose -p mg-app -f /opt/meshguard/core/compose.app.yaml \
+#     -f /opt/meshguard/core/compose.app.maintenance.yaml up -d --wait api worker
+#
+# Với MG_MAINTENANCE=1 tiến trình ở chế độ bảo trì bất kể DB nói gì (DB vừa restore không có cờ system_settings
+# `maintenance`): api trả 503 maintenance trừ đăng nhập platform trên admin.<domain>, worker không chạy job nào, không
+# lịch nào. Thoát: `meshguard admin maintenance off` (nếu cờ lưu đang bật) rồi `up -d --wait api worker` KHÔNG kèm file
+# này (container được tạo lại không có biến). Cách mặc định của runbook là cờ lưu (`admin maintenance on` trên DB vừa
+# restore, trước khi khởi động) — file này cho trường hợp không ghi được DB trước lúc khởi động.
+services:
+  api:
+    environment:
+      MG_MAINTENANCE: "1"
+  worker:
+    environment:
+      MG_MAINTENANCE: "1"
