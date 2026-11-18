@@ -59,9 +59,31 @@ WHERE scope = 'platform' AND tenant_id IS NULL AND action = sqlc.arg(action) AND
   AND decided_at >= sqlc.arg(since)::timestamptz AND created_at <= sqlc.arg(cutoff)::timestamptz;
 
 -- name: SupportGrantsTablePresent :one
--- support_access_grants đến với P4-T05 (bản đồ §6.3): khi bảng đã có mà lệnh chưa biết thu hồi nó ⇒ lệnh từ chối chạy
--- (fail closed) thay vì để grant sống lại.
+-- support_access_grants đến với migration 0023 (P4-T05): DB restore từ bản dump của schema cũ hơn (chưa migrate) chưa
+-- có bảng ⇒ bước support grant báo not_in_schema.
 SELECT (to_regclass('public.support_access_grants') IS NOT NULL)::boolean AS present;
+
+-- name: CountOpenSupportGrants :many
+-- Pool platform (T+P — thấy mọi hàng): Support Access Grant còn mở (pending, approved) tạo trước cutoff, theo trạng thái.
+SELECT status, count(*)::bigint AS grants
+FROM support_access_grants
+WHERE status IN ('pending', 'approved') AND created_at <= sqlc.arg(cutoff)::timestamptz
+GROUP BY status
+ORDER BY status;
+
+-- name: RevokeApprovedSupportGrants :execrows
+-- Quyền UPDATE (status, revoked_at, updated_at, version) của mg_worker_platform (0023): grant đã duyệt của bản dump —
+-- kể cả grant đã bị thu hồi trong khoảng mất dữ liệu — bị thu hồi (approved → revoked, trigger của 0023 cho phép; quyết
+-- định giữ nguyên làm lịch sử).
+UPDATE support_access_grants SET status = 'revoked', revoked_at = sqlc.arg(cutoff)::timestamptz,
+    updated_at = sqlc.arg(cutoff)::timestamptz, version = version + 1
+WHERE status = 'approved' AND created_at <= sqlc.arg(cutoff)::timestamptz;
+
+-- name: ExpirePendingSupportGrants :execrows
+-- Yêu cầu chưa quyết định của bản dump (có thể đã bị từ chối trong khoảng mất dữ liệu): pending → expired, không mang
+-- quyết định — staff phải yêu cầu lại.
+UPDATE support_access_grants SET status = 'expired', updated_at = sqlc.arg(cutoff)::timestamptz, version = version + 1
+WHERE status = 'pending' AND created_at <= sqlc.arg(cutoff)::timestamptz;
 
 -- name: ListTenantsForPostRestore :many
 -- Pool platform: mọi tenant chưa deleted (lời mời, policy, audit.gap theo tenant).

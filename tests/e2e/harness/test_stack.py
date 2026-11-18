@@ -106,7 +106,15 @@ with tempfile.TemporaryDirectory() as d:
     check(f"MG_TRUSTED_PROXIES: {st.edge_ip}" in app and f"ipv4_address: {st.worker_edge_ip}" in app
           and f"MG_EDGE_ADMIN_URL: http://{st.admin_ip}:8081" in app and f"MG_IDP_PLATFORM_ADDR: {st.edge_ip}:443" in app
           and "MG_ENV: ci" in app, "app: trusted proxy = edge, worker static IP, edge admin listener of the stack")
-    check(f"image: {stack.DUMMY_IMAGES[0]}" in app, "app: images are the run's (dummy IDs before the build)")
+    check(f"image: {stack.DUMMY_IMAGES[0]}" in app and f"image: {stack.DUMMY_IMAGES[2]}" in app,
+          "app: images are the run's (dummy IDs before the build — api, worker, web)")
+    # P4-T01a: the SPA — service web of compose.app.yaml (the run's image) behind the edge's template v9
+    web = re.search(r"^  web:\n((?:    .*\n)+)", app, re.M)
+    check(bool(web) and f"image: {stack.DUMMY_IMAGES[2]}" in web.group(1) and "      mg-edge: {}" in web.group(1)
+          and caddy.count("reverse_proxy web.:8080 {") == 2 and "respond @dot_segment 404" in caddy,
+          "app: web on the edge network with the run's image; edge v9 sends app./admin. outside /api/* to web.:8080")
+    check(re.search(r"^  web:\n    container_name: \$\{MGE_PREFIX\}-web\n\n", (ROOT / "compose.yaml").read_text(encoding="utf-8"),
+                    re.M) is not None, "compose.yaml: web override = container name only")
     check("MG_MAILRELAY_URL: http://fakeworker:8787/v1/send" in app and f"MG_MAILRELAY_SMTP_CIDR: {st.networks['mail'][0]}" in app
           and "MG_SMTP_ADDR: mailrelay:587" in app and "MG_SMTP_TLS: starttls" in app and "MG_ENV: ci" in app,
           "app: mailrelay → the fake Worker, listening on the stack's mail network; worker → mailrelay:587 STARTTLS")

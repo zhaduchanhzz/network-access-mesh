@@ -20,6 +20,7 @@
 | j | Thu thập bằng chứng G2 | — | Không |
 | k | Cập nhật sau G2 vòng 2 (OWASP ASVS): network `mg-idp`, image idp mới, `realm-update.sh`, migration `0008`, api/worker mới | **[CHỦ DỰ ÁN DUYỆT]** từng bước | Xem bảng của mục k |
 | l | P3-T15 — kiểm soát quản trị IdP: api/worker mới (job `idp.audit_sync`, cổng console), `realm-update.sh` (`frontendUrl` của master, `view-events` của danh tính provisioning), Caddyfile **v8** | Ủy quyền Phase 3 (người điều phối) + **thông báo trước reload edge** | Xem bảng của mục l |
+| m | P4-T01a — SPA sau edge: service `web` trong `mg-app`, Caddyfile **v9** (`app.`/`admin.` ngoài `/api/*` ⇒ `web:8080`) | **[CHỦ DỰ ÁN/NGƯỜI ĐIỀU PHỐI DUYỆT]** + **thông báo trước reload edge** | Xem mục m |
 
 Lệch thứ tự so với danh sách của brief: **idp-bootstrap và đăng nhập thử nằm sau (h)** — worker chỉ tới được Admin API của Keycloak qua site `auth.` mới của edge, đăng nhập cần site `app.`/`admin.`. Adopt, client secret, bootstrap SA/seed (e, f) không cần edge mới.
 
@@ -302,3 +303,18 @@ Hoàn tác: cài lại `/root/Caddyfile.v7.*` (+ compose) rồi `validate` + `re
 5. `psql … -c "SELECT action, count(*) FROM audit_events WHERE action LIKE 'idp.%' GROUP BY 1 ORDER BY 1"` — các sự kiện quản trị IdP từ lúc dựng (tạo user mẫu, đặt mật khẩu, client secret…) đã vào audit của tenant A/B và của nền tảng; Owner A/B nhận email `idp.admin_change` tương ứng (đúng: mọi thao tác quản trị trực tiếp trước đây giờ hiện cho tenant).
 
 Ghi vào `current.md` (digest api/worker, log `realm-update`, giờ reload edge v8) và bằng chứng P3-T15 (mục staging).
+
+## m. P4-T01a — SPA sau edge (service `web`, Caddyfile v9)
+
+Không migration của riêng task này, không đổi image edge hay compose của edge (chỉ Caddyfile ⇒ **reload**, §14.6 (a)). **Thứ tự bắt buộc**: `web` chạy trước Caddyfile v9 (v9 không có `web` ⇒ `app.`/`admin.` trả 503 tĩnh của edge — đúng chiều an toàn nhưng Portal không dùng được). Bằng chứng và thiết kế: [P4-T01a](../planning/evidence/P4-T01a.md); lệnh chi tiết: RUNBOOK mục "Template v8 → v9".
+
+| # | Bước | Ảnh hưởng tới đang chạy |
+|---|---|---|
+| m1 | Pin `[images.mg-api]`, `[images.mg-worker]`, `[images.mg-web]` của **cùng** commit gộp (workflow `images` xanh — job `web` gồm khối kiểm image), đồng bộ `~/mg` | Không |
+| m2 | api/worker đổi commit ⇒ có migration mới thì `migrate.sh` trước (mục b); render `compose.app.yaml` (template 4), `$APP up -d --wait api worker web` | api/worker recreate nếu đổi image (như k6/l2); `web` mới — chưa có route |
+| m3 | Caddyfile **v8 → v9**: render, `diff` compose (chỉ dòng `template_version`), sao lưu, cài, `caddy validate`, reload | **Reload** — báo trước: stream upgrade đóng sau `stream_close_delay` (5 phút), client tự nối lại |
+| m4 | Kiểm: `app.`/`admin.` trả SPA (`/`, deep link), một CSP, `/api/v1/auth/session` 401, `/healthz`/`/metrics`/`/internal/*` là `index.html`, dot segment ⇒ 404; console Keycloak trên `admin.` vẫn 401 khi không có phiên; `/key?v=113` A/B/C 200; `run_staging.sh` (nhóm `platform`) PASS; `external.py` từ ngoài | Không |
+
+Hoàn tác: cài lại Caddyfile v8 đã sao lưu + `validate` + reload (Portal về 404 như trước); `web` để chạy vô hại hoặc `$APP stop web`.
+
+Ghi vào `current.md` (digest api/worker/web, giờ reload edge v9) và bằng chứng P4-T01a (mục staging).

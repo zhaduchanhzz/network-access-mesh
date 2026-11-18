@@ -257,6 +257,20 @@ run_as = "1000:1000, rootfs chỉ đọc, cap_drop ALL; project compose mg-idp (
 released = "2026-11-17"
 note = "Bản 129b202 (G2 vòng 2, A-3: stage blocklist — /opt/keycloak/mg/password-blacklists/mg-passwords-v1.txt, KC_SPI_PASSWORD_POLICY__PASSWORD_BLACKLIST__BLACKLISTS_PATH; workflow images run 44095968912 xanh, digest/label đọc từ GHCR 2026-11-17; bản trước c983f678 không import được realm mới). Keycloak 26.8.2 (base quay.io c68e286c…) build tối ưu (kc.sh build: db postgres, health, metrics, tắt impersonation/kerberos/ciba/device-flow/token-exchange-standard) + kho CA của JVM đã gỡ emSign Root CA - G1 (117 CA). Workflow images run 43997562081 xanh; digest đọc từ GHCR (Docker-Content-Digest khớp sha256 của manifest). grype: 0 Critical nhờ ngoại lệ CVE-2026-91403 có hạn tới 2027-02-16 (infrastructure/docker/idp/grype.yaml; P2-T05 mục 7); 5 High chưa có bản vá trong base (sqlite-libs ×4, guava 33.6.0-jre)"
 
+# [images.mg-web] — SPA apps/web (P4-T01; image infrastructure/docker/web: Caddy chỉ module chuẩn + dist/ trên distroless
+# static nonroot, /usr/bin/healthprobe) — service `web` của project mg-app sau edge template v9 (P4-T01a). CHƯA PIN: pin
+# sau khi workflow `images` xanh trên main, CÙNG commit (tag) và cùng lượt với [images.mg-api]/[images.mg-worker] —
+# tools/render_app.py từ chối khi thiếu hoặc khác tag (client API của SPA sinh từ đúng spec của api). Khối cần điền:
+#   [images.mg-web]
+#   image = "ghcr.io/zhaduchanhzz/network-access-mesh/web"
+#   tag = "<commit SHA của lượt images>"
+#   index = "sha256:<digest GHCR>"   # một manifest linux/amd64 (docker v2 schema 2)
+#   amd64 = "sha256:<digest GHCR>"
+#   user = "65532:65532"
+#   run_as = "65532:65532, rootfs chỉ đọc, cap_drop ALL, chỉ mg-edge, không secret; project mg-app (P4-T01a)"
+#   released = "<ngày>"
+#   note = "<commit, run id của workflow images, ngày đọc digest/label từ GHCR>"
+
 # [images.mg-headscale] — Headscale v0.29.7 + bản vá V-26 (P2-T10a; nguồn: [sources.headscale]). tools/render_instance.py
 # dùng image này cho tenant không ghi headscale_build (mặc định "patched"); contract test dùng nó khi label
 # patched-commit trùng cây; tenant ghi headscale_build = "official" vẫn ở [images.headscale] (staging: cả 3 tenant
@@ -497,4 +511,4 @@ capver = 113   # capability version của probe GET /key?v=<capver> (§16.1): m�
 
 [pending]
 monitoring = "Grafana, Loki, Alloy, postgres-exporter, cAdvisor (triển khai) — pin ở P6-T01; bộ tối thiểu P3-T16 đã pin [images.prometheus], [images.alertmanager]; [images.mg-node-exporter] (image tự build — [sources.node-exporter]) và [images.mg-probe] mới (/probe + alertsink) pin sau workflow images trên main"
-own_images = "Mọi image tự build đã pin theo digest của workflow images (tag = commit SHA, đọc từ GHCR sau khi workflow xanh): edge, stund (P1-T04); headscale bản vá V-26 ([images.mg-headscale], P2-T10a); idp (129b202 — có danh sách mật khẩu cấm, G2 vòng 2); backup (03509d3); api, worker (cbb91d5 — Phase 3 đợt 1, migration 0009–0013), agent, probe (cbb91d5, 2026-11-18 — [images.mg-agent], [images.mg-probe]). Còn lại: web (Phase 4)."
+own_images = "Mọi image tự build đã pin theo digest của workflow images (tag = commit SHA, đọc từ GHCR sau khi workflow xanh): edge, stund (P1-T04); headscale bản vá V-26 ([images.mg-headscale], P2-T10a); idp (129b202 — có danh sách mật khẩu cấm, G2 vòng 2); backup (03509d3); api, worker (cbb91d5 — Phase 3 đợt 1, migration 0009–0013), agent, probe (cbb91d5, 2026-11-18 — [images.mg-agent], [images.mg-probe]). Còn lại: web (P4-T01/P4-T01a — khối chờ pin [images.mg-web] ở trên, cùng commit với api/worker)."

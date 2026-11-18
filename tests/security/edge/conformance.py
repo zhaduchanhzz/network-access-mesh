@@ -15,9 +15,11 @@ are stripped. Subcommands (each prints PASS/FAIL lines; exit code 0 = every chec
   real-api    --via admin|public --edge ADDR --key-file F --instance SLUG [--token-file F] [--mesh-domain D]
               (a real, short-lived Headscale API key read from a root-only file; never printed)
   platform    --edge IP --domain D --admin allowed|refused [--realm R] [--port 443] [--cafile F]
-              (P2-T16 sites app./admin./auth. with the real api and idp behind: api only on /api/*, security
-              headers, Admin REST API / master realm / console of the IdP ⇒ 404 from this source, admin. served only
-              from the allowed management networks; on a tunnel-facing port pass --admin refused)
+              (P2-T16 sites app./admin./auth. with the real api, web and idp behind: api only on /api/*, every other
+              path of app./admin. is the SPA's index.html (edge template v9, P4-T01a) — never the api —, dot segments,
+              "\" and unknown /api/* ⇒ 404, one set of security headers from the edge, Admin REST API / master realm /
+              console of the IdP ⇒ 404 from this source, admin. served only from the allowed management networks; on a
+              tunnel-facing port pass --admin refused)
 
 --log is the echo upstream's JSONL file; without it, upstream-side assertions are skipped (e.g. when run from a
 LAN client). Token files are read, never printed. Standard library only.
@@ -30,6 +32,7 @@ import json
 import os
 import posixpath
 import random
+import re
 import socket
 import ssl
 import string
@@ -415,7 +418,90 @@ IDP_REFUSED = ["/realms/master/.well-known/openid-configuration", "/realms/maste
                "/realms/tenant-a/../../admin/realms/tenant-a/users", "/realms/tenant-a/%2e%2e/%2e%2e/admin/realms",
                "/resources/..%2f..%2fadmin/realms/tenant-a", "/realms/tenant-a\\..\\..\\admin/realms",
                "/health/ready", "/metrics", "/welcome"]
-APP_REFUSED = ["/", "/healthz", "/readyz", "/metrics", "/internal/prometheus/sd", "/api/../metrics", "/api\\..\\metrics"]
+# app./admin. (edge template v9, P4-T01a): a path outside /api/* is the SPA — index.html, whatever the api has there
+# (/healthz, /readyz, /metrics, /internal/* never reach the api); the SPA's router decides (uniform 404 in the page).
+SPA_PATHS = ["/", "/healthz", "/readyz", "/metrics", "/internal/prometheus/sd", "/internal/edge/idp-console",
+             "/tenants/0190a000-0000-7000-8000-00000000000a/devices", "/platform/tenants", "/login?return_to=%2Fx",
+             "/favicon.ico.bak", "/api.v1"]
+# never served: dot segments of the raw path (also as %2e/%2f), dotfiles, "\", the bare /api of the web container, a
+# missing hashed asset (never index.html in place of JS)
+APP_NOT_FOUND = ["/api/../metrics", "/api\\..\\metrics", "/api/%2e%2e/metrics", "/api/..%2fmetrics", "/./metrics",
+                 "/t/x/../../metrics", "/.env", "/.git/config", "/assets/.x.js", "/api", "/assets/missing-0000.js",
+                 "/%5c..%5cmetrics"]
+CSP = "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'"
+# one value each, set by the edge only (portal_headers + platform_headers — the web container sets none)
+PORTAL_HEADERS = {"content-security-policy": CSP, "x-frame-options": "DENY", "referrer-policy": "no-referrer",
+                  "cross-origin-opener-policy": "same-origin", "cross-origin-resource-policy": "same-origin",
+                  "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+                  "strict-transport-security": "max-age=31536000", "x-content-type-options": "nosniff"}
+
+
+def https_all(edge_ip: str, sni: str, path: str, port: int = 443, timeout: float = 8.0):
+    """GET over HTTPS; returns (status, [(name, value)...] keeping repeated headers, body) or (None, error, b"")."""
+    ctx = ssl.create_default_context(cafile=CAFILE)
+    try:
+        raw = socket.create_connection((edge_ip, port), timeout=timeout)
+        tls = ctx.wrap_socket(raw, server_hostname=sni)
+    except (OSError, ssl.SSLError, ValueError) as e:
+        return None, f"{type(e).__name__}: {e}", b""
+    conn = http.client.HTTPConnection(edge_ip, port, timeout=timeout)
+    conn.sock = tls
+    try:
+        conn.request("GET", path, headers={"Host": sni})
+        r = conn.getresponse()
+        return r.status, r.getheaders(), r.read()
+    except (OSError, http.client.HTTPException) as e:
+        return None, f"{type(e).__name__}: {e}", b""
+    finally:
+        conn.close()
+
+
+def header_problems(headers) -> list[str]:
+    """Differences from the portal's header set: each header exactly once with the expected value, no Server."""
+    out = []
+    names = [k.lower() for k, _ in headers]
+    for name, want in PORTAL_HEADERS.items():
+        got = [v for k, v in headers if k.lower() == name]
+        if got != [want]:
+            out.append(f"{name}={got}")
+    if "server" in names:
+        out.append("server header present")
+    return out
+
+
+def check_spa(res: Result, edge: str, host: str, port: int) -> None:
+    """app./admin. of edge template v9: SPA for every path outside /api/*, 404 for dot segments/dotfiles/"\"."""
+    st, hdr, index = https_all(edge, host, "/", port)
+    ok = st == 200 and b'id="root"' in index and b'<script type="module"' in index
+    res.check(ok, f"{host} GET / ⇒ 200 index.html of the SPA", f"status {st}")
+    if not ok:
+        return
+    bad = header_problems(hdr)
+    res.check(not bad, f"{host} /: one CSP and one set of security headers (edge only), no Server", "; ".join(bad))
+    ct = [v for k, v in hdr if k.lower() == "content-type"]
+    cc = [v for k, v in hdr if k.lower() == "cache-control"]
+    res.check(ct == ["text/html; charset=utf-8"] and cc == ["no-cache"], f"{host} /: text/html, Cache-Control no-cache",
+              f"{ct} {cc}")
+    for path in SPA_PATHS[1:]:
+        st, hdr, body = https_all(edge, host, path, port)
+        bad = header_problems(hdr) if st else ["no answer"]
+        res.check(st == 200 and body == index and not bad, f"{host} GET {path} ⇒ the SPA's index.html (never the api)",
+                  f"status {st}, same body {body == index}, {bad}")
+    asset = re.search(rb'src="(/assets/index-[A-Za-z0-9_-]+\.js)"', index)
+    if asset:
+        st, hdr, body = https_all(edge, host, asset.group(1).decode(), port)
+        cc = [v for k, v in hdr if k.lower() == "cache-control"] if st else []
+        res.check(st == 200 and body[:1] != b"<" and cc == ["public, max-age=31536000, immutable"]
+                  and not header_problems(hdr), f"{host} hashed asset: 200, immutable, edge headers", f"status {st} {cc}")
+    else:
+        res.check(False, f"{host} index.html references a hashed /assets/index-*.js")
+    for path in APP_NOT_FOUND:
+        st, hdr, body = https_all(edge, host, path, port)
+        res.check(st == 404 and body != index, f"{host} GET {path} ⇒ 404 (not the SPA, not the api)", f"status {st}")
+    st, hdr, body = https_all(edge, host, "/api/v1/conformance-no-such-route", port)
+    ct = [v for k, v in hdr if k.lower() == "content-type"] if st else []
+    res.check(st == 404 and ct[:1] and ct[0].startswith("application/problem+json") and not header_problems(hdr),
+              f"{host} GET /api/v1/<unknown> ⇒ 404 problem+json of the api, edge headers", f"status {st} {ct}")
 
 
 def cmd_platform(a) -> int:
@@ -433,9 +519,7 @@ def cmd_platform(a) -> int:
               and "frame-ancestors 'none'" in h.get("content-security-policy", "") and "server" not in h,
               f"{app}: HSTS, nosniff, CSP, no Server header", str(sorted(h)))
     res.check(h.get("x-request-id", "") not in ("", "bad id"), f"{app}: the request id is the api's, not the client's")
-    for path in APP_REFUSED:
-        st, _, _ = https(a.edge, app, "GET", path, port=a.port)
-        res.check(st == 404, f"{app} GET {path} ⇒ 404 (only /api/* reaches the api)", f"status {st}")
+    check_spa(res, a.edge, app, a.port)
     st, _, body = https(a.edge, auth, "GET", f"/realms/{a.realm}/.well-known/openid-configuration", port=a.port)
     try:
         issuer = json.loads(body).get("issuer") if st == 200 else None
@@ -449,6 +533,7 @@ def cmd_platform(a) -> int:
     st, detail, _ = https(a.edge, admin, "GET", "/api/v1/auth/session", port=a.port)
     if a.admin == "allowed":
         res.check(st == 401, f"{admin} from an allowed source ⇒ the api (401)", f"status {st} {detail if st is None else ''}")
+        check_spa(res, a.edge, admin, a.port)
     else:
         res.check(st is None, f"{admin} from this source ⇒ no answer (aborted or no such site)", f"status {st}")
     return res.done(f"platform sites app./admin./auth. of {a.domain} on {a.edge}:{a.port}")

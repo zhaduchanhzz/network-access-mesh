@@ -1,6 +1,8 @@
-// CSP của SPA (§12.4, §14.6): index.html không có script/style inline hay tài nguyên ngoài origin; container web
-// (infrastructure/docker/web/Caddyfile) và edge (portal_headers của infrastructure/caddy/Caddyfile.tmpl) phát CÙNG
-// một Content-Security-Policy, có frame-ancestors 'none', không 'unsafe-inline'/'unsafe-eval', không host ngoài.
+// CSP của SPA (§12.4, §14.6): index.html không có script/style inline hay tài nguyên ngoài origin; edge
+// (portal_headers + platform_headers của infrastructure/caddy/Caddyfile.tmpl) là NGUỒN DUY NHẤT của header bảo mật cho
+// mọi phản hồi của app./admin. — api, SPA và trang lỗi (P4-T01a): đúng một Content-Security-Policy, có frame-ancestors
+// 'none', không 'unsafe-inline'/'unsafe-eval', không host ngoài; container web (infrastructure/docker/web/Caddyfile)
+// không tự đặt header bảo mật nào.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -23,25 +25,44 @@ describe("CSP", () => {
     expect(html).not.toMatch(/(src|href)="(https?:)?\/\//);
   });
 
-  it("container web và edge phát cùng một CSP chặt", () => {
-    const web = csp(webCaddy);
+  it("edge là nguồn duy nhất: đúng một CSP chặt ở portal_headers, container web không có", () => {
     const edge = csp(edgeTmpl);
-    expect(web).toHaveLength(1);
     expect(edge).toHaveLength(1);
-    expect(web[0]).toBe(edge[0]);
-    const policy = web[0] ?? "";
+    expect(csp(webCaddy)).toHaveLength(0);
+    const policy = edge[0] ?? "";
     for (const d of ["default-src 'self'", "base-uri 'none'", "object-src 'none'", "frame-ancestors 'none'", "form-action 'self'"]) {
       expect(policy).toContain(d);
     }
     expect(policy).not.toMatch(/unsafe-inline|unsafe-eval|https?:|\*/);
   });
 
-  it("container web: HSTS, nosniff, X-Frame-Options DENY, no-referrer, không lộ Server", () => {
-    expect(webCaddy).toMatch(/Strict-Transport-Security "max-age=31536000"/);
-    expect(webCaddy).toMatch(/X-Content-Type-Options nosniff/);
-    expect(webCaddy).toMatch(/X-Frame-Options DENY/);
-    expect(webCaddy).toMatch(/Referrer-Policy no-referrer/);
-    expect(webCaddy).toMatch(/-Server/);
+  it("header bảo mật chỉ ở edge (kể cả trang lỗi); container web chỉ bỏ Server", () => {
+    // thân snippet `(name) { … }` của template edge (dấu "}" đóng ở cột 0)
+    const snippet = (name: string) => {
+      const start = edgeTmpl.indexOf(`\n(${name}) {\n`);
+      return start < 0 ? "" : edgeTmpl.slice(start, edgeTmpl.indexOf("\n}\n", start + 1));
+    };
+    const portal = snippet("portal_headers");
+    const platform = snippet("platform_headers");
+    expect(portal).toMatch(/X-Frame-Options DENY/);
+    expect(portal).toMatch(/Referrer-Policy no-referrer/);
+    expect(portal).toMatch(/Cross-Origin-Opener-Policy same-origin/);
+    expect(portal).toMatch(/Cross-Origin-Resource-Policy same-origin/);
+    expect(portal).toMatch(/Permissions-Policy "camera=\(\), microphone=\(\), geolocation=\(\), payment=\(\), usb=\(\)"/);
+    expect(platform).toMatch(/Strict-Transport-Security "max-age=31536000"/);
+    expect(platform).toMatch(/X-Content-Type-Options nosniff/);
+    expect(platform).toMatch(/-Server/);
+    // trang lỗi 503 của edge (api/web không trả lời) mang cùng header
+    expect(snippet("portal_site")).toMatch(/handle_errors 502 503 504 \{[\s\S]*import platform_headers[\s\S]*import portal_headers \*/);
+    const webDirectives = webCaddy
+      .split("\n")
+      .filter((l) => !l.trim().startsWith("#"))
+      .join("\n");
+    for (const h of ["Content-Security-Policy", "Strict-Transport-Security", "X-Content-Type-Options", "X-Frame-Options",
+      "Referrer-Policy", "Cross-Origin-Opener-Policy", "Cross-Origin-Resource-Policy", "Permissions-Policy"]) {
+      expect(webDirectives).not.toContain(h);
+    }
+    expect(webCaddy).toMatch(/header -Server/);
   });
 });
 

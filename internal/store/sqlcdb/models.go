@@ -132,6 +132,65 @@ type DeviceInventorySyncState struct {
 	NodeCount  int32
 }
 
+type DnsRecord struct {
+	ID        uuid.UUID
+	TenantID  uuid.UUID
+	Name      string
+	Type      string
+	Value     netip.Addr
+	CreatedBy *uuid.UUID
+	CreatedAt time.Time
+}
+
+type EnrollmentRequest struct {
+	ID                      uuid.UUID
+	TenantID                uuid.UUID
+	InstanceID              uuid.UUID
+	RequestedByMembershipID uuid.UUID
+	Method                  string
+	TargetMembershipID      *uuid.UUID
+	DeviceLabel             *string
+	RequestedTags           []string
+	Ephemeral               bool
+	Reusable                bool
+	Status                  string
+	ApproverMembershipID    *uuid.UUID
+	ApprovedAt              *time.Time
+	IssuedAt                *time.Time
+	HeadscalePreauthkeyID   *int64
+	AuthIDHash              []byte
+	SessionIDHash           []byte
+	EnrollCodeHash          []byte
+	ClaimedAt               *time.Time
+	ClaimedFromIp           *netip.Addr
+	RegisteredMachineKey    *string
+	ReportedHostname        *string
+	CredentialExpiresAt     *time.Time
+	ConsumedNodeID          *int64
+	FailureCode             *string
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
+	Version                 int64
+}
+
+type Group struct {
+	ID          uuid.UUID
+	TenantID    uuid.UUID
+	Name        string
+	Description *string
+	Source      string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	Version     int64
+}
+
+type GroupMember struct {
+	TenantID     uuid.UUID
+	GroupID      uuid.UUID
+	MembershipID uuid.UUID
+	CreatedAt    time.Time
+}
+
 type Host struct {
 	ID              uuid.UUID
 	Name            string
@@ -181,6 +240,16 @@ type Identity struct {
 	UpdatedAt     time.Time
 }
 
+type IdentityLink struct {
+	TenantID      uuid.UUID
+	OldIdentityID uuid.UUID
+	OldIdpID      uuid.UUID
+	NewIdentityID uuid.UUID
+	NewIdpID      uuid.UUID
+	LinkedAt      time.Time
+	LinkedBy      *uuid.UUID
+}
+
 type IdentityProvider struct {
 	ID                   uuid.UUID
 	Scope                string
@@ -213,6 +282,22 @@ type InstanceConfigVersion struct {
 	CreatedBy       *uuid.UUID
 	CreatedAt       time.Time
 	AppliedAt       *time.Time
+}
+
+type NetworkResource struct {
+	ID           uuid.UUID
+	TenantID     uuid.UUID
+	Name         string
+	Kind         string
+	Address      netip.Prefix
+	Ports        []string
+	Protocol     *string
+	Tags         []string
+	OwnerGroupID *uuid.UUID
+	Description  *string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	Version      int64
 }
 
 type NotificationOutbox struct {
@@ -456,6 +541,28 @@ type SubscriptionPlan struct {
 	Version   int64
 }
 
+type SupportAccessGrant struct {
+	ID                        uuid.UUID
+	TenantID                  uuid.UUID
+	GranteePlatformUserID     uuid.UUID
+	RequestedByPlatformUserID uuid.UUID
+	EffectiveRoleScope        string
+	EffectiveRoleKey          string
+	Reason                    string
+	TicketRef                 string
+	ApprovalKind              *string
+	ApprovedByMembershipID    *uuid.UUID
+	ApprovedByPlatformUserID  *uuid.UUID
+	DecidedAt                 *time.Time
+	StartsAt                  time.Time
+	ExpiresAt                 time.Time
+	RevokedAt                 *time.Time
+	Status                    string
+	CreatedAt                 time.Time
+	UpdatedAt                 time.Time
+	Version                   int64
+}
+
 type SystemSetting struct {
 	Key       string
 	Value     []byte
@@ -551,4 +658,16 @@ type TenantMembership struct {
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
 	Version           int64
+}
+
+type TenantTag struct {
+	ID              uuid.UUID
+	TenantID        uuid.UUID
+	Name            string
+	Purpose         string
+	PlatformManaged bool
+	Description     *string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	Version         int64
 }
