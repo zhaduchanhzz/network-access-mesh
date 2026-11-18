@@ -160,6 +160,11 @@ func (e *PGEnv) setup() error {
 	if err := store.Migrate(ctx, db); err != nil {
 		return err
 	}
+	// the job queue too (schema river + its grants), like the migrate job: re-sending an invitation enqueues its
+	// notification.send job in the transaction
+	if _, err := store.MigrateQueue(ctx, e.storeURL(e.DB), store.Credentials{User: "mg_migrator", PasswordFile: mpw}); err != nil {
+		return err
+	}
 	mig, err := e.connectAs(ctx, "mg_migrator")
 	if err != nil {
 		return err

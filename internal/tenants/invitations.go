@@ -19,6 +19,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/audit"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/identity"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/jobs"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/notifications"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store/sqlcdb"
 )
@@ -158,28 +159,23 @@ type InvitationNotice struct {
 	Token        string
 }
 
-// InvitationNotifier delivers an invitation (P3-T05b): called inside the transaction that creates or re-sends it, so
-// the notice commits with it; an error rolls the invitation back. It must not store the token in clear.
+// InvitationNotifier delivers an invitation (P3-T05b): called inside the transaction that creates or re-sends it (a
+// job transaction: the delivery job is enqueued in it), so the notice commits with it; an error rolls the invitation
+// back. It must not store the token in clear.
 type InvitationNotifier interface {
-	InvitationIssued(ctx context.Context, q *sqlcdb.Queries, n InvitationNotice) error
+	InvitationIssued(ctx context.Context, tx *store.Tx, n InvitationNotice) error
 }
 
-// OutboxNotifier is the default notifier: one notification_outbox row of kind OutboxKindInvitation addressed to the
-// invited e-mail, payload without the token (P3-T05b renders and sends it).
+// OutboxNotifier is the default notifier: the notifications.Invitation event (kind OutboxKindInvitation) addressed to
+// the invited e-mail, payload without the token — one notification_outbox row AND its notification.send job, through
+// the same notifications.Enqueue as every other producer (writing the row alone left it pending forever: no job).
+// A re-sent invitation has a new expiry, hence a new ref: a new e-mail.
 type OutboxNotifier struct{}
 
 // InvitationIssued implements InvitationNotifier.
-func (OutboxNotifier) InvitationIssued(ctx context.Context, q *sqlcdb.Queries, n InvitationNotice) error {
-	payload, err := json.Marshal(map[string]any{
-		"invitation_id": n.InvitationID, "tenant_id": n.TenantID, "role": n.Role,
-		"expires_at": n.ExpiresAt.UTC().Format(time.RFC3339), "resent": n.Resent,
-	})
-	if err != nil {
-		return err
-	}
-	t, email := n.TenantID, n.Email
-	_, err = q.InsertInvitationNotice(ctx, sqlcdb.InsertInvitationNoticeParams{TenantID: &t, RecipientEmail: &email,
-		Kind: OutboxKindInvitation, Payload: payload})
+func (OutboxNotifier) InvitationIssued(ctx context.Context, tx *store.Tx, n InvitationNotice) error {
+	_, err := notifications.Default.Enqueue(ctx, tx, notifications.Invitation(n.TenantID, n.InvitationID, n.Email, n.Role,
+		n.ExpiresAt.UTC(), ""))
 	return err
 }
 
@@ -298,7 +294,8 @@ func (s *Service) CreateInvitation(ctx context.Context, tenantID uuid.UUID, acto
 	}
 	now := s.now()
 	var out Invitation
-	err = s.st.WithTenantTx(ctx, tenantID, func(q *sqlcdb.Queries) error {
+	err = s.st.WithTenantJobTx(ctx, tenantID, func(tx *store.Tx) error {
+		q := tx.Q
 		if err := guard(ctx, q, tenantID, actor.MembershipID, in.Role); err != nil {
 			return err
 		}
@@ -341,7 +338,7 @@ func (s *Service) CreateInvitation(ctx context.Context, tenantID uuid.UUID, acto
 		if err != nil {
 			return conflictFromDB(err)
 		}
-		if err := s.notifier.InvitationIssued(ctx, q, InvitationNotice{TenantID: tenantID, InvitationID: row.ID,
+		if err := s.notifier.InvitationIssued(ctx, tx, InvitationNotice{TenantID: tenantID, InvitationID: row.ID,
 			Email: row.Email, Role: in.Role, ExpiresAt: row.ExpiresAt, InvitedBy: &invitedBy, Token: token}); err != nil {
 			return err
 		}
@@ -471,7 +468,8 @@ func (s *Service) ResendInvitation(ctx context.Context, tenantID, id uuid.UUID, 
 	}
 	now := s.now()
 	var out Invitation
-	err = s.st.WithTenantTx(ctx, tenantID, func(q *sqlcdb.Queries) error {
+	err = s.st.WithTenantJobTx(ctx, tenantID, func(tx *store.Tx) error {
+		q := tx.Q
 		r, err := lockForChange(ctx, q, tenantID, id, actor, guard)
 		if err != nil {
 			return err
@@ -488,7 +486,7 @@ func (s *Service) ResendInvitation(ctx context.Context, tenantID, id uuid.UUID, 
 		if err != nil {
 			return conflictFromDB(err)
 		}
-		if err := s.notifier.InvitationIssued(ctx, q, InvitationNotice{TenantID: tenantID, InvitationID: id,
+		if err := s.notifier.InvitationIssued(ctx, tx, InvitationNotice{TenantID: tenantID, InvitationID: id,
 			Email: row.Email, Role: r.RoleKey, ExpiresAt: row.ExpiresAt, InvitedBy: row.InvitedByIdentityID, Resent: true,
 			Token: token}); err != nil {
 			return err
