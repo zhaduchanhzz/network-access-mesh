@@ -105,9 +105,19 @@ type ApprovalsStep struct {
 	ConsoleGrantsExpired int64            `json:"console_grants_expired"`
 }
 
-// SupportGrantsStep: support_access_grants arrives with P4-T05.
+// Statuses of the support grant step (SupportGrantsStep.Status).
+const (
+	SupportGrantsChecked     = "checked"       // the table exists: open grants of the dump closed (dry run: counted)
+	SupportGrantsNotInSchema = "not_in_schema" // a dump of a schema before migration 0023 (P4-T05): nothing to close
+)
+
+// SupportGrantsStep counts the closed support access grants (dry run: the ones that would be): approved ⇒ revoked,
+// pending ⇒ expired — a grant revoked or refused in the lost window must not come back.
 type SupportGrantsStep struct {
-	Status string `json:"status"` // not_in_schema
+	Status   string           `json:"status"`
+	Revoked  int64            `json:"revoked"`
+	Expired  int64            `json:"expired"`
+	ByStatus map[string]int64 `json:"by_status"` // status before the run ("approved", "pending") → n
 }
 
 // InvitationsStep counts the revoked invitations.
