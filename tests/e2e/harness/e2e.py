@@ -32,6 +32,7 @@ import dualcontrol  # noqa: E402 — E2E-37 … E2E-39 (P3-T05a, P3-T04a)
 import idpadmin  # noqa: E402 — E2E-40 … E2E-43 (P3-T15)
 import lifecycle  # noqa: E402 — E2E-56 … E2E-58 (P3-T08)
 import mailrelay  # noqa: E402 — E2E-82, E2E-83 (P3-T05b-mail: relay thư ra, Worker giả)
+import members  # noqa: E402 — E2E-92, E2E-93 (P4-T09: offboard V-23, quy tắc 3a, group sensitive)
 import monitoring  # noqa: E402 — E2E-76 … E2E-78 (P3-T16)
 import phase3  # noqa: E402 — E2E-32 … E2E-36 (P3-T14a, P3-T03a, P3-T08a)
 import portal  # noqa: E402 — E2E-87 (P4-T04: hộp thông báo, lọc rà soát tagged node)
@@ -220,6 +221,8 @@ def test(st: Stack, r: checks.Results) -> None:
         lifecycle.run_all(r, st, guarded)
     with timed("ca E2E-76 … E2E-78 (P3-T16: mg-obs, MG_PROBER_URL của worker, diễn tập mọi rule cảnh báo tới alertsink)"):
         monitoring.run_all(r, st, guarded)
+    with timed("ca E2E-92, E2E-93 (P4-T09: offboard hai pha + V-23 với Keycloak/Headscale thật, quy tắc 3a, group sensitive)"):
+        members.run_all(r, st, guarded)
     with timed("ca E2E-91 (P4-T15: danh mục tag — CRUD, policy.apply tag_change ⇒ tagOwners, tag chưa khai báo bị từ chối, "
                "xóa tag còn tham chiếu ⇒ 409)"):
         tagcatalog.run_all(r, st, guarded)

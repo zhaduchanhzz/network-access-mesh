@@ -24,6 +24,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/identity"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/idp"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/kit/httpx"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/members"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/monitoring"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/secrets"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
@@ -93,7 +94,9 @@ func openDeps(ctx context.Context, cfg config.Config, log *slog.Logger, routePat
 		OnIntegrity: integrityReporter(d.st, cfg.Service, log)}); err != nil {
 		return nil, err
 	}
-	d.tenants = tenants.New(d.st, tenants.Options{BaseDomain: cfg.BaseDomain})
+	// P4-T09: an invitation also enqueues member.idp_invite — the worker creates the person at a platform-hosted IdP
+	d.tenants = tenants.New(d.st, tenants.Options{BaseDomain: cfg.BaseDomain,
+		Notifier: members.IdPInviteNotifier{Next: tenants.OutboxNotifier{}}})
 	loc, err := locator.New(d.tenants, d.secrets, locator.Options{AdminURL: cfg.Edge.URL, EdgeTokenFile: cfg.Edge.TokenFile,
 		Logger: log})
 	if err != nil {

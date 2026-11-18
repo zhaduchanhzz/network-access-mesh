@@ -608,6 +608,9 @@ func (r *Run) SetOutput(v any) error {
 	return nil
 }
 
+// Output is the output set by SetOutput (nil when none) — what the worker stores when the job succeeds.
+func (r *Run) Output() json.RawMessage { return r.output }
+
 // SetResource sets the resource the job created (Job.resource), stored when the job succeeds.
 func (r *Run) SetResource(typ, id string) { r.resource = &Resource{Type: typ, ID: id} }
 

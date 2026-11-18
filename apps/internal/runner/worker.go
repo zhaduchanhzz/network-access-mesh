@@ -22,6 +22,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/idp/external"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/idp/keycloak"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/jobs"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/members"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/monitoring"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/notifications"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/policies"
@@ -57,7 +58,8 @@ const partitionRole = "mg_partition_maint"
 //	lifecycle        tenant.suspend + tenant.resume (P3-T08, §11.4) over a Headscale registry of their own that reaches a
 //	                 suspended tenant's instance (lifecycle.go), always wired — no Host Agent needed
 //	policies         policy.apply (P4-T15 first form: the desired version again with the tag catalog rendered — trigger
-//	                 tag_change from the catalog API) over the shared registry; full pipeline P4-T10
+//	                 tag_change from the catalog API, group_change from members, P4-T09) over the shared registry; full
+//	                 pipeline P4-T10
 //	deprovision      tenant.deprovision (P3-T09, §11.4: the final backup in-process, 15 steps, 2P upstream) over a
 //	                 registry that reaches a deprovisioning tenant (deprovision.go); tenant.keys_destroy every hour after
 //	                 MG_DEPROVISION_KEY_GRACE (crypto-shredding — §6.1)
@@ -101,8 +103,9 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 		return nil, err
 	}
 	// StepGate (P3-T18, §11.4): every multi-step job of a quarantined instance stops before its next step
+	alerts := &fanOut{dev}
 	w, err := jobs.NewWorker(d.st, jobs.DefaultConfig(), jobs.Options{Logger: log, Registerer: reg,
-		Alerter: fanOut{dev}, Partitions: part, StepGate: quarantine.Gate})
+		Alerter: alerts, Partitions: part, StepGate: quarantine.Gate})
 	if err != nil {
 		return nil, err
 	}
@@ -129,8 +132,9 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 	if err := life.Register(w); err != nil {
 		return nil, err
 	}
-	// P4-T15: policy.apply (level-triggered — the desired policy with the tag catalog rendered, trigger tag_change) over
-	// the shared registry: a tenant that is not active is skipped (the suspension policy stays; resume renders it)
+	// P4-T15 + P4-T09: policy.apply, ONE handler (level-triggered — the desired policy with the tag catalog rendered;
+	// trigger tag_change from the catalog API, group_change from members) over the shared registry: a tenant that is
+	// not active is skipped (the suspension policy stays; resume renders it)
 	pol, err := policies.New(d.st, policies.Config{Registry: d.headscale, Logger: log})
 	if err != nil {
 		return nil, err
@@ -168,6 +172,16 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 	if err != nil {
 		return nil, err
 	}
+	// P4-T09: member.offboard + member.idp_invite (the Headscale adapter and the IdP drivers); its group changes enqueue
+	// policy.apply (trigger group_change), whose one handler is the policies one registered above
+	mem, err := members.New(d.st, members.Config{Tenants: d.tenants, Headscale: d.headscale, IdP: drivers, Logger: log})
+	if err != nil {
+		return nil, err
+	}
+	if err := mem.Register(w); err != nil {
+		return nil, err
+	}
+	alerts.add(mem)
 	dep, shred, err := newDeprovision(cfg, d, agent, bk, drivers) // P3-T09: tenant.deprovision + tenant.keys_destroy
 	if err != nil {
 		return nil, err
@@ -298,11 +312,14 @@ func workerSchedules(s schedulers) map[string]func(context.Context) error {
 }
 
 // fanOut forwards every job alert (already counted and logged by the worker) to the modules that settle their own
-// failed jobs: devices (failed revocations, the audit pair of an API-requested sync — P2-T13).
+// failed jobs: devices (failed revocations, the audit pair of an API-requested sync — P2-T13), members (the audit pair
+// of an offboarding — P4-T09). Modules are added while the worker is wired, before it starts.
 type fanOut []jobs.Alerter
 
-func (f fanOut) JobAlert(ctx context.Context, a jobs.Alert) {
-	for _, x := range f {
+func (f *fanOut) add(a jobs.Alerter) { *f = append(*f, a) }
+
+func (f *fanOut) JobAlert(ctx context.Context, a jobs.Alert) {
+	for _, x := range *f {
 		x.JobAlert(ctx, a)
 	}
 }

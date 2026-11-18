@@ -84,11 +84,12 @@ var fixtureSteps = map[int64]func(f *fixture, t *testing.T, c *pgx.Conn){
 	21: (*fixture).step21,
 	22: (*fixture).step22,
 	23: (*fixture).step23,
+	24: (*fixture).step24,
 }
 
 // latestMigration is the number of the last migration of database/migrations (TestMigrationsUpWithData,
 // TestMigrationsShareClusterRoles).
-const latestMigration = 23
+const latestMigration = 24
 
 // migrationVersions are the versions that have a migration, ascending. Tasks written in parallel use provisional
 // numbers; the coordinator renumbers at merge so that the numbers stay contiguous (goose refuses a migration numbered
@@ -462,5 +463,19 @@ func (f *fixture) step23(t *testing.T, c *pgx.Conn) {
 			VALUES ($1, $2, $3, 'tenant', 'old-user-'||$4, 'user@'||$4||'.test')`, tr.oldIdentity, tr.oldIdP, tr.id, tr.slug)
 		exec(t, c, `INSERT INTO identity_links (tenant_id, old_identity_id, old_idp_id, new_identity_id, new_idp_id)
 			VALUES ($1, $2, $3, $4, $5)`, tr.id, tr.oldIdentity, tr.oldIdP, tr.identity, tr.idp)
+	}
+}
+
+// step24 (0024, P4-T09): no new table — tenant_memberships.status gets its CHECK (active, locked, offboarded) and
+// provisioning_jobs an index by resource. Tenant A gets a locked member and tenant B an offboarded one, so the migration
+// test (and the restore drill) carry the two new values through every later step.
+func (f *fixture) step24(t *testing.T, c *pgx.Conn) {
+	for i, tr := range f.tenants() {
+		status := []string{"locked", "offboarded"}[i%2]
+		ident := newID()
+		exec(t, c, `INSERT INTO identities (id, idp_id, tenant_id, scope, subject, email)
+			VALUES ($1, $2, $3, 'tenant', $4||'-'||$5, $4||'@'||$5||'.test')`, ident, tr.idp, tr.id, status, tr.slug)
+		exec(t, c, `INSERT INTO tenant_memberships (tenant_id, identity_id, role_id, status) VALUES ($1, $2, $3, $4)`,
+			tr.id, ident, f.tenantRole, status)
 	}
 }

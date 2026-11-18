@@ -379,7 +379,7 @@ func TestApplyRequestChecks(t *testing.T) {
 		t.Fatal("a version was stored without an instance")
 	}
 	for _, req := range []ApplyRequest{{TenantID: f.a.id, Kind: KindUser, HuJSON: portPolicy(1)},
-		{TenantID: f.a.id, Trigger: "group_changed", HuJSON: portPolicy(1)}, {HuJSON: portPolicy(1)}} {
+		{TenantID: f.a.id, Trigger: "membership_change", HuJSON: portPolicy(1)}, {HuJSON: portPolicy(1)}} {
 		if _, err := f.svc.Apply(context.Background(), req); !errors.Is(err, ErrInvalidRequest) {
 			t.Errorf("%+v: %v", req, err)
 		}

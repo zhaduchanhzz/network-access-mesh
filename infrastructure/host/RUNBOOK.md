@@ -517,6 +517,8 @@ SUB=$(sudo bash infrastructure/idp/user-id.sh tenant-a <username> | python3 -c '
 
 ### Offboarding (người rời đi, tài khoản bị chiếm) — theo đúng thứ tự
 
+**Từ P4-T09 (image api/worker có P4-T09, migration `0024`):** Tenant Owner/Admin offboard qua API — `DELETE /api/v1/tenants/{tenantId}/users/{membershipId}` (CSRF; quy tắc 3a: Admin không offboard Owner/Admin khác) ⇒ `202` + `Location` của job `member.offboard`: membership `offboarded`, rời mọi group, identity `disabled`, mọi phiên thu hồi ngay; job expire mọi node + pre-auth key của user `mg-<membership>` và vô hiệu user ở Keycloak. Kiểm: `GET …/users/{membershipId}` ⇒ `offboarding.state = applied` (`failed` ⇒ gọi lại `DELETE` để thử lại). Các bước dưới đây là đường host-only (nhân sự nền tảng; API không dùng được; tài khoản bị chiếm cần chặn trước).
+
 1. **Keycloak** — chặn đăng nhập mới và phiên SSO: Admin Console hoặc `kcadm` trong container (như `user-id.sh`): realm → Users → user → *Enabled* = off, rồi *Sign out* (`POST /admin/realms/<realm>/users/<id>/logout`).
 2. **Nền tảng** — thu hồi mọi phiên BFF và khóa danh tính (lần đăng nhập sau bị từ chối `identity_disabled` kể cả khi Keycloak mở lại):
 

@@ -334,6 +334,189 @@ export interface paths {
         get: operations["getTenantUser"];
         put?: never;
         post?: never;
+        /**
+         * Offboard một thành viên (hai pha) — khóa membership, thu hồi session, expire node và pre-auth key
+         * @description §8.2 vòng đời danh tính. Pha 1 (đồng bộ): membership chuyển `offboarded` (trạng thái cuối), rời mọi group (đổi
+         *     thành viên ⇒ `policy.apply` trigger `group_change`), audit `user.offboard.requested`, enqueue job
+         *     `member.offboard`; identity chuyển `disabled` (đăng nhập lại bị từ chối ở callback, bất kể IdP) và mọi session
+         *     Portal bị thu hồi. Pha 2 (job): expire mọi node của Headscale user `mg-<membership_uuid>` và mọi node sổ thiết bị
+         *     còn ghi cho membership này (gồm node đã bị gắn tag sau khi đăng ký), đọc lại; expire mọi pre-auth key còn hiệu
+         *     lực của user đó; với IdP do nền tảng host (driver `keycloak`) vô hiệu user ở IdP và kết thúc phiên IdP (V-23).
+         *     `Membership.offboarding.state` là `pending` tới khi job xác minh xong (`applied`) hoặc kết thúc lỗi (`failed`).
+         *     Idempotent: gọi lại khi đang `pending`/`applied` trả lại đúng job đó; khi `failed` tạo job mới. Quy tắc 3a: Tenant
+         *     Admin không offboard được Owner hay Admin khác (`403`); không offboard Owner hoạt động cuối cùng (`403`).
+         */
+        delete: operations["offboardTenantUser"];
+        options?: never;
+        head?: never;
+        /**
+         * Khóa hoặc mở khóa một thành viên (trạng thái membership)
+         * @description Chỉ đổi `status`: `locked` (khóa truy cập Portal — mọi session của người đó bị thu hồi; node không bị đụng tới, cắt
+         *     mạng là offboard) hoặc `active` (mở khóa). Hồ sơ (tên, email) đến từ IdP ở mỗi lần đăng nhập, không sửa ở đây. Cần
+         *     `If-Match` = `ETag` của `GET /users/{id}` (thiếu ⇒ `428`, lệch ⇒ `412`). Quy tắc role đích 3a (§8.4): role của đích
+         *     phải thấp hơn hẳn role của người gọi trừ khi người gọi là Owner (Tenant Admin không khóa được Owner hay Admin
+         *     khác ⇒ `403`); không khóa Owner hoạt động cuối cùng (`403`). Membership đã offboard ⇒ `409`.
+         */
+        patch: operations["updateTenantUser"];
+        trace?: never;
+    };
+    "/tenants/{tenantId}/users/{membershipId}/role": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Đổi role của một thành viên giữa các role dưới Tenant Admin
+         * @description Role hiện tại và role mới đều phải là `tenant_operator`, `tenant_viewer` hoặc `end_user`; thay đổi chạm Tenant
+         *     Admin (gán, gỡ) hoặc hạ một Owner là `PUT /users/{id}/admin-role` ⇒ `422`; role Owner chỉ qua
+         *     `POST /ownership-transfer` (`422`). Quy tắc 3a (§8.4): role hiện tại và role mới thấp hơn hẳn role của người gọi,
+         *     role mới không có grant nào người gọi không có. Cần `If-Match`. Mọi session của người đó bị thu hồi (đổi quyền —
+         *     §8.3 bước 8).
+         */
+        put: operations["setTenantUserRole"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/users/{membershipId}/admin-role": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Gán hoặc gỡ role Tenant Admin, hạ một Owner (chỉ Owner; step-up)
+         * @description Thay đổi mà role hiện tại hoặc role mới là Tenant Admin, hoặc role hiện tại là Owner (hạ một Owner khác — không
+         *     bao giờ Owner hoạt động cuối cùng). Role mới ∈ `tenant_admin`, `tenant_operator`, `tenant_viewer`, `end_user`;
+         *     thay đổi chỉ giữa các role dưới Admin ⇒ `422` (dùng `PUT /users/{id}/role`). Người gọi phải step-up
+         *     (`auth_time` ≤ 15 phút, nếu không ⇒ `401 reauth_required` — §8.3 bước 7). Cần `If-Match`. Mọi session của người
+         *     đó bị thu hồi.
+         */
+        put: operations["setTenantUserAdminRole"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/users/{membershipId}/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Thu hồi mọi session Portal của một thành viên
+         * @description Mọi session của identity của thành viên kết thúc ngay (§8.3 bước 8); người đó đăng nhập lại được nếu membership và IdP còn cho phép. Quy tắc 3a (§8.4) như khóa.
+         */
+        delete: operations["revokeTenantUserSessions"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/ownership-transfer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cấp/chuyển role Tenant Owner cho một thành viên đang hoạt động (chỉ Owner; step-up)
+         * @description Cách duy nhất để có role Owner ngoài lời mời Owner đầu tiên của orchestrator (§8.4 quy tắc 3a). Người gọi là Owner
+         *     đang hoạt động, step-up (`401 reauth_required` nếu không); đích là thành viên `active` chưa là Owner (`422`). Trong
+         *     cùng transaction người gọi nhận `previous_owner_role` (mặc định `tenant_admin`; `tenant_owner` = giữ Owner — hai
+         *     Owner). Session của cả hai người bị thu hồi.
+         */
+        post: operations["transferTenantOwnership"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Group người dùng của tenant */
+        get: operations["listTenantGroups"];
+        put?: never;
+        /**
+         * Tạo group (chưa có thành viên)
+         * @description Tên render thành `group:<name>` của policy (§7.2): chữ thường, số, gạch nối; trùng tên ⇒ `409`. Group mới chưa có thành viên nên không áp lại policy.
+         */
+        post: operations["createTenantGroup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/groups/{groupId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Một group kèm thành viên */
+        get: operations["getTenantGroup"];
+        put?: never;
+        post?: never;
+        /**
+         * Xóa group
+         * @description Cần `If-Match`. Group còn là owner của network resource ⇒ `409`; group *sensitive* còn thành viên ⇒ `409` (bỏ thành viên phải qua phê duyệt — §7.3). Group có thành viên ⇒ `policy.apply` (trigger `group_change`).
+         */
+        delete: operations["deleteTenantGroup"];
+        options?: never;
+        head?: never;
+        /**
+         * Đổi tên hoặc mô tả group
+         * @description Cần `If-Match`. Đổi tên đổi khóa render của policy ⇒ `policy.apply` (trigger `group_change`) trên version đang là desired (§7.3). Trùng tên ⇒ `409`.
+         */
+        patch: operations["updateTenantGroup"];
+        trace?: never;
+    };
+    "/tenants/{tenantId}/groups/{groupId}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Đặt thành viên của group (group sensitive ⇒ 202 + yêu cầu phê duyệt trong tenant)
+         * @description Thành viên của group trở thành đúng `membership_ids` — thành viên `active` của chính tenant (membership của tenant
+         *     khác, bị khóa hoặc đã offboard ⇒ `422`). Cần `If-Match` = `ETag` của group. Tập thay đổi ⇒ một lần
+         *     `policy.apply` (trigger `group_change`) trên version đang là desired — **không** tạo version mới; job đang chờ
+         *     gộp các thay đổi tiếp theo (§7.2–7.3). Group nằm trong `TenantSettings.policy.sensitive_groups`: không đổi gì,
+         *     trả `202` + yêu cầu phê duyệt phạm vi tenant `tenant.group.set_members` (payload = `group_id` + tập thành viên
+         *     đã sắp xếp, tối đa 200; người gọi phải step-up) — người thứ hai có `tenant.approval:decide` và
+         *     `tenant.group:manage` duyệt ở `Location` (§8.6), tập thành viên được áp đúng như đã duyệt.
+         */
+        put: operations["setTenantGroupMembers"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1734,16 +1917,101 @@ export interface components {
             email?: string;
             /** @description Khóa role phạm vi tenant (`roles.key`, seed ở P2-T07) */
             role: string;
-            /** @description Trạng thái membership (đang hoạt động, bị khóa, đã offboard) */
+            /** @description Trạng thái membership (CHECK của 0024 — P4-T09): `active`; `locked` (khóa Portal, mở lại được); `offboarded` (cuối — node và pre-auth key bị expire, identity bị vô hiệu) */
             status: string;
             /** @description Headscale user tương ứng — `mg-<membership_uuid>` */
             headscale_username: string;
             /** Format: int64 */
             version: number;
+            offboarding?: components["schemas"]["MembershipOffboarding"];
         };
         MembershipList: {
             items: components["schemas"]["Membership"][];
             next_cursor: string | null;
+        };
+        /** @description Trạng thái hai pha của offboard (T-17): job `member.offboard` mới nhất của membership — `pending` tới khi job đọc lại node/key/IdP, `applied` khi xong, `failed` khi kết thúc lỗi (`DELETE` lại ⇒ job mới) */
+        MembershipOffboarding: {
+            /** @enum {string} */
+            state: "pending" | "applied" | "failed";
+            /** Format: uuid */
+            job_id: string;
+        };
+        MembershipUpdate: {
+            /**
+             * @description `locked` khóa (thu hồi mọi session), `active` mở khóa
+             * @enum {string}
+             */
+            status: "active" | "locked";
+        };
+        MembershipRoleUpdate: {
+            /**
+             * @description Role mới — chỉ các role dưới Tenant Admin
+             * @enum {string}
+             */
+            role: "tenant_operator" | "tenant_viewer" | "end_user";
+        };
+        MembershipAdminRoleUpdate: {
+            /**
+             * @description Role mới (gán `tenant_admin`, hoặc gỡ Admin / hạ Owner xuống role thấp hơn)
+             * @enum {string}
+             */
+            role: "tenant_admin" | "tenant_operator" | "tenant_viewer" | "end_user";
+        };
+        OwnershipTransfer: {
+            /**
+             * Format: uuid
+             * @description Thành viên `active` nhận role Owner
+             */
+            membership_id: string;
+            /**
+             * @description Role người gọi giữ sau khi chuyển (mặc định `tenant_admin`; `tenant_owner` = giữ Owner)
+             * @enum {string}
+             */
+            previous_owner_role?: "tenant_owner" | "tenant_admin";
+        };
+        GroupMember: {
+            /** Format: uuid */
+            membership_id: string;
+            display_name: string;
+            email?: string;
+            role: string;
+            status: string;
+        };
+        /** @description Group người dùng (`groups`, render thành `group:<name>` của policy — §7.2); `sensitive` đọc từ `TenantSettings.policy.sensitive_groups` (§13.3): đổi thành viên cần phê duyệt trong tenant */
+        Group: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            description?: string;
+            /** @enum {string} */
+            source: "portal" | "idp";
+            sensitive: boolean;
+            member_count: number;
+            /** @description Chỉ ở `GET /groups/{id}` và response của thao tác ghi */
+            members?: components["schemas"]["GroupMember"][];
+            /** Format: int64 */
+            version: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        GroupList: {
+            items: components["schemas"]["Group"][];
+            next_cursor: string | null;
+        };
+        GroupCreate: {
+            name: string;
+            description?: string;
+        };
+        GroupUpdate: {
+            name?: string;
+            /** @description Chuỗi rỗng xóa mô tả */
+            description?: string;
+        };
+        GroupMembersUpdate: {
+            /** @description Tập thành viên mới (rỗng = bỏ mọi thành viên) */
+            membership_ids: string[];
         };
         /** @enum {string} */
         AuditOutcome: "success" | "denied" | "failure";
@@ -2618,6 +2886,7 @@ export interface components {
         /** @description ID thông báo (`notification_outbox.id`) gửi cho chính người gọi */
         NotificationId: string;
         MembershipId: string;
+        GroupId: string;
         JobId: string;
         InstanceId: string;
         HostId: string;
@@ -2666,6 +2935,8 @@ export interface components {
         JobLocation: string;
         /** @description Yêu cầu phê duyệt của thao tác 2P — `/api/v1/platform/approvals/{approvalId}` (§8.6) */
         ApprovalLocation: string;
+        /** @description Yêu cầu phê duyệt phạm vi tenant — `/api/v1/tenants/{tenantId}/approvals/{approvalId}` (§8.6) */
+        TenantApprovalLocation: string;
         /** @description URL chuyển hướng */
         RedirectLocation: string;
         /** @description Cookie `__Host-` với `Secure; HttpOnly; SameSite=Lax; Path=/` */
@@ -3275,6 +3546,449 @@ export interface operations {
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    offboardTenantUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+                membershipId: components["parameters"]["MembershipId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Đã nhận; thành viên kèm trạng thái offboard hiện tại */
+            202: {
+                headers: {
+                    Location: components["headers"]["JobLocation"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Membership"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    updateTenantUser: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428` */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+                membershipId: components["parameters"]["MembershipId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MembershipUpdate"];
+            };
+        };
+        responses: {
+            /** @description Thành viên sau khi đổi */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Membership"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["ValidationFailed"];
+            428: components["responses"]["PreconditionRequired"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    setTenantUserRole: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428` */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+                membershipId: components["parameters"]["MembershipId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MembershipRoleUpdate"];
+            };
+        };
+        responses: {
+            /** @description Thành viên sau khi đổi role */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Membership"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["ValidationFailed"];
+            428: components["responses"]["PreconditionRequired"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    setTenantUserAdminRole: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428` */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+                membershipId: components["parameters"]["MembershipId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MembershipAdminRoleUpdate"];
+            };
+        };
+        responses: {
+            /** @description Thành viên sau khi đổi role */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Membership"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["ValidationFailed"];
+            428: components["responses"]["PreconditionRequired"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    revokeTenantUserSessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+                membershipId: components["parameters"]["MembershipId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Đã thu hồi */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    transferTenantOwnership: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OwnershipTransfer"];
+            };
+        };
+        responses: {
+            /** @description Owner mới */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Membership"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    listTenantGroups: {
+        parameters: {
+            query?: {
+                /** @description Số phần tử tối đa của trang */
+                limit?: components["parameters"]["Limit"];
+                /** @description Con trỏ mờ lấy từ `next_cursor` của trang trước */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Tìm theo tên group */
+                q?: string;
+            };
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Một trang group (không kèm danh sách thành viên) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupList"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    createTenantGroup: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GroupCreate"];
+            };
+        };
+        responses: {
+            /** @description Group đã tạo */
+            201: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Group"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    getTenantGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+                groupId: components["parameters"]["GroupId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Group */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Group"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    deleteTenantGroup: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428` */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+                groupId: components["parameters"]["GroupId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Đã xóa */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["ValidationFailed"];
+            428: components["responses"]["PreconditionRequired"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    updateTenantGroup: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428` */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+                groupId: components["parameters"]["GroupId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GroupUpdate"];
+            };
+        };
+        responses: {
+            /** @description Group sau khi sửa */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Group"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["ValidationFailed"];
+            428: components["responses"]["PreconditionRequired"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    setTenantGroupMembers: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428` */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+                groupId: components["parameters"]["GroupId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GroupMembersUpdate"];
+            };
+        };
+        responses: {
+            /** @description Group sau khi đổi thành viên */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Group"];
+                };
+            };
+            /** @description Group sensitive — yêu cầu phê duyệt đã tạo, người thứ hai duyệt ở `Location` */
+            202: {
+                headers: {
+                    Location: components["headers"]["TenantApprovalLocation"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalRequest"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["ValidationFailed"];
+            428: components["responses"]["PreconditionRequired"];
             429: components["responses"]["RateLimited"];
             default: components["responses"]["Unexpected"];
         };

@@ -36,9 +36,6 @@ const (
 	ActionTagUpdate = "tag.update"
 	ActionTagDelete = "tag.delete"
 
-	// JobKindApply is the level-triggered job that applies the policy the tenant should run (§13.5).
-	JobKindApply = "policy.apply"
-
 	resourceTag        = "tag"
 	createTagOperation = "createTenantTag"
 	tagIdempotencyLock = 30 * time.Second
@@ -334,7 +331,7 @@ func enqueueApply(ctx context.Context, tx *store.Tx, tenantID uuid.UUID, actor T
 		id := actor.IdentityID
 		by = &id
 	}
-	e, err := jobs.Enqueue(ctx, tx, jobs.Spec{Kind: JobKindApply, TenantID: &tenantID,
+	e, err := jobs.Enqueue(ctx, tx, jobs.Spec{Kind: KindApply, TenantID: &tenantID,
 		Input: ApplyJobInput{Trigger: TriggerTagChange}, RequestedBy: by})
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("policies: enqueue policy.apply: %w", err)

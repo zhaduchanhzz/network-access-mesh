@@ -27,21 +27,23 @@ const (
 // Triggers of policy_applications.trigger the core accepts. tag_change comes with the tag catalog (P4-T15); the
 // group and resource changes are accepted for the policy.apply job of their modules (P4-T09, P4-T12).
 const (
-	TriggerBootstrap      = "bootstrap"
-	TriggerManual         = "manual"
-	TriggerSuspend        = "suspend"
-	TriggerResume         = "resume"
-	TriggerRestore        = "restore"
-	TriggerDriftRepair    = "drift_repair"
-	TriggerRollback       = "rollback"
-	TriggerTagChange      = "tag_change"
+	TriggerBootstrap   = "bootstrap"
+	TriggerManual      = "manual"
+	TriggerSuspend     = "suspend"
+	TriggerResume      = "resume"
+	TriggerRestore     = "restore"
+	TriggerDriftRepair = "drift_repair"
+	TriggerRollback    = "rollback"
+	// TriggerGroupChange, TriggerResourceChange, TriggerTagChange: a change of the tables rendered at apply time
+	// (§7.3) re-applies the desired version through the policy.apply job (P4-T09: groups; P4-T12/T15 the others).
 	TriggerGroupChange    = "group_change"
 	TriggerResourceChange = "resource_change"
+	TriggerTagChange      = "tag_change"
 )
 
 var coreTriggers = map[string]bool{TriggerBootstrap: true, TriggerManual: true, TriggerSuspend: true,
-	TriggerResume: true, TriggerRestore: true, TriggerDriftRepair: true, TriggerRollback: true, TriggerTagChange: true,
-	TriggerGroupChange: true, TriggerResourceChange: true}
+	TriggerResume: true, TriggerRestore: true, TriggerDriftRepair: true, TriggerRollback: true,
+	TriggerGroupChange: true, TriggerResourceChange: true, TriggerTagChange: true}
 
 // Application states (policy_applications.state).
 const (

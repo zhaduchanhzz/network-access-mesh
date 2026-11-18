@@ -154,6 +154,12 @@ func DefaultKinds() map[string]Kind {
 		other("inventory.sync", "instance:{instance}:sync:{slot}", ScopeInstance, QueueDefault, 3, 5*time.Minute),
 		other("device.revoke", "device:{object}:revoke", ScopeTenant, QueueDefault, 8, 2*time.Minute),
 		other("policy.apply", "tenant:{tenant}:policy.apply", ScopeTenant, QueueDefault, 6, 5*time.Minute),
+		// P4-T09 (internal/members): the second phase of DELETE /users/{id} — expire every node and pre-auth key of the
+		// member's Headscale user, disable the user at the platform-hosted IdP (§8.2, V-23); {object} = the membership id
+		other("member.offboard", "membership:{object}:offboard", ScopeTenant, QueueDefault, 8, 5*time.Minute),
+		// P4-T09: an invitation of a tenant whose IdP the platform hosts creates the user there (required actions e-mailed
+		// by the IdP — §8.2 InviteUser); {object} = the invitation id
+		other("member.idp_invite", "invitation:{object}:idp_invite", ScopeTenant, QueueDefault, 6, 2*time.Minute),
 		other("policy.drift_check", "tenant:{tenant}:policy.drift:{slot}", ScopeTenant, QueueDefault, 3, 2*time.Minute),
 		other("instance.reconcile", "instance:{instance}:reconcile:{slot}", ScopeInstance, QueueDefault, 3, 5*time.Minute),
 		other("host.reconcile", "host.reconcile:{slot}", ScopePlatform, QueueDefault, 3, 5*time.Minute),
