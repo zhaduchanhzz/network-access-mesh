@@ -78,7 +78,7 @@ type Retention struct {
 func DefaultConfig() Config {
 	return Config{
 		Kinds:                DefaultKinds(),
-		Queues:               map[string]int{QueueLifecycle: 4, QueueDefault: 8, QueueMaintenance: 2},
+		Queues:               map[string]int{QueueLifecycle: 4, QueueDefault: 8, QueueMaintenance: 2, QueueUrgent: 2},
 		JobTimeout:           5 * time.Minute,
 		RescueStuckJobsAfter: LifecycleWorkerTimeout,
 		SoftStopTimeout:      30 * time.Second,

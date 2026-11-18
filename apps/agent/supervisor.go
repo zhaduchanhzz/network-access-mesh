@@ -23,7 +23,7 @@ const cycleTimeout = 5 * time.Minute
 // superviseEdge is the edge supervisor of §11.4, a loop inside the agent: a cycle when the agent starts, every
 // interval (30 s), and at once when the edge container starts (recreated by an upgrade, a reboot…). Each cycle runs the
 // start guard of every activated instance and attaches the edge to the networks of the instances flagged
-// edge_attach — only those (compose.Driver.EdgeCycle). It needs Docker and the local files only: it keeps working
+// edge_attach — only those, never a quarantined one, which is contained again instead (compose.Driver.EdgeCycle). It needs Docker and the local files only: it keeps working
 // while PostgreSQL and the worker are down. An instance whose lock is held by an operation is left to the next cycle.
 func (s *server) superviseEdge(ctx context.Context, sup edgeSupervisor, interval time.Duration) {
 	tick := time.NewTicker(interval)
@@ -80,13 +80,14 @@ func (s *server) edgeCycle(ctx context.Context, sup edgeSupervisor, last *compos
 	level := slog.LevelDebug
 	if last == nil || len(rep.NewlyAttached)+len(rep.Detached)+len(rep.Contained) > 0 || rep.EdgeID != last.EdgeID ||
 		rep.Instances != last.Instances || rep.Flagged != last.Flagged || rep.Attached != last.Attached ||
-		!slices.Equal(rep.Unflagged, last.Unflagged) || !slices.Equal(rep.Failed, last.Failed) {
+		!slices.Equal(rep.Unflagged, last.Unflagged) || !slices.Equal(rep.Failed, last.Failed) ||
+		!slices.Equal(rep.Quarantined, last.Quarantined) {
 		level = slog.LevelInfo
 	}
 	s.log.Log(ctx, level, "edge_supervisor_cycle", "edge", s.edge, "edge_id", short(rep.EdgeID), "edge_present", rep.EdgeID != "",
 		"instances", rep.Instances, "flagged", rep.Flagged, "attached", rep.Attached, "newly_attached", rep.NewlyAttached,
 		"detached", rep.Detached, "contained", rep.Contained, "busy", rep.Busy, "attached_unflagged", rep.Unflagged,
-		"failed", rep.Failed, "gateway_drift", rep.GatewayDrift, "duration_ms", time.Since(start).Milliseconds())
+		"failed", rep.Failed, "quarantined", rep.Quarantined, "gateway_drift", rep.GatewayDrift, "duration_ms", time.Since(start).Milliseconds())
 	return &rep
 }
 

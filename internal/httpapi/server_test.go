@@ -63,6 +63,9 @@ var operations = []struct {
 	// instance.restart, instance.upgrade (P3-T13a)
 	{http.MethodPost, "/api/v1/platform/instances/" + itemID + "/restart", "", "RestartPlatformInstance", []func(*http.Request){idempotency}},
 	{http.MethodPost, "/api/v1/platform/instances/" + itemID + "/upgrade", `{"image_digest":"sha256:` + strings.Repeat("e", 64) + `"}`, "UpgradePlatformInstance", []func(*http.Request){idempotency}},
+	// quarantine / release (P3-T18)
+	{http.MethodPost, "/api/v1/platform/instances/" + itemID + "/quarantine", `{"reason":"suspected compromise"}`, "QuarantinePlatformInstance", []func(*http.Request){idempotency}},
+	{http.MethodPost, "/api/v1/platform/instances/" + itemID + "/release", `{"reason":"investigation closed"}`, "ReleasePlatformInstance", []func(*http.Request){idempotency}},
 	// platform hosts (P3-T04)
 	{http.MethodGet, "/api/v1/platform/hosts?status=active", "", "ListPlatformHosts", nil},
 	{http.MethodPost, "/api/v1/platform/hosts", `{"name":"h1","region":"lab","run_uid_range":{"first":30000,"last":39999},"tenant_net_pool":"10.250.0.0/16"}`, "CreatePlatformHost", []func(*http.Request){idempotency}},

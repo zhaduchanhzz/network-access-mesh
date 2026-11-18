@@ -64,6 +64,8 @@ const (
 	AgentService_PostRestoreReconcile_FullMethodName = "/meshguard.agent.v1.AgentService/PostRestoreReconcile"
 	AgentService_EnsureEdgeAttachment_FullMethodName = "/meshguard.agent.v1.AgentService/EnsureEdgeAttachment"
 	AgentService_RemoveEdgeAttachment_FullMethodName = "/meshguard.agent.v1.AgentService/RemoveEdgeAttachment"
+	AgentService_QuarantineInstance_FullMethodName   = "/meshguard.agent.v1.AgentService/QuarantineInstance"
+	AgentService_ReleaseInstance_FullMethodName      = "/meshguard.agent.v1.AgentService/ReleaseInstance"
 )
 
 // AgentServiceClient is the client API for AgentService service.
@@ -130,6 +132,17 @@ type AgentServiceClient interface {
 	// RemoveEdgeAttachment clears the edge_attach flag, then detaches the edge (§11.4). With
 	// EDGE_DETACH_REASON_COMPENSATION it also removes meta/activated when the same job_id wrote it (§11.3 step 14).
 	RemoveEdgeAttachment(ctx context.Context, in *RemoveEdgeAttachmentRequest, opts ...grpc.CallOption) (*RemoveEdgeAttachmentResponse, error)
+	// QuarantineInstance isolates an instance suspected of compromise (§11.4 Quarantine, P3-T18), under the per-instance
+	// lock: meta/quarantined is written FIRST, then the edge_attach flag is cleared, the container stopped without grace
+	// period (its connections with the edge close) and the edge detached; data/ and the container (its logs) are kept.
+	// Idempotent. While meta/quarantined exists every call that could make the instance serve or change it is refused
+	// (REFUSAL_REASON_STATE) and the edge supervisor keeps it stopped and detached — only ReleaseInstance lifts it.
+	QuarantineInstance(ctx context.Context, in *QuarantineInstanceRequest, opts ...grpc.CallOption) (*QuarantineInstanceResponse, error)
+	// ReleaseInstance (§11.4, only run by the instance.release job of an approved 2P request) starts the container
+	// through the start guard, waits until it is healthy, checks that it serves a policy whose sha256 is
+	// expected_policy_sha256 (the applied policy), and only then removes meta/quarantined; any failure stops the
+	// container again and keeps meta/quarantined. The edge is NOT attached here (EnsureEdgeAttachment afterwards).
+	ReleaseInstance(ctx context.Context, in *ReleaseInstanceRequest, opts ...grpc.CallOption) (*ReleaseInstanceResponse, error)
 }
 
 type agentServiceClient struct {
@@ -350,6 +363,26 @@ func (c *agentServiceClient) RemoveEdgeAttachment(ctx context.Context, in *Remov
 	return out, nil
 }
 
+func (c *agentServiceClient) QuarantineInstance(ctx context.Context, in *QuarantineInstanceRequest, opts ...grpc.CallOption) (*QuarantineInstanceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(QuarantineInstanceResponse)
+	err := c.cc.Invoke(ctx, AgentService_QuarantineInstance_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentServiceClient) ReleaseInstance(ctx context.Context, in *ReleaseInstanceRequest, opts ...grpc.CallOption) (*ReleaseInstanceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReleaseInstanceResponse)
+	err := c.cc.Invoke(ctx, AgentService_ReleaseInstance_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AgentServiceServer is the server API for AgentService service.
 // All implementations must embed UnimplementedAgentServiceServer
 // for forward compatibility.
@@ -414,6 +447,17 @@ type AgentServiceServer interface {
 	// RemoveEdgeAttachment clears the edge_attach flag, then detaches the edge (§11.4). With
 	// EDGE_DETACH_REASON_COMPENSATION it also removes meta/activated when the same job_id wrote it (§11.3 step 14).
 	RemoveEdgeAttachment(context.Context, *RemoveEdgeAttachmentRequest) (*RemoveEdgeAttachmentResponse, error)
+	// QuarantineInstance isolates an instance suspected of compromise (§11.4 Quarantine, P3-T18), under the per-instance
+	// lock: meta/quarantined is written FIRST, then the edge_attach flag is cleared, the container stopped without grace
+	// period (its connections with the edge close) and the edge detached; data/ and the container (its logs) are kept.
+	// Idempotent. While meta/quarantined exists every call that could make the instance serve or change it is refused
+	// (REFUSAL_REASON_STATE) and the edge supervisor keeps it stopped and detached — only ReleaseInstance lifts it.
+	QuarantineInstance(context.Context, *QuarantineInstanceRequest) (*QuarantineInstanceResponse, error)
+	// ReleaseInstance (§11.4, only run by the instance.release job of an approved 2P request) starts the container
+	// through the start guard, waits until it is healthy, checks that it serves a policy whose sha256 is
+	// expected_policy_sha256 (the applied policy), and only then removes meta/quarantined; any failure stops the
+	// container again and keeps meta/quarantined. The edge is NOT attached here (EnsureEdgeAttachment afterwards).
+	ReleaseInstance(context.Context, *ReleaseInstanceRequest) (*ReleaseInstanceResponse, error)
 	mustEmbedUnimplementedAgentServiceServer()
 }
 
@@ -486,6 +530,12 @@ func (UnimplementedAgentServiceServer) EnsureEdgeAttachment(context.Context, *En
 }
 func (UnimplementedAgentServiceServer) RemoveEdgeAttachment(context.Context, *RemoveEdgeAttachmentRequest) (*RemoveEdgeAttachmentResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RemoveEdgeAttachment not implemented")
+}
+func (UnimplementedAgentServiceServer) QuarantineInstance(context.Context, *QuarantineInstanceRequest) (*QuarantineInstanceResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method QuarantineInstance not implemented")
+}
+func (UnimplementedAgentServiceServer) ReleaseInstance(context.Context, *ReleaseInstanceRequest) (*ReleaseInstanceResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReleaseInstance not implemented")
 }
 func (UnimplementedAgentServiceServer) mustEmbedUnimplementedAgentServiceServer() {}
 func (UnimplementedAgentServiceServer) testEmbeddedByValue()                      {}
@@ -886,6 +936,42 @@ func _AgentService_RemoveEdgeAttachment_Handler(srv interface{}, ctx context.Con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AgentService_QuarantineInstance_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(QuarantineInstanceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).QuarantineInstance(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_QuarantineInstance_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).QuarantineInstance(ctx, req.(*QuarantineInstanceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_ReleaseInstance_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReleaseInstanceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).ReleaseInstance(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_ReleaseInstance_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).ReleaseInstance(ctx, req.(*ReleaseInstanceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AgentService_ServiceDesc is the grpc.ServiceDesc for AgentService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -976,6 +1062,14 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RemoveEdgeAttachment",
 			Handler:    _AgentService_RemoveEdgeAttachment_Handler,
+		},
+		{
+			MethodName: "QuarantineInstance",
+			Handler:    _AgentService_QuarantineInstance_Handler,
+		},
+		{
+			MethodName: "ReleaseInstance",
+			Handler:    _AgentService_ReleaseInstance_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

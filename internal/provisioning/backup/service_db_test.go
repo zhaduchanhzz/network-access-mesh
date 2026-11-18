@@ -43,8 +43,10 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/backup"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/backupfmt"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/quarantine"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/secrets"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/store/sqlcdb"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store/storetest"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/tenants"
 )
@@ -832,5 +834,80 @@ func TestBackupAPI(t *testing.T) {
 		if (c.want == 0) != (err == nil) || (err != nil && kindOf(err) != c.want) {
 			t.Errorf("%s: %v", name, err)
 		}
+	}
+}
+
+// TestQuarantinedInstance — §11.4 Quarantine × §17.1–§17.2 (P3-T18 on top of P3-T11): a quarantined instance is never
+// scheduled for a backup; an API backup and a restore are refused (409 instance_quarantined) at the request and again
+// at the approval's execution; a backup job already queued when the quarantine came is skipped without a call to the
+// agent. A restore of a quarantined instance goes through its release (2P) first — never around it.
+func TestQuarantinedInstance(t *testing.T) {
+	f := newFix(t)
+	ctx := context.Background()
+	refused := func(what string, err error) {
+		t.Helper()
+		e, ok := backup.AsError(err)
+		if !ok || e.Kind != backup.ErrState || e.Reason != "instance_quarantined" {
+			t.Fatalf("%s: %v, want the state refusal instance_quarantined", what, err)
+		}
+	}
+	// the api process's service (its own pools, no agent — apps/internal/runner/api.go)
+	api := backup.New(f.pg.OpenStore(t, f.db, "mg_api_tenant", "mg_api_platform", 4), backup.Config{Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	calls := func() (backups, restores int) {
+		f.agent.mu.Lock()
+		defer f.agent.mu.Unlock()
+		return len(f.agent.backups), len(f.agent.restores)
+	}
+	quarantined := func(want bool) {
+		t.Helper()
+		var got bool
+		if err := f.st.WithPlatformTx(ctx, func(q *sqlcdb.Queries) error {
+			var err error
+			got, err = quarantine.IsQuarantined(ctx, q, f.instance)
+			return err
+		}); err != nil || got != want {
+			t.Fatalf("quarantine.IsQuarantined = %v %v, want %v", got, err, want)
+		}
+	}
+	// a backup requested over the API (queued: no worker yet), then the instance quarantined
+	if _, created, err := api.RequestBackup(ctx, uuid.New(), f.instance, nil); err != nil || !created {
+		t.Fatalf("API backup: %v %v", created, err)
+	}
+	f.exec(`UPDATE tenant_instances SET status = 'quarantined' WHERE id = $1`, f.instance)
+	quarantined(true)
+	f.worker()
+	if st, code, out := f.wait(backup.KindBackup); st != "succeeded" ||
+		!strings.Contains(strings.ReplaceAll(out, " ", ""), `"skipped":"instance_quarantined"`) {
+		t.Fatalf("queued backup of a quarantined instance: %s %s %s", st, code, out)
+	}
+	if b, _ := calls(); b != 0 {
+		t.Fatalf("the agent was asked to back up a quarantined instance: %d calls", b)
+	}
+	// the schedule skips it (due: no backup at all yet); the API refuses it
+	if n, err := f.svc.NewScheduler(time.Minute).Tick(ctx, time.Now()); err != nil || n != 0 {
+		t.Fatalf("schedule of a quarantined instance: %d jobs %v", n, err)
+	}
+	_, _, err := api.RequestBackup(ctx, uuid.New(), f.instance, nil)
+	refused("API backup", err)
+	// a succeeded backup taken while it served; quarantined again: the restore is refused at both checks
+	f.exec(`DELETE FROM provisioning_jobs WHERE kind = 'instance.backup'`)
+	f.exec(`UPDATE tenant_instances SET status = 'running' WHERE id = $1`, f.instance)
+	quarantined(false)
+	id := f.backupNow()
+	f.exec(`UPDATE tenant_instances SET status = 'quarantined' WHERE id = $1`, f.instance)
+	f.exec(`UPDATE backups SET started_at = now() - interval '3 days'`) // due again
+	if n, err := f.svc.NewScheduler(time.Minute).Tick(ctx, time.Now()); err != nil || n != 0 {
+		t.Fatalf("schedule of a quarantined instance (due): %d jobs %v", n, err)
+	}
+	p := backup.RestorePayload{BackupID: id, InstanceID: f.instance}
+	refused("restore request", api.CheckRestore(ctx, p))
+	_, err = f.enqueueRestore(p)
+	refused("restore approval executed", err)
+	b, r := calls()
+	if n := f.count(`SELECT count(*) FROM provisioning_jobs WHERE kind = 'instance.restore'`); n != 0 || r != 0 {
+		t.Fatalf("restore jobs %d, agent restores %d", n, r)
+	}
+	if b != 1 {
+		t.Fatalf("agent backups %d, want only the one taken while serving", b)
 	}
 }

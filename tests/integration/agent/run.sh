@@ -49,6 +49,11 @@
 #                               byte giữa lúc dừng và lúc start lại; nâng bản vá → chính thức thành công; lỗi sau khi đổi
 #                               image (contract smoke) ⇒ tự lùi bằng restore cold backup; restart với policy bị đổi ngoài
 #                               luồng ⇒ áp lại; db.sqlite bị thay bằng DB trống ⇒ edge bị gỡ + Critical.
+#   TestQuarantineReleaseEndToEnd (P3-T18, apps/agent/quarantine_integration_test.go) edge Caddy thật ([images.caddy],
+#                               site tenant của infrastructure/caddy/Caddyfile.tmpl render ở đây, HTTP :8080): quarantine
+#                               ⇒ hostname trả 404 như tenant không tồn tại, container dừng, data/ không đổi; supervisor,
+#                               start/restart/compose up/attach và bỏ qua agent bằng tay không làm nó phục vụ lại; release
+#                               ⇒ start guard + healthy + policy đúng, gắn edge, post-start gate qua API, /key 200.
 # Fingerprint Noise key do container trợ giúp tính bằng chính image agent (MG_IT_HELPER_IMAGE = image id).
 # AGENTIT_RUN=<regex> chỉ chạy một phần các test (phát triển; PASS của bộ đầy đủ cần mọi test).
 # Script chụp `docker ps -a`, `docker network ls` và cây thư mục gốc TRƯỚC và SAU — phải trùng nhau.
@@ -82,7 +87,8 @@ img = tomllib.load(open(sys.argv[1], "rb"))["images"].get(sys.argv[2], {})
 print(f"{img['image']}@{img['index']}" if re.fullmatch(r"sha256:[0-9a-f]{64}", str(img.get("index", ""))) else "")
 PY
 }
-GO_IMAGE=$(lock golang); HS_IMAGE=$(lock mg-headscale); ALPINE_IMAGE=$(lock alpine); OFFICIAL_IMAGE=$(lock headscale)
+GO_IMAGE=$(lock golang); HS_IMAGE=$(lock mg-headscale); ALPINE_IMAGE=$(lock alpine); CADDY_IMAGE=$(lock caddy)
+OFFICIAL_IMAGE=$(lock headscale)
 [ -n "$HS_IMAGE" ] || { echo "[images.mg-headscale] chưa pin trong versions.lock"; exit 1; }
 [ -n "$OFFICIAL_IMAGE" ] || { echo "[images.headscale] chưa pin trong versions.lock"; exit 1; }
 
@@ -141,8 +147,8 @@ built_image=""
 cleanup() {
   d rm -f "$P-run" >/dev/null 2>&1 || true
   # leftovers of a failed run (the tests remove their own objects): only names derived from the prefix
-  for c in $(d ps -a --format '{{.Names}}' | grep -E "^(mg-hs-$P-|mg-helper-$P-|$P-edge\$|$P-impostor\$)" || true); do d rm -f "$c" >/dev/null 2>&1 || true; done
-  for n in $(d network ls --format '{{.Name}}' | grep -E "^(mg-t-$P-|$P-edgenet\$|$P-alias\$)" || true); do d network rm "$n" >/dev/null 2>&1 || true; done
+  for c in $(d ps -a --format '{{.Names}}' | grep -E "^(mg-hs-$P-|mg-helper-$P-|$P-edge\$|$P-cedge\$|$P-impostor\$)" || true); do d rm -f "$c" >/dev/null 2>&1 || true; done
+  for n in $(d network ls --format '{{.Name}}' | grep -E "^(mg-t-$P-|$P-edgenet\$|$P-cedgenet\$|$P-alias\$)" || true); do d network rm "$n" >/dev/null 2>&1 || true; done
   # files of the test root belong to root (run_uid) — removed through a pinned alpine container
   d run --rm --network none -v "$IT_ROOT:/r" "$ALPINE_IMAGE" sh -c 'rm -rf /r/* /r/.[!.]*' >/dev/null 2>&1 || true
   rmdir "$IT_ROOT" 2>/dev/null || true
@@ -167,6 +173,24 @@ if [ -z "$IMAGE" ]; then
 fi
 HELPER_IMAGE=$(d image inspect -f '{{.Id}}' "$IMAGE")   # the fingerprint helper runs the agent's own image (pinned by id)
 d image inspect "$ALPINE_IMAGE" >/dev/null 2>&1 || d pull -q "$ALPINE_IMAGE" >/dev/null   # the fake edge (before the snapshot)
+d image inspect "$CADDY_IMAGE" >/dev/null 2>&1 || d pull -q "$CADDY_IMAGE" >/dev/null     # the Caddy edge of P3-T18
+# the tenant site block of the production edge template (P3-T18): allow-list, upstream hs-<label>.:8080, 502/503/504 ⇒ 404;
+# plain HTTP on :8080 for mesh.agentit.test — the template's TLS, access log and listener binding are left out
+mkdir -p "$WORK/edge"
+python3 - "$ROOT/infrastructure/caddy/Caddyfile.tmpl" "$WORK/edge/Caddyfile" <<'PY'
+import string, sys
+t = open(sys.argv[1], encoding="utf-8").read()
+start = t.index("*.${mesh_domain}${tunnel_tls_site} {")
+end = t.index("\n}\n", start) + 3
+mesh = "mesh.agentit.test"
+block = string.Template(t[start:end]).substitute(mesh_domain=mesh, mesh_domain_re=mesh.replace(".", "\\."),
+    tunnel_tls_site="", tunnel_guard="", public_entry_ipv4="192.0.2.10")
+lines = [ln for ln in block.splitlines() if ln.strip() not in ("import access_log", "import tls_acme")]
+lines[0] = "http://*." + mesh + ":8080 {"
+head = "{\n\tadmin off\n\tpersist_config off\n\tauto_https off\n\tservers {\n\t\tprotocols h1 h2\n\t}\n}\n\n"
+open(sys.argv[2], "w", encoding="utf-8").write(head + "\n".join(lines) + "\n")
+PY
+chmod 0755 "$WORK" "$WORK/edge"; chmod 0644 "$WORK/edge/Caddyfile"
 log "build binary test (go test -c -tags dockerintegration ./apps/agent) trong $GO_IMAGE"
 mkdir -p "$WORK/bin"
 d volume create "$P-gomod" >/dev/null
@@ -183,13 +207,14 @@ d run --name "$P-run" --network none --read-only --tmpfs /tmp:size=64m,mode=1777
   -v /var/run/docker.sock:/var/run/docker.sock -v "$IT_ROOT:$IT_ROOT" -v "$WORK/bin/agent.test:/it/agent.test:ro" \
   -e MG_IT_ROOT="$IT_ROOT" -e MG_IT_IMAGE="$HS_IMAGE" -e MG_IT_PREFIX="$P" -e MG_IT_POOL="$POOL" -e MG_IT_NET="$NET" \
   -e MG_IT_HELPER_IMAGE="$HELPER_IMAGE" -e MG_IT_ALPINE="$ALPINE_IMAGE" -e MG_IT_V12_ROUNDS="${MG_IT_V12_ROUNDS:-3}" \
+  -e MG_IT_CADDY="$CADDY_IMAGE" -e MG_IT_EDGE_CADDYFILE="$WORK/edge/Caddyfile" -v "$WORK/edge:$WORK/edge:ro" \
   -e MG_IT_IMAGE_OFFICIAL="$OFFICIAL_IMAGE" \
   --entrypoint /it/agent.test "$IMAGE" -test.v -test.count=1 -test.timeout=60m \
-  -test.run "${AGENTIT_RUN:-^(TestComposeDriverEndToEnd|TestAgentOperationsEndToEnd|TestReconcileReportsForeignObjectsUntouched|TestReconfigureEndToEnd|TestBackupRestoreEndToEnd|TestUpgradeEndToEnd)\$}" \
+  -test.run "${AGENTIT_RUN:-^(TestComposeDriverEndToEnd|TestAgentOperationsEndToEnd|TestReconcileReportsForeignObjectsUntouched|TestReconfigureEndToEnd|TestBackupRestoreEndToEnd|TestQuarantineReleaseEndToEnd|TestUpgradeEndToEnd)\$}" \
   > "$OUT/agentit.log" 2>&1 || rc=$?
 d rm -f "$P-run" >/dev/null 2>&1 || true
 snapshot > "$OUT/after.txt"
-grep -E '^(=== RUN|--- (PASS|FAIL)|PASS|FAIL|ok)|(integration(_ops|_backup)?|reconfigure_integration|upgrade_integration)_test.go:' "$OUT/agentit.log" | grep -v '=== RUN' || true
+grep -E '^(=== RUN|--- (PASS|FAIL)|PASS|FAIL|ok)|(integration(_ops|_backup)?|reconfigure_integration|quarantine_integration|upgrade_integration)_test.go:' "$OUT/agentit.log" | grep -v '=== RUN' || true
 if ! diff -u "$OUT/before.txt" "$OUT/after.txt" > "$OUT/snapshot.diff"; then
   log "SNAPSHOT KHÁC (docker ps -a / network ls / thư mục gốc trước và sau):"; cat "$OUT/snapshot.diff"; rc=1
 else
@@ -197,7 +222,8 @@ else
 fi
 if [ "$rc" = 0 ] && grep -q '^--- PASS: TestComposeDriverEndToEnd' "$OUT/agentit.log" && grep -q '^--- PASS: TestAgentOperationsEndToEnd' "$OUT/agentit.log" \
   && grep -q '^--- PASS: TestReconcileReportsForeignObjectsUntouched' "$OUT/agentit.log" && grep -q '^--- PASS: TestReconfigureEndToEnd' "$OUT/agentit.log" \
-  && grep -q '^--- PASS: TestBackupRestoreEndToEnd' "$OUT/agentit.log" && grep -q '^--- PASS: TestUpgradeEndToEnd' "$OUT/agentit.log"; then
+  && grep -q '^--- PASS: TestBackupRestoreEndToEnd' "$OUT/agentit.log" \
+  && grep -q '^--- PASS: TestQuarantineReleaseEndToEnd' "$OUT/agentit.log" && grep -q '^--- PASS: TestUpgradeEndToEnd' "$OUT/agentit.log"; then
   log "AGENT DRIVER IT: PASS"
 elif [ "$rc" = 0 ] && [ -n "${AGENTIT_RUN:-}" ]; then
   log "AGENT DRIVER IT: PASS (một phần: $AGENTIT_RUN)"

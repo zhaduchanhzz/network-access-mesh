@@ -90,6 +90,17 @@ service AgentService {
   // RemoveEdgeAttachment clears the edge_attach flag, then detaches the edge (§11.4). With
   // EDGE_DETACH_REASON_COMPENSATION it also removes meta/activated when the same job_id wrote it (§11.3 step 14).
   rpc RemoveEdgeAttachment(RemoveEdgeAttachmentRequest) returns (RemoveEdgeAttachmentResponse);
+  // QuarantineInstance isolates an instance suspected of compromise (§11.4 Quarantine, P3-T18), under the per-instance
+  // lock: meta/quarantined is written FIRST, then the edge_attach flag is cleared, the container stopped without grace
+  // period (its connections with the edge close) and the edge detached; data/ and the container (its logs) are kept.
+  // Idempotent. While meta/quarantined exists every call that could make the instance serve or change it is refused
+  // (REFUSAL_REASON_STATE) and the edge supervisor keeps it stopped and detached — only ReleaseInstance lifts it.
+  rpc QuarantineInstance(QuarantineInstanceRequest) returns (QuarantineInstanceResponse);
+  // ReleaseInstance (§11.4, only run by the instance.release job of an approved 2P request) starts the container
+  // through the start guard, waits until it is healthy, checks that it serves a policy whose sha256 is
+  // expected_policy_sha256 (the applied policy), and only then removes meta/quarantined; any failure stops the
+  // container again and keeps meta/quarantined. The edge is NOT attached here (EnsureEdgeAttachment afterwards).
+  rpc ReleaseInstance(ReleaseInstanceRequest) returns (ReleaseInstanceResponse);
 }
 
 // ---------------------------------------------------------------------------------------------------- common types
@@ -238,6 +249,7 @@ message InstanceStatus {
   bool activated = 12;        // meta/activated exists
   bool edge_attach_flag = 13; // meta/instance.json edge_attach
   repeated ApiKeyInfo api_keys = 14; // only with include_api_keys
+  bool quarantined = 15;      // meta/quarantined exists (P3-T18 — QuarantineInstance)
 }
 
 // ---------------------------------------------------------------------------------------------------- refusals
@@ -761,4 +773,36 @@ message RemoveEdgeAttachmentRequest {
 message RemoveEdgeAttachmentResponse {
   bool detached = 1;
   bool was_attached = 2;
+}
+
+// ---------------------------------------------------------------------------------------------------- quarantine
+
+message QuarantineInstanceRequest {
+  InstanceRef instance = 1;
+  string job_id = 2;
+}
+
+message QuarantineInstanceResponse {
+  // meta/quarantined was written by this call (false: the instance was already quarantined — kept as it was).
+  bool marked_now = 1;
+  // what the call found and undid: the edge attached (or the flag set), the container running.
+  bool edge_was_attached = 2;
+  bool container_was_running = 3;
+  InstanceStatus status = 4;
+}
+
+message ReleaseInstanceRequest {
+  InstanceRef instance = 1;
+  string job_id = 2;
+  // sha256 (64 lower-case hex) of the policy the instance must serve — the applied policy of the registry
+  // (policy_applications.applied_sha256): read through the CLI inside the container, one trailing newline removed.
+  string expected_policy_sha256 = 3;
+}
+
+message ReleaseInstanceResponse {
+  // meta/quarantined existed and was removed by this call (false: already released — the checks ran again).
+  bool was_quarantined = 1;
+  // sha256 of the policy the instance serves (= expected_policy_sha256).
+  string policy_sha256 = 2;
+  InstanceStatus status = 3;
 }

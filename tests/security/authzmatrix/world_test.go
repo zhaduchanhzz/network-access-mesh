@@ -39,6 +39,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/monitoringapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/notificationsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/provisioningapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/quarantineapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/reconfigureapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/relayapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/tenantsapi"
@@ -52,6 +53,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/backup"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/lifecycle"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/orchestrator"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/quarantine"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/relay"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/secrets"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
@@ -176,6 +178,8 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 		Reconfigure: reconfigureapi.New(orchestrator.NewReconfigureService(w.Store)),
 		// InstanceOps (P3-T13a): instance.restart and instance.upgrade requests of the api (no worker: jobs stay queued)
 		InstanceOps: instanceopsapi.New(orchestrator.NewInstanceOpsService(w.Store)),
+		// Quarantine (P3-T18): quarantine requests of the api; a release becomes an approval request
+		Quarantine: quarantineapi.New(quarantine.NewRequester(w.Store), appr),
 	}
 }
 

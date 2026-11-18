@@ -1746,6 +1746,115 @@ paths:
           $ref: '#/components/responses/RateLimited'
         default:
           $ref: '#/components/responses/Unexpected'
+  # ---------------------------------------------------------------- quarantine / release instance (P3-T18, §11.4)
+  /platform/instances/{instanceId}/quarantine:
+    post:
+      tags: [platform]
+      operationId: quarantinePlatformInstance
+      summary: Quarantine instance nghi bị chiếm — cô lập ngay (job instance.quarantine), không cần 2P
+      description: |-
+        §11.4 hàng Quarantine. Trong cùng transaction của request: instance → `quarantined` (mọi trạng thái trừ
+        `removed` ⇒ `409`), security event `instance.quarantined` (critical), audit
+        `platform.instance.quarantine.requested` và job `instance.quarantine` (hàng đợi riêng — không chờ khóa lifecycle
+        của tenant). Từ lúc commit: mọi job nhiều bước khác của instance dừng trước bước kế tiếp (`instance_quarantined`),
+        adapter Headscale không gọi tới instance, lịch reconcile/xoay API key/backup bỏ qua nó. Job: Agent ghi
+        `meta/quarantined` → xóa cờ `edge_attach` → gỡ edge (hostname của tenant trả `404` thống nhất) → dừng container
+        (giữ nguyên `data/` và log) → kiểm lại → thông báo Super Admin/Platform Operator. Job lỗi ⇒ instance vẫn
+        `quarantined`, security event `instance.quarantine_incomplete` (critical). Instance đã quarantined ⇒ `202` với
+        job mới (cô lập lại); job quarantine chưa xong ⇒ `202` trả đúng job đó. Chỉ gỡ bằng `/release` (2P).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: platform.instance:quarantine
+      x-task: P3-T18
+      x-audit-action: platform.instance.quarantine
+      parameters:
+        - $ref: '#/components/parameters/InstanceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InstanceQuarantineRequest'
+      responses:
+        '202':
+          description: Instance đã `quarantined`; job instance.quarantine cô lập nó trên host — theo dõi ở job
+          headers:
+            Location:
+              $ref: '#/components/headers/JobLocation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /platform/instances/{instanceId}/release:
+    post:
+      tags: [platform]
+      operationId: releasePlatformInstance
+      summary: Gỡ quarantine — luôn 2P; 202 + Location của yêu cầu phê duyệt
+      description: |-
+        §11.4 hàng Quarantine (cột Rollback): instance phải `quarantined` và job quarantine của nó đã xong (khác ⇒
+        `409`). Tạo yêu cầu phê duyệt `platform.instance.release` (payload `{instance_id, tenant_id}`); người thứ hai —
+        khác người yêu cầu, step-up, giữ `platform.instance:release` và `platform.approval:decide` không điều kiện (Super
+        Admin) — duyệt ở `POST /platform/approvals/{id}/approve`, khi đó job `instance.release` chạy: Agent start
+        container qua start guard → healthy → phục vụ đúng policy đang áp dụng (sha256) → gỡ `meta/quarantined` →
+        `starting` → gắn edge → post-start gate qua API (API key được nhận, `GetPolicy` khớp `applied_sha256`) →
+        `running`. Bất kỳ lỗi nào ⇒ cô lập lại, instance vẫn `quarantined`, security event `instance.release_failed`.
+        Không có phê duyệt ⇒ không gì chạy.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: platform.instance:release
+      x-dual-control: true
+      x-task: P3-T18
+      x-audit-action: platform.instance.release.request
+      parameters:
+        - $ref: '#/components/parameters/InstanceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InstanceReleaseRequest'
+      responses:
+        '202':
+          description: Yêu cầu phê duyệt đã tạo — người thứ hai duyệt ở `Location`
+          headers:
+            Location:
+              $ref: '#/components/headers/ApprovalLocation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
   /platform/health:
     get:
       tags: [platform]
@@ -4029,6 +4138,28 @@ components:
           pattern: '^sha256:[0-9a-f]{64}$'
           description: Digest của image đích (không nhận tag)
     # ------------------------------------------------------------ platform hosts (§6.3 `hosts`, migration 0014 — P3-T04)
+    InstanceQuarantineRequest:
+      type: object
+      description: Quarantine một instance (§11.4) — lý do ghi vào audit và security event
+      required: [reason]
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 1000
+          description: Lý do (sự cố, ticket, dấu hiệu bị chiếm)
+    InstanceReleaseRequest:
+      type: object
+      description: Gỡ quarantine của một instance (luôn cần người thứ hai duyệt)
+      required: [reason]
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 1000
+          description: Lý do và kết luận điều tra — người duyệt đọc trước khi duyệt
     HostStatus:
       type: string
       description: >-
