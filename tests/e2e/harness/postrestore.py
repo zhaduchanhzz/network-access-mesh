@@ -255,9 +255,14 @@ def check_post_restore(r, st: Stack, state: dict) -> None:
          f"console request {appr}, open approvals {open_n}, console grants in their window {grants} → {grants_after}, "
          f"invitation {inv_after}")
     kb = keys.get("tenant-b") or {}
+    ka = keys.get("tenant-a") or {}
+    # tenant-a's stored key works: nothing to do ("ok"), or other valid keys were found (left by an earlier case) and
+    # expired by a rotation ("rotated", P3-T10 strays) — never a re-issue
     cond("key_refused_reported", kb.get("outcome") == "failed" and kb.get("error_code") == "agent_not_configured"
-         and "api_key:tenant-b:agent_not_configured" in incomplete and (keys.get("tenant-a") or {}).get("outcome") == "ok",
-         f"tenant-b's key (rotated in the gap): {kb.get('outcome')} {kb.get('error_code')}; tenant-a {keys.get('tenant-a', {}).get('outcome')}")
+         and "api_key:tenant-b:agent_not_configured" in incomplete
+         and (ka.get("outcome") == "ok" or (ka.get("outcome") == "rotated" and ka.get("expired_keys", 0) >= 1)),
+         f"tenant-b's key (rotated in the gap): {kb.get('outcome')} {kb.get('error_code')}; tenant-a {ka.get('outcome')} "
+         f"(expired {ka.get('expired_keys', 0)})")
     pa = pols.get(a_id) or {}
     current = psql(st, "SELECT a.trigger, a.applied_sha256, v.state, v.kind FROM policy_applications a JOIN tenants t ON "
                        "t.id = a.tenant_id JOIN policy_versions v ON v.id = t.desired_policy_version_id WHERE "

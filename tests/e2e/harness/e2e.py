@@ -174,7 +174,7 @@ def test(st: Stack, r: checks.Results) -> None:
             guarded(r, "E2E-13", checks.check_edge_admin, st, api_keys)
         finally:
             for slug, k in api_keys.items():
-                st.headscale(slug, "apikeys", "expire", "--prefix", k.split("-")[2], check=False)
+                st.headscale(slug, "apikeys", "expire", "--prefix", k[len("hskey-api-"):][:12], check=False)  # prefix may hold "-"
     with timed("ca E2E-14 (pre-auth key chéo tenant)"):
         guarded(r, "E2E-14", checks.check_cross_tenant_key, st)
     with timed("ca E2E-15 (policy deny)"):
