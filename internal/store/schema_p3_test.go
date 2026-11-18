@@ -395,7 +395,8 @@ func TestP3GrantMatrix(t *testing.T) {
 			"mg_api_tenant": {S, nil}, "mg_worker_tenant": {SI, cols("error_code,finished_at,headscale_updated_at,state,superseded_at")},
 		}),
 		"tenants": with(map[string]grantSpec{
-			"mg_api_tenant": {S, cols("desired_policy_version_id")}, "mg_worker_tenant": {S, cols("desired_policy_version_id")},
+			// P4-T03a (0025): the api's tenant pool writes the settings of its own row (RLS)
+			"mg_api_tenant": {S, cols("desired_policy_version_id,settings,updated_at,version")}, "mg_worker_tenant": {S, cols("desired_policy_version_id")},
 			"mg_api_platform":    {SI, cols("deleted_at,deployment_region,desired_policy_version_id,name,settings,status,updated_at,version")},
 			"mg_worker_platform": {SI, cols("deleted_at,deployment_region,desired_policy_version_id,keys_destroy_after,name,settings,status,updated_at,version")},
 		}),

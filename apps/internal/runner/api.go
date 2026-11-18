@@ -14,6 +14,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/authz/approvals"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/config"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/adminapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/approvalsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/auditapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/authzhook"
@@ -53,6 +54,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/relay"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store/sqlcdb"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/tenants"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/usage"
 )
 
@@ -144,13 +146,14 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 	if err != nil {
 		return nil, err
 	}
-	actions, err := approvalActions(backups, deprov, mem)
+	plat := platform.New(d.st) // P4-T03a: platform administration (users, settings, plans, IdPs, tenant registry fields)
+	actions, err := approvalActions(backups, deprov, mem, plat, d.tenants)
 	if err != nil {
 		return nil, err
 	}
 	authorizer := authz.New(d.st)
 	appr, err := approvals.New(d.st, approvals.Config{Approvers: authorizer, Registry: actions, Security: auditLog,
-		Logger: log})
+		Logger: log, Notify: notifyDeciders})
 	if err != nil {
 		return nil, err
 	}
@@ -200,7 +203,8 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 			Deprovision:   deprovisionapi.New(deprov, appr),
 			Quarantine:    quarantineapi.New(quarantine.NewRequester(d.st), appr),
 			Members:       membersapi.New(mem, appr),
-			Portal:        inbox, // P4-T04: POST …/notifications/{id}/read
+			Portal:        inbox,                               // P4-T04: POST …/notifications/{id}/read
+			Admin:         adminapi.New(plat, d.tenants, appr), // P4-T03a
 		},
 	})
 	if err != nil {
@@ -227,9 +231,11 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 // theirs — deprovision (P3-T09), restore (P3-T11), release (P3-T18), Super Admin role and tenant IdP changes (P4-T03a),
 // break-glass (P4-T13). A request of an action not registered here can be read and rejected, never approved (409
 // action_unavailable).
-func approvalActions(backups *backup.Service, deprov *deprovision.Requester, mem *members.Service) (*approvals.Registry, error) {
-	return approvals.NewRegistry(consoleSessionAction(), restoreAction(backups), releaseAction(), deprovisionAction(deprov),
-		groupMembersAction(mem))
+func approvalActions(backups *backup.Service, deprov *deprovision.Requester, mem *members.Service, plat *platform.Service,
+	ten *tenants.Service) (*approvals.Registry, error) {
+	actions := []approvals.Action{consoleSessionAction(), restoreAction(backups), releaseAction(), deprovisionAction(deprov),
+		groupMembersAction(mem)}
+	return approvals.NewRegistry(append(actions, adminActions(plat, ten)...)...)
 }
 
 // MembershipGuard is authz.GuardMembershipChange as the members module takes it (members does not import authz —

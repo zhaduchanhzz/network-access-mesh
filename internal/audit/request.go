@@ -134,3 +134,18 @@ func fill(ctx context.Context, ev *Event, r *Request, withTenant bool) {
 		ev.TenantID = r.TenantID
 	}
 }
+
+// WithoutTenant returns ctx whose request scope is that of the request without the tenant of the path: an operation of
+// the tenant context that also writes a platform event (P4-T03a: the platform side of POST /request-deletion) records it
+// with Record in a platform transaction, where the tenant of the path must not be inherited. The scope's recorded
+// events and operations stay with the original request.
+func WithoutTenant(ctx context.Context) context.Context {
+	r := RequestFrom(ctx)
+	if r == nil {
+		return ctx
+	}
+	return WithRequest(ctx, &Request{Operation: r.Operation, Action: r.Action, ReadOnly: r.ReadOnly, ActorType: r.ActorType,
+		ActorIdentityID: r.ActorIdentityID, ActorTenantID: r.ActorTenantID, ActorDisplay: r.ActorDisplay,
+		SupportGrantID: r.SupportGrantID, ResourceType: r.ResourceType, ResourceID: r.ResourceID, RequestID: r.RequestID,
+		ClientIP: r.ClientIP})
+}

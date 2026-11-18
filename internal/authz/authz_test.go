@@ -412,8 +412,30 @@ func TestOperationConditions(t *testing.T) {
 			t.Errorf("%s without x-conditions: %v — want condition_not_enforced", id, err)
 		}
 	}
+	// P4-T03a: the conditional cells of the Super Admin — platform.user:assign "không gồm role SA"
+	// (excludes_super_admin) and platform.idp:manage "IdP của tenant: 2P" (tenant_idp_dual_control) — are granted with
+	// the condition on the operations that declare it (the services enforce it) and refused elsewhere.
+	conditional := map[string]string{"createPlatformUser": CondExcludesSuperAdmin, "updatePlatformUser": CondExcludesSuperAdmin,
+		"deletePlatformUser": CondExcludesSuperAdmin, "updatePlatformIdentityProvider": CondTenantIdPDualControl}
+	for id, cond := range conditional {
+		op, ok := OperationByID(id)
+		if !ok || !slices.Equal(op.Requirement().Conditions, []string{cond}) {
+			t.Fatalf("%s: conditions %v (found %v)", id, op.Conditions, ok)
+		}
+		sa := &access{subjectID: uuid.New(), subjectStatus: StatusActive, identityStatus: StatusActive,
+			roleKey: RoleSuperAdmin, roleRank: 4, grantScope: GrantAny, grantCondition: cond}
+		if d, err := decidePlatform(p, op.Requirement(), sa); err != nil || d.Condition != cond {
+			t.Errorf("%s: decision %+v, %v — want a grant carrying %s", id, d, err, cond)
+		}
+		req := op.Requirement()
+		req.Conditions = nil
+		if _, err := decidePlatform(p, req, sa); err == nil {
+			t.Errorf("%s without x-conditions: granted — want condition_not_enforced", id)
+		}
+	}
 	for _, o := range Operations() {
-		if len(o.Conditions) > 0 && o.ID != "approvePlatformApproval" && o.ID != "rejectPlatformApproval" {
+		_, known := conditional[o.ID]
+		if len(o.Conditions) > 0 && o.ID != "approvePlatformApproval" && o.ID != "rejectPlatformApproval" && !known {
 			t.Errorf("%s declares conditions %v — extend this test", o.ID, o.Conditions)
 		}
 	}

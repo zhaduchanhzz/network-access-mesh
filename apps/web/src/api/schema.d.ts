@@ -719,7 +719,16 @@ export interface paths {
         delete: operations["deletePlatformTenant"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Sửa tên, gói và override quota của một tenant
+         * @description §8.5 `platform.tenant:update` (Super Admin, Platform Operator): `name`, `plan_key` (gói đang mở — đổi gói của
+         *     subscription còn hiệu lực), `limits_override` (`PlanLimits` từng phần ghi đè gói; `{}` gỡ mọi override). Cần
+         *     `If-Match` = `ETag` của `GET /platform/tenants/{tenantId}` (thiếu ⇒ `428`, lệch ⇒ `412`); mọi thay đổi tăng
+         *     `version` của tenant. Tenant `deleted` ⇒ `404`; `deprovisioning` ⇒ `409`; gói không tồn tại hoặc đã đóng ⇒ `422`;
+         *     tenant không có subscription còn hiệu lực mà đổi gói/override ⇒ `409`. Hạ quota dưới mức đang dùng không xóa gì —
+         *     chỉ chặn lần thêm tiếp theo (QuotaChecker). Audit `platform.tenant.update` với giá trị trước/sau.
+         */
+        patch: operations["updatePlatformTenant"];
         trace?: never;
     };
     "/platform/tenants/{tenantId}/suspend": {
@@ -1534,6 +1543,340 @@ export interface paths {
          *     job `policy.apply` (trigger `tag_change`).
          */
         patch: operations["updateTenantTag"];
+        trace?: never;
+    };
+    "/tenants/{tenantId}/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * TenantSettings hiệu lực của tenant (§13.3)
+         * @description Khóa thiếu hoặc sai kiểu đọc ra giá trị mặc định. `dns` chỉ để xem (sửa qua `PUT /dns/settings` — P4-T12). `ETag` đổi khi và chỉ khi tài liệu thiết lập đổi — dùng cho `If-Match` của `PATCH /settings` và `PUT /settings/security`.
+         */
+        get: operations["getTenantSettings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Sửa thiết lập thường (thông báo, trần hạn pre-auth key)
+         * @description §8.6 `tenant.settings:update` (Tenant Owner, Tenant Admin). Chỉ nhận khóa thường: `enrollment.preauth_key_ttl_max`
+         *     (`""` gỡ trần) và `notifications.*`. Khóa bảo mật (`enrollment.identity_mode`, `web_auth_enabled`, `self_enroll`,
+         *     `requires_approval`, `node_expiry`, `policy.four_eyes`, `policy.sensitive_groups`, `routes.four_eyes`) chỉ đổi qua
+         *     `PUT /settings/security` — gửi chúng ở đây ⇒ `422` (`security_setting`); `dns` qua `PUT /dns/settings` ⇒ `422`.
+         *     Cần `If-Match` = `ETag` của `GET /settings` (thiếu ⇒ `428`, lệch ⇒ `412`). Audit `tenant.settings.update`
+         *     (khóa đổi, trước/sau) cùng transaction.
+         */
+        patch: operations["updateTenantSettings"];
+        trace?: never;
+    };
+    "/tenants/{tenantId}/settings/security": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Đặt thiết lập bảo mật của tenant — step-up; nới lỏng một kiểm soát hai người ⇒ 202 + phê duyệt trong tenant
+         * @description §8.6 `tenant.settings:update_security` (Tenant Owner): body là TOÀN BỘ khóa bảo mật. Người gọi step-up
+         *     (`auth_time` ≤ 15 phút, nếu không ⇒ `401 reauth_required`); `If-Match` = `ETag` của `GET /settings` (thiếu ⇒
+         *     `428`, lệch ⇒ `412`). Không đổi gì ⇒ `200`, không ghi. `enrollment.identity_mode` bất biến khi tenant đã có
+         *     Headscale user hoặc thiết bị đầu tiên (ID-08) ⇒ `409`; `headscale_oidc` (phương thức C) chưa có trong bản này ⇒
+         *     `422`; `policy.sensitive_groups` chỉ nhận group của tenant ⇒ `422`.
+         *
+         *     Thay đổi **nới lỏng** một kiểm soát hai người — tắt `policy.four_eyes` hoặc `routes.four_eyes` đang bật, hoặc
+         *     bỏ một group khỏi `policy.sensitive_groups` — không áp dụng ngay: `202` + `Location:
+         *     /api/v1/tenants/{tenantId}/approvals/{id}` (action `tenant.settings.update_security`, payload = `If-Match` đã
+         *     gửi + thiết lập bảo mật mới). Một Tenant Owner hoặc Tenant Admin **khác** duyệt (`tenant.approval:decide`,
+         *     step-up); khi duyệt, thiết lập chỉ được ghi nếu tài liệu thiết lập vẫn đúng `ETag` lúc yêu cầu (đã đổi ⇒ `409`,
+         *     không ghi). Tenant chỉ có một người đủ quyền duyệt thì chưa nới lỏng được. Thay đổi khác áp dụng ngay: `200`.
+         *     Mỗi lần ghi: audit `tenant.settings.security_update` (khóa đổi, trước/sau) + thông báo
+         *     `tenant.security_settings_changed` cho Tenant Owner/Admin, cùng transaction.
+         */
+        put: operations["putTenantSecuritySettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/identity-provider": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * IdP đang hoạt động của tenant (không có secret)
+         * @description Hàng `identity_providers` `active` của tenant (§8.2). Client secret không bao giờ được trả — chỉ cho biết đã có hay chưa. `ETag` = phiên bản của hàng.
+         */
+        get: operations["getTenantIdentityProvider"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Sửa ràng buộc claim / domain / client secret của IdP — issuer và client_id bất biến; step-up
+         * @description §8.2 MVP: chỉ `claim_mapping`, `required_claims`, `allowed_email_domains` và — IdP `external` — `client_secret`
+         *     (chỉ-ghi: vào SecretStore dưới khóa của tenant, không bao giờ được trả lại; IdP `keycloak` do nền tảng host ⇒
+         *     `422`). `issuer`, `client_id`, `driver` có trong body ⇒ `422` (bất biến — đổi IdP là quy trình di trú P7-T06).
+         *     Tenant Owner, step-up (`401 reauth_required`); `If-Match` = `ETag` của `GET /identity-provider` (thiếu ⇒ `428`,
+         *     lệch ⇒ `412`). Audit `tenant.idp.update` (trường đổi, không có secret) + thông báo `idp.config_changed` cho
+         *     Tenant Owner cùng transaction. Thay đổi có hiệu lực ở lần đăng nhập kế tiếp.
+         */
+        patch: operations["updateTenantIdentityProvider"];
+        trace?: never;
+    };
+    "/tenants/{tenantId}/request-deletion": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Tenant Owner yêu cầu nền tảng xóa tenant — step-up; không xóa gì
+         * @description §8.6 `tenant.lifecycle:request_delete` (Tenant Owner). `confirm_slug` phải đúng slug của tenant (`422`); người gọi
+         *     step-up (`401 reauth_required`). Không xóa, không suspend: việc xóa là `DELETE /platform/tenants/{id}` do nền tảng
+         *     thực hiện với 2P (§11.4). Ghi audit `tenant.deletion.request` của tenant + thông báo `tenant.deletion_requested`
+         *     cho Tenant Owner khác, và một sự kiện + thông báo phạm vi platform cho Super Admin / Platform Operator (lý do,
+         *     người yêu cầu). Mỗi tenant tối đa một thông báo nền tảng mỗi ngày (UTC) — gọi lại trong ngày chỉ ghi audit.
+         *     Tenant `deprovisioning` ⇒ `403 tenant_suspended` như mọi thao tác ghi.
+         */
+        post: operations["requestTenantDeletion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Nhân sự nền tảng và role platform */
+        get: operations["listPlatformUsers"];
+        put?: never;
+        /**
+         * Thêm nhân sự nền tảng theo `sub` của IdP platform — không bao giờ role Super Admin; step-up
+         * @description §8.2: người đó phải có tài khoản ở IdP platform trước; request mang `sub` + role, backend tạo sẵn `identities`
+         *     (IdP platform, `sub`) + `platform_users` — không có lời mời phạm vi platform; lần đăng nhập đầu khớp theo
+         *     `(idp_id, sub)`, không bao giờ theo email. `platform.user:assign` của Super Admin mang điều kiện
+         *     `excludes_super_admin`: role `super_admin` không nhận ở đây (schema) — gán qua
+         *     `PUT /platform/users/{id}/super-admin-role` (2P). Người gọi step-up. Identity đã là platform user ⇒ `409`;
+         *     `sub` sai dạng của driver ⇒ `422`. Audit `platform.user.create`.
+         */
+        post: operations["createPlatformUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/users/{platformUserId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Một platform user */
+        get: operations["getPlatformUser"];
+        put?: never;
+        post?: never;
+        /**
+         * Gỡ một nhân sự nền tảng (status `disabled`, thu hồi session) — step-up
+         * @description Như `PATCH {"status":"disabled"}`: hàng không bị xóa (audit tham chiếu nó), mọi session của người đó bị thu hồi;
+         *     mở lại bằng `PATCH {"status":"active"}`. Super Admin ⇒ `403` (gỡ role SA trước, 2P); chính mình ⇒ `403`;
+         *     `If-Match` bắt buộc. Audit `platform.user.delete`.
+         */
+        delete: operations["deletePlatformUser"];
+        options?: never;
+        head?: never;
+        /**
+         * Đổi role (dưới Super Admin) hoặc khóa/mở một platform user — step-up
+         * @description Điều kiện `excludes_super_admin`: platform user đang giữ role `super_admin` không sửa được ở đây (`403`) — gỡ role
+         *     SA trước bằng `super-admin-role` (2P); role mới không bao giờ là `super_admin` (schema). Người gọi step-up; không
+         *     sửa chính mình (`403`); `If-Match` (thiếu ⇒ `428`, lệch ⇒ `412`). Đổi role hoặc khóa thu hồi mọi session của người
+         *     đó cùng transaction (§8.3 bước 8). Audit `platform.user.update` (trước/sau).
+         */
+        patch: operations["updatePlatformUser"];
+        trace?: never;
+    };
+    "/platform/users/{platformUserId}/super-admin-role": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Gán hoặc gỡ role Super Admin — luôn 2P; 202 + Location của yêu cầu phê duyệt
+         * @description §8.4 bất biến 3, §8.5 `platform.user:assign_super_admin` (2P): tạo yêu cầu `platform.user.super_admin` (người yêu
+         *     cầu step-up). `super_admin: true` — platform user `active` chưa là SA; `false` — đang là SA, `role_after` (role mới,
+         *     dưới SA) bắt buộc. Payload (thứ người duyệt thấy, đầu vào duy nhất của việc thực thi): platform user, identity, role
+         *     trước/sau, `version`. Một Super Admin **khác** duyệt (step-up). Khi thực thi: cùng khóa advisory với
+         *     `meshguard admin bootstrap-super-admin` (P2-T11a), platform user phải còn đúng `version` (đã đổi ⇒ `409`), role đổi
+         *     và mọi session của người đó bị thu hồi cùng transaction; không bao giờ còn 0 Super Admin hoạt động. Đã đúng trạng
+         *     thái yêu cầu ⇒ `409`. Khi số SA hoạt động < 2 không ai duyệt được — dùng lệnh bootstrap (§8.2).
+         */
+        put: operations["setPlatformUserSuperAdminRole"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Các khóa system_settings được phục vụ (cấu hình + cờ chỉ đọc)
+         * @description Tập khóa đóng (internal/config): khóa cấu hình sửa được (`writable`) và cờ chỉ lệnh host ghi (`maintenance`). Con trỏ đọc nội bộ `idp.audit_sync.*` không bao giờ được trả.
+         */
+        get: operations["listPlatformSettings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/settings/{settingKey}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Một khóa system_settings */
+        get: operations["getPlatformSetting"];
+        /**
+         * Đặt giá trị một khóa cấu hình — Super Admin, step-up, ETag
+         * @description §8.5 `platform.settings:update` (Super Admin). Chỉ khóa `writable`: `approval.ttl_hours` (số nguyên 1–168),
+         *     `quota.max_tenants` (số nguyên ≥ 0); giá trị sai ⇒ `422`. Khóa chỉ đọc (`maintenance` — lệnh host) ⇒ `422`
+         *     (`read_only`); khóa lạ và con trỏ nội bộ `idp.audit_sync.*` ⇒ `404`. Người gọi step-up. `If-Match` = `ETag` của
+         *     `GET` (thiếu ⇒ `428`, lệch ⇒ `412`; khóa chưa có hàng: `ETag` của `GET` là `"0"`). Audit `platform.settings.update`
+         *     (trước/sau) cùng transaction; người đọc khóa nhận giá trị mới ở lần đọc kế tiếp.
+         */
+        put: operations["putPlatformSetting"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/identity-providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Đăng ký IdP của platform và của các tenant (không có secret) */
+        get: operations["listPlatformIdentityProviders"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/identity-providers/{idpId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Một đăng ký IdP */
+        get: operations["getPlatformIdentityProvider"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Sửa ràng buộc claim / domain của một IdP — hàng của tenant ⇒ 202 + phê duyệt 2P; step-up
+         * @description §8.2 "Quản trị IdP không được là cửa sau vào tenant", §8.5 `platform.idp:manage` (Super Admin; IdP của tenant:
+         *     2P — điều kiện `tenant_idp_dual_control`). Chỉ `claim_mapping`, `required_claims`, `allowed_email_domains`;
+         *     `issuer`, `client_id`, `driver` có trong body ⇒ `422` (bất biến — §8.2 (1)); client secret không đổi được ở đây
+         *     (`meshguard admin set-idp-client-secret` cho platform, Tenant Owner qua `PATCH /tenants/{t}/identity-provider`).
+         *     Người gọi step-up; `If-Match` = `ETag` của `GET` (thiếu ⇒ `428`, lệch ⇒ `412`). Không đổi gì ⇒ `200`, không ghi.
+         *
+         *     Hàng `scope=platform`: áp dụng ngay — `200`, audit `platform.idp.update`. Hàng `scope=tenant`: **không** có hiệu
+         *     lực ngay — `202` + `Location: /api/v1/platform/approvals/{id}` (action `platform.idp.update_tenant`, payload =
+         *     IdP, tenant, `version`, giá trị mới); một Super Admin khác duyệt (break-glass 2P — §8.2). Lúc yêu cầu và lúc thực
+         *     thi, audit ghi vào **audit của tenant** (`identity_provider.platform_change.request` /
+         *     `identity_provider.platform_change.apply`, kèm người yêu cầu và người duyệt) + thông báo `idp.config_changed`
+         *     cho Tenant Owner; khi thực thi, hàng phải còn đúng `version` (đã đổi ⇒ `409`, không ghi).
+         */
+        patch: operations["updatePlatformIdentityProvider"];
+        trace?: never;
+    };
+    "/platform/plans": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Các gói (cả gói đã đóng) */
+        get: operations["listPlatformPlans"];
+        put?: never;
+        /**
+         * Tạo một gói
+         * @description `key` bất biến (`TenantCreate.plan_key`); `limits` theo `PlanLimits` (§13.3) và phải có đủ bốn khóa quota (`max_devices`, `max_users`, `max_tagged_devices`, `max_live_enrollment_credentials` — CHECK `mg_plan_limits_valid` của 0012) ⇒ thiếu/sai ⇒ `422`; khóa đã có ⇒ `409`. Audit `platform.plan.create`.
+         */
+        post: operations["createPlatformPlan"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/plans/{planId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Một gói */
+        get: operations["getPlatformPlan"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Sửa tên, limits hoặc đóng/mở một gói
+         * @description `key` không đổi được. `limits` thay toàn bộ tài liệu (đủ bốn khóa quota — `422`); gói đóng (`is_active: false`) không nhận tenant mới, tenant đang dùng giữ gói. Hạn mức mới có hiệu lực ở lần kiểm quota kế tiếp. `If-Match` (thiếu ⇒ `428`, lệch ⇒ `412`). Audit `platform.plan.update` (trước/sau).
+         */
+        patch: operations["updatePlatformPlan"];
         trace?: never;
     };
 }
@@ -2726,6 +3069,300 @@ export interface components {
             /** @description Tập tag mới (thay thế toàn bộ) — mỗi tag phải có trong danh mục của tenant */
             tags: string[];
         };
+        /** @description Sửa tenant (§8.5 `platform.tenant:update` — tên, gói, quota); ít nhất một trường */
+        TenantUpdate: {
+            name?: string;
+            /** @description Khóa của một gói đang mở */
+            plan_key?: string;
+            /** @description Override từng khóa của gói (`subscriptions.overrides`); `{}` gỡ mọi override */
+            limits_override?: components["schemas"]["PlanLimits"];
+        };
+        /** @enum {string} */
+        TenantIdentityMode: "portal" | "headscale_oidc";
+        TenantEnrollmentSettings: {
+            identity_mode: components["schemas"]["TenantIdentityMode"];
+            web_auth_enabled: boolean;
+            /** @description End User tự thêm thiết bị (ô có điều kiện `self_enroll` của §8.6) */
+            self_enroll: boolean;
+            requires_approval: boolean;
+            /** @description Trần hạn pre-auth key (`<phút>m` hoặc `<giờ>h`, 5 phút – 90 ngày); null = trần của nền tảng */
+            preauth_key_ttl_max?: string | null;
+        };
+        /** @description TenantSettings hiệu lực (§13.3). Khóa bảo mật (`enrollment.identity_mode`, `web_auth_enabled`, `self_enroll`, `requires_approval`, `node_expiry`, `policy.four_eyes`, `policy.sensitive_groups`, `routes.four_eyes`) chỉ đổi qua `PUT /settings/security`; `dns` qua `PUT /dns/settings` (P4-T12). */
+        TenantSettings: {
+            enrollment: components["schemas"]["TenantEnrollmentSettings"];
+            /** @description Hạn node tối đa của tenant (`0` = không hết hạn, `<ngày>d`, `<giờ>h`); null = theo cấu hình instance */
+            node_expiry: string | null;
+            policy: {
+                four_eyes: boolean;
+                sensitive_groups: string[];
+            };
+            routes: {
+                four_eyes: boolean;
+            };
+            /** @description Thiết lập DNS như đã lưu — chỉ để xem ở đây */
+            dns: {
+                [key: string]: unknown;
+            };
+            notifications: {
+                new_device: boolean;
+                policy_applied: boolean;
+            };
+        };
+        TenantSettingsView: {
+            settings: components["schemas"]["TenantSettings"];
+            /** @description Bằng giá trị header `ETag` */
+            etag: string;
+        };
+        /** @description Thiết lập thường (§8.6 `tenant.settings:update`); ít nhất một khóa */
+        TenantSettingsPatch: {
+            enrollment?: {
+                /** @description `<phút>m` hoặc `<giờ>h` (5 phút – 90 ngày); chuỗi rỗng gỡ trần */
+                preauth_key_ttl_max?: string;
+                /** @description Khóa bảo mật — bị từ chối ở đây (`422`), dùng `PUT /settings/security` */
+                identity_mode?: unknown;
+                /** @description Khóa bảo mật — bị từ chối ở đây */
+                web_auth_enabled?: unknown;
+                /** @description Khóa bảo mật — bị từ chối ở đây */
+                self_enroll?: unknown;
+                /** @description Khóa bảo mật — bị từ chối ở đây */
+                requires_approval?: unknown;
+            };
+            notifications?: {
+                new_device?: boolean;
+                policy_applied?: boolean;
+            };
+            /** @description Khóa bảo mật — bị từ chối ở đây */
+            node_expiry?: unknown;
+            /** @description Khóa bảo mật — bị từ chối ở đây */
+            policy?: unknown;
+            /** @description Khóa bảo mật — bị từ chối ở đây */
+            routes?: unknown;
+            /** @description Sửa qua `PUT /dns/settings` (P4-T12) — bị từ chối ở đây */
+            dns?: unknown;
+        };
+        /** @description Toàn bộ khóa bảo mật của TenantSettings (§8.6 `tenant.settings:update_security`) */
+        TenantSecuritySettings: {
+            enrollment: {
+                identity_mode: components["schemas"]["TenantIdentityMode"];
+                web_auth_enabled: boolean;
+                self_enroll: boolean;
+                requires_approval: boolean;
+            };
+            /** @description `0`, `<ngày>d` (≤ 3650) hoặc `<giờ>h`; null = theo cấu hình instance */
+            node_expiry: string | null;
+            policy: {
+                four_eyes: boolean;
+                sensitive_groups: string[];
+            };
+            routes: {
+                four_eyes: boolean;
+            };
+        };
+        TenantDeletionRequestCreate: {
+            /** @description Slug của tenant, gõ lại để xác nhận */
+            confirm_slug: string;
+            reason: string;
+        };
+        TenantDeletionRequest: {
+            /** Format: uuid */
+            tenant_id: string;
+            /** Format: date-time */
+            requested_at: string;
+            requested_by: components["schemas"]["IdentityRef"];
+            /** @description false khi nền tảng đã được báo trong ngày (UTC) — lần này chỉ ghi audit */
+            platform_notified: boolean;
+        };
+        /** @enum {string} */
+        IdentityProviderStatus: "pending" | "active" | "retiring" | "disabled";
+        /** @description Đăng ký IdP (`identity_providers` — §8.2): bộ ba (issuer, client_id, ràng buộc tổ chức). `issuer`, `client_id`, `driver`, `scope` bất biến; client secret không bao giờ được trả (`client_secret_set` cho biết đã có). */
+        IdentityProvider: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            scope: "platform" | "tenant";
+            /**
+             * Format: uuid
+             * @description Tenant của hàng `scope=tenant`
+             */
+            tenant_id?: string;
+            issuer: string;
+            client_id: string;
+            /** @enum {string} */
+            driver: "keycloak" | "external";
+            status: components["schemas"]["IdentityProviderStatus"];
+            required_claims: {
+                [key: string]: unknown;
+            };
+            require_email_verified: boolean;
+            allowed_email_domains: string[];
+            claim_mapping: {
+                [key: string]: string;
+            };
+            client_secret_set: boolean;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: int64 */
+            version: number;
+            etag: string;
+        };
+        IdentityProviderList: {
+            items: components["schemas"]["IdentityProvider"][];
+            next_cursor: string | null;
+        };
+        /** @description Ràng buộc của IdP sửa được (§8.2 MVP); ít nhất một trường. `issuer`, `client_id`, `driver` khai báo chỉ để bị từ chối (`422` — bất biến). */
+        IdentityProviderUpdate: {
+            /** @description Trường hồ sơ → tên claim: khóa `email`, `email_verified`, `name` */
+            claim_mapping?: {
+                [key: string]: string;
+            };
+            /** @description Tên claim → giá trị bắt buộc (chuỗi/số/bool, hoặc mảng các giá trị chấp nhận) */
+            required_claims?: {
+                [key: string]: unknown;
+            };
+            allowed_email_domains?: string[];
+            /** @description Bất biến — có mặt ⇒ `422` */
+            issuer?: unknown;
+            /** @description Bất biến — có mặt ⇒ `422` */
+            client_id?: unknown;
+            /** @description Bất biến — có mặt ⇒ `422` */
+            driver?: unknown;
+        };
+        /** @description Như `IdentityProviderUpdate`, thêm `client_secret` chỉ-ghi của IdP `external`; ít nhất một trường */
+        TenantIdentityProviderUpdate: {
+            claim_mapping?: {
+                [key: string]: string;
+            };
+            required_claims?: {
+                [key: string]: unknown;
+            };
+            allowed_email_domains?: string[];
+            /** @description Client secret mới của IdP `external` (16–512 ký tự ASCII nhìn thấy được) — vào SecretStore, không trả lại */
+            client_secret?: string;
+            /** @description Bất biến — có mặt ⇒ `422` */
+            issuer?: unknown;
+            /** @description Bất biến — có mặt ⇒ `422` */
+            client_id?: unknown;
+            /** @description Bất biến — có mặt ⇒ `422` */
+            driver?: unknown;
+        };
+        /** @enum {string} */
+        PlatformRole: "super_admin" | "platform_operator" | "platform_support" | "platform_viewer";
+        /**
+         * @description Role platform gán được bằng `platform.user:assign` — không bao giờ `super_admin` (§8.5)
+         * @enum {string}
+         */
+        PlatformAssignableRole: "platform_operator" | "platform_support" | "platform_viewer";
+        /** @enum {string} */
+        PlatformUserStatus: "active" | "disabled";
+        PlatformUser: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            identity_id: string;
+            /** @description `sub` của IdP platform */
+            subject: string;
+            display_name: string;
+            email?: string;
+            role: components["schemas"]["PlatformRole"];
+            status: components["schemas"]["PlatformUserStatus"];
+            /** @description Trạng thái của identity (`disabled` sau `meshguard admin revoke-sessions`) */
+            identity_status?: string;
+            /** Format: date-time */
+            last_login_at?: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: int64 */
+            version: number;
+            etag: string;
+        };
+        PlatformUserList: {
+            items: components["schemas"]["PlatformUser"][];
+            next_cursor: string | null;
+        };
+        PlatformUserCreate: {
+            /** @description `sub` của người đó ở IdP platform (Keycloak: id user dạng UUID chữ thường) */
+            subject: string;
+            role: components["schemas"]["PlatformAssignableRole"];
+            display_name?: string;
+        };
+        PlatformUserUpdate: {
+            role?: components["schemas"]["PlatformAssignableRole"];
+            status?: components["schemas"]["PlatformUserStatus"];
+        };
+        SuperAdminRoleChange: {
+            /** @description true = gán role Super Admin, false = gỡ */
+            super_admin: boolean;
+            /** @description Role mới khi gỡ (bắt buộc khi `super_admin` là false) */
+            role_after?: components["schemas"]["PlatformAssignableRole"];
+            /** @description Lý do — người duyệt đọc */
+            reason: string;
+        };
+        SystemSetting: {
+            key: string;
+            /** @description Giá trị JSON như đã lưu; null khi chưa có hàng */
+            value: unknown;
+            /** @description Giá trị người đọc dùng khi chưa có hàng (nếu có) */
+            default?: unknown;
+            writable: boolean;
+            description: string;
+            /**
+             * Format: int64
+             * @description 0 khi chưa có hàng
+             */
+            version: number;
+            /** Format: date-time */
+            updated_at?: string;
+            /**
+             * Format: uuid
+             * @description Identity đã ghi lần cuối (không có với lệnh host)
+             */
+            updated_by?: string;
+            etag: string;
+        };
+        SystemSettingList: {
+            items: components["schemas"]["SystemSetting"][];
+        };
+        SystemSettingUpdate: {
+            /** @description Giá trị JSON mới (theo khóa) */
+            value: unknown;
+        };
+        Plan: {
+            /** Format: uuid */
+            id: string;
+            key: string;
+            name: string;
+            limits: components["schemas"]["PlanLimits"];
+            is_active: boolean;
+            /** @description Số subscription còn hiệu lực đang dùng gói */
+            tenant_count?: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: int64 */
+            version: number;
+            etag: string;
+        };
+        PlanList: {
+            items: components["schemas"]["Plan"][];
+        };
+        PlanCreate: {
+            key: string;
+            name: string;
+            limits: components["schemas"]["PlanLimits"];
+            /** @default true */
+            is_active: boolean;
+        };
+        PlanUpdate: {
+            name?: string;
+            limits?: components["schemas"]["PlanLimits"];
+            is_active?: boolean;
+        };
     };
     responses: {
         /** @description Chưa xác thực — `unauthenticated` (thiếu, hết hạn hoặc đã thu hồi session) hoặc `reauth_required` (cần step-up, §8.3 bước 7) */
@@ -2928,6 +3565,15 @@ export interface components {
         TagId: string;
         /** @description Lọc theo trạng thái hiệu lực */
         InvitationStatusFilter: components["schemas"]["InvitationStatus"];
+        /** @description ID của platform user (`platform_users.id`) */
+        PlatformUserId: string;
+        PlatformUserStatusFilter: components["schemas"]["PlatformUserStatus"];
+        PlatformRoleFilter: components["schemas"]["PlatformRole"];
+        /** @description Khóa của `system_settings` (ví dụ `approval.ttl_hours`) */
+        SettingKey: string;
+        IdPScopeFilter: "platform" | "tenant";
+        /** @description ID của gói (`subscription_plans.id`) */
+        PlanId: string;
     };
     requestBodies: never;
     headers: {
@@ -4359,6 +5005,46 @@ export interface operations {
             default: components["responses"]["Unexpected"];
         };
     };
+    updatePlatformTenant: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428` */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TenantUpdate"];
+            };
+        };
+        responses: {
+            /** @description Tenant sau khi sửa */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tenant"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["ValidationFailed"];
+            428: components["responses"]["PreconditionRequired"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
     suspendPlatformTenant: {
         parameters: {
             query?: never;
@@ -5730,6 +6416,757 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["ValidationFailed"];
+            428: components["responses"]["PreconditionRequired"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    getTenantSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Thiết lập của tenant */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantSettingsView"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    updateTenantSettings: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428` */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TenantSettingsPatch"];
+            };
+        };
+        responses: {
+            /** @description Thiết lập sau khi sửa */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantSettingsView"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["ValidationFailed"];
+            428: components["responses"]["PreconditionRequired"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    putTenantSecuritySettings: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428` */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TenantSecuritySettings"];
+            };
+        };
+        responses: {
+            /** @description Thiết lập sau khi ghi (hoặc không đổi) */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantSettingsView"];
+                };
+            };
+            /** @description Thay đổi nới lỏng kiểm soát hai người — yêu cầu phê duyệt trong tenant đã tạo */
+            202: {
+                headers: {
+                    Location: components["headers"]["ApprovalLocation"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalRequest"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["ValidationFailed"];
+            428: components["responses"]["PreconditionRequired"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    getTenantIdentityProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description IdP của tenant */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityProvider"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    updateTenantIdentityProvider: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428` */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TenantIdentityProviderUpdate"];
+            };
+        };
+        responses: {
+            /** @description IdP sau khi sửa */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityProvider"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["ValidationFailed"];
+            428: components["responses"]["PreconditionRequired"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    requestTenantDeletion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TenantDeletionRequestCreate"];
+            };
+        };
+        responses: {
+            /** @description Yêu cầu đã ghi nhận */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantDeletionRequest"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    listPlatformUsers: {
+        parameters: {
+            query?: {
+                /** @description Số phần tử tối đa của trang */
+                limit?: components["parameters"]["Limit"];
+                /** @description Con trỏ mờ lấy từ `next_cursor` của trang trước */
+                cursor?: components["parameters"]["Cursor"];
+                status?: components["parameters"]["PlatformUserStatusFilter"];
+                role?: components["parameters"]["PlatformRoleFilter"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Một trang platform user (cũ nhất trước) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformUserList"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    createPlatformUser: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlatformUserCreate"];
+            };
+        };
+        responses: {
+            /** @description Platform user đã tạo */
+            201: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformUser"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    getPlatformUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID của platform user (`platform_users.id`) */
+                platformUserId: components["parameters"]["PlatformUserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Platform user */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformUser"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    deletePlatformUser: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428` */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description ID của platform user (`platform_users.id`) */
+                platformUserId: components["parameters"]["PlatformUserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Platform user sau khi gỡ */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformUser"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["ValidationFailed"];
+            428: components["responses"]["PreconditionRequired"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    updatePlatformUser: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428` */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description ID của platform user (`platform_users.id`) */
+                platformUserId: components["parameters"]["PlatformUserId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlatformUserUpdate"];
+            };
+        };
+        responses: {
+            /** @description Platform user sau khi sửa */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformUser"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["ValidationFailed"];
+            428: components["responses"]["PreconditionRequired"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    setPlatformUserSuperAdminRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID của platform user (`platform_users.id`) */
+                platformUserId: components["parameters"]["PlatformUserId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SuperAdminRoleChange"];
+            };
+        };
+        responses: {
+            /** @description Yêu cầu phê duyệt đã tạo — người thứ hai duyệt ở `Location` */
+            202: {
+                headers: {
+                    Location: components["headers"]["ApprovalLocation"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalRequest"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    listPlatformSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Mọi khóa được phục vụ, sắp theo khóa */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemSettingList"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    getPlatformSetting: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Khóa của `system_settings` (ví dụ `approval.ttl_hours`) */
+                settingKey: components["parameters"]["SettingKey"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Khóa và giá trị (null khi chưa có hàng) */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemSetting"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    putPlatformSetting: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428` */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description Khóa của `system_settings` (ví dụ `approval.ttl_hours`) */
+                settingKey: components["parameters"]["SettingKey"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SystemSettingUpdate"];
+            };
+        };
+        responses: {
+            /** @description Khóa sau khi ghi */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemSetting"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["ValidationFailed"];
+            428: components["responses"]["PreconditionRequired"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    listPlatformIdentityProviders: {
+        parameters: {
+            query?: {
+                /** @description Số phần tử tối đa của trang */
+                limit?: components["parameters"]["Limit"];
+                /** @description Con trỏ mờ lấy từ `next_cursor` của trang trước */
+                cursor?: components["parameters"]["Cursor"];
+                scope?: components["parameters"]["IdPScopeFilter"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Một trang IdP (cũ nhất trước) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityProviderList"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    getPlatformIdentityProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID của IdP (`identity_providers.id`) — mỗi IdP một redirect URI (§8.3 bước 3) */
+                idpId: components["parameters"]["IdpId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description IdP */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityProvider"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    updatePlatformIdentityProvider: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428` */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description ID của IdP (`identity_providers.id`) — mỗi IdP một redirect URI (§8.3 bước 3) */
+                idpId: components["parameters"]["IdpId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IdentityProviderUpdate"];
+            };
+        };
+        responses: {
+            /** @description IdP sau khi sửa (hàng của platform) hoặc không đổi */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityProvider"];
+                };
+            };
+            /** @description Hàng của tenant — yêu cầu phê duyệt 2P đã tạo, chưa có hiệu lực */
+            202: {
+                headers: {
+                    Location: components["headers"]["ApprovalLocation"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalRequest"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["ValidationFailed"];
+            428: components["responses"]["PreconditionRequired"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    listPlatformPlans: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Mọi gói, sắp theo khóa */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanList"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    createPlatformPlan: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlanCreate"];
+            };
+        };
+        responses: {
+            /** @description Gói đã tạo */
+            201: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Plan"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    getPlatformPlan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID của gói (`subscription_plans.id`) */
+                planId: components["parameters"]["PlanId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Gói */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Plan"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    updatePlatformPlan: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428` */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description ID của gói (`subscription_plans.id`) */
+                planId: components["parameters"]["PlanId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlanUpdate"];
+            };
+        };
+        responses: {
+            /** @description Gói sau khi sửa */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Plan"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             412: components["responses"]["PreconditionFailed"];
             422: components["responses"]["ValidationFailed"];
             428: components["responses"]["PreconditionRequired"];

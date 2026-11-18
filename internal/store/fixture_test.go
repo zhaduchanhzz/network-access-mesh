@@ -85,11 +85,12 @@ var fixtureSteps = map[int64]func(f *fixture, t *testing.T, c *pgx.Conn){
 	22: (*fixture).step22,
 	23: (*fixture).step23,
 	24: (*fixture).step24,
+	25: (*fixture).step25,
 }
 
 // latestMigration is the number of the last migration of database/migrations (TestMigrationsUpWithData,
 // TestMigrationsShareClusterRoles).
-const latestMigration = 24
+const latestMigration = 25
 
 // migrationVersions are the versions that have a migration, ascending. Tasks written in parallel use provisional
 // numbers; the coordinator renumbers at merge so that the numbers stay contiguous (goose refuses a migration numbered
@@ -478,4 +479,12 @@ func (f *fixture) step24(t *testing.T, c *pgx.Conn) {
 		exec(t, c, `INSERT INTO tenant_memberships (tenant_id, identity_id, role_id, status) VALUES ($1, $2, $3, $4)`,
 			tr.id, ident, f.tenantRole, status)
 	}
+}
+
+// 0025 (P4-T03a): no new table — a disabled platform user (the only other value of platform_users.status).
+func (f *fixture) step25(t *testing.T, c *pgx.Conn) {
+	ident := newID()
+	exec(t, c, `INSERT INTO identities (id, idp_id, scope, subject) VALUES ($1, $2, 'platform', 'disabled-'||$3)`,
+		ident, f.platformIdP, f.sfx)
+	exec(t, c, `INSERT INTO platform_users (identity_id, role_id, status) VALUES ($1, $2, 'disabled')`, ident, f.platformRole)
 }

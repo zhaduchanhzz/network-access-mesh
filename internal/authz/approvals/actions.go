@@ -33,6 +33,11 @@ type Spec struct {
 	// DecideConditions are the conditions of a :decide grant under which this action may still be decided — the
 	// conditional cell "chỉ cho restore" of §8.5 (authz.CondRestoreOnly) lets a Platform Operator decide restores only.
 	DecideConditions []string
+	// ApproverConditions are the conditions of a grant of Permission that the approval itself satisfies — the Super
+	// Admin's platform.idp:manage carries tenant_idp_dual_control ("a tenant row needs 2P"): the second Super Admin of
+	// such a request holds the permission under exactly that condition (P4-T03a). Without it a conditional grant of
+	// Permission is refused to the decider.
+	ApproverConditions []string
 }
 
 // Execution is what an approved action runs on: the request and its payload, exactly as approved — the bytes whose
@@ -133,7 +138,7 @@ func NewRegistry(actions ...Action) (*Registry, error) {
 		case r.actions[s.Name] != nil:
 			errs = append(errs, fmt.Errorf("action %s: registered twice", s.Name))
 		default:
-			for _, c := range s.DecideConditions {
+			for _, c := range append(slices.Clone(s.DecideConditions), s.ApproverConditions...) {
 				if !slices.Contains(known, c) {
 					errs = append(errs, fmt.Errorf("action %s: unknown decide condition %q", s.Name, c))
 				}

@@ -195,6 +195,36 @@ type MemberHandlers interface {
 	SetTenantGroupMembers(ctx context.Context, request gen.SetTenantGroupMembersRequestObject) (gen.SetTenantGroupMembersResponseObject, error)
 }
 
+// AdminHandlers — P4-T03a (`platform` administration and the tenant's settings): platform users (Super Admin role
+// through 2P), system settings, identity providers (a tenant row through 2P), plans, PATCH of a tenant; the tenant's
+// settings and security settings (lifting a second-person control through a tenant approval), its IdP, the deletion
+// request.
+type AdminHandlers interface {
+	UpdatePlatformTenant(ctx context.Context, request gen.UpdatePlatformTenantRequestObject) (gen.UpdatePlatformTenantResponseObject, error)
+	GetTenantSettings(ctx context.Context, request gen.GetTenantSettingsRequestObject) (gen.GetTenantSettingsResponseObject, error)
+	UpdateTenantSettings(ctx context.Context, request gen.UpdateTenantSettingsRequestObject) (gen.UpdateTenantSettingsResponseObject, error)
+	PutTenantSecuritySettings(ctx context.Context, request gen.PutTenantSecuritySettingsRequestObject) (gen.PutTenantSecuritySettingsResponseObject, error)
+	GetTenantIdentityProvider(ctx context.Context, request gen.GetTenantIdentityProviderRequestObject) (gen.GetTenantIdentityProviderResponseObject, error)
+	UpdateTenantIdentityProvider(ctx context.Context, request gen.UpdateTenantIdentityProviderRequestObject) (gen.UpdateTenantIdentityProviderResponseObject, error)
+	RequestTenantDeletion(ctx context.Context, request gen.RequestTenantDeletionRequestObject) (gen.RequestTenantDeletionResponseObject, error)
+	ListPlatformUsers(ctx context.Context, request gen.ListPlatformUsersRequestObject) (gen.ListPlatformUsersResponseObject, error)
+	CreatePlatformUser(ctx context.Context, request gen.CreatePlatformUserRequestObject) (gen.CreatePlatformUserResponseObject, error)
+	GetPlatformUser(ctx context.Context, request gen.GetPlatformUserRequestObject) (gen.GetPlatformUserResponseObject, error)
+	UpdatePlatformUser(ctx context.Context, request gen.UpdatePlatformUserRequestObject) (gen.UpdatePlatformUserResponseObject, error)
+	DeletePlatformUser(ctx context.Context, request gen.DeletePlatformUserRequestObject) (gen.DeletePlatformUserResponseObject, error)
+	SetPlatformUserSuperAdminRole(ctx context.Context, request gen.SetPlatformUserSuperAdminRoleRequestObject) (gen.SetPlatformUserSuperAdminRoleResponseObject, error)
+	ListPlatformSettings(ctx context.Context, request gen.ListPlatformSettingsRequestObject) (gen.ListPlatformSettingsResponseObject, error)
+	GetPlatformSetting(ctx context.Context, request gen.GetPlatformSettingRequestObject) (gen.GetPlatformSettingResponseObject, error)
+	PutPlatformSetting(ctx context.Context, request gen.PutPlatformSettingRequestObject) (gen.PutPlatformSettingResponseObject, error)
+	ListPlatformIdentityProviders(ctx context.Context, request gen.ListPlatformIdentityProvidersRequestObject) (gen.ListPlatformIdentityProvidersResponseObject, error)
+	GetPlatformIdentityProvider(ctx context.Context, request gen.GetPlatformIdentityProviderRequestObject) (gen.GetPlatformIdentityProviderResponseObject, error)
+	UpdatePlatformIdentityProvider(ctx context.Context, request gen.UpdatePlatformIdentityProviderRequestObject) (gen.UpdatePlatformIdentityProviderResponseObject, error)
+	ListPlatformPlans(ctx context.Context, request gen.ListPlatformPlansRequestObject) (gen.ListPlatformPlansResponseObject, error)
+	CreatePlatformPlan(ctx context.Context, request gen.CreatePlatformPlanRequestObject) (gen.CreatePlatformPlanResponseObject, error)
+	GetPlatformPlan(ctx context.Context, request gen.GetPlatformPlanRequestObject) (gen.GetPlatformPlanResponseObject, error)
+	UpdatePlatformPlan(ctx context.Context, request gen.UpdatePlatformPlanRequestObject) (gen.UpdatePlatformPlanResponseObject, error)
+}
+
 // Handlers is the extension point of the API: one handler set per building task. A nil set answers every operation
 // of its interface with 501 not_implemented. A set may also implement only part of its interface by embedding
 // NotImplemented. Handlers return a *problem.Error for an expected failure (not_found, conflict…); any other error
@@ -222,6 +252,7 @@ type Handlers struct {
 	Tags          TagHandlers          // P4-T15
 	Members       MemberHandlers       // P4-T09
 	Portal        PortalHandlers       // P4-T04
+	Admin         AdminHandlers        // P4-T03a
 }
 
 func (h Handlers) mounted() bool {
@@ -229,7 +260,7 @@ func (h Handlers) mounted() bool {
 		h.Notifications != nil || h.Approvals != nil || h.Invitations != nil || h.Hosts != nil || h.IdPConsole != nil ||
 		h.Provisioning != nil || h.Lifecycle != nil || h.Relay != nil || h.Reconfigure != nil || h.Backups != nil ||
 		h.InstanceOps != nil || h.Quarantine != nil || h.Deprovision != nil || h.Tags != nil || h.Members != nil ||
-		h.Portal != nil
+		h.Portal != nil || h.Admin != nil
 }
 
 // dispatcher implements gen.StrictServerInterface by promotion from the disjoint interfaces.
@@ -256,6 +287,7 @@ type dispatcher struct {
 	TagHandlers
 	MemberHandlers
 	PortalHandlers
+	AdminHandlers
 }
 
 var _ gen.StrictServerInterface = dispatcher{}
@@ -263,7 +295,10 @@ var _ gen.StrictServerInterface = dispatcher{}
 func newDispatcher(h Handlers) dispatcher {
 	d := dispatcher{h.Auth, h.Tenants, h.Devices, h.Audit, h.Jobs, h.Monitoring, h.Notifications, h.Approvals, h.Invitations,
 		h.Hosts, h.IdPConsole, h.Provisioning, h.Lifecycle, h.Relay, h.Reconfigure, h.Backups, h.InstanceOps,
-		h.Quarantine, h.Deprovision, h.Tags, h.Members, h.Portal}
+		h.Quarantine, h.Deprovision, h.Tags, h.Members, h.Portal, h.Admin}
+	if d.AdminHandlers == nil {
+		d.AdminHandlers = NotImplemented{}
+	}
 	if d.TagHandlers == nil {
 		d.TagHandlers = NotImplemented{}
 	}
@@ -665,4 +700,96 @@ func (NotImplemented) SetTenantGroupMembers(context.Context, gen.SetTenantGroupM
 
 func (NotImplemented) MarkNotificationRead(context.Context, gen.MarkNotificationReadRequestObject) (gen.MarkNotificationReadResponseObject, error) {
 	return nil, problem.NotImplemented("MarkNotificationRead")
+}
+
+func (NotImplemented) UpdatePlatformTenant(context.Context, gen.UpdatePlatformTenantRequestObject) (gen.UpdatePlatformTenantResponseObject, error) {
+	return nil, problem.NotImplemented("UpdatePlatformTenant")
+}
+
+func (NotImplemented) GetTenantSettings(context.Context, gen.GetTenantSettingsRequestObject) (gen.GetTenantSettingsResponseObject, error) {
+	return nil, problem.NotImplemented("GetTenantSettings")
+}
+
+func (NotImplemented) UpdateTenantSettings(context.Context, gen.UpdateTenantSettingsRequestObject) (gen.UpdateTenantSettingsResponseObject, error) {
+	return nil, problem.NotImplemented("UpdateTenantSettings")
+}
+
+func (NotImplemented) PutTenantSecuritySettings(context.Context, gen.PutTenantSecuritySettingsRequestObject) (gen.PutTenantSecuritySettingsResponseObject, error) {
+	return nil, problem.NotImplemented("PutTenantSecuritySettings")
+}
+
+func (NotImplemented) GetTenantIdentityProvider(context.Context, gen.GetTenantIdentityProviderRequestObject) (gen.GetTenantIdentityProviderResponseObject, error) {
+	return nil, problem.NotImplemented("GetTenantIdentityProvider")
+}
+
+func (NotImplemented) UpdateTenantIdentityProvider(context.Context, gen.UpdateTenantIdentityProviderRequestObject) (gen.UpdateTenantIdentityProviderResponseObject, error) {
+	return nil, problem.NotImplemented("UpdateTenantIdentityProvider")
+}
+
+func (NotImplemented) RequestTenantDeletion(context.Context, gen.RequestTenantDeletionRequestObject) (gen.RequestTenantDeletionResponseObject, error) {
+	return nil, problem.NotImplemented("RequestTenantDeletion")
+}
+
+func (NotImplemented) ListPlatformUsers(context.Context, gen.ListPlatformUsersRequestObject) (gen.ListPlatformUsersResponseObject, error) {
+	return nil, problem.NotImplemented("ListPlatformUsers")
+}
+
+func (NotImplemented) CreatePlatformUser(context.Context, gen.CreatePlatformUserRequestObject) (gen.CreatePlatformUserResponseObject, error) {
+	return nil, problem.NotImplemented("CreatePlatformUser")
+}
+
+func (NotImplemented) GetPlatformUser(context.Context, gen.GetPlatformUserRequestObject) (gen.GetPlatformUserResponseObject, error) {
+	return nil, problem.NotImplemented("GetPlatformUser")
+}
+
+func (NotImplemented) UpdatePlatformUser(context.Context, gen.UpdatePlatformUserRequestObject) (gen.UpdatePlatformUserResponseObject, error) {
+	return nil, problem.NotImplemented("UpdatePlatformUser")
+}
+
+func (NotImplemented) DeletePlatformUser(context.Context, gen.DeletePlatformUserRequestObject) (gen.DeletePlatformUserResponseObject, error) {
+	return nil, problem.NotImplemented("DeletePlatformUser")
+}
+
+func (NotImplemented) SetPlatformUserSuperAdminRole(context.Context, gen.SetPlatformUserSuperAdminRoleRequestObject) (gen.SetPlatformUserSuperAdminRoleResponseObject, error) {
+	return nil, problem.NotImplemented("SetPlatformUserSuperAdminRole")
+}
+
+func (NotImplemented) ListPlatformSettings(context.Context, gen.ListPlatformSettingsRequestObject) (gen.ListPlatformSettingsResponseObject, error) {
+	return nil, problem.NotImplemented("ListPlatformSettings")
+}
+
+func (NotImplemented) GetPlatformSetting(context.Context, gen.GetPlatformSettingRequestObject) (gen.GetPlatformSettingResponseObject, error) {
+	return nil, problem.NotImplemented("GetPlatformSetting")
+}
+
+func (NotImplemented) PutPlatformSetting(context.Context, gen.PutPlatformSettingRequestObject) (gen.PutPlatformSettingResponseObject, error) {
+	return nil, problem.NotImplemented("PutPlatformSetting")
+}
+
+func (NotImplemented) ListPlatformIdentityProviders(context.Context, gen.ListPlatformIdentityProvidersRequestObject) (gen.ListPlatformIdentityProvidersResponseObject, error) {
+	return nil, problem.NotImplemented("ListPlatformIdentityProviders")
+}
+
+func (NotImplemented) GetPlatformIdentityProvider(context.Context, gen.GetPlatformIdentityProviderRequestObject) (gen.GetPlatformIdentityProviderResponseObject, error) {
+	return nil, problem.NotImplemented("GetPlatformIdentityProvider")
+}
+
+func (NotImplemented) UpdatePlatformIdentityProvider(context.Context, gen.UpdatePlatformIdentityProviderRequestObject) (gen.UpdatePlatformIdentityProviderResponseObject, error) {
+	return nil, problem.NotImplemented("UpdatePlatformIdentityProvider")
+}
+
+func (NotImplemented) ListPlatformPlans(context.Context, gen.ListPlatformPlansRequestObject) (gen.ListPlatformPlansResponseObject, error) {
+	return nil, problem.NotImplemented("ListPlatformPlans")
+}
+
+func (NotImplemented) CreatePlatformPlan(context.Context, gen.CreatePlatformPlanRequestObject) (gen.CreatePlatformPlanResponseObject, error) {
+	return nil, problem.NotImplemented("CreatePlatformPlan")
+}
+
+func (NotImplemented) GetPlatformPlan(context.Context, gen.GetPlatformPlanRequestObject) (gen.GetPlatformPlanResponseObject, error) {
+	return nil, problem.NotImplemented("GetPlatformPlan")
+}
+
+func (NotImplemented) UpdatePlatformPlan(context.Context, gen.UpdatePlatformPlanRequestObject) (gen.UpdatePlatformPlanResponseObject, error) {
+	return nil, problem.NotImplemented("UpdatePlatformPlan")
 }
