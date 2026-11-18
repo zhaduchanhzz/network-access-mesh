@@ -196,6 +196,15 @@ func testInvitationIdempotency(t *testing.T, f *fixture) {
 	if n := f.scalar(`SELECT count(*)::text FROM tenant_invitations WHERE tenant_id = $1`, a); n != "1" {
 		t.Fatalf("%s invitations after a replay", n)
 	}
+	// the replay is audited (no audit gap no_event), marked as such, and sends no second e-mail
+	if n := f.scalar(`SELECT count(*)::text FROM audit_events WHERE tenant_id = $1 AND action = 'invitation.create'
+		AND resource_id = $2 AND details->>'replay' = 'true'`, a, first.ID.String()); n != "1" {
+		t.Fatalf("%s invitation.create replay events, want 1", n)
+	}
+	if n := f.scalar(`SELECT count(*)::text FROM audit_events WHERE tenant_id = $1 AND action = 'invitation.create'
+		AND resource_id = $2 AND details->>'replay' IS NULL`, a, first.ID.String()); n != "1" {
+		t.Fatalf("%s original invitation.create events, want 1", n)
+	}
 	other := &tenants.Idempotency{Key: key.Key, Hash: jobs.RequestHash("POST", "/tenants/"+a.String()+"/invitations",
 		[]byte(`{"email":"twice@example.test","role":"tenant_operator"}`))}
 	if _, err := svc.CreateInvitation(ctx, a, actorOf(toID, toM), tenants.NewInvitation{Email: "twice@example.test",

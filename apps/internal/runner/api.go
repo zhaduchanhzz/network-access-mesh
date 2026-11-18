@@ -75,6 +75,8 @@ import (
 //	                 (lifecycleapi over lifecycle.Requester — suspend/resume, P3-T08), Relay (relayapi over relay —
 //	                 the tenant's relays and the platform's regions with the last probe, reads only, P3-T05c),
 //	                 Reconfigure (reconfigureapi over orchestrator.ReconfigureService — instance.reconfigure, P3-T13)
+//	maintenance      the gate of P3-T17 (MG_MAINTENANCE OR system_settings maintenance, polled): 503 maintenance to
+//	                 everything but the platform sign-in on admin.<domain> (httpapi.Options.Maintenance)
 //	readiness        postgres, secretstore, edge_admin (§16.2)
 func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prometheus.Registerer) (_ *component, err error) {
 	d, err := openDeps(ctx, cfg, log, idp.PlatformOIDCPaths)
@@ -139,15 +141,20 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 	if err != nil {
 		return nil, err
 	}
+	gate, err := newMaintenanceGate(ctx, cfg, d.st, log, reg) // P3-T17: 503 maintenance but the platform sign-in
+	if err != nil {
+		return nil, err
+	}
 	hooks := authzhook.Hooks(svc, authorizer)
 	hooks.Audit = auditapi.Middleware(auditLog)
-	gate := idpconsoleapi.NewGate(idpconsoleapi.GateConfig{Grants: console.NewStore(d.st), Authz: authorizer,
+	consoleGate := idpconsoleapi.NewGate(idpconsoleapi.GateConfig{Grants: console.NewStore(d.st), Authz: authorizer,
 		Audit: auditLog, Logger: log})
 	public, err := httpapi.New(httpapi.Options{
 		Logger:         log,
 		TrustedProxies: cfg.TrustedProxies,
 		Hooks:          hooks,
-		Internal:       map[string]http.Handler{"GET " + idpconsoleapi.GatePath: gate},
+		Internal:       map[string]http.Handler{"GET " + idpconsoleapi.GatePath: consoleGate},
+		Maintenance:    httpapi.Maintenance{On: gate.On, AdminHost: cfg.AdminHost()},
 		Handlers: httpapi.Handlers{
 			Auth:          identityapi.New(svc),
 			Tenants:       tenantsapi.New(d.tenants, platform.New(d.st)),
@@ -173,7 +180,18 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 	}
 	log.Info("api wired", "app_host", cfg.AppHost(), "admin_host", cfg.AdminHost(), "idp_platform_host",
 		cfg.IdPPlatformHost(), "trusted_proxies", len(cfg.TrustedProxies), "egress_deny", len(cfg.EgressDeny))
-	return &component{probes: d.probes(), public: edgeOnly(cfg.TrustedProxies, public), close: d.close}, nil
+	c := &component{probes: d.probes(), public: edgeOnly(cfg.TrustedProxies, public), close: d.close}
+	var poll *background
+	c.start = func(context.Context) error {
+		poll = startBackground(func(ctx context.Context) { _ = gate.Run(ctx) })
+		return nil
+	}
+	c.stop = func(context.Context) {
+		if poll != nil {
+			poll.stop()
+		}
+	}
+	return c, nil
 }
 
 // approvalActions is the registry of the actions the api executes after a second person approved them (§8.5/§8.6 2P,

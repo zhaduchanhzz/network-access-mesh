@@ -295,6 +295,57 @@ func (q *Queries) InsertInstanceBackup(ctx context.Context, arg InsertInstanceBa
 	return i, err
 }
 
+const listBackupFreshness = `-- name: ListBackupFreshness :many
+SELECT ti.id, ti.tenant_id, ti.created_at,
+       COALESCE((SELECT max(b.finished_at) FROM backups b
+                 WHERE b.instance_id = ti.id AND b.status IN ('succeeded', 'purged')), '1970-01-01T00:00:00Z'::timestamptz)::timestamptz AS last_success_at,
+       COALESCE((SELECT COALESCE((s.overrides->>'backup_interval_minutes')::integer, (p.limits->>'backup_interval_minutes')::integer)
+                 FROM subscriptions s JOIN subscription_plans p ON p.id = s.plan_id
+                 WHERE s.tenant_id = ti.tenant_id AND s.status IN ('trialing', 'active', 'past_due')
+                 LIMIT 1), 0)::integer AS interval_minutes
+FROM tenant_instances ti
+JOIN tenants t ON t.id = ti.tenant_id
+WHERE ti.status IN ('running', 'stopped') AND t.status IN ('provisioning', 'active', 'suspended')
+ORDER BY ti.id
+`
+
+type ListBackupFreshnessRow struct {
+	ID              uuid.UUID
+	TenantID        uuid.UUID
+	CreatedAt       time.Time
+	LastSuccessAt   time.Time
+	IntervalMinutes int32
+}
+
+// Độ tươi backup theo instance (P3-T16 — cảnh báo §16.3 "quá hạn lịch backup của tenant"): đúng tập instance của
+// ListBackupSchedule, kèm finished_at của bản backup thành công gần nhất (succeeded hoặc purged; epoch = chưa từng có —
+// khi đó mốc là created_at của instance) và chu kỳ theo plan (0 = không có ⇒ MG_BACKUP_INTERVAL).
+func (q *Queries) ListBackupFreshness(ctx context.Context) ([]ListBackupFreshnessRow, error) {
+	rows, err := q.db.Query(ctx, listBackupFreshness)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListBackupFreshnessRow{}
+	for rows.Next() {
+		var i ListBackupFreshnessRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.CreatedAt,
+			&i.LastSuccessAt,
+			&i.IntervalMinutes,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listBackupSchedule = `-- name: ListBackupSchedule :many
 SELECT ti.id, ti.tenant_id,
        COALESCE((SELECT max(b.started_at) FROM backups b WHERE b.instance_id = ti.id), '1970-01-01T00:00:00Z'::timestamptz)::timestamptz AS last_started_at,

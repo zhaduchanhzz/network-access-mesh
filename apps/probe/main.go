@@ -3,12 +3,16 @@
 // Host, and the edge (step 18) and relay (step 17) checks built on them — see apps/probe/prober. It holds no secret.
 //
 //	meshguard-probe [serve]           the service: RPC API for the worker on MG_PROBE_LISTEN (default :8080) +
-//	                                  internal listener MG_INTERNAL_ADDR (default :9090: /healthz, /readyz, /metrics)
+//	                                  internal listener MG_INTERNAL_ADDR (default :9090: /healthz, /readyz, /metrics,
+//	                                  and /probe — one probe per scrape for Prometheus, P3-T16)
 //	meshguard-probe run <kind>        one probe in this process; the request (JSON) on stdin, the result on stdout
 //	meshguard-probe call <kind>       the same through the RPC API of a running service (--url, default
 //	                                  MG_PROBER_URL) — what the worker does
 //	meshguard-probe selftest          stub STUN responder + stub edge on loopback, every probe kind through the RPC API
 //	meshguard-probe healthcheck       container healthcheck: /readyz of the internal listener
+//	meshguard-probe alertsink         the internal alert channel of staging (P3-T16): receiver of Alertmanager's
+//	                                  webhook on MG_ALERTSINK_LISTEN (default :8080) + the internal listener — see
+//	                                  apps/probe/alertsink (MG_ALERTSINK_ALLOW_CALLERS required)
 //	meshguard-probe version
 //
 // <kind> is stun, https, edge or relay. Exit status: 0 = the probe passed (selftest: every case), 1 = the probe ran
@@ -16,9 +20,11 @@
 // target or caller not allowed, RPC failure — {"error": …} is printed).
 //
 // Configuration (environment; no secret): MG_PROBE_ALLOW_CALLERS and MG_PROBE_ALLOW_TARGETS (required by serve:
-// comma-separated IPs/CIDRs — RPC clients, probe targets), MG_PROBE_CA_FILE (PEM roots that REPLACE the system roots —
-// the dev/CI CA; unset in production, where the edge has a public ACME certificate), MG_PROBE_MAX_INFLIGHT (default
-// 8), MG_LOG_LEVEL (default info). `run` allows exactly the targets named in its request.
+// comma-separated IPs/CIDRs — RPC clients, probe targets), MG_PROBE_ALLOW_SCRAPERS (callers of /probe — Prometheus;
+// unset: every scrape is refused), MG_PROBE_CAPVER (capability version of the key module, default 113),
+// MG_PROBE_CA_FILE (PEM roots that REPLACE the system roots — the dev/CI CA; unset in production, where the edge has a
+// public ACME certificate), MG_PROBE_MAX_INFLIGHT (default 8), MG_LOG_LEVEL (default info). `run` allows exactly the
+// targets named in its request.
 package main
 
 import (
@@ -38,6 +44,7 @@ const usage = `usage: meshguard-probe [serve]
        meshguard-probe call [--url http://prober:8080] <stun|https|edge|relay>   (request JSON on stdin)
        meshguard-probe selftest
        meshguard-probe healthcheck
+       meshguard-probe alertsink
        meshguard-probe version
 `
 
@@ -71,6 +78,10 @@ func dispatch(ctx context.Context, args []string, getenv func(string) string, st
 	case "selftest":
 		if len(args) == 0 {
 			return selftest(ctx, stdout)
+		}
+	case "alertsink":
+		if len(args) == 0 {
+			return alertsinkCmd(ctx, getenv, stdout, stderr)
 		}
 	case "run":
 		if len(args) == 1 && validKind(args[0]) {

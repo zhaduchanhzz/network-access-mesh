@@ -192,6 +192,25 @@ type HTTPSResult struct {
 	Error         *Error            `json:"error,omitempty"`
 }
 
+// TLSRequest is one TLS handshake to an IP address with an explicit SNI (no HTTP request follows) — the certificate a
+// site of the edge presents (P3-T16, §16.3 "chứng chỉ còn < 21 ngày").
+type TLSRequest struct {
+	Address   string `json:"address"`              // ip:port dialled as is (no name resolution)
+	SNI       string `json:"sni"`                  // TLS server name; the certificate must be valid for it
+	TimeoutMS int    `json:"timeout_ms,omitempty"` // default 5000, at most 15000
+}
+
+// TLSResult is the outcome of a TLS probe.
+type TLSResult struct {
+	Address   string    `json:"address"`
+	SNI       string    `json:"sni"`
+	OK        bool      `json:"ok"` // the handshake completed and the certificate verified for the SNI
+	TLS       *TLSInfo  `json:"tls,omitempty"`
+	Timing    Timing    `json:"timing"`
+	CheckedAt time.Time `json:"checked_at"`
+	Error     *Error    `json:"error,omitempty"`
+}
+
 // EdgeRequest is the edge check of provisioning step 18 for one tenant hostname.
 type EdgeRequest struct {
 	Address   string   `json:"address"`              // the edge's public listener, ip:port

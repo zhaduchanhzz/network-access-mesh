@@ -4,8 +4,8 @@
 #     ⇒ cùng phiên bản với server. Thư viện của chúng mà base chưa có được chép cùng bản ghi dpkg (status.d) và file
 #     copyright của gói chứa chúng, để SBOM (syft) và grype thấy đúng gói/phiên bản.
 #   - age: build lại từ mã nguồn pin (versions.lock [sources.age]) bằng đúng công thức của
-#     infrastructure/host/key-ceremony/build-age.sh (cùng image golang, cùng cờ) ⇒ sha256 phải trùng versions.lock —
-#     kiểm ngay trong build (khác ⇒ build fail).
+#     infrastructure/host/key-ceremony/build-age.sh (cùng module bọc age-build/ với x/crypto đã vá, cùng image golang,
+#     cùng cờ) ⇒ sha256 phải trùng versions.lock — kiểm ngay trong build (khác ⇒ build fail).
 #   - meshguard-backup: Go tĩnh, thư viện chuẩn + internal/kit (module ngoài duy nhất: google/uuid qua
 #     internal/kit/requestid — tải qua proxy, kiểm bằng go.sum; -mod=readonly).
 # Runtime: distroless base-debian13 nonroot (versions.lock [images.distroless-base-nonroot]; glibc, libssl3t64, zlib1g,
@@ -23,17 +23,21 @@ ARG RUNTIME=gcr.io/distroless/base-debian13:nonroot@sha256:a08d9054afbaf1af9b90f
 FROM ${RUNTIME} AS runtime-base
 
 # ---------------------------------------------------------------- age (công thức của build-age.sh)
+# Module bọc infrastructure/host/key-ceremony/age-build (go.mod/go.sum: filippo.io/age + golang.org/x/crypto v0.56.0 —
+# GO-2026-6354/6355; P3-T11a), -mod=readonly; -X main.Version ⇒ `age --version` = v1.3.2.
 FROM ${GOLANG} AS age
 ARG AGE_MODULE=filippo.io/age
 ARG AGE_VERSION=v1.3.2
-ARG AGE_SHA256=e442c7bc47bb52e08ccb02dfa5fc09ecf58ce6bce5de0cdda8443b918ae7055e
-ENV HOME=/tmp CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS=-trimpath GOBIN=/out \
+ARG AGE_SHA256=571136ee8b7cbb0f67cd8ddd2e46ed834b933c62d59500b631a82af6c627e44d
+ENV HOME=/tmp CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS="-trimpath -mod=readonly" \
     GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GONOSUMDB= GOPRIVATE= GOINSECURE= \
     GOMODCACHE=/tmp/modcache GOCACHE=/tmp/gocache
-WORKDIR /tmp
-RUN go install "${AGE_MODULE}/cmd/age@${AGE_VERSION}" \
+WORKDIR /src
+COPY infrastructure/host/key-ceremony/age-build/go.mod infrastructure/host/key-ceremony/age-build/go.sum ./
+RUN test "$(go list -m "${AGE_MODULE}")" = "${AGE_MODULE} ${AGE_VERSION}" \
+ && go build -ldflags "-X main.Version=${AGE_VERSION}" -o /out/age "${AGE_MODULE}/cmd/age" \
  && echo "${AGE_SHA256}  /out/age" | sha256sum -c - \
- && /out/age --version
+ && test "$(/out/age --version)" = "${AGE_VERSION}"
 
 # ---------------------------------------------------------------- meshguard-backup
 FROM ${GOLANG} AS build

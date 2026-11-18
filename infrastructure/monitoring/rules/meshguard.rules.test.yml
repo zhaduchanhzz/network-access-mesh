@@ -1,0 +1,336 @@
+# Unit test của infrastructure/monitoring/rules/meshguard.rules.yml (P3-T16): mỗi rule có ít nhất một ca phải bắn (đúng
+# nhãn, đúng annotation đã render) và một ca không được bắn (ngưỡng, `for`, bộ lọc). Chạy:
+#   docker run --rm -v "$PWD/infrastructure/monitoring/rules:/r:ro" -w /r --entrypoint /bin/promtool \
+#     <[images.prometheus] pin digest> test rules meshguard.rules.test.yml
+# Thời gian của promtool bắt đầu ở 0 (Unix epoch), nên time() tại eval_time 5m là 300.
+rule_files:
+  - meshguard.rules.yml
+
+evaluation_interval: 1m
+
+tests:
+  # --------------------------------------------------------------------------------------------- tenant control plane
+  - interval: 1m
+    input_series:
+      - series: 'up{job="headscale",instance="tenant-b",slug="tenant-b",tenant_id="t-b",instance_id="i-b"}'
+        values: '1 1 0 0 0 0 0'
+      - series: 'up{job="headscale",instance="tenant-a",slug="tenant-a",tenant_id="t-a",instance_id="i-a"}'
+        values: '1 1 1 1 1 1 1'
+      - series: 'probe_success{job="probe-key-edge",instance="tenant-b",module="key",via="edge",slug="tenant-b",tenant_id="t-b",instance_id="i-b"}'
+        values: '1 0 0 0 0 0 0'
+      - series: 'probe_success{job="probe-key-public",instance="tenant-a",module="key",via="public",slug="tenant-a",tenant_id="t-a",instance_id="i-a"}'
+        values: '1 1 1 0 1 1 1'
+      - series: 'probe_success{job="probe-tls",instance="admin.example.test",module="tls",via="edge"}'
+        values: '0 0 0 0 0 0 0'
+    alert_rule_test:
+      - eval_time: 3m          # 0 từ 2m: còn pending (for 2m)
+        alertname: TenantInstanceDown
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: TenantInstanceDown
+        exp_alerts:
+          - exp_labels: {severity: critical, job: headscale, instance: tenant-b, slug: tenant-b, tenant_id: t-b, instance_id: i-b}
+            exp_annotations:
+              summary: "Headscale của tenant tenant-b không trả lời qua listener metrics của edge (> 2 phút)"
+              description: "up{job=headscale} = 0 cho instance i-b (tenant t-b). Kiểm container mg-hs-tenant-b, log start guard của Agent, edge còn gắn network mg-t-tenant-b."
+              runbook: "infrastructure/host/RUNBOOK.md — Cảnh báo (P3-T16)"
+      - eval_time: 2m
+        alertname: TenantControlProbeFailed
+        exp_alerts: []
+      # tenant-b qua edge hỏng từ 1m ⇒ bắn ở 3m; tenant-a qua public hỏng đúng một phút ⇒ không bắn; module tls không tính
+      - eval_time: 3m
+        alertname: TenantControlProbeFailed
+        exp_alerts:
+          - exp_labels: {severity: critical, job: probe-key-edge, instance: tenant-b, module: key, via: edge, slug: tenant-b, tenant_id: t-b, instance_id: i-b}
+            exp_annotations:
+              summary: "Probe /key của tenant-b thất bại qua edge (> 2 phút)"
+              description: "Client của tenant tenant-b không kết nối được control plane qua edge. via=edge: instance/edge; via=public: VPS, tunnel, DNS."
+              runbook: "infrastructure/host/RUNBOOK.md — Cảnh báo (P3-T16)"
+
+  # --------------------------------------------------------------------------------------------- chứng chỉ
+  - interval: 1m
+    input_series:
+      # hết hạn ở 300 + 20 ngày ⇒ tại 5m còn đúng 20 ngày
+      - series: 'probe_ssl_earliest_cert_expiry{job="probe-tls",instance="app.example.test",module="tls",via="edge"}'
+        values: '1728300x10'
+      # còn 22 ngày ⇒ không bắn
+      - series: 'probe_ssl_earliest_cert_expiry{job="probe-key-edge",instance="tenant-a",module="key",via="edge",slug="tenant-a",tenant_id="t-a",instance_id="i-a"}'
+        values: '1901100x10'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: CertificateExpiringSoon
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: CertificateExpiringSoon
+        exp_alerts:
+          - exp_labels: {severity: high, job: probe-tls, instance: app.example.test, module: tls, via: edge}
+            exp_annotations:
+              summary: "Chứng chỉ của app.example.test còn dưới 21 ngày"
+              description: "Hết hạn sau 20d 0h 0m 0s. Kiểm log ACME (DNS-01) của edge, token DNS, CAA."
+              runbook: "infrastructure/host/RUNBOOK.md — Cảnh báo (P3-T16)"
+
+  # --------------------------------------------------------------------------------------------- backup của nền tảng
+  - interval: 1m
+    input_series:
+      # postgres: thành công lần cuối ở 3600 s, max_age 26h ⇒ quá hạn từ 27h0m1s, bắn sau `for` 1m
+      - series: 'meshguard_backup_last_success_timestamp_seconds{job="node",instance="10.249.3.5:9100",target="postgres"}'
+        values: '0 3600x1700'
+      - series: 'meshguard_backup_max_age_seconds{job="node",instance="10.249.3.5:9100",target="postgres"}'
+        values: '93600x1700'
+      # edge: thành công mỗi phút ⇒ không bao giờ quá hạn; nhưng 2 lượt lỗi liên tiếp ở 3m
+      - series: 'meshguard_backup_last_success_timestamp_seconds{job="node",instance="10.249.3.5:9100",target="edge"}'
+        values: '0+60x1700'
+      - series: 'meshguard_backup_max_age_seconds{job="node",instance="10.249.3.5:9100",target="edge"}'
+        values: '93600x1700'
+      - series: 'meshguard_backup_consecutive_failures{job="node",instance="10.249.3.5:9100",target="edge"}'
+        values: '0 1 1 2 0x1700'
+      # idp: không có status.prom
+    alert_rule_test:
+      - eval_time: 26h
+        alertname: PlatformBackupOverdue
+        exp_alerts: []
+      - eval_time: 27h5m
+        alertname: PlatformBackupOverdue
+        exp_alerts:
+          - exp_labels: {severity: high, job: node, instance: "10.249.3.5:9100", target: postgres}
+            exp_annotations:
+              summary: "Backup postgres quá hạn (lần thành công gần nhất cũ hơn ngưỡng max_age)"
+              description: "Xem trạng thái: `docker compose -p mg-backup -f /opt/meshguard/core/compose.backup.yaml run --rm <pg-backup|idp-backup|edge-backup> status` và log của dịch vụ."
+              runbook: "docs/operations/backup-restore.md — mục 2"
+      - eval_time: 2m
+        alertname: PlatformBackupFailing
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: PlatformBackupFailing
+        exp_alerts:
+          - exp_labels: {severity: high, job: node, instance: "10.249.3.5:9100", target: edge}
+            exp_annotations:
+              summary: "Backup edge thất bại 2 lượt liên tiếp"
+              description: "status.json của edge: last_attempt.error cho biết lý do (đã che secret)."
+              runbook: "docs/operations/backup-restore.md — mục 2"
+      - eval_time: 9m
+        alertname: PlatformBackupStatusMissing
+        exp_alerts: []
+      - eval_time: 11m
+        alertname: PlatformBackupStatusMissing
+        exp_alerts:
+          - exp_labels: {severity: high, target: idp}
+            exp_annotations:
+              summary: "Không có trạng thái backup của idp (status.prom)"
+              description: "Project mg-backup chưa chạy, hoặc node-exporter không đọc được /opt/meshguard/backups/idp."
+              runbook: "docs/operations/backup-restore.md — mục 2"
+
+  # --------------------------------------------------------------------------------------------- backup của tenant
+  - interval: 1m
+    input_series:
+      - series: 'meshguard_instance_backup_age_seconds{job="worker",instance="worker:9090",tenant_id="t-a",instance_id="i-a"}'
+        values: '7000+60x10'     # vượt 7200 ở 4m
+      - series: 'meshguard_instance_backup_max_age_seconds{job="worker",instance="worker:9090",tenant_id="t-a",instance_id="i-a"}'
+        values: '7200x10'
+      - series: 'meshguard_instance_backup_age_seconds{job="worker",instance="worker:9090",tenant_id="t-b",instance_id="i-b"}'
+        values: '100+60x10'
+      - series: 'meshguard_instance_backup_max_age_seconds{job="worker",instance="worker:9090",tenant_id="t-b",instance_id="i-b"}'
+        values: '7200x10'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: TenantBackupOverdue
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: TenantBackupOverdue
+        exp_alerts:
+          - exp_labels: {severity: high, job: worker, instance: "worker:9090", tenant_id: t-a, instance_id: i-a}
+            exp_annotations:
+              summary: "Backup của instance i-a (tenant t-a) quá hạn"
+              description: "Bản thành công gần nhất cách đây 2h 2m 40s. Kiểm job instance.backup, Host Agent, MG_BACKUP_MANIFEST_PUBKEY."
+              runbook: "docs/operations/backup-restore.md"
+
+  # --------------------------------------------------------------------------------------------- host
+  - interval: 1m
+    input_series:
+      - series: 'node_filesystem_avail_bytes{job="node",instance="n",device="/dev/sda1",fstype="ext4",mountpoint="/"}'
+        values: '30x10'
+      - series: 'node_filesystem_size_bytes{job="node",instance="n",device="/dev/sda1",fstype="ext4",mountpoint="/"}'
+        values: '100x10'
+      # filesystem riêng của backups: 81% ⇒ bắn
+      - series: 'node_filesystem_avail_bytes{job="node",instance="n",device="/dev/sdb1",fstype="xfs",mountpoint="/opt/meshguard/backups"}'
+        values: '19x10'
+      - series: 'node_filesystem_size_bytes{job="node",instance="n",device="/dev/sdb1",fstype="xfs",mountpoint="/opt/meshguard/backups"}'
+        values: '100x10'
+      # tmpfs đầy không tính
+      - series: 'node_filesystem_avail_bytes{job="node",instance="n",device="tmpfs",fstype="tmpfs",mountpoint="/run"}'
+        values: '1x10'
+      - series: 'node_filesystem_size_bytes{job="node",instance="n",device="tmpfs",fstype="tmpfs",mountpoint="/run"}'
+        values: '100x10'
+      # boot ở 0 ⇒ cửa sổ 10 phút
+      - series: 'node_boot_time_seconds{job="node",instance="n"}'
+        values: '0x20'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: NodeFilesystemAlmostFull
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: NodeFilesystemAlmostFull
+        exp_alerts:
+          - exp_labels: {severity: high, job: node, instance: n, device: /dev/sdb1, fstype: xfs, mountpoint: /opt/meshguard/backups}
+            exp_annotations:
+              summary: "Filesystem /opt/meshguard/backups đã dùng 81%"
+              description: "Thiết bị /dev/sdb1 (xfs). Backup và dữ liệu tenant phải còn chỗ (§14.2, §17.1)."
+              runbook: "infrastructure/host/RUNBOOK.md — Cảnh báo (P3-T16)"
+      - eval_time: 5m
+        alertname: HostRebooted
+        exp_alerts:
+          - exp_labels: {severity: warning, job: node, instance: n}
+            exp_annotations:
+              summary: "Host vừa khởi động lại (cách đây 5m 0s)"
+              description: "Trong 10 phút đầu sau boot, TenantInstanceDown/TenantControlProbeFailed bị nén; hết cửa sổ mà instance chưa lên thì cảnh báo như thường."
+              runbook: "infrastructure/host/RUNBOOK.md — Cảnh báo (P3-T16)"
+      - eval_time: 11m
+        alertname: HostRebooted
+        exp_alerts: []
+
+  # --------------------------------------------------------------------------------------------- thành phần nền tảng
+  - interval: 1m
+    input_series:
+      - series: 'up{job="api",instance="api:9090"}'
+        values: '1 0 0 0 0'
+      - series: 'up{job="worker",instance="worker:9090"}'
+        values: '1 1 1 1 1'
+      - series: 'up{job="headscale",instance="tenant-a",slug="tenant-a"}'   # có rule riêng
+        values: '0 0 0 0 0'
+      - series: 'up{job="probe-key-edge",instance="tenant-a",slug="tenant-a"}'
+        values: '1 1 0 0 0'
+      - series: 'alertmanager_notifications_failed_total{job="alertmanager",instance="a",integration="email"}'
+        values: '0 0 1 1 1'
+      - series: 'alertmanager_notifications_failed_total{job="alertmanager",instance="a",integration="webhook"}'
+        values: '0 0 0 0 0'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: PlatformTargetDown
+        exp_alerts:
+          - exp_labels: {severity: high, job: api, instance: "api:9090"}
+            exp_annotations:
+              summary: "Prometheus không scrape được api (api:9090)"
+              description: "Thành phần dừng hoặc không còn trên mg-obs. probe-*: prober không trả lời /probe — mọi probe /key và chứng chỉ không còn được đo."
+              runbook: "infrastructure/host/RUNBOOK.md — Cảnh báo (P3-T16)"
+      - eval_time: 4m
+        alertname: PlatformTargetDown
+        exp_alerts:
+          - exp_labels: {severity: high, job: api, instance: "api:9090"}
+            exp_annotations:
+              summary: "Prometheus không scrape được api (api:9090)"
+              description: "Thành phần dừng hoặc không còn trên mg-obs. probe-*: prober không trả lời /probe — mọi probe /key và chứng chỉ không còn được đo."
+              runbook: "infrastructure/host/RUNBOOK.md — Cảnh báo (P3-T16)"
+          - exp_labels: {severity: high, job: probe-key-edge, instance: tenant-a, slug: tenant-a}
+            exp_annotations:
+              summary: "Prometheus không scrape được probe-key-edge (tenant-a)"
+              description: "Thành phần dừng hoặc không còn trên mg-obs. probe-*: prober không trả lời /probe — mọi probe /key và chứng chỉ không còn được đo."
+              runbook: "infrastructure/host/RUNBOOK.md — Cảnh báo (P3-T16)"
+      - eval_time: 1m
+        alertname: AlertmanagerNotificationsFailing
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: AlertmanagerNotificationsFailing
+        exp_alerts:
+          - exp_labels: {severity: high, job: alertmanager, instance: a, integration: email}
+            exp_annotations:
+              summary: "Alertmanager gửi thông báo qua email thất bại"
+              description: "Kênh email lỗi (SMTP, Telegram, webhook): kiểm log alertmanager, secret trong /opt/meshguard/secrets/obs/, đường ra mg-egress."
+              runbook: "infrastructure/host/RUNBOOK.md — Cảnh báo (P3-T16)"
+
+  # --------------------------------------------------------------------------------------------- bảo mật
+  - interval: 1m
+    input_series:
+      - series: 'meshguard_reconcile_drift{job="worker",instance="worker:9090",kind="noise_key_mismatch"}'
+        values: '0 1 1'
+      - series: 'meshguard_reconcile_drift{job="worker",instance="worker:9090",kind="network_extra_member"}'
+        values: '0 0 2'
+      - series: 'meshguard_reconcile_drift{job="worker",instance="worker:9090",kind="container_unhealthy"}'
+        values: '3 3 3'
+      - series: 'meshguard_instance_api_key_expires_in_seconds{job="worker",instance="worker:9090",tenant_id="t-a",instance_id="i-a"}'
+        values: '1123200x5'      # 13 ngày
+      - series: 'meshguard_instance_api_key_expires_in_seconds{job="worker",instance="worker:9090",tenant_id="t-b",instance_id="i-b"}'
+        values: '1296000x5'      # 15 ngày
+      - series: 'meshguard_idp_console_logins_total{job="worker",instance="worker:9090",outcome="success"}'
+        values: '0 0 1 1'
+      - series: 'meshguard_idp_console_logins_total{job="worker",instance="worker:9090",outcome="failure"}'
+        values: '0 1 2 3'
+    alert_rule_test:
+      - eval_time: 0m
+        alertname: ReconcileNoiseKeyMismatch
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: ReconcileNoiseKeyMismatch
+        exp_alerts:
+          - exp_labels: {severity: critical, job: worker, instance: "worker:9090", kind: noise_key_mismatch}
+            exp_annotations:
+              summary: "Reconcile: Noise key của 1 instance khác giá trị đã ghi nhận"
+              description: "Start guard sẽ từ chối khởi động instance; xem báo cáo instance.reconcile và security_events reconcile.noise_key_mismatch."
+              runbook: "infrastructure/host/RUNBOOK.md — Cảnh báo (P3-T16)"
+      - eval_time: 2m
+        alertname: ReconcileSecurityDrift
+        exp_alerts:
+          - exp_labels: {severity: high, job: worker, instance: "worker:9090", kind: network_extra_member}
+            exp_annotations:
+              summary: "Reconcile phát hiện drift bảo mật network_extra_member (2)"
+              description: "Xem báo cáo instance.reconcile/host.reconcile và security_events reconcile.network_extra_member; reconcile chỉ báo cáo, không tự sửa."
+              runbook: "infrastructure/host/RUNBOOK.md — Cảnh báo (P3-T16)"
+      - eval_time: 1m
+        alertname: InstanceAPIKeyExpiringSoon
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: InstanceAPIKeyExpiringSoon
+        exp_alerts:
+          - exp_labels: {severity: high, job: worker, instance: "worker:9090", tenant_id: t-a, instance_id: i-a}
+            exp_annotations:
+              summary: "API key của instance i-a còn 13d 0h 0m 0s"
+              description: "Job apikey.rotate không xoay được: xem job lỗi của tenant t-a và log worker."
+              runbook: "infrastructure/host/RUNBOOK.md — Cảnh báo (P3-T16)"
+      - eval_time: 1m
+        alertname: IdPConsoleLogin
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: IdPConsoleLogin
+        exp_alerts:
+          - exp_labels: {severity: high, job: worker, instance: "worker:9090", outcome: success}
+            exp_annotations:
+              summary: "Có đăng nhập vào console quản trị Keycloak (realm master)"
+              description: "Đối chiếu security_events idp.console_login và phiên console 2P đã duyệt (P3-T15)."
+              runbook: "infrastructure/host/RUNBOOK.md — Console quản trị Keycloak"
+
+  - interval: 1m
+    input_series:
+      # worker A: đồng bộ thành công lần cuối ở 100 s ⇒ quá 1800 s từ 1901 s (≈ 32m), bắn ở 34m
+      - series: 'meshguard_idp_audit_sync_last_success_timestamp_seconds{job="worker",instance="a"}'
+        values: '100x60'
+      - series: 'process_start_time_seconds{job="worker",instance="a"}'
+        values: '0x60'
+      # worker B: chưa thành công lần nào, khởi động ở 600 s ⇒ quá 30 phút từ 2401 s (≈ 41m)
+      - series: 'meshguard_idp_audit_sync_last_success_timestamp_seconds{job="worker",instance="b"}'
+        values: '0x60'
+      - series: 'process_start_time_seconds{job="worker",instance="b"}'
+        values: '600x60'
+    alert_rule_test:
+      - eval_time: 33m
+        alertname: IdPAuditSyncStale
+        exp_alerts: []
+      - eval_time: 35m
+        alertname: IdPAuditSyncStale
+        exp_alerts:
+          - exp_labels: {severity: high, job: worker, instance: a}
+            exp_annotations:
+              summary: "idp.audit_sync không đọc trọn các realm đã quá 30 phút"
+              description: "Xem meshguard_idp_audit_sync_failures_total{reason} và security_events idp.audit_sync_failed."
+              runbook: "infrastructure/host/RUNBOOK.md — Console quản trị Keycloak"
+      - eval_time: 45m
+        alertname: IdPAuditSyncStale
+        exp_alerts:
+          - exp_labels: {severity: high, job: worker, instance: a}
+            exp_annotations:
+              summary: "idp.audit_sync không đọc trọn các realm đã quá 30 phút"
+              description: "Xem meshguard_idp_audit_sync_failures_total{reason} và security_events idp.audit_sync_failed."
+              runbook: "infrastructure/host/RUNBOOK.md — Console quản trị Keycloak"
+          - exp_labels: {severity: high, job: worker, instance: b}
+            exp_annotations:
+              summary: "idp.audit_sync không đọc trọn các realm đã quá 30 phút"
+              description: "Xem meshguard_idp_audit_sync_failures_total{reason} và security_events idp.audit_sync_failed."
+              runbook: "infrastructure/host/RUNBOOK.md — Console quản trị Keycloak"

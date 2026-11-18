@@ -11,8 +11,9 @@
           every forbidden path ⇒ 404 not_found); SNI tenant-a + Host tenant-b ⇒ 421 misdirected; foreign SNI ⇒
           tls_handshake; unknown tenant ⇒ uniform 404; relay check (/derp/probe + STUN); without the run's CA ⇒
           tls_verify (verification is on by default)
-  E2E-35  P3-T03a prober container: non-root, read-only, cap_drop ALL, no-new-privileges, no published port, only the
-          edge and admin networks, healthy; a caller outside the allow-list ⇒ caller_not_allowed; a token in a probed
+  E2E-35  P3-T03a prober container: non-root, read-only, cap_drop ALL, no-new-privileges, no published port, the edge,
+          admin, obs and egress networks of project mg-obs (P3-T16), healthy; a caller outside the allow-list ⇒
+          caller_not_allowed; a token in a probed
           path is redacted in the prober's log
   E2E-36  P3-T08a policy core through `meshguard-worker admin policy-apply` in the running worker (its Locator, the
           edge admin listener): an empty policy and one without "grants" exit 3 (lint) and leave Headscale unchanged;
@@ -125,7 +126,7 @@ def check_enroll(r, st: Stack) -> None:
               "dùng 1 lần, hạn tường minh ≤ 15 phút, file 0600; client chính thức join tenant-a và có trong ListNodes "
               "với đúng key; dùng lại key bị từ chối; file key bị xóa; dọn sạch node/user", ok, "; ".join(rows))
     finally:
-        st.headscale(ENROLL_SLUG, "apikeys", "expire", "--prefix", api_key.split("-")[2], check=False)
+        st.headscale(ENROLL_SLUG, "apikeys", "expire", "--prefix", api_key[len("hskey-api-"):][:12], check=False)
         st.helper("rm -rf /w/secrets/enroll /w/secrets/enroll-keys /w/state/enroll", f"{st.work}:/w")
 
 
@@ -221,7 +222,7 @@ def check_prober_container(r, st: Stack) -> None:
            "{{len .HostConfig.PortBindings}}|{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}|"
            "{{.State.Health.Status}}")
     user, ro, caps, sec, ports, nets, health = st.docker("inspect", "-f", fmt, st.name("prober")).stdout.strip().split("|")
-    want_nets = sorted([st.name("edge"), st.name("admin")])
+    want_nets = sorted([st.name("edge"), st.name("admin"), st.name("obs"), st.name("egress")])   # project mg-obs (P3-T16)
     hard = (user == "65532:65532" and ro == "true" and caps == "[ALL]" and "no-new-privileges:true" in sec
             and ports == "0" and sorted(nets.split()) == want_nets and health == "healthy")
     rows = [f"user {user}, read_only {ro}, cap_drop {caps}, {sec}, {ports} published port(s), networks {nets.strip()}, "
@@ -239,7 +240,8 @@ def check_prober_container(r, st: Stack) -> None:
     probes = len(re.findall(r'"msg":"probe"', text))
     rows.append(f"log: {probes} probe lines, token in a probed path {'redacted' if redacted else 'NOT REDACTED'}")
     r.add("E2E-35", "P3-T03a prober: container non-root, rootfs chỉ-đọc, cap_drop ALL, no-new-privileges, không publish "
-          "cổng, chỉ network edge + admin; caller ngoài allow-list ⇒ caller_not_allowed; log không chứa token",
+          "cổng, network edge + admin + obs + egress (service của mg-obs — P3-T16); caller ngoài allow-list ⇒ "
+          "caller_not_allowed; log không chứa token",
           hard and guard and redacted, "; ".join(rows))
 
 

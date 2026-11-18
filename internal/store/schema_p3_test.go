@@ -32,10 +32,10 @@ import (
 var p3Tables = []string{"approval_requests", "tenant_invitations", "notification_outbox", "relay_regions", "relay_assignments",
 	"backups", "subscription_plans", "subscriptions", "policy_versions", "policy_applications"}
 
-// TestLatestMigration: the embedded migrations end at latestMigration of the fixture (0017 since P3-T11 —
-// number) — the version `meshguard-api migrate status` reports as latest_migration (current = schema_version ==
-// latest_migration, ReadDeployState) — and the fixture has a step for every embedded migration and none for a number
-// without one (migrationVersions = the embedded versions).
+// TestLatestMigration: the embedded migrations end at latestMigration of the fixture (0018 since P3-T17) — the version
+// `meshguard-api migrate status` reports as latest_migration (current = schema_version == latest_migration,
+// ReadDeployState) — and the fixture has a step for every embedded migration and none for a number without one
+// (migrationVersions = the embedded versions).
 func TestLatestMigration(t *testing.T) {
 	v, err := LatestMigration()
 	if err != nil || v != latestMigration {
@@ -746,7 +746,7 @@ func TestP3CheckConstraints(t *testing.T) {
 		{"application: pending with finished_at", pa.with("finished_at", "now()").insert("policy_applications"), "23514"},
 		{"application: failed without error code", pa.with("state", "'failed'", "finished_at", "now()").insert("policy_applications"), "23514"},
 		{"application: superseded while pending", pa.with("superseded_at", "now()").insert("policy_applications"), "23514"},
-		// tenants.keys_destroy_after (0021, P3-T09): only on a deleted tenant, never before its deletion
+		// tenants.keys_destroy_after (0019, P3-T09): only on a deleted tenant, never before its deletion
 		{"keys: deleted tenant scheduled after its deletion", `UPDATE tenants SET status = 'deleted', deleted_at = now(),
 			keys_destroy_after = now() + interval '30 days' WHERE id = ` + A, ""},
 		{"keys: scheduled on a live tenant", `UPDATE tenants SET keys_destroy_after = now() + interval '1 day' WHERE id = ` + A, "23514"},

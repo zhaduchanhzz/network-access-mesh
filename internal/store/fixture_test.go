@@ -70,12 +70,13 @@ var fixtureSteps = map[int64]func(f *fixture, t *testing.T, c *pgx.Conn){
 	12: (*fixture).step12, 13: (*fixture).step13, 14: (*fixture).step14, 15: (*fixture).step15,
 	16: (*fixture).step16,
 	17: (*fixture).step17,
-	21: (*fixture).step21,
+	18: (*fixture).step18,
+	19: (*fixture).step19,
 }
 
 // latestMigration is the number of the last migration of database/migrations (TestMigrationsUpWithData,
 // TestMigrationsShareClusterRoles).
-const latestMigration = 21
+const latestMigration = 19
 
 // migrationVersions are the versions that have a migration, ascending. Tasks written in parallel use provisional
 // numbers; the coordinator renumbers at merge so that the numbers stay contiguous (goose refuses a migration numbered
@@ -374,9 +375,9 @@ func (f *fixture) step17(t *testing.T, c *pgx.Conn) {
 	}
 }
 
-// step21 (P3-T09, deprovision — provisional number): no new table; the fixture's tenants are live (keys_destroy_after
+// step19 (P3-T09, deprovision — written as 0021, renumbered at the merge after P3-T17's 0018): no new table; the fixture's tenants are live (keys_destroy_after
 // stays NULL — it is set only on a deleted tenant, CHECK tenants_keys_destroy_after_deleted).
-func (f *fixture) step21(t *testing.T, c *pgx.Conn) {
+func (f *fixture) step19(t *testing.T, c *pgx.Conn) {
 	for _, tr := range f.tenants() {
 		exec(t, c, `UPDATE tenants SET keys_destroy_after = NULL WHERE id = $1`, tr.id)
 	}
@@ -392,3 +393,7 @@ func hasColumn(t *testing.T, c *pgx.Conn, table, column string) bool {
 	}
 	return ok
 }
+
+// step18 (0018, P3-T17 — renumbered from the provisional 0020 at merge): no table, no column — a grant (UPDATE
+// (revoked_at, id_token_hint_enc) ON sessions TO mg_worker_platform), exercised by TestMigration0018WorkerRevokesSessions.
+func (f *fixture) step18(*testing.T, *pgx.Conn) {}

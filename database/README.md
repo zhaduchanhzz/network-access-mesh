@@ -7,8 +7,8 @@ PostgreSQL của Management Plane (§6 của [bản master](../docs/planning/imp
 | Đường dẫn | Nội dung |
 |---|---|
 | `bootstrap/superuser.sql` | Chạy **một lần** bằng superuser của cụm, trong database `meshguard`, trước migration đầu tiên (chạy lại được): tạo `mg_migrator` (CREATEROLE, owner database) và `mg_backup` (BYPASSRLS + `pg_read_all_data`) — hai role chỉ superuser tạo được |
-| `migrations/0001…0017_*.sql`, `0021_*.sql` | Migration goose, forward-only (không có phần Down), nhúng vào binary qua `embed.go`; bản đồ bảng ở §6.3. `0007` (G2 vòng 1, F3) chỉ thêm CHECK: owner segment của `identity_providers.client_secret_ref` = `tenant_id` (hoặc `platform`); `0008` (G2 vòng 2, A-1) chỉ thêm cột `sessions.id_token_hint_enc`; `0009`–`0013` (P3-T06) `0014` (P3-T04, chỉ CHECK/DEFAULT cho placement) `0015` (P3-T05, chỉ cột `provisioning_jobs.cancel_requested_at`) `0017` (P3-T11, số hiệu tạm; chỉ cột manifest/data key của `backups`) và `0021` (P3-T09, số hiệu tạm; chỉ cột `tenants.keys_destroy_after` + quyền thu hồi session của worker) — xem mục "Bảng của Phase 3" |
-| `queries/*.sql` + `sqlc.yaml` | Truy vấn sqlc → mã sinh ở `internal/store/sqlcdb` (không sửa tay); `jobs.sql` = khung job + idempotency (P2-T12); `devices.sql` = sổ thiết bị + trạng thái sync + thu hồi hai pha (P2-T13); `placement.sql` = khóa host + trạng thái cấp phát (P3-T04); `hosts.sql` = API `/platform/hosts` và lệnh `host-set` (P3-T04); `usage.sql` = QuotaChecker (P3-T06a); `backups.sql` = backup/restore v1 (P3-T11) |
+| `migrations/0001…0019_*.sql` | Migration goose, forward-only (không có phần Down), nhúng vào binary qua `embed.go`; bản đồ bảng ở §6.3. `0007` (G2 vòng 1, F3) chỉ thêm CHECK: owner segment của `identity_providers.client_secret_ref` = `tenant_id` (hoặc `platform`); `0008` (G2 vòng 2, A-1) chỉ thêm cột `sessions.id_token_hint_enc`; `0009`–`0013` (P3-T06) `0014` (P3-T04, chỉ CHECK/DEFAULT cho placement) `0015` (P3-T05, chỉ cột `provisioning_jobs.cancel_requested_at`) `0017` (P3-T11, chỉ cột manifest/data key của `backups`), `0018` (P3-T17, chỉ quyền thu hồi session của worker) và `0019` (P3-T09; chỉ cột `tenants.keys_destroy_after`) — xem mục "Bảng của Phase 3" |
+| `queries/*.sql` + `sqlc.yaml` | Truy vấn sqlc → mã sinh ở `internal/store/sqlcdb` (không sửa tay); `jobs.sql` = khung job + idempotency (P2-T12); `devices.sql` = sổ thiết bị + trạng thái sync + thu hồi hai pha (P2-T13); `placement.sql` = khóa host + trạng thái cấp phát (P3-T04); `hosts.sql` = API `/platform/hosts` và lệnh `host-set` (P3-T04); `usage.sql` = QuotaChecker (P3-T06a); `backups.sql` = backup/restore v1 (P3-T11); `postrestore.sql` = đối soát sau restore PostgreSQL (P3-T17) |
 | `river/grants.sql` | Quyền trên schema `river` của job queue (P2-T12), chạy lại sau mỗi lần migrate River — xem mục "Job queue (River)" |
 | `checks/partition_grants.sql` | Truy vấn CI: mỗi hàng là một vi phạm (quyền trên partition, partition chưa bật RLS, default privileges) |
 | `embed.go` | Package Go `database`: `Migrations`, `Seeds`, `Bootstrap`, `Checks`, `River` (embed.FS) |
@@ -145,7 +145,7 @@ không có thông điệp thô của Headscale) và `last_health_at` = đồng h
 đầu sớm hơn kết quả đã ghi bị bỏ qua. `version`/`updated_at` của instance (ETag) không đổi. Dashboard tenant đọc qua
 pool tenant (RLS), Platform Health qua pool platform; số thiết bị chỉ đến từ service của `devices`.
 
-## Bảng của Phase 3 (P3-T06, migration 0009–0013; P3-T04, 0014; P3-T05, 0015; P3-T05c, 0016; P3-T11, 0017; P3-T09, 0021)
+## Bảng của Phase 3 (P3-T06, migration 0009–0013; P3-T04, 0014; P3-T05, 0015; P3-T05c, 0016; P3-T11, 0017; P3-T17, 0018; P3-T09, 0019)
 
 Bằng chứng: [`P3-T06.md`](../docs/planning/evidence/P3-T06.md). Mọi bảng có FK ghép theo tenant, `ENABLE` + `FORCE` RLS
 theo ký hiệu §6.3, quyền cấp tường minh theo tiến trình (ma trận đầy đủ: `TestP3GrantMatrix` trong
@@ -195,12 +195,18 @@ phải có `sequence` + `wrapped_data_key`; `succeeded`/`purged` phải có mani
 `wrapped_data_key` bất biến từ lúc chèn. Truy vấn ở `queries/backups.sql` (job `instance.backup`/`instance.restore`, API
 `/platform/backups`). Expand-only — bằng chứng [`P3-T11.md`](../docs/planning/evidence/P3-T11.md).
 
-**`0021` (P3-T09 — deprovision, không bảng mới; số hiệu tạm, người điều phối đánh lại khi gộp):** cột
+**`0018` (P3-T17 — đối soát sau restore PostgreSQL, không bảng mới; viết với số tạm 0020, đánh lại khi gộp):** `GRANT UPDATE (revoked_at,
+id_token_hint_enc) ON sessions TO mg_worker_platform` — lệnh `meshguard-worker admin post-restore-reconcile` thu hồi mọi
+phiên của DB vừa restore như `RevokeIdentitySessions` của module identity (mốc thu hồi + xóa hint đăng xuất), không cột
+nào khác (worker trước đó chỉ có `SELECT, DELETE` cho `session.gc`). Expand-only — bằng chứng
+[`P3-T17.md`](../docs/planning/evidence/P3-T17.md).
+
+**`0019` (P3-T09 — deprovision, không bảng mới; viết với số tạm 0021, đánh lại khi gộp sau `0018`):** cột
 `tenants.keys_destroy_after` (timestamptz, NULL = chưa lên lịch) = mốc hủy DEK của tenant `deleted` (bước `keys.schedule`
 của job `tenant.deprovision`: `deleted_at` + `MG_DEPROVISION_KEY_GRACE`); CHECK `tenants_keys_destroy_after_deleted`: chỉ
 trên tenant `deleted`, có `deleted_at` và không sớm hơn nó. `mg_worker_platform` được `UPDATE (keys_destroy_after)` trên
-`tenants` và `UPDATE (revoked_at, id_token_hint_enc)` trên `sessions` (bước `access.revoke` thu hồi session của identity
-thuộc tenant như đăng xuất; `session.gc` xóa hàng sau 30 ngày). Truy vấn ở `queries/deprovision.sql` (job
+`tenants` (quyền `UPDATE (revoked_at, id_token_hint_enc)` trên `sessions` mà bước `access.revoke` dùng để thu hồi session
+của identity thuộc tenant đã có từ `0018`). Truy vấn ở `queries/deprovision.sql` (job
 `tenant.deprovision`, job định kỳ `tenant.keys_destroy`). Cùng task: `CountLiveTenants` (trần `quota.max_tenants`) không
 tính tenant `failed`; `SlugHeldByDeletedTenant` giữ slug cả khi DEK của tenant đã xóa chưa hủy; danh sách target của
 `health.probe`, `relay.probe`, `inventory.sync` chỉ còn tenant `provisioning`/`active`/`suspended`. Expand-only — bằng
