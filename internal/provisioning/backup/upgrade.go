@@ -113,7 +113,7 @@ func (s *Service) RollbackRestore(ctx context.Context, jobID, tenantID, instance
 		return nil, err
 	}
 	c := &collector{d: map[string]any{"backup_id": backupID.String(), "sequence": v.seq}}
-	if err := s.stepInstance(ctx, jobID, tenantID, v, in, c); err != nil {
+	if err := s.stepInstance(ctx, jobID, tenantID, v, in, c, nil); err != nil {
 		return c.d, err
 	}
 	if err := s.stepReconcile(ctx, jobID, tenantID, v, plan, c); err != nil {

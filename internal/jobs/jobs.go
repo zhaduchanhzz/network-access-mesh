@@ -188,10 +188,11 @@ func DefaultKinds() map[string]Kind {
 	// instance.reconfigure writes the previous configuration version back and restarts on it (§11.4, P3-T13);
 	// tenant.deprovision returns the tenant to its status and desired policy — only before its point of no return (P3-T09);
 	// instance.upgrade restores its cold backup on the previous image (§11.4: rollback = restore) and instance.restart
-	// has nothing to undo — its compensation closes the operation and releases the lock (P3-T13a); the other lifecycle
-	// kinds gain /rollback with the task that builds their compensation.
+	// has nothing to undo — its compensation closes the operation and releases the lock (P3-T13a); instance.restore has
+	// nothing to undo either, and only before its point of no return restore.instance — the Host Agent asked to restore
+	// (P3-T11, restore lock fix: a restore refused before any change no longer holds the tenant's lock).
 	for _, name := range []string{"tenant.provision", "tenant.suspend", "tenant.resume", "instance.reconfigure",
-		"tenant.deprovision", "instance.restart", "instance.upgrade"} {
+		"tenant.deprovision", "instance.restart", "instance.upgrade", "instance.restore"} {
 		k := out[name]
 		k.Compensable = true
 		out[name] = k
@@ -199,6 +200,9 @@ func DefaultKinds() map[string]Kind {
 	dep := out["tenant.deprovision"]
 	dep.PointOfNoReturn = "nodes.expire"
 	out["tenant.deprovision"] = dep
+	rs := out["instance.restore"]
+	rs.PointOfNoReturn = "restore.instance"
+	out["instance.restore"] = rs
 	return out
 }
 

@@ -122,6 +122,7 @@ type AgentServiceClient interface {
 	// Backup writes an encrypted archive + signed manifest to /opt/meshguard/backups/tenants/<instance_id>/ (§17.1).
 	Backup(ctx context.Context, in *BackupRequest, opts ...grpc.CallOption) (*BackupResponse, error)
 	// Restore verifies the signed manifest against the instance BEFORE decrypting, then swaps data/ (§17.2 steps 2–4).
+	// A refusal before the first change carries Refusal.unchanged.
 	Restore(ctx context.Context, in *RestoreRequest, opts ...grpc.CallOption) (*RestoreResponse, error)
 	// PostRestoreReconcile expires keys/nodes and resets routes/tags of a restored instance (§17.2 step 5).
 	PostRestoreReconcile(ctx context.Context, in *PostRestoreReconcileRequest, opts ...grpc.CallOption) (*PostRestoreReconcileResponse, error)
@@ -437,6 +438,7 @@ type AgentServiceServer interface {
 	// Backup writes an encrypted archive + signed manifest to /opt/meshguard/backups/tenants/<instance_id>/ (§17.1).
 	Backup(context.Context, *BackupRequest) (*BackupResponse, error)
 	// Restore verifies the signed manifest against the instance BEFORE decrypting, then swaps data/ (§17.2 steps 2–4).
+	// A refusal before the first change carries Refusal.unchanged.
 	Restore(context.Context, *RestoreRequest) (*RestoreResponse, error)
 	// PostRestoreReconcile expires keys/nodes and resets routes/tags of a restored instance (§17.2 step 5).
 	PostRestoreReconcile(context.Context, *PostRestoreReconcileRequest) (*PostRestoreReconcileResponse, error)

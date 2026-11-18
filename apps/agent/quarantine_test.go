@@ -169,6 +169,10 @@ func TestQuarantineRefusals(t *testing.T) {
 			!strings.Contains(r.GetMessage(), "quarantined") {
 			t.Errorf("%s (quarantined): %v, want STATE quarantined", name, err)
 		}
+		// restore lock fix (P3-T11): a Restore refused before the driver ran is marked unchanged; no other RPC is
+		if ok && r.GetUnchanged() != (name == "Restore") {
+			t.Errorf("%s (quarantined): unchanged %v", name, r.GetUnchanged())
+		}
 	}
 	for name, call := range allowed {
 		if err := call(); status.Code(err) != codes.Unimplemented {

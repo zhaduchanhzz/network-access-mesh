@@ -68,6 +68,29 @@ sudo docker compose -p mg-backup -f /opt/meshguard/core/compose.backup.yaml run 
 
 Chế độ bảo trì cũng dùng được riêng (bảo trì có kế hoạch): `meshguard admin maintenance on --reason <mã>` / `off` / `status` — mọi api/worker đọc lại cờ mỗi 5 giây (api `503 maintenance` trừ đăng nhập platform trên `admin.`; worker không chạy job, không lịch), audit `platform.maintenance.enable`/`.disable`. Công tắc lúc khởi động `MG_MAINTENANCE=1`: file override [compose.app.maintenance.yaml](../compose/compose.app.maintenance.yaml). Lệnh đối soát chạy trong container worker (cần Host Agent `MG_AGENT_*` — thiếu thì bước instance/cấp lại key báo `incomplete`, exit 3) và ghi `post_restore` vào cờ; `maintenance off` bị từ chối khi lần chạy cuối của nó chưa xong hoặc lỗi.
 
+### Job `instance.restore` kẹt `failed_resumable` giữ khóa lifecycle (sửa lỗi khóa restore, 2026-11-18)
+
+Trước bản sửa, một restore bị Agent từ chối **trước khi đổi gì** (ví dụ instance dựng tay/adopt chưa kích hoạt: `REFUSAL_REASON_STATE` "only an activated instance with a recorded Noise key fingerprint is restored") dừng `failed_resumable` và giữ khóa lifecycle của tenant — `/rollback` ⇒ `409 kind_not_compensable`, `/cancel` ⇒ `409`, mọi suspend/resume/reconfigure/restart/upgrade/deprovision của tenant bị chặn. Từ bản sửa (api **và** worker cùng bản; Agent mới thêm dấu `Refusal.unchanged`, không bắt buộc cho lối thoát dưới đây), loại lỗi này tự kết thúc `rolled_back`. Job kẹt từ trước bản sửa — lối thoát an toàn:
+
+```bash
+J=<job_id>   # job instance.restore failed_resumable
+PSQL="sudo docker compose -p mg-core -f /opt/meshguard/core/compose.core.yaml exec -T postgres psql -U postgres -d meshguard -At"
+# 1. chỉ đọc: job dừng ở restore.instance, step không ghi gì (worker cũ) — không có step nào sau nó
+$PSQL -c "SELECT status, error->>'code', current_step FROM provisioning_jobs WHERE id = '$J'"
+$PSQL -c "SELECT seq, name, status, error_code, coalesce(created_resources::text, 'null') FROM provisioning_job_steps WHERE job_id = '$J' ORDER BY seq"
+# 2. chỉ đọc: instance có meta/activated không (không có ⇒ Restore chưa bao giờ đổi gì: nó từ chối instance đó đầu tiên)
+I=$($PSQL -c "SELECT instance_id FROM provisioning_jobs WHERE id = '$J'")
+sudo test -e /opt/meshguard/tenants/$I/meta/activated && echo activated || echo not-activated
+# 3. Super Admin trên admin.<domain> (CSRF + Idempotency-Key, quyền platform.job:control):
+#    POST /api/v1/platform/jobs/$J/rollback  ⇒ 202 compensating ⇒ GET /api/v1/platform/jobs/$J ⇒ rolled_back
+#    (compensation hỏi lại GetInstanceStatus: chưa kích hoạt ⇒ rolled_back; đã kích hoạt ⇒ failed_resumable
+#    compensation_failed, khóa vẫn giữ — khi đó /retry hoàn tất restore đã được duyệt 2P, không sửa tay)
+# 4. kiểm: không còn job giữ khóa của tenant; audit của restore không có .failed thứ hai
+$PSQL -c "SELECT count(*) FROM provisioning_jobs WHERE lock_key = 'tenant:' || (SELECT tenant_id FROM provisioning_jobs WHERE id = '$J') || ':lifecycle' AND status IN ('running', 'compensating', 'failed_resumable')"
+```
+
+`/retry` (thay cho bước 3) cũng nhả khóa với instance chưa kích hoạt: `restore.instance` chạy lại, hỏi `GetInstanceStatus` trước ⇒ `instance_not_restorable` ⇒ `rolled_back`. Không xóa/sửa hàng `provisioning_jobs` bằng SQL. Thiết kế: [P3-T11 mục bổ sung](../../docs/planning/evidence/P3-T11.md).
+
 ## Sau khi recreate edge
 
 Network tenant được gắn lúc chạy nên mất khi container edge bị recreate: chạy lại `sudo bash infrastructure/host/reattach-edge.sh` (mọi instance) — đo được ~16 s cho 100 network ([P1-T20](../../docs/planning/evidence/P1-T20.md)).

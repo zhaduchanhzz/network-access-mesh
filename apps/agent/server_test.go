@@ -205,6 +205,25 @@ func TestRefusalsOverTheSocket(t *testing.T) {
 	t.Logf("%d refusals over the socket", len(cases))
 }
 
+// TestRestoreValidationUnchanged — restore lock fix (P3-T11): a Restore refused by the validation (before the driver)
+// carries Refusal.unchanged; the same refusal of another RPC does not (only Restore is marked).
+func TestRestoreValidationUnchanged(t *testing.T) {
+	h := start(t, nil, nil)
+	art := &agentv1.ArtifactRef{Sequence: 1, ArchiveSha256: strings.Repeat("1", 64), ManifestSha256: strings.Repeat("2", 64)}
+	_, err := h.client.Restore(tctx(t), &agentv1.RestoreRequest{Instance: goodRef(), JobId: jobID, Artifact: art, DataKey: make([]byte, 32),
+		Policy: &agentv1.RestoreRequest_AppliedPolicyHujson{AppliedPolicyHujson: make([]byte, agentspec.MaxPolicyBytes+1)}})
+	if r, ok := agentclient.RefusalOf(err); !ok || r.GetReason() != agentv1.RefusalReason_REFUSAL_REASON_TOO_LARGE || !r.GetUnchanged() {
+		t.Fatalf("oversize policy: %v (refusal %v)", err, r)
+	}
+	_, err = h.client.StopInstance(tctx(t), &agentv1.StopInstanceRequest{Instance: goodRef()})
+	if r, ok := agentclient.RefusalOf(err); !ok || r.GetUnchanged() {
+		t.Fatalf("StopInstance without a job id: %v (refusal %v)", err, r)
+	}
+	if n := h.rec.count(); n != 0 {
+		t.Fatalf("%d refused calls reached the driver", n)
+	}
+}
+
 func checkRefusal(t *testing.T, h *harness, c refusalCase) {
 	t.Helper()
 	err := c.call(tctx(t), h.client)

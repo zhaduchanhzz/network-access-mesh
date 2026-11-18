@@ -453,22 +453,26 @@ func TestLifecycleTransitions(t *testing.T) {
 				t.Errorf("%s of a succeeded job: %v, want ErrJobState", name, err)
 			}
 		}
-		// /rollback of a kind without compensation (instance.restore) is refused.
-		restart := enqueueWith(t, "instance.restore", tenant, inst,
+		// /rollback of instance.restore (compensable since the restore lock fix — P3-T11) is accepted; a handler that
+		// cannot compensate (runOnly) ends it failed_resumable compensation_failed, the lock still held.
+		restore := enqueueWith(t, "instance.restore", tenant, inst,
 			&plan{steps: []string{"x"}, fail: map[string][]error{"x": {Permanent("unhealthy", errors.New("no"))}}})
-		f.waitStatus(t, wst, restart, StatusFailedResumable, 15*time.Second)
-		var se *StateError
-		if _, err := control(t, Rollback, restart); !errors.As(err, &se) || se.Reason != "kind_not_compensable" {
+		f.waitStatus(t, wst, restore, StatusFailedResumable, 15*time.Second)
+		if _, err := control(t, Rollback, restore); err != nil {
 			t.Fatalf("rollback of instance.restore: %v", err)
 		}
+		eventually(t, 15*time.Second, "rollback by a handler without compensation ends compensation_failed", func() bool {
+			j := f.job(t, wst, restore)
+			return j.Status == StatusFailedResumable && errorCode(j) == CodeCompensationFailed
+		})
 		if _, err := control(t, Retry, uuid.New()); !errors.Is(err, ErrNotFound) {
 			t.Fatalf("retry of an unknown job: %v", err)
 		}
 		// Clear the lock for the next case.
-		if _, err := control(t, Retry, restart); err != nil {
+		if _, err := control(t, Retry, restore); err != nil {
 			t.Fatal(err)
 		}
-		f.waitStatus(t, wst, restart, StatusSucceeded, 15*time.Second)
+		f.waitStatus(t, wst, restore, StatusSucceeded, 15*time.Second)
 	})
 
 	t.Run("reaped_and_interrupted", func(t *testing.T) {
@@ -534,6 +538,56 @@ func TestLifecycleTransitions(t *testing.T) {
 		}
 		if !log.seen[[2]string{tr.From, tr.Event}] {
 			t.Errorf("transition %s --%s--> %s never exercised", tr.From, tr.Event, tr.To)
+		}
+	}
+}
+
+// TestRollbackRefusal: what the kind and the status alone decide of a /rollback.
+func TestRollbackRefusal(t *testing.T) {
+	failed := sqlcdb.ProvisioningJob{Kind: "x.y", Status: StatusFailedResumable}
+	if se := rollbackRefusal(failed, Kind{Name: "x.y", Lock: LockHold}); se == nil || se.Reason != "kind_not_compensable" {
+		t.Fatalf("a kind without compensation: %v", se)
+	}
+	ok := Kind{Name: "x.y", Lock: LockHold, Compensable: true}
+	if se := rollbackRefusal(failed, ok); se != nil {
+		t.Fatalf("a failed_resumable job of a compensable kind: %v", se)
+	}
+	if se := rollbackRefusal(sqlcdb.ProvisioningJob{Kind: "x.y", Status: StatusRunning}, ok); se == nil || se.Reason != "status_not_allowed" {
+		t.Fatalf("a running job: %v", se)
+	}
+	// every lifecycle kind of the registry is compensable; instance.restore only before restore.instance (P3-T11 fix)
+	for name, k := range DefaultKinds() {
+		if k.Lock == LockHold && !k.Compensable {
+			t.Errorf("lifecycle kind %s has no compensation", name)
+		}
+	}
+	if k := DefaultKinds()["instance.restore"]; !k.Compensable || k.PointOfNoReturn != "restore.instance" {
+		t.Fatalf("instance.restore: compensable %v, point of no return %q", k.Compensable, k.PointOfNoReturn)
+	}
+}
+
+// TestPointOfNoReturnPassed: the rule of PastPointOfNoReturn on one step row.
+func TestPointOfNoReturnPassed(t *testing.T) {
+	for _, c := range []struct {
+		status, created string
+		want            bool
+	}{
+		{StepSucceeded, "", true},
+		{StepFailed, "", false},
+		{StepFailed, "null", false},
+		{StepRunning, `{"nodes":3}`, true},
+		{StepFailed, `{"point_of_no_return":false,"agent_restore":"not_called"}`, false},
+		{StepFailed, `{"point_of_no_return":true,"agent_restore":"called"}`, true},
+		{StepSucceeded, `{"point_of_no_return":false}`, true},
+		{StepFailed, `[1]`, true},
+		{StepFailed, `{"point_of_no_return":"no"}`, true},
+	} {
+		var raw []byte
+		if c.created != "" {
+			raw = []byte(c.created)
+		}
+		if got := PointOfNoReturnPassed(c.status, raw); got != c.want {
+			t.Errorf("%s %s: %v, want %v", c.status, c.created, got, c.want)
 		}
 	}
 }
