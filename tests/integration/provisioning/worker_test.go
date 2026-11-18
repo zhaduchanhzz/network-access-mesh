@@ -174,6 +174,26 @@ func TestWorkerProcess(t *testing.T) {
 	if err := dep.Register(w); err != nil {
 		t.Fatal(err)
 	}
+	// instance.reconfigure (P3-T13) and instance.restart (P3-T13a), as the worker wires them: E2E-84 (P3-T14b) runs
+	// them on an instance built by hand, adopted and backfilled
+	rc, err := orchestrator.NewReconfigurer(orchestrator.ReconfigureConfig{Store: orchestrator.NewDBStore(st, nil), Agent: agent,
+		Headscale: reg, Prober: newEdgeProber(), Security: securityRecorder{st: st}, Logger: log, EdgeAddress: e.edgePublic,
+		RetryBase: 100 * time.Millisecond, RetryMax: 500 * time.Millisecond, HealthPoll: 500 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rc.Register(w); err != nil {
+		t.Fatal(err)
+	}
+	rs, err := orchestrator.NewRestarter(orchestrator.InstanceOpsConfig{Store: orchestrator.NewDBStore(st, nil), Agent: agent,
+		Headscale: reg, Policies: core, Prober: newEdgeProber(), Security: securityRecorder{st: st}, Logger: log,
+		EdgeAddress: e.edgePublic, RetryBase: 100 * time.Millisecond, RetryMax: 500 * time.Millisecond, HealthPoll: 500 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rs.Register(w); err != nil {
+		t.Fatal(err)
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 	if err := w.Start(context.Background()); err != nil {
