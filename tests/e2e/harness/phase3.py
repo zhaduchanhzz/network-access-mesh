@@ -125,7 +125,7 @@ def check_enroll(r, st: Stack) -> None:
               "dùng 1 lần, hạn tường minh ≤ 15 phút, file 0600; client chính thức join tenant-a và có trong ListNodes "
               "với đúng key; dùng lại key bị từ chối; file key bị xóa; dọn sạch node/user", ok, "; ".join(rows))
     finally:
-        st.headscale(ENROLL_SLUG, "apikeys", "expire", "--prefix", api_key.split("-")[2], check=False)
+        st.headscale(ENROLL_SLUG, "apikeys", "expire", "--prefix", api_key[len("hskey-api-"):][:12], check=False)
         st.helper("rm -rf /w/secrets/enroll /w/secrets/enroll-keys /w/state/enroll", f"{st.work}:/w")
 
 

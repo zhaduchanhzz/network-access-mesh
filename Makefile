@@ -54,7 +54,7 @@ isolation-headscale: ## IT-06, IT-10 (API key), IT-20 (gồm Locator thật + Po
 agent-it: ## Test tích hợp Host Agent trên Docker thật (P3-T02 compose driver, P3-T03 thao tác/edge supervisor/start guard, P3-T12 reconcile, P3-T13 reconfigure + tự lùi): tenant dùng-một-lần trong image agent đã hardening, snapshot trước/sau (cần Docker, python3 ≥ 3.11; DOCKER="sudo docker" nếu cần)
 	bash tests/integration/agent/run.sh
 
-provisioning-it: ## Harness tiêm lỗi provisioning (P3-T07): orchestrator thật + Host Agent thật + Headscale thật trên Docker, lỗi tại từng bước 3–19, worker bị kill giữa bước 13, /retry, bộ phát hiện tài nguyên mồ côi (cần Docker, python3 ≥ 3.11; DOCKER="sudo docker" nếu cần)
+provisioning-it: ## Harness tiêm lỗi provisioning (P3-T07): orchestrator thật + Host Agent thật + Headscale thật trên Docker, lỗi tại từng bước 3–19, worker bị kill giữa bước 13, /retry, bộ phát hiện tài nguyên mồ côi; đối soát sau restore PostgreSQL P3-T17 (E2E-72) (cần Docker, python3 ≥ 3.11; DOCKER="sudo docker" nếu cần)
 	bash tests/integration/provisioning/run.sh
 
 sqlc: ## Sinh lại internal/store/sqlcdb từ database/migrations + database/queries (sqlc pin trong versions.lock; cần CGO)

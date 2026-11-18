@@ -43,7 +43,30 @@ Sinh KEK `kek-app`/`kek-ops`, khóa khôi phục backup và khóa ký manifest n
 
 ## Backup và restore (P2-T03a, P2-T05b)
 
-Project compose `mg-backup` (`pg-backup`, `idp-backup`, `edge-backup` — lịch riêng, mã hóa tới recipient khôi phục trước khi ghi, file trạng thái cho cảnh báo quá hạn), trigger bắt buộc trước migration, restore PostgreSQL/IdP/volume ACME và **thu hồi toàn bộ session sau khi restore vào môi trường đang dùng**: [docs/operations/backup-restore.md](../../docs/operations/backup-restore.md). Kích hoạt trên host ở P2-T16, sau nghi thức khóa.
+Project compose `mg-backup` (`pg-backup`, `idp-backup`, `edge-backup` — lịch riêng, mã hóa tới recipient khôi phục trước khi ghi, file trạng thái cho cảnh báo quá hạn), trigger bắt buộc trước migration, restore PostgreSQL/IdP/volume ACME: [docs/operations/backup-restore.md](../../docs/operations/backup-restore.md). Kích hoạt trên host ở P2-T16, sau nghi thức khóa.
+
+### Restore PostgreSQL về thời điểm cũ hơn — bảo trì + `post-restore-reconcile` (P3-T17, §17.2)
+
+Mọi restore PostgreSQL vào môi trường đang dùng (dump đêm, bộ `pre-migration` khi lùi migration) và mọi restore lên cụm mới là "về thời điểm cũ hơn": registry cũ hơn trạng thái thật của các instance. Trình tự bắt buộc — **bảo trì bật → restore bộ dump → migrate nếu cần → đối soát → rà báo cáo → bảo trì tắt** — và giải thích từng bước, từng khóa của báo cáo: [backup-restore.md mục 6.5](../../docs/operations/backup-restore.md) (phần restore: mục 6.3 bước 2–4, cụm mới: mục 6.4). Lệnh, theo đúng thứ tự:
+
+```bash
+APP="sudo docker compose -p mg-app -f /opt/meshguard/core/compose.app.yaml"
+B=/opt/meshguard/backups/postgres/<id>                                                   # bộ đã chọn (mục 6.1)
+$APP exec -T api /usr/local/bin/meshguard admin maintenance on --reason pg-restore       # 1. bảo trì (DB đang dùng)
+$APP stop api worker                                                                      # 2. dừng
+#   … backup-restore.md mục 6.3 bước 2–4: đổi tên DB hiện tại, globals, pg_restore --create
+$APP --profile migrate run --rm -T migrate migrate status || sudo bash infrastructure/host/migrate.sh   # 3. migrate nếu cần
+$APP run --rm --no-deps -T api admin maintenance on --reason post-restore                # 4. cờ trong DB VỪA restore
+$APP up -d --wait api worker                                                              # 5. khởi động — vẫn 503
+RP=$(sudo python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["started_at"])' "$B.manifest.json")
+$APP exec -T worker /usr/local/bin/meshguard admin post-restore-reconcile --restore-point "$RP" --dry-run | sudo tee /root/post-restore-dry.json >/dev/null
+$APP exec -T worker /usr/local/bin/meshguard admin post-restore-reconcile --restore-point "$RP" | sudo tee /root/post-restore.json >/dev/null   # 7. exit 0/3/1
+#   8. rà review_required, incomplete, open_jobs của báo cáo (mục 6.5) — chạy lại bước 7 sau mỗi lần sửa
+$APP exec -T api /usr/local/bin/meshguard admin maintenance off                          # 9. mở lại API
+sudo docker compose -p mg-backup -f /opt/meshguard/core/compose.backup.yaml run --rm -T pg-backup once --label manual
+```
+
+Chế độ bảo trì cũng dùng được riêng (bảo trì có kế hoạch): `meshguard admin maintenance on --reason <mã>` / `off` / `status` — mọi api/worker đọc lại cờ mỗi 5 giây (api `503 maintenance` trừ đăng nhập platform trên `admin.`; worker không chạy job, không lịch), audit `platform.maintenance.enable`/`.disable`. Công tắc lúc khởi động `MG_MAINTENANCE=1`: file override [compose.app.maintenance.yaml](../compose/compose.app.maintenance.yaml). Lệnh đối soát chạy trong container worker (cần Host Agent `MG_AGENT_*` — thiếu thì bước instance/cấp lại key báo `incomplete`, exit 3) và ghi `post_restore` vào cờ; `maintenance off` bị từ chối khi lần chạy cuối của nó chưa xong hoặc lỗi.
 
 ## Sau khi recreate edge
 
@@ -453,4 +476,4 @@ Hoàn tác (khóa nhầm, người quay lại): `$CORE run --rm --no-deps -T api
 
 ### Phiên đồng thời (ASVS 7.1.2)
 
-Không giới hạn số phiên BFF của một người (Portal web + Console, nhiều trình duyệt). Mỗi phiên hiện ở `GET /api/v1/auth/sessions` (thời điểm tạo, lần dùng cuối, IP, user agent); chính người đó thu hồi phiên lạ bằng `DELETE /api/v1/auth/sessions/{id}` (không đòi xác thực lại — chấp nhận ở §23, A-5) hoặc đăng xuất. Người vận hành thu hồi **mọi** phiên của một người bằng `revoke-sessions` ở trên; thu hồi mọi phiên của mọi người (sau restore, sự cố khóa) — [backup-restore.md](../../docs/operations/backup-restore.md) mục 6.3 bước 5. Cảnh báo khi số phiên vượt ngưỡng: Phase 6 (giám sát).
+Không giới hạn số phiên BFF của một người (Portal web + Console, nhiều trình duyệt). Mỗi phiên hiện ở `GET /api/v1/auth/sessions` (thời điểm tạo, lần dùng cuối, IP, user agent); chính người đó thu hồi phiên lạ bằng `DELETE /api/v1/auth/sessions/{id}` (không đòi xác thực lại — chấp nhận ở §23, A-5) hoặc đăng xuất. Người vận hành thu hồi **mọi** phiên của một người bằng `revoke-sessions` ở trên; thu hồi mọi phiên của mọi người sau restore — `post-restore-reconcile` ([backup-restore.md](../../docs/operations/backup-restore.md) mục 6.5); sự cố khóa không kèm restore — `revoke-sessions` từng người. Cảnh báo khi số phiên vượt ngưỡng: Phase 6 (giám sát).

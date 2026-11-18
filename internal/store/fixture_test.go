@@ -70,11 +70,12 @@ var fixtureSteps = map[int64]func(f *fixture, t *testing.T, c *pgx.Conn){
 	12: (*fixture).step12, 13: (*fixture).step13, 14: (*fixture).step14, 15: (*fixture).step15,
 	16: (*fixture).step16,
 	17: (*fixture).step17,
+	18: (*fixture).step18,
 }
 
 // latestMigration is the number of the last migration of database/migrations (TestMigrationsUpWithData,
 // TestMigrationsShareClusterRoles).
-const latestMigration = 17
+const latestMigration = 18
 
 // migrationVersions are the versions that have a migration, ascending. Tasks written in parallel use provisional
 // numbers; the coordinator renumbers at merge so that the numbers stay contiguous (goose refuses a migration numbered
@@ -383,3 +384,7 @@ func hasColumn(t *testing.T, c *pgx.Conn, table, column string) bool {
 	}
 	return ok
 }
+
+// step18 (0018, P3-T17 — renumbered from the provisional 0020 at merge): no table, no column — a grant (UPDATE
+// (revoked_at, id_token_hint_enc) ON sessions TO mg_worker_platform), exercised by TestMigration0018WorkerRevokesSessions.
+func (f *fixture) step18(*testing.T, *pgx.Conn) {}

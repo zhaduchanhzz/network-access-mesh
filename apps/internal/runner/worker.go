@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
@@ -25,7 +25,9 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/monitoring"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/notifications"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/apikey"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/backup"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/reconcile"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/relay"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/secrets"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store/sqlcdb"
@@ -56,6 +58,10 @@ const partitionRole = "mg_partition_maint"
 //	                 from the SecretStore — platform_ops) + external (hardened client) — P2-T05a; idp.audit_sync every
 //	                 minute over the keycloak driver (admin + login events of every realm → audit_events, security
 //	                 events, notifications — P3-T15, internal/idp/auditsync)
+//	backup           instance.backup + instance.restore (P3-T11) and the backup schedule (Host Agent + manifest key)
+//	maintenance      the gate of P3-T17 (MG_MAINTENANCE OR system_settings maintenance, polled): the job worker and
+//	                 every schedule of workerSchedules run only while it is off (workControl — started when it opens,
+//	                 stopped when it closes)
 //	readiness        postgres, secretstore, edge_admin (§16.2)
 func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg prometheus.Registerer) (_ *component, err error) {
 	d, err := openDeps(ctx, cfg, log, nil) // nil: idp.PlatformDriverPaths (public OIDC + Admin REST API)
@@ -176,43 +182,60 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 			"idp-bootstrap` (RUNBOOK), then restart the worker — no Phase 2 job uses the driver")
 	}
 
-	var wg sync.WaitGroup
-	sched, cancel := context.WithCancel(context.Background())
+	gate, err := newMaintenanceGate(ctx, cfg, d.st, log, reg) // P3-T17: no job, no schedule in maintenance
+	if err != nil {
+		return nil, err
+	}
+	ctl := &workControl{gate: gate, w: w, log: log, check: 2 * time.Second, stopWait: stopTimeout - 5*time.Second,
+		schedules: workerSchedules(schedulers{devices: dev, monitor: mon, reconcile: rec, keys: keys, relays: relays,
+			backups: bk, backupsOn: backupsEnabled(cfg, agent)})}
+	var bg []*background
 	c := &component{probes: d.probes(), close: d.close}
 	c.start = func(ctx context.Context) error {
-		if err := w.Start(ctx); err != nil {
-			cancel()
+		if gate.On() {
+			log.Warn("maintenance mode: the job worker and the schedules are not started (P3-T17 — " +
+				"`meshguard admin maintenance off` once the post-restore reconcile was reviewed)")
+		} else if err := ctl.startWork(ctx); err != nil {
 			return err
 		}
-		schedules := map[string]func(context.Context) error{
-			"inventory.sync": dev.NewScheduler(devices.SchedulerConfig{}).Run,
-			"health.probe":   mon.NewScheduler(monitoring.SchedulerConfig{}).Run,
-			"reconcile":      rec.NewScheduler(reconcile.SchedulerConfig{}).Run,
-			"apikey.rotate":  keys.NewScheduler(apikey.SchedulerConfig{}).Run,
-			"relay.probe":    relaySchedule(relays),
-		}
-		if backupsEnabled(cfg, agent) {
-			schedules["instance.backup"] = bk.NewScheduler(0).Run
-		}
-		for name, run := range schedules {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				if err := run(sched); err != nil && !errors.Is(err, context.Canceled) {
-					log.Error("schedule stopped", "schedule", name, "error", err.Error())
-				}
-			}()
-		}
+		bg = append(bg, startBackground(func(ctx context.Context) { _ = gate.Run(ctx) }), startBackground(ctl.run))
 		return nil
 	}
-	c.stop = func(ctx context.Context) {
-		cancel()
-		wg.Wait()
-		if err := w.Stop(ctx); err != nil {
-			log.Warn("job worker stop", "error", err.Error())
+	c.stop = func(context.Context) {
+		for i := len(bg) - 1; i >= 0; i-- { // the control loop first: it stops the job worker gracefully
+			bg[i].stop()
 		}
 	}
 	return c, nil
+}
+
+// schedulers are the services of the worker process that run a periodic schedule.
+type schedulers struct {
+	devices   *devices.Service
+	monitor   *monitoring.Service
+	reconcile *reconcile.Service
+	keys      *apikey.Service
+	relays    *relay.Service // nil without a prober (MG_PROBER_URL): relay.probe then runs nothing
+	backups   *backup.Service
+	backupsOn bool // backupsEnabled: a Host Agent and a manifest key
+}
+
+// workerSchedules is the ONLY place where a periodic schedule of the worker process is built (P3-T17): the map goes to
+// workControl, which runs every entry while maintenance is off and stops them all when it is turned on, so no
+// schedule enqueues a job in maintenance. TestSchedulesOnlyInWorkControl fails on a NewScheduler call or a goroutine
+// anywhere else; the periodic jobs of jobs.Worker (RegisterPeriodic: session.gc, idp.audit_sync, …) stop with it.
+func workerSchedules(s schedulers) map[string]func(context.Context) error {
+	m := map[string]func(context.Context) error{
+		"inventory.sync": s.devices.NewScheduler(devices.SchedulerConfig{}).Run,
+		"health.probe":   s.monitor.NewScheduler(monitoring.SchedulerConfig{}).Run,
+		"reconcile":      s.reconcile.NewScheduler(reconcile.SchedulerConfig{}).Run,
+		"apikey.rotate":  s.keys.NewScheduler(apikey.SchedulerConfig{}).Run,
+		"relay.probe":    relaySchedule(s.relays),
+	}
+	if s.backupsOn {
+		m["instance.backup"] = s.backups.NewScheduler(0).Run // P3-T11
+	}
+	return m
 }
 
 // fanOut forwards every job alert (already counted and logged by the worker) to the modules that settle their own
