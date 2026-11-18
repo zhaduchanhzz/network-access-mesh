@@ -424,6 +424,84 @@ func TestDeprovisionFinalBackupFailure(t *testing.T) {
 	}
 }
 
+// TestDeprovisionQuarantinedInstance — P3-T18 × P3-T09: an instance quarantined after the approval stops the job at
+// backup.final (no backup of a suspect instance), before the point of no return: /rollback restores the tenant. The
+// approved override (skip_final_backup — the only way the API accepts a quarantined instance) then deletes the tenant
+// without reaching the quarantined Headscale (the locator refuses it; the quarantine stopped it and detached the edge):
+// edge detach + compose down/network with the data KEPT for the investigation, never a DELETE of it.
+func TestDeprovisionQuarantinedInstance(t *testing.T) {
+	g := newRig(t, rigOptions{})
+	ten := g.newTenant(t)
+	quarantine := func() error {
+		return g.backups.exec(`UPDATE tenant_instances SET status = 'quarantined' WHERE id = $1`, ten.instance)
+	}
+	g.backups.set(func(b *fakeBackups) {
+		b.before = func() error {
+			if err := quarantine(); err != nil {
+				return jobs.Transient("registry_unavailable", err)
+			}
+			return jobs.Transient("agent_unavailable", errors.New("the quarantine took the instance meanwhile (test)"))
+		}
+	})
+	job := g.request(t, ten, false)
+	g.wait(t, job, jobs.StatusFailedResumable)
+	if got := g.steps(t, job); got != "validate:succeeded backup.final:failed:"+ReasonQuarantined {
+		t.Fatalf("steps %s", got)
+	}
+	if n := g.count(t, `SELECT count(*) FROM backups WHERE tenant_id = $1`, ten.id); n != 0 {
+		t.Fatalf("%d backup(s) of a quarantined instance", n)
+	}
+	if _, err := g.control(t, jobs.Rollback, job); err != nil {
+		t.Fatalf("/rollback before the point of no return: %v", err)
+	}
+	g.wait(t, job, jobs.StatusRolledBack)
+	if g.status(t, ten) != tenants.StatusActive || len(g.agent.Calls()) != 0 {
+		t.Fatalf("tenant %s, agent calls %v after the rollback", g.status(t, ten), g.agent.Calls())
+	}
+
+	// the API refuses the quarantined instance without the override, accepts it with it
+	var re *RequestError
+	if _, err := g.req.Check(t.Context(), ten.id, ten.slug, false); !errors.As(err, &re) || re.Reason != ReasonQuarantined {
+		t.Fatalf("quarantined instance without the override: %v", err)
+	}
+	g.backups.set(func(b *fakeBackups) { b.before = nil })
+	calls := g.backups.Calls()
+	job2 := g.request(t, ten, true)
+	g.wait(t, job2, jobs.StatusSucceeded)
+	if got := g.steps(t, job2); got != allSucceeded() {
+		t.Fatalf("steps\n got %s\nwant %s", got, allSucceeded())
+	}
+	if d := g.str(t, `SELECT detail->>'skipped' FROM provisioning_job_steps WHERE job_id = $1 AND name = $2`, job2,
+		StepNodesExpire); d != "instance_quarantined" {
+		t.Fatalf("nodes.expire detail %q", d)
+	}
+	if d := g.str(t, `SELECT detail->>'reason' FROM provisioning_job_steps WHERE job_id = $1 AND name = $2`, job2,
+		StepStorage); d != "instance_quarantined" {
+		t.Fatalf("storage.remove detail %q", d)
+	}
+	if g.backups.Calls() != calls {
+		t.Fatalf("a backup of the quarantined instance was attempted")
+	}
+	for _, c := range ten.hs.Calls() {
+		if strings.HasPrefix(c, "ExpireNode") || strings.HasPrefix(c, "ListNodes") {
+			t.Fatalf("the job reached the quarantined Headscale: %v", ten.hs.Calls())
+		}
+	}
+	wantAgent := []string{"RemoveEdgeAttachment:EDGE_DETACH_REASON_DEPROVISION", "RemoveInstance:DATA_DISPOSITION_KEEP"}
+	if got := g.agent.Calls(); !slices.Equal(got, wantAgent) {
+		t.Fatalf("agent calls %v, want %v", got, wantAgent)
+	}
+	if m := g.agent.model(ten.instance); m.edge || m.container || m.network || !m.dir {
+		t.Fatalf("host %+v: the data of the quarantined instance must stay", m)
+	}
+	if g.status(t, ten) != tenants.StatusDeleted {
+		t.Fatalf("tenant %s", g.status(t, ten))
+	}
+	if st := g.str(t, `SELECT status FROM tenant_instances WHERE id = $1`, ten.instance); st != tenants.InstanceRemoved {
+		t.Fatalf("instance %s", st)
+	}
+}
+
 // TestDeprovisionRollbackBeforeTheNodes — the instance cannot be reached at nodes.expire (before it records anything):
 // failed_resumable with the tenant deprovisioning behind the suspension policy; /rollback ⇒ compensation in reverse
 // order: active again, the desired policy applied again, nothing on the host touched.

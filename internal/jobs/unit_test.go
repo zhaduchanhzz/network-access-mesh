@@ -4,6 +4,7 @@ package jobs
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -129,7 +130,8 @@ func TestDefaultConfigExplicit(t *testing.T) {
 			t.Errorf("River %s left at the library default %s", name, v[1])
 		}
 	}
-	if rc.ReindexerSchedule == nil || len(rc.Queues) != 3 || rc.Queues[QueueLifecycle].MaxWorkers < 1 {
+	if rc.ReindexerSchedule == nil || len(rc.Queues) != 4 || rc.Queues[QueueLifecycle].MaxWorkers < 1 ||
+		rc.Queues[QueueUrgent].MaxWorkers < 1 {
 		t.Errorf("River config: reindexer %v, queues %v", rc.ReindexerSchedule, rc.Queues)
 	}
 	qw := &queueWorker{w: w}
@@ -319,3 +321,30 @@ func TestRetentionNeverTargetsAudit(t *testing.T) {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+// TestStepGateErrors (P3-T18): the gate's verdict reaches the job as is when it is a job error, as Resumable step_gate
+// otherwise (never retried in place, no compensation); no gate ⇒ nothing stops; the gate sees the job's identity.
+func TestStepGateErrors(t *testing.T) {
+	tenant, inst := uuid.New(), uuid.New()
+	run := &Run{ID: uuid.New(), Kind: "instance.reconfigure", TenantID: &tenant, InstanceID: &inst, w: &Worker{}}
+	if err := run.gate(context.Background(), nil); err != nil {
+		t.Fatalf("no gate: %v", err)
+	}
+	var seen GateRun
+	run.w.gate = func(_ context.Context, _ *sqlcdb.Queries, g GateRun) error {
+		seen = g
+		return Resumable("instance_quarantined", errors.New("quarantined"))
+	}
+	if err := run.gate(context.Background(), nil); CodeOf(err) != "instance_quarantined" || !IsResumable(err) ||
+		seen.ID != run.ID || seen.Kind != run.Kind || *seen.TenantID != tenant || *seen.InstanceID != inst {
+		t.Fatalf("gate error %v, seen %+v", err, seen)
+	}
+	run.w.gate = func(context.Context, *sqlcdb.Queries, GateRun) error { return errors.New("plain") }
+	if err := run.gate(context.Background(), nil); CodeOf(err) != "step_gate" || !IsResumable(err) {
+		t.Fatalf("plain gate error ⇒ %v", err)
+	}
+	run.w.gate = func(context.Context, *sqlcdb.Queries, GateRun) error { return nil }
+	if err := run.gate(context.Background(), nil); err != nil {
+		t.Fatalf("open gate: %v", err)
+	}
+}

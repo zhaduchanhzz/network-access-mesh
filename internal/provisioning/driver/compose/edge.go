@@ -269,6 +269,9 @@ type EdgeReport struct {
 	// skipped because an operation held their lock, attached without the flag (left alone — e.g. instances deployed
 	// by hand before the agent, P3-T14b), and the instances the cycle could not handle.
 	NewlyAttached, Detached, Contained, Busy, Unflagged, Failed []string
+	// Quarantined: instances under meta/quarantined (P3-T18) — never attached, contained again at every cycle (a
+	// containment that had to act is in Contained too).
+	Quarantined []string
 	// GatewayDrift: the edge's default gateway is no longer on the edge network (gw_priority — §14.3).
 	GatewayDrift bool
 }
@@ -333,6 +336,14 @@ func (d *Driver) superviseInstance(ctx context.Context, t *tree, id uuid.UUID, e
 	act, err := t.lstat(l.activatedFile)
 	if err != nil {
 		fail("meta", err)
+		return
+	}
+	// quarantined (§11.4, P3-T18): never attached, whatever the flag — contained again instead
+	if q, err := isQuarantined(t, l); err != nil {
+		fail("meta", err)
+		return
+	} else if q {
+		d.superviseQuarantined(ctx, t, l, n, ref, m, rep)
 		return
 	}
 	flag, _ := m[metaEdgeAttach].(bool)

@@ -1382,6 +1382,7 @@ type InstanceStatus struct {
 	Activated           bool          `protobuf:"varint,12,opt,name=activated,proto3" json:"activated,omitempty"`                                   // meta/activated exists
 	EdgeAttachFlag      bool          `protobuf:"varint,13,opt,name=edge_attach_flag,json=edgeAttachFlag,proto3" json:"edge_attach_flag,omitempty"` // meta/instance.json edge_attach
 	ApiKeys             []*ApiKeyInfo `protobuf:"bytes,14,rep,name=api_keys,json=apiKeys,proto3" json:"api_keys,omitempty"`                         // only with include_api_keys
+	Quarantined         bool          `protobuf:"varint,15,opt,name=quarantined,proto3" json:"quarantined,omitempty"`                               // meta/quarantined exists (P3-T18 — QuarantineInstance)
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -1512,6 +1513,13 @@ func (x *InstanceStatus) GetApiKeys() []*ApiKeyInfo {
 		return x.ApiKeys
 	}
 	return nil
+}
+
+func (x *InstanceStatus) GetQuarantined() bool {
+	if x != nil {
+		return x.Quarantined
+	}
+	return false
 }
 
 // Refusal is the typed detail of every refusal status. field is the path of the offending request field (for
@@ -4652,6 +4660,252 @@ func (x *RemoveEdgeAttachmentResponse) GetWasAttached() bool {
 	return false
 }
 
+type QuarantineInstanceRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Instance      *InstanceRef           `protobuf:"bytes,1,opt,name=instance,proto3" json:"instance,omitempty"`
+	JobId         string                 `protobuf:"bytes,2,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *QuarantineInstanceRequest) Reset() {
+	*x = QuarantineInstanceRequest{}
+	mi := &file_agent_v1_agent_proto_msgTypes[57]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QuarantineInstanceRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QuarantineInstanceRequest) ProtoMessage() {}
+
+func (x *QuarantineInstanceRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_proto_msgTypes[57]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QuarantineInstanceRequest.ProtoReflect.Descriptor instead.
+func (*QuarantineInstanceRequest) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{57}
+}
+
+func (x *QuarantineInstanceRequest) GetInstance() *InstanceRef {
+	if x != nil {
+		return x.Instance
+	}
+	return nil
+}
+
+func (x *QuarantineInstanceRequest) GetJobId() string {
+	if x != nil {
+		return x.JobId
+	}
+	return ""
+}
+
+type QuarantineInstanceResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// meta/quarantined was written by this call (false: the instance was already quarantined — kept as it was).
+	MarkedNow bool `protobuf:"varint,1,opt,name=marked_now,json=markedNow,proto3" json:"marked_now,omitempty"`
+	// what the call found and undid: the edge attached (or the flag set), the container running.
+	EdgeWasAttached     bool            `protobuf:"varint,2,opt,name=edge_was_attached,json=edgeWasAttached,proto3" json:"edge_was_attached,omitempty"`
+	ContainerWasRunning bool            `protobuf:"varint,3,opt,name=container_was_running,json=containerWasRunning,proto3" json:"container_was_running,omitempty"`
+	Status              *InstanceStatus `protobuf:"bytes,4,opt,name=status,proto3" json:"status,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *QuarantineInstanceResponse) Reset() {
+	*x = QuarantineInstanceResponse{}
+	mi := &file_agent_v1_agent_proto_msgTypes[58]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QuarantineInstanceResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QuarantineInstanceResponse) ProtoMessage() {}
+
+func (x *QuarantineInstanceResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_proto_msgTypes[58]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QuarantineInstanceResponse.ProtoReflect.Descriptor instead.
+func (*QuarantineInstanceResponse) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{58}
+}
+
+func (x *QuarantineInstanceResponse) GetMarkedNow() bool {
+	if x != nil {
+		return x.MarkedNow
+	}
+	return false
+}
+
+func (x *QuarantineInstanceResponse) GetEdgeWasAttached() bool {
+	if x != nil {
+		return x.EdgeWasAttached
+	}
+	return false
+}
+
+func (x *QuarantineInstanceResponse) GetContainerWasRunning() bool {
+	if x != nil {
+		return x.ContainerWasRunning
+	}
+	return false
+}
+
+func (x *QuarantineInstanceResponse) GetStatus() *InstanceStatus {
+	if x != nil {
+		return x.Status
+	}
+	return nil
+}
+
+type ReleaseInstanceRequest struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Instance *InstanceRef           `protobuf:"bytes,1,opt,name=instance,proto3" json:"instance,omitempty"`
+	JobId    string                 `protobuf:"bytes,2,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
+	// sha256 (64 lower-case hex) of the policy the instance must serve — the applied policy of the registry
+	// (policy_applications.applied_sha256): read through the CLI inside the container, one trailing newline removed.
+	ExpectedPolicySha256 string `protobuf:"bytes,3,opt,name=expected_policy_sha256,json=expectedPolicySha256,proto3" json:"expected_policy_sha256,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *ReleaseInstanceRequest) Reset() {
+	*x = ReleaseInstanceRequest{}
+	mi := &file_agent_v1_agent_proto_msgTypes[59]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReleaseInstanceRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReleaseInstanceRequest) ProtoMessage() {}
+
+func (x *ReleaseInstanceRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_proto_msgTypes[59]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReleaseInstanceRequest.ProtoReflect.Descriptor instead.
+func (*ReleaseInstanceRequest) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{59}
+}
+
+func (x *ReleaseInstanceRequest) GetInstance() *InstanceRef {
+	if x != nil {
+		return x.Instance
+	}
+	return nil
+}
+
+func (x *ReleaseInstanceRequest) GetJobId() string {
+	if x != nil {
+		return x.JobId
+	}
+	return ""
+}
+
+func (x *ReleaseInstanceRequest) GetExpectedPolicySha256() string {
+	if x != nil {
+		return x.ExpectedPolicySha256
+	}
+	return ""
+}
+
+type ReleaseInstanceResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// meta/quarantined existed and was removed by this call (false: already released — the checks ran again).
+	WasQuarantined bool `protobuf:"varint,1,opt,name=was_quarantined,json=wasQuarantined,proto3" json:"was_quarantined,omitempty"`
+	// sha256 of the policy the instance serves (= expected_policy_sha256).
+	PolicySha256  string          `protobuf:"bytes,2,opt,name=policy_sha256,json=policySha256,proto3" json:"policy_sha256,omitempty"`
+	Status        *InstanceStatus `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReleaseInstanceResponse) Reset() {
+	*x = ReleaseInstanceResponse{}
+	mi := &file_agent_v1_agent_proto_msgTypes[60]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReleaseInstanceResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReleaseInstanceResponse) ProtoMessage() {}
+
+func (x *ReleaseInstanceResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_proto_msgTypes[60]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReleaseInstanceResponse.ProtoReflect.Descriptor instead.
+func (*ReleaseInstanceResponse) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{60}
+}
+
+func (x *ReleaseInstanceResponse) GetWasQuarantined() bool {
+	if x != nil {
+		return x.WasQuarantined
+	}
+	return false
+}
+
+func (x *ReleaseInstanceResponse) GetPolicySha256() string {
+	if x != nil {
+		return x.PolicySha256
+	}
+	return ""
+}
+
+func (x *ReleaseInstanceResponse) GetStatus() *InstanceStatus {
+	if x != nil {
+		return x.Status
+	}
+	return nil
+}
+
 var File_agent_v1_agent_proto protoreflect.FileDescriptor
 
 const file_agent_v1_agent_proto_rawDesc = "" +
@@ -4703,7 +4957,7 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"expiration\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"expiration\x129\n" +
 	"\n" +
-	"created_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\xcc\x05\n" +
+	"created_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\xee\x05\n" +
 	"\x0eInstanceStatus\x12;\n" +
 	"\binstance\x18\x01 \x01(\v2\x1f.meshguard.agent.v1.InstanceRefR\binstance\x12K\n" +
 	"\x0fcontainer_state\x18\x02 \x01(\x0e2\".meshguard.agent.v1.ContainerStateR\x0econtainerState\x127\n" +
@@ -4720,7 +4974,8 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x15noise_key_fingerprint\x18\v \x01(\tR\x13noiseKeyFingerprint\x12\x1c\n" +
 	"\tactivated\x18\f \x01(\bR\tactivated\x12(\n" +
 	"\x10edge_attach_flag\x18\r \x01(\bR\x0eedgeAttachFlag\x129\n" +
-	"\bapi_keys\x18\x0e \x03(\v2\x1e.meshguard.agent.v1.ApiKeyInfoR\aapiKeys\"t\n" +
+	"\bapi_keys\x18\x0e \x03(\v2\x1e.meshguard.agent.v1.ApiKeyInfoR\aapiKeys\x12 \n" +
+	"\vquarantined\x18\x0f \x01(\bR\vquarantined\"t\n" +
 	"\aRefusal\x129\n" +
 	"\x06reason\x18\x01 \x01(\x0e2!.meshguard.agent.v1.RefusalReasonR\x06reason\x12\x14\n" +
 	"\x05field\x18\x02 \x01(\tR\x05field\x12\x18\n" +
@@ -4944,7 +5199,24 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x06reason\x18\x03 \x01(\x0e2$.meshguard.agent.v1.EdgeDetachReasonR\x06reason\"]\n" +
 	"\x1cRemoveEdgeAttachmentResponse\x12\x1a\n" +
 	"\bdetached\x18\x01 \x01(\bR\bdetached\x12!\n" +
-	"\fwas_attached\x18\x02 \x01(\bR\vwasAttached*b\n" +
+	"\fwas_attached\x18\x02 \x01(\bR\vwasAttached\"o\n" +
+	"\x19QuarantineInstanceRequest\x12;\n" +
+	"\binstance\x18\x01 \x01(\v2\x1f.meshguard.agent.v1.InstanceRefR\binstance\x12\x15\n" +
+	"\x06job_id\x18\x02 \x01(\tR\x05jobId\"\xd7\x01\n" +
+	"\x1aQuarantineInstanceResponse\x12\x1d\n" +
+	"\n" +
+	"marked_now\x18\x01 \x01(\bR\tmarkedNow\x12*\n" +
+	"\x11edge_was_attached\x18\x02 \x01(\bR\x0fedgeWasAttached\x122\n" +
+	"\x15container_was_running\x18\x03 \x01(\bR\x13containerWasRunning\x12:\n" +
+	"\x06status\x18\x04 \x01(\v2\".meshguard.agent.v1.InstanceStatusR\x06status\"\xa2\x01\n" +
+	"\x16ReleaseInstanceRequest\x12;\n" +
+	"\binstance\x18\x01 \x01(\v2\x1f.meshguard.agent.v1.InstanceRefR\binstance\x12\x15\n" +
+	"\x06job_id\x18\x02 \x01(\tR\x05jobId\x124\n" +
+	"\x16expected_policy_sha256\x18\x03 \x01(\tR\x14expectedPolicySha256\"\xa3\x01\n" +
+	"\x17ReleaseInstanceResponse\x12'\n" +
+	"\x0fwas_quarantined\x18\x01 \x01(\bR\x0ewasQuarantined\x12#\n" +
+	"\rpolicy_sha256\x18\x02 \x01(\tR\fpolicySha256\x12:\n" +
+	"\x06status\x18\x03 \x01(\v2\".meshguard.agent.v1.InstanceStatusR\x06status*b\n" +
 	"\bLogLevel\x12\x19\n" +
 	"\x15LOG_LEVEL_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eLOG_LEVEL_INFO\x10\x01\x12\x12\n" +
@@ -5044,7 +5316,7 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x1dEDGE_DETACH_REASON_QUARANTINE\x10\x02\x12\"\n" +
 	"\x1eEDGE_DETACH_REASON_DEPROVISION\x10\x03\x12\x1e\n" +
 	"\x1aEDGE_DETACH_REASON_RESTORE\x10\x04\x12#\n" +
-	"\x1fEDGE_DETACH_REASON_POLICY_DRIFT\x10\x052\xcd\x0f\n" +
+	"\x1fEDGE_DETACH_REASON_POLICY_DRIFT\x10\x052\xae\x11\n" +
 	"\fAgentService\x12O\n" +
 	"\x06Health\x12!.meshguard.agent.v1.HealthRequest\x1a\".meshguard.agent.v1.HealthResponse\x12^\n" +
 	"\vGetHostInfo\x12&.meshguard.agent.v1.GetHostInfoRequest\x1a'.meshguard.agent.v1.GetHostInfoResponse\x12g\n" +
@@ -5064,7 +5336,9 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\aRestore\x12\".meshguard.agent.v1.RestoreRequest\x1a#.meshguard.agent.v1.RestoreResponse\x12y\n" +
 	"\x14PostRestoreReconcile\x12/.meshguard.agent.v1.PostRestoreReconcileRequest\x1a0.meshguard.agent.v1.PostRestoreReconcileResponse\x12y\n" +
 	"\x14EnsureEdgeAttachment\x12/.meshguard.agent.v1.EnsureEdgeAttachmentRequest\x1a0.meshguard.agent.v1.EnsureEdgeAttachmentResponse\x12y\n" +
-	"\x14RemoveEdgeAttachment\x12/.meshguard.agent.v1.RemoveEdgeAttachmentRequest\x1a0.meshguard.agent.v1.RemoveEdgeAttachmentResponseBBZ@github.com/zhaduchanhzz/network-access-mesh/api/agent/v1;agentv1b\x06proto3"
+	"\x14RemoveEdgeAttachment\x12/.meshguard.agent.v1.RemoveEdgeAttachmentRequest\x1a0.meshguard.agent.v1.RemoveEdgeAttachmentResponse\x12s\n" +
+	"\x12QuarantineInstance\x12-.meshguard.agent.v1.QuarantineInstanceRequest\x1a..meshguard.agent.v1.QuarantineInstanceResponse\x12j\n" +
+	"\x0fReleaseInstance\x12*.meshguard.agent.v1.ReleaseInstanceRequest\x1a+.meshguard.agent.v1.ReleaseInstanceResponseBBZ@github.com/zhaduchanhzz/network-access-mesh/api/agent/v1;agentv1b\x06proto3"
 
 var (
 	file_agent_v1_agent_proto_rawDescOnce sync.Once
@@ -5079,7 +5353,7 @@ func file_agent_v1_agent_proto_rawDescGZIP() []byte {
 }
 
 var file_agent_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 13)
-var file_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 57)
+var file_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 61)
 var file_agent_v1_agent_proto_goTypes = []any{
 	(LogLevel)(0),                        // 0: meshguard.agent.v1.LogLevel
 	(TargetPhase)(0),                     // 1: meshguard.agent.v1.TargetPhase
@@ -5151,8 +5425,12 @@ var file_agent_v1_agent_proto_goTypes = []any{
 	(*EnsureEdgeAttachmentResponse)(nil), // 67: meshguard.agent.v1.EnsureEdgeAttachmentResponse
 	(*RemoveEdgeAttachmentRequest)(nil),  // 68: meshguard.agent.v1.RemoveEdgeAttachmentRequest
 	(*RemoveEdgeAttachmentResponse)(nil), // 69: meshguard.agent.v1.RemoveEdgeAttachmentResponse
-	(*timestamppb.Timestamp)(nil),        // 70: google.protobuf.Timestamp
-	(*durationpb.Duration)(nil),          // 71: google.protobuf.Duration
+	(*QuarantineInstanceRequest)(nil),    // 70: meshguard.agent.v1.QuarantineInstanceRequest
+	(*QuarantineInstanceResponse)(nil),   // 71: meshguard.agent.v1.QuarantineInstanceResponse
+	(*ReleaseInstanceRequest)(nil),       // 72: meshguard.agent.v1.ReleaseInstanceRequest
+	(*ReleaseInstanceResponse)(nil),      // 73: meshguard.agent.v1.ReleaseInstanceResponse
+	(*timestamppb.Timestamp)(nil),        // 74: google.protobuf.Timestamp
+	(*durationpb.Duration)(nil),          // 75: google.protobuf.Duration
 }
 var file_agent_v1_agent_proto_depIdxs = []int32{
 	0,  // 0: meshguard.agent.v1.HeadscaleParams.log_level:type_name -> meshguard.agent.v1.LogLevel
@@ -5160,18 +5438,18 @@ var file_agent_v1_agent_proto_depIdxs = []int32{
 	14, // 2: meshguard.agent.v1.InstanceSpec.limits:type_name -> meshguard.agent.v1.ResourceLimits
 	15, // 3: meshguard.agent.v1.InstanceSpec.headscale:type_name -> meshguard.agent.v1.HeadscaleParams
 	4,  // 4: meshguard.agent.v1.PathState.kind:type_name -> meshguard.agent.v1.PathKind
-	70, // 5: meshguard.agent.v1.ApiKeyInfo.expiration:type_name -> google.protobuf.Timestamp
-	70, // 6: meshguard.agent.v1.ApiKeyInfo.created_at:type_name -> google.protobuf.Timestamp
+	74, // 5: meshguard.agent.v1.ApiKeyInfo.expiration:type_name -> google.protobuf.Timestamp
+	74, // 6: meshguard.agent.v1.ApiKeyInfo.created_at:type_name -> google.protobuf.Timestamp
 	13, // 7: meshguard.agent.v1.InstanceStatus.instance:type_name -> meshguard.agent.v1.InstanceRef
 	2,  // 8: meshguard.agent.v1.InstanceStatus.container_state:type_name -> meshguard.agent.v1.ContainerState
 	3,  // 9: meshguard.agent.v1.InstanceStatus.health:type_name -> meshguard.agent.v1.HealthState
-	70, // 10: meshguard.agent.v1.InstanceStatus.started_at:type_name -> google.protobuf.Timestamp
+	74, // 10: meshguard.agent.v1.InstanceStatus.started_at:type_name -> google.protobuf.Timestamp
 	18, // 11: meshguard.agent.v1.InstanceStatus.network:type_name -> meshguard.agent.v1.NetworkState
 	17, // 12: meshguard.agent.v1.InstanceStatus.paths:type_name -> meshguard.agent.v1.PathState
 	19, // 13: meshguard.agent.v1.InstanceStatus.api_keys:type_name -> meshguard.agent.v1.ApiKeyInfo
 	5,  // 14: meshguard.agent.v1.Refusal.reason:type_name -> meshguard.agent.v1.RefusalReason
 	6,  // 15: meshguard.agent.v1.HealthResponse.status:type_name -> meshguard.agent.v1.ServingStatus
-	70, // 16: meshguard.agent.v1.HealthResponse.started_at:type_name -> google.protobuf.Timestamp
+	74, // 16: meshguard.agent.v1.HealthResponse.started_at:type_name -> google.protobuf.Timestamp
 	25, // 17: meshguard.agent.v1.GetHostInfoResponse.run_uid_range:type_name -> meshguard.agent.v1.UintRange
 	25, // 18: meshguard.agent.v1.GetHostInfoResponse.stun_port_range:type_name -> meshguard.agent.v1.UintRange
 	26, // 19: meshguard.agent.v1.GetHostInfoResponse.allowed_images:type_name -> meshguard.agent.v1.AllowedImage
@@ -5202,65 +5480,73 @@ var file_agent_v1_agent_proto_depIdxs = []int32{
 	13, // 44: meshguard.agent.v1.BootstrapPolicyRequest.instance:type_name -> meshguard.agent.v1.InstanceRef
 	10, // 45: meshguard.agent.v1.BootstrapPolicyRequest.policy:type_name -> meshguard.agent.v1.PolicyKind
 	13, // 46: meshguard.agent.v1.BootstrapApiKeyRequest.instance:type_name -> meshguard.agent.v1.InstanceRef
-	71, // 47: meshguard.agent.v1.BootstrapApiKeyRequest.ttl:type_name -> google.protobuf.Duration
-	70, // 48: meshguard.agent.v1.BootstrapApiKeyResponse.expires_at:type_name -> google.protobuf.Timestamp
+	75, // 47: meshguard.agent.v1.BootstrapApiKeyRequest.ttl:type_name -> google.protobuf.Duration
+	74, // 48: meshguard.agent.v1.BootstrapApiKeyResponse.expires_at:type_name -> google.protobuf.Timestamp
 	13, // 49: meshguard.agent.v1.BackupRequest.instance:type_name -> meshguard.agent.v1.InstanceRef
 	11, // 50: meshguard.agent.v1.BackupArtifact.method:type_name -> meshguard.agent.v1.BackupMethod
-	70, // 51: meshguard.agent.v1.BackupArtifact.created_at:type_name -> google.protobuf.Timestamp
+	74, // 51: meshguard.agent.v1.BackupArtifact.created_at:type_name -> google.protobuf.Timestamp
 	57, // 52: meshguard.agent.v1.BackupResponse.artifact:type_name -> meshguard.agent.v1.BackupArtifact
 	13, // 53: meshguard.agent.v1.RestoreRequest.instance:type_name -> meshguard.agent.v1.InstanceRef
 	59, // 54: meshguard.agent.v1.RestoreRequest.artifact:type_name -> meshguard.agent.v1.ArtifactRef
-	71, // 55: meshguard.agent.v1.ReconcilePlan.api_key_ttl:type_name -> google.protobuf.Duration
+	75, // 55: meshguard.agent.v1.ReconcilePlan.api_key_ttl:type_name -> google.protobuf.Duration
 	62, // 56: meshguard.agent.v1.ReconcilePlan.nodes:type_name -> meshguard.agent.v1.NodeDesiredState
 	13, // 57: meshguard.agent.v1.PostRestoreReconcileRequest.instance:type_name -> meshguard.agent.v1.InstanceRef
 	63, // 58: meshguard.agent.v1.PostRestoreReconcileRequest.plan:type_name -> meshguard.agent.v1.ReconcilePlan
-	70, // 59: meshguard.agent.v1.PostRestoreReconcileResponse.api_key_expires_at:type_name -> google.protobuf.Timestamp
+	74, // 59: meshguard.agent.v1.PostRestoreReconcileResponse.api_key_expires_at:type_name -> google.protobuf.Timestamp
 	13, // 60: meshguard.agent.v1.EnsureEdgeAttachmentRequest.instance:type_name -> meshguard.agent.v1.InstanceRef
 	13, // 61: meshguard.agent.v1.RemoveEdgeAttachmentRequest.instance:type_name -> meshguard.agent.v1.InstanceRef
 	12, // 62: meshguard.agent.v1.RemoveEdgeAttachmentRequest.reason:type_name -> meshguard.agent.v1.EdgeDetachReason
-	22, // 63: meshguard.agent.v1.AgentService.Health:input_type -> meshguard.agent.v1.HealthRequest
-	24, // 64: meshguard.agent.v1.AgentService.GetHostInfo:input_type -> meshguard.agent.v1.GetHostInfoRequest
-	28, // 65: meshguard.agent.v1.AgentService.ValidateConfig:input_type -> meshguard.agent.v1.ValidateConfigRequest
-	31, // 66: meshguard.agent.v1.AgentService.EnsureInstance:input_type -> meshguard.agent.v1.EnsureInstanceRequest
-	33, // 67: meshguard.agent.v1.AgentService.GetInstanceStatus:input_type -> meshguard.agent.v1.GetInstanceStatusRequest
-	35, // 68: meshguard.agent.v1.AgentService.ListInstances:input_type -> meshguard.agent.v1.ListInstancesRequest
-	39, // 69: meshguard.agent.v1.AgentService.StartInstance:input_type -> meshguard.agent.v1.StartInstanceRequest
-	41, // 70: meshguard.agent.v1.AgentService.StopInstance:input_type -> meshguard.agent.v1.StopInstanceRequest
-	43, // 71: meshguard.agent.v1.AgentService.RestartInstance:input_type -> meshguard.agent.v1.RestartInstanceRequest
-	45, // 72: meshguard.agent.v1.AgentService.RemoveInstance:input_type -> meshguard.agent.v1.RemoveInstanceRequest
-	47, // 73: meshguard.agent.v1.AgentService.UpgradeInstance:input_type -> meshguard.agent.v1.UpgradeInstanceRequest
-	50, // 74: meshguard.agent.v1.AgentService.WriteDnsRecords:input_type -> meshguard.agent.v1.WriteDnsRecordsRequest
-	52, // 75: meshguard.agent.v1.AgentService.BootstrapPolicy:input_type -> meshguard.agent.v1.BootstrapPolicyRequest
-	54, // 76: meshguard.agent.v1.AgentService.BootstrapApiKey:input_type -> meshguard.agent.v1.BootstrapApiKeyRequest
-	56, // 77: meshguard.agent.v1.AgentService.Backup:input_type -> meshguard.agent.v1.BackupRequest
-	60, // 78: meshguard.agent.v1.AgentService.Restore:input_type -> meshguard.agent.v1.RestoreRequest
-	64, // 79: meshguard.agent.v1.AgentService.PostRestoreReconcile:input_type -> meshguard.agent.v1.PostRestoreReconcileRequest
-	66, // 80: meshguard.agent.v1.AgentService.EnsureEdgeAttachment:input_type -> meshguard.agent.v1.EnsureEdgeAttachmentRequest
-	68, // 81: meshguard.agent.v1.AgentService.RemoveEdgeAttachment:input_type -> meshguard.agent.v1.RemoveEdgeAttachmentRequest
-	23, // 82: meshguard.agent.v1.AgentService.Health:output_type -> meshguard.agent.v1.HealthResponse
-	27, // 83: meshguard.agent.v1.AgentService.GetHostInfo:output_type -> meshguard.agent.v1.GetHostInfoResponse
-	29, // 84: meshguard.agent.v1.AgentService.ValidateConfig:output_type -> meshguard.agent.v1.ValidateConfigResponse
-	32, // 85: meshguard.agent.v1.AgentService.EnsureInstance:output_type -> meshguard.agent.v1.EnsureInstanceResponse
-	34, // 86: meshguard.agent.v1.AgentService.GetInstanceStatus:output_type -> meshguard.agent.v1.GetInstanceStatusResponse
-	37, // 87: meshguard.agent.v1.AgentService.ListInstances:output_type -> meshguard.agent.v1.ListInstancesResponse
-	40, // 88: meshguard.agent.v1.AgentService.StartInstance:output_type -> meshguard.agent.v1.StartInstanceResponse
-	42, // 89: meshguard.agent.v1.AgentService.StopInstance:output_type -> meshguard.agent.v1.StopInstanceResponse
-	44, // 90: meshguard.agent.v1.AgentService.RestartInstance:output_type -> meshguard.agent.v1.RestartInstanceResponse
-	46, // 91: meshguard.agent.v1.AgentService.RemoveInstance:output_type -> meshguard.agent.v1.RemoveInstanceResponse
-	48, // 92: meshguard.agent.v1.AgentService.UpgradeInstance:output_type -> meshguard.agent.v1.UpgradeInstanceResponse
-	51, // 93: meshguard.agent.v1.AgentService.WriteDnsRecords:output_type -> meshguard.agent.v1.WriteDnsRecordsResponse
-	53, // 94: meshguard.agent.v1.AgentService.BootstrapPolicy:output_type -> meshguard.agent.v1.BootstrapPolicyResponse
-	55, // 95: meshguard.agent.v1.AgentService.BootstrapApiKey:output_type -> meshguard.agent.v1.BootstrapApiKeyResponse
-	58, // 96: meshguard.agent.v1.AgentService.Backup:output_type -> meshguard.agent.v1.BackupResponse
-	61, // 97: meshguard.agent.v1.AgentService.Restore:output_type -> meshguard.agent.v1.RestoreResponse
-	65, // 98: meshguard.agent.v1.AgentService.PostRestoreReconcile:output_type -> meshguard.agent.v1.PostRestoreReconcileResponse
-	67, // 99: meshguard.agent.v1.AgentService.EnsureEdgeAttachment:output_type -> meshguard.agent.v1.EnsureEdgeAttachmentResponse
-	69, // 100: meshguard.agent.v1.AgentService.RemoveEdgeAttachment:output_type -> meshguard.agent.v1.RemoveEdgeAttachmentResponse
-	82, // [82:101] is the sub-list for method output_type
-	63, // [63:82] is the sub-list for method input_type
-	63, // [63:63] is the sub-list for extension type_name
-	63, // [63:63] is the sub-list for extension extendee
-	0,  // [0:63] is the sub-list for field type_name
+	13, // 63: meshguard.agent.v1.QuarantineInstanceRequest.instance:type_name -> meshguard.agent.v1.InstanceRef
+	20, // 64: meshguard.agent.v1.QuarantineInstanceResponse.status:type_name -> meshguard.agent.v1.InstanceStatus
+	13, // 65: meshguard.agent.v1.ReleaseInstanceRequest.instance:type_name -> meshguard.agent.v1.InstanceRef
+	20, // 66: meshguard.agent.v1.ReleaseInstanceResponse.status:type_name -> meshguard.agent.v1.InstanceStatus
+	22, // 67: meshguard.agent.v1.AgentService.Health:input_type -> meshguard.agent.v1.HealthRequest
+	24, // 68: meshguard.agent.v1.AgentService.GetHostInfo:input_type -> meshguard.agent.v1.GetHostInfoRequest
+	28, // 69: meshguard.agent.v1.AgentService.ValidateConfig:input_type -> meshguard.agent.v1.ValidateConfigRequest
+	31, // 70: meshguard.agent.v1.AgentService.EnsureInstance:input_type -> meshguard.agent.v1.EnsureInstanceRequest
+	33, // 71: meshguard.agent.v1.AgentService.GetInstanceStatus:input_type -> meshguard.agent.v1.GetInstanceStatusRequest
+	35, // 72: meshguard.agent.v1.AgentService.ListInstances:input_type -> meshguard.agent.v1.ListInstancesRequest
+	39, // 73: meshguard.agent.v1.AgentService.StartInstance:input_type -> meshguard.agent.v1.StartInstanceRequest
+	41, // 74: meshguard.agent.v1.AgentService.StopInstance:input_type -> meshguard.agent.v1.StopInstanceRequest
+	43, // 75: meshguard.agent.v1.AgentService.RestartInstance:input_type -> meshguard.agent.v1.RestartInstanceRequest
+	45, // 76: meshguard.agent.v1.AgentService.RemoveInstance:input_type -> meshguard.agent.v1.RemoveInstanceRequest
+	47, // 77: meshguard.agent.v1.AgentService.UpgradeInstance:input_type -> meshguard.agent.v1.UpgradeInstanceRequest
+	50, // 78: meshguard.agent.v1.AgentService.WriteDnsRecords:input_type -> meshguard.agent.v1.WriteDnsRecordsRequest
+	52, // 79: meshguard.agent.v1.AgentService.BootstrapPolicy:input_type -> meshguard.agent.v1.BootstrapPolicyRequest
+	54, // 80: meshguard.agent.v1.AgentService.BootstrapApiKey:input_type -> meshguard.agent.v1.BootstrapApiKeyRequest
+	56, // 81: meshguard.agent.v1.AgentService.Backup:input_type -> meshguard.agent.v1.BackupRequest
+	60, // 82: meshguard.agent.v1.AgentService.Restore:input_type -> meshguard.agent.v1.RestoreRequest
+	64, // 83: meshguard.agent.v1.AgentService.PostRestoreReconcile:input_type -> meshguard.agent.v1.PostRestoreReconcileRequest
+	66, // 84: meshguard.agent.v1.AgentService.EnsureEdgeAttachment:input_type -> meshguard.agent.v1.EnsureEdgeAttachmentRequest
+	68, // 85: meshguard.agent.v1.AgentService.RemoveEdgeAttachment:input_type -> meshguard.agent.v1.RemoveEdgeAttachmentRequest
+	70, // 86: meshguard.agent.v1.AgentService.QuarantineInstance:input_type -> meshguard.agent.v1.QuarantineInstanceRequest
+	72, // 87: meshguard.agent.v1.AgentService.ReleaseInstance:input_type -> meshguard.agent.v1.ReleaseInstanceRequest
+	23, // 88: meshguard.agent.v1.AgentService.Health:output_type -> meshguard.agent.v1.HealthResponse
+	27, // 89: meshguard.agent.v1.AgentService.GetHostInfo:output_type -> meshguard.agent.v1.GetHostInfoResponse
+	29, // 90: meshguard.agent.v1.AgentService.ValidateConfig:output_type -> meshguard.agent.v1.ValidateConfigResponse
+	32, // 91: meshguard.agent.v1.AgentService.EnsureInstance:output_type -> meshguard.agent.v1.EnsureInstanceResponse
+	34, // 92: meshguard.agent.v1.AgentService.GetInstanceStatus:output_type -> meshguard.agent.v1.GetInstanceStatusResponse
+	37, // 93: meshguard.agent.v1.AgentService.ListInstances:output_type -> meshguard.agent.v1.ListInstancesResponse
+	40, // 94: meshguard.agent.v1.AgentService.StartInstance:output_type -> meshguard.agent.v1.StartInstanceResponse
+	42, // 95: meshguard.agent.v1.AgentService.StopInstance:output_type -> meshguard.agent.v1.StopInstanceResponse
+	44, // 96: meshguard.agent.v1.AgentService.RestartInstance:output_type -> meshguard.agent.v1.RestartInstanceResponse
+	46, // 97: meshguard.agent.v1.AgentService.RemoveInstance:output_type -> meshguard.agent.v1.RemoveInstanceResponse
+	48, // 98: meshguard.agent.v1.AgentService.UpgradeInstance:output_type -> meshguard.agent.v1.UpgradeInstanceResponse
+	51, // 99: meshguard.agent.v1.AgentService.WriteDnsRecords:output_type -> meshguard.agent.v1.WriteDnsRecordsResponse
+	53, // 100: meshguard.agent.v1.AgentService.BootstrapPolicy:output_type -> meshguard.agent.v1.BootstrapPolicyResponse
+	55, // 101: meshguard.agent.v1.AgentService.BootstrapApiKey:output_type -> meshguard.agent.v1.BootstrapApiKeyResponse
+	58, // 102: meshguard.agent.v1.AgentService.Backup:output_type -> meshguard.agent.v1.BackupResponse
+	61, // 103: meshguard.agent.v1.AgentService.Restore:output_type -> meshguard.agent.v1.RestoreResponse
+	65, // 104: meshguard.agent.v1.AgentService.PostRestoreReconcile:output_type -> meshguard.agent.v1.PostRestoreReconcileResponse
+	67, // 105: meshguard.agent.v1.AgentService.EnsureEdgeAttachment:output_type -> meshguard.agent.v1.EnsureEdgeAttachmentResponse
+	69, // 106: meshguard.agent.v1.AgentService.RemoveEdgeAttachment:output_type -> meshguard.agent.v1.RemoveEdgeAttachmentResponse
+	71, // 107: meshguard.agent.v1.AgentService.QuarantineInstance:output_type -> meshguard.agent.v1.QuarantineInstanceResponse
+	73, // 108: meshguard.agent.v1.AgentService.ReleaseInstance:output_type -> meshguard.agent.v1.ReleaseInstanceResponse
+	88, // [88:109] is the sub-list for method output_type
+	67, // [67:88] is the sub-list for method input_type
+	67, // [67:67] is the sub-list for extension type_name
+	67, // [67:67] is the sub-list for extension extendee
+	0,  // [0:67] is the sub-list for field type_name
 }
 
 func init() { file_agent_v1_agent_proto_init() }
@@ -5279,7 +5565,7 @@ func file_agent_v1_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agent_v1_agent_proto_rawDesc), len(file_agent_v1_agent_proto_rawDesc)),
 			NumEnums:      13,
-			NumMessages:   57,
+			NumMessages:   61,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

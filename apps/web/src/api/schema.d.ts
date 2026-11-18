@@ -734,6 +734,61 @@ export interface paths {
         patch: operations["updatePlatformHost"];
         trace?: never;
     };
+    "/platform/instances/{instanceId}/quarantine": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Quarantine instance nghi bị chiếm — cô lập ngay (job instance.quarantine), không cần 2P
+         * @description §11.4 hàng Quarantine. Trong cùng transaction của request: instance → `quarantined` (mọi trạng thái trừ
+         *     `removed` ⇒ `409`), security event `instance.quarantined` (critical), audit
+         *     `platform.instance.quarantine.requested` và job `instance.quarantine` (hàng đợi riêng — không chờ khóa lifecycle
+         *     của tenant). Từ lúc commit: mọi job nhiều bước khác của instance dừng trước bước kế tiếp (`instance_quarantined`),
+         *     adapter Headscale không gọi tới instance, lịch reconcile/xoay API key/backup bỏ qua nó. Job: Agent ghi
+         *     `meta/quarantined` → xóa cờ `edge_attach` → gỡ edge (hostname của tenant trả `404` thống nhất) → dừng container
+         *     (giữ nguyên `data/` và log) → kiểm lại → thông báo Super Admin/Platform Operator. Job lỗi ⇒ instance vẫn
+         *     `quarantined`, security event `instance.quarantine_incomplete` (critical). Instance đã quarantined ⇒ `202` với
+         *     job mới (cô lập lại); job quarantine chưa xong ⇒ `202` trả đúng job đó. Chỉ gỡ bằng `/release` (2P).
+         */
+        post: operations["quarantinePlatformInstance"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/instances/{instanceId}/release": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Gỡ quarantine — luôn 2P; 202 + Location của yêu cầu phê duyệt
+         * @description §11.4 hàng Quarantine (cột Rollback): instance phải `quarantined` và job quarantine của nó đã xong (khác ⇒
+         *     `409`). Tạo yêu cầu phê duyệt `platform.instance.release` (payload `{instance_id, tenant_id}`); người thứ hai —
+         *     khác người yêu cầu, step-up, giữ `platform.instance:release` và `platform.approval:decide` không điều kiện (Super
+         *     Admin) — duyệt ở `POST /platform/approvals/{id}/approve`, khi đó job `instance.release` chạy: Agent start
+         *     container qua start guard → healthy → phục vụ đúng policy đang áp dụng (sha256) → gỡ `meta/quarantined` →
+         *     `starting` → gắn edge → post-start gate qua API (API key được nhận, `GetPolicy` khớp `applied_sha256`) →
+         *     `running`. Bất kỳ lỗi nào ⇒ cô lập lại, instance vẫn `quarantined`, security event `instance.release_failed`.
+         *     Không có phê duyệt ⇒ không gì chạy.
+         */
+        post: operations["releasePlatformInstance"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/platform/health": {
         parameters: {
             query?: never;
@@ -1784,6 +1839,16 @@ export interface components {
             nameservers?: string[];
             /** @description `derp.server.region_id` của DERP nhúng (§10.1) */
             derp_region_id?: number;
+        };
+        /** @description Quarantine một instance (§11.4) — lý do ghi vào audit và security event */
+        InstanceQuarantineRequest: {
+            /** @description Lý do (sự cố, ticket, dấu hiệu bị chiếm) */
+            reason: string;
+        };
+        /** @description Gỡ quarantine của một instance (luôn cần người thứ hai duyệt) */
+        InstanceReleaseRequest: {
+            /** @description Lý do và kết luận điều tra — người duyệt đọc trước khi duyệt */
+            reason: string;
         };
         /**
          * @description Trạng thái host (`hosts.status`, 0014): `active` nhận instance mới; `draining` giữ instance đang có, không nhận mới; `disabled` ngừng hẳn — placement chỉ chọn host `active`
@@ -3683,6 +3748,80 @@ export interface operations {
             412: components["responses"]["PreconditionFailed"];
             422: components["responses"]["ValidationFailed"];
             428: components["responses"]["PreconditionRequired"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    quarantinePlatformInstance: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                instanceId: components["parameters"]["InstanceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstanceQuarantineRequest"];
+            };
+        };
+        responses: {
+            /** @description Instance đã `quarantined`; job instance.quarantine cô lập nó trên host — theo dõi ở job */
+            202: {
+                headers: {
+                    Location: components["headers"]["JobLocation"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    releasePlatformInstance: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                instanceId: components["parameters"]["InstanceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstanceReleaseRequest"];
+            };
+        };
+        responses: {
+            /** @description Yêu cầu phê duyệt đã tạo — người thứ hai duyệt ở `Location` */
+            202: {
+                headers: {
+                    Location: components["headers"]["ApprovalLocation"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalRequest"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
             429: components["responses"]["RateLimited"];
             default: components["responses"]["Unexpected"];
         };

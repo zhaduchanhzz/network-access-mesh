@@ -121,7 +121,7 @@ for method, path, want in [
     ("PUT", "/tenants/{tenantId}/users/{membershipId}/role", {"P4-T09"}),
     ("GET", "/platform/tenants/{tenantId}", {"P2-T11"}),
     ("PATCH", "/platform/tenants/{tenantId}", {"P4-T03a"}),
-    ("POST", "/platform/instances/{instanceId}/restart", {"P3-T11", "P3-T13", "P3-T13a"}),
+    ("POST", "/platform/instances/{instanceId}/restart", {"P3-T11", "P3-T13", "P3-T13a", "P3-T18"}),
     ("POST", "/platform/jobs/{jobId}/cancel", {"P3-T05"}),
     ("GET", "/platform/relay-regions", {"P3-T05c"}),
     ("POST", "/platform/relay-regions", {"P7-T04"}),

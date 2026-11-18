@@ -58,6 +58,7 @@ Mục tiêu ban đầu: **một** Ubuntu host (IP private trong LAN, thư mục 
 | `mg-sec-obs` | token listener metrics; mật khẩu DB của postgres-exporter; secret SSO của Grafana (nếu Grafana tự làm OIDC client); URL webhook cảnh báo | prometheus, postgres-exporter, grafana, alertmanager |
 | `mg-sec-backup` (GID 20007) | mật khẩu role `mg_backup` (`secrets/backup/pg_backup_password`); mật khẩu role chỉ-đọc `idp_backup` của idp-db (`secrets/backup/idp_backup_password` — bản của consumer, idp-db đọc bản `secrets/idp/backup_db_password`) | pg-backup, idp-backup (UID 10007 — `versions.lock [ids] backup_uid` — nhóm chính `mg-sec-backup`; project `mg-backup`); edge-backup chạy UID của edge (10001) với nhóm chính `mg-sec-backup`, không có secret |
 | `mg-sec-ship` | credential kho offsite (append-only) | backup-shipper |
+| `mg-sec-mail` (GID 20009, P3-T05b-mail) | khóa HMAC chung với Worker Cloudflare (`secrets/mail/relay_hmac_key`); khóa TLS của `mailrelay` (`secrets/mail/tls_key`) — chứng chỉ và CA nội bộ cùng thư mục là dữ liệu công khai (0444) | `mail-bridge` (cầu `mailrelay`, project `mg-app`; worker **không** có nhóm này) |
 | theo UID/GID mà image chính thức dùng | mật khẩu khởi tạo của PostgreSQL; mật khẩu DB và credential quản trị khởi tạo của IdP; cấu hình bouncer phía CrowdSec | postgres, idp, crowdsec |
 | `root:root`, `0400` | khóa ký manifest backup (Ed25519) | agent (chạy root) |
 

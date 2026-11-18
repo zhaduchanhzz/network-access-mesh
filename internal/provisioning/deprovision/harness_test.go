@@ -70,6 +70,8 @@ type fakeHS struct {
 
 func (f *fakeHS) call(op string) { f.calls = append(f.calls, op) }
 
+func (f *fakeHS) Calls() []string { f.mu.Lock(); defer f.mu.Unlock(); return slices.Clone(f.calls) }
+
 func (f *fakeHS) CheckPolicy(_ context.Context, p string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -310,7 +312,9 @@ type fakeBackups struct {
 	calls int
 	after int   // that many calls fail AFTER the backup was recorded (transient — the answer lost)
 	err   error // answered BEFORE anything (persistent)
-	keeps []time.Duration
+	// before runs first on every call (in the worker's goroutine); a non-nil error is the call's answer
+	before func() error
+	keeps  []time.Duration
 }
 
 func (b *fakeBackups) FinalBackup(_ context.Context, jobID, tenantID, instanceID uuid.UUID, keep time.Duration) (backup.BackupResult, error) {
@@ -318,6 +322,11 @@ func (b *fakeBackups) FinalBackup(_ context.Context, jobID, tenantID, instanceID
 	defer b.mu.Unlock()
 	b.calls++
 	b.keeps = append(b.keeps, keep)
+	if b.before != nil {
+		if err := b.before(); err != nil {
+			return backup.BackupResult{}, err
+		}
+	}
 	if b.err != nil {
 		return backup.BackupResult{}, b.err
 	}

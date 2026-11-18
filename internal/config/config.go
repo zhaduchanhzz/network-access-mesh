@@ -135,13 +135,7 @@ func Load(service string, getenv func(string) string, environ []string) (Config,
 	if !services[service] {
 		errs = append(errs, fmt.Errorf("unknown service %q", service))
 	}
-	for _, kv := range environ {
-		name, _, _ := strings.Cut(kv, "=")
-		if strings.HasPrefix(name, "MG_") && secretName.MatchString(name) &&
-			!strings.HasSuffix(name, "_FILE") && !strings.HasSuffix(name, "_DIR") {
-			errs = append(errs, fmt.Errorf("%s: secret values must be passed as a file (%s_FILE) or a directory of files (%s_DIR), not in the environment", name, name, name))
-		}
-	}
+	errs = append(errs, secretEnvErrors(environ)...)
 	cfg := Config{
 		Service:      service,
 		Env:          withDefault(getenv("MG_ENV"), "dev"),
@@ -247,6 +241,19 @@ func Load(service string, getenv func(string) string, environ []string) (Config,
 		errs = append(errs, cfg.loadDependencies(getenv)...)
 	}
 	return cfg, errors.Join(errs...)
+}
+
+// secretEnvErrors refuses every MG_* variable whose name looks like a secret unless it is a *_FILE or *_DIR reference.
+func secretEnvErrors(environ []string) []error {
+	var errs []error
+	for _, kv := range environ {
+		name, _, _ := strings.Cut(kv, "=")
+		if strings.HasPrefix(name, "MG_") && secretName.MatchString(name) &&
+			!strings.HasSuffix(name, "_FILE") && !strings.HasSuffix(name, "_DIR") {
+			errs = append(errs, fmt.Errorf("%s: secret values must be passed as a file (%s_FILE) or a directory of files (%s_DIR), not in the environment", name, name, name))
+		}
+	}
+	return errs
 }
 
 // loadDependencies reads and checks what a wired process needs (Config.Wired): the database roles of the service, the

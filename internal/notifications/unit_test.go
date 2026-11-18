@@ -42,6 +42,8 @@ func samples() []Event {
 		IdPConsoleLogin(idX.String(), "mg-bootstrap-admin", "security-admin-console", "203.0.113.7", when),
 		InstanceRestored(tA, idX, when, true),
 		TenantDeleted(tA, idX, when, true),
+		InstanceQuarantined(idX, "acme", idX, OutcomeIsolated),
+		InstanceReleased(idX, "acme", idX, OutcomeReleased),
 	}
 }
 
@@ -83,6 +85,8 @@ func TestRecipientRules(t *testing.T) {
 		{Invitation(tA, idX, "n@example.com", "end_user", when, ""), Audience{Emails: []string{"n@example.com"}}},
 		{IdPAdminChange(tA, "e1", "idp.user.update", "a", "", when), Audience{Roles: []string{RoleTenantOwner}}},
 		{IdPConsoleLogin("e1", "", "admin-cli", "", when), Audience{PlatformRoles: []string{RoleSuperAdmin, RolePlatformOperator}}},
+		{InstanceQuarantined(idX, "acme", idX, OutcomeIncomplete), Audience{PlatformRoles: []string{RoleSuperAdmin, RolePlatformOperator}}},
+		{InstanceReleased(idX, "acme", idX, OutcomeRefused), Audience{PlatformRoles: []string{RoleSuperAdmin, RolePlatformOperator}}},
 	}
 	for _, c := range cases {
 		a := c.ev.To

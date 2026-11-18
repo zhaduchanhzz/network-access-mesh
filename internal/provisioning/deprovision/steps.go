@@ -86,6 +86,12 @@ func (a *attempt) finalBackup(ctx context.Context, s *jobs.StepRun) error {
 		a.out("final_backup", "skipped")
 		return nil
 	}
+	if inst.Status == tenants.InstanceQuarantined {
+		// quarantined after the approval (the API refuses it without the override): no backup of a suspect instance
+		// (P3-T18 — backups skip quarantined instances); failed_resumable before the point of no return: /rollback, then
+		// a new request that skips the final backup (its data directory stays for the investigation), or a release
+		return jobs.Permanent(ReasonQuarantined, errors.New("the instance was quarantined: no final backup of it"))
+	}
 	if a.h.cfg.Backups == nil {
 		return jobs.Permanent("backup_not_configured", errors.New("the worker takes no backup (agent or manifest key missing)"))
 	}
@@ -275,6 +281,16 @@ func (a *attempt) expireNodes(ctx context.Context, s *jobs.StepRun) error {
 			return err
 		}
 		return a.skip(s, "no_instance")
+	}
+	if inst.Status == tenants.InstanceQuarantined {
+		// P3-T18: the quarantine stopped the container and detached the edge, and the locator refuses the instance — no
+		// client reaches this Headscale and no call of the job can either. The registry marks it removed at step 13, so it
+		// is never started again; its database stays in the kept data directory for the investigation.
+		if err := record(ctx, s, nodesResources{PointOfNoReturn: true}); err != nil {
+			return err
+		}
+		a.out("nodes_expired", "instance_quarantined")
+		return a.skip(s, "instance_quarantined")
 	}
 	cctx, cancel := a.h.call(ctx)
 	defer cancel()
@@ -547,6 +563,12 @@ func (a *attempt) removeStorage(ctx context.Context, s *jobs.StepRun) error {
 	}
 	if !ok || !liveInstance(inst.Status) {
 		return a.skip(s, "no_instance")
+	}
+	if inst.Status == tenants.InstanceQuarantined {
+		// P3-T18: the data of a quarantined instance is evidence (the agent refuses to delete it — meta/quarantined)
+		setDetail(s, map[string]any{"data_directory": "kept", "reason": "instance_quarantined"})
+		a.out("data_directory", "kept")
+		return nil
 	}
 	var b backupResources
 	found, err := a.run.StepResources(ctx, StepFinalBackup, &b)

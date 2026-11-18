@@ -39,6 +39,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/monitoringapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/notificationsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/provisioningapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/quarantineapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/reconfigureapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/relayapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/tenantsapi"
@@ -53,6 +54,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/deprovision"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/lifecycle"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/orchestrator"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/quarantine"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/relay"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/secrets"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
@@ -183,6 +185,8 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 		Reconfigure: reconfigureapi.New(orchestrator.NewReconfigureService(w.Store)),
 		// Deprovision (P3-T09): the 2P request of DELETE /platform/tenants/{id} (no worker here)
 		Deprovision: deprovisionapi.New(deprovision.NewRequester(w.Store), appr),
+		// Quarantine (P3-T18): quarantine requests of the api; a release becomes an approval request
+		Quarantine: quarantineapi.New(quarantine.NewRequester(w.Store), appr),
 	}
 }
 

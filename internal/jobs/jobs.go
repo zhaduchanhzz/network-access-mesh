@@ -59,11 +59,14 @@ const (
 	StepSkipped   = "skipped"
 )
 
-// River queues. The lifecycle queue has its own worker slots so a burst of short jobs never delays a lifecycle job.
+// River queues. The lifecycle queue has its own worker slots so a burst of short jobs never delays a lifecycle job; the
+// urgent queue carries instance.quarantine only (P3-T18, §11.4): isolating a suspected instance never waits for a slot
+// behind other jobs.
 const (
 	QueueLifecycle   = "lifecycle"
 	QueueDefault     = "default"
 	QueueMaintenance = "maintenance"
+	QueueUrgent      = "urgent"
 )
 
 // Scope says which identifiers a job of a kind carries.
@@ -141,8 +144,11 @@ func DefaultKinds() map[string]Kind {
 		life("instance.restart", "instance:{instance}:{kind}", ScopeInstance),
 		life("instance.upgrade", "instance:{instance}:{kind}", ScopeInstance),
 		life("instance.restore", "instance:{instance}:restore", ScopeInstance),
-		other("instance.quarantine", "instance:{instance}:quarantine", ScopeInstance, QueueDefault, 6, 5*time.Minute),
-		other("instance.release", "instance:{instance}:quarantine", ScopeInstance, QueueDefault, 6, LifecycleTimeout),
+		// P3-T18 (§11.4): no lifecycle lock — a quarantine must take effect while a lifecycle job holds the tenant's lock
+		// (the step gate stops that job at its next step); release has its own dedupe key so an unfinished release never
+		// delays a quarantine (a quarantine requested meanwhile makes the release stop and isolate again)
+		other("instance.quarantine", "instance:{instance}:quarantine", ScopeInstance, QueueUrgent, 6, 5*time.Minute),
+		other("instance.release", "instance:{instance}:release", ScopeInstance, QueueDefault, 6, LifecycleTimeout),
 		other("apikey.rotate", "instance:{instance}:apikey:{slot}", ScopeInstance, QueueDefault, 5, 5*time.Minute),
 		other("backup.purge", "instance:{instance}:purge", ScopeInstance, QueueDefault, 5, 5*time.Minute),
 		other("inventory.sync", "instance:{instance}:sync:{slot}", ScopeInstance, QueueDefault, 3, 5*time.Minute),

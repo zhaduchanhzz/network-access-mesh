@@ -26,6 +26,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/notifications"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/apikey"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/backup"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/quarantine"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/reconcile"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/relay"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/secrets"
@@ -57,6 +58,9 @@ const partitionRole = "mg_partition_maint"
 //	deprovision      tenant.deprovision (P3-T09, §11.4: the final backup in-process, 15 steps, 2P upstream) over a
 //	                 registry that reaches a deprovisioning tenant (deprovision.go); tenant.keys_destroy every hour after
 //	                 MG_DEPROVISION_KEY_GRACE (crypto-shredding — §6.1)
+//	quarantine       instance.quarantine + instance.release (P3-T18, §11.4): the Host Agent (without it the isolation
+//	                 fails Critical — the registry stays quarantined), the reachable registry for the post-start gate;
+//	                 jobs.Options.StepGate = quarantine.Gate stops every multi-step job of a quarantined instance
 //	relay            relay.probe + its schedule over the prober (P3-T05c; MG_PROBER_URL towards MG_PROVISION_EDGE_ADDR —
 //	                 without a prober nothing is probed and the relay read models say never_checked/stale)
 //	idp              driver registry keycloak (narrow route to auth.<domain> incl. /admin/realms, provisioning identity
@@ -93,8 +97,9 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 	if err != nil {
 		return nil, err
 	}
+	// StepGate (P3-T18, §11.4): every multi-step job of a quarantined instance stops before its next step
 	w, err := jobs.NewWorker(d.st, jobs.DefaultConfig(), jobs.Options{Logger: log, Registerer: reg,
-		Alerter: fanOut{dev}, Partitions: part})
+		Alerter: fanOut{dev}, Partitions: part, StepGate: quarantine.Gate})
 	if err != nil {
 		return nil, err
 	}
@@ -185,6 +190,13 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 		if err := prov.Register(w); err != nil {
 			return nil, err
 		}
+	}
+	quar, err := newQuarantine(cfg, d, agent) // P3-T18: instance.quarantine + instance.release (§11.4)
+	if err != nil {
+		return nil, err
+	}
+	if err := quar.Register(w); err != nil {
+		return nil, err
 	}
 	rcfg, err := newReconfigurer(cfg, d, agent) // P3-T13: instance.reconfigure (new version, restart, health gate, rollback)
 	if err != nil {
@@ -342,20 +354,7 @@ func newNotificationSender(cfg config.Config, st *store.Store, log *slog.Logger)
 		sc.ConsoleURL = "https://" + h
 	}
 	if cfg.SMTP.Addr != "" {
-		mc := notifications.SMTPConfig{Addr: cfg.SMTP.Addr, TLS: cfg.SMTP.TLS, ServerName: cfg.SMTP.ServerName,
-			Username: cfg.SMTP.Username, PasswordFile: cfg.SMTP.PasswordFile, From: cfg.SMTP.From}
-		if cfg.SMTP.CAFile != "" {
-			pool, err := x509.SystemCertPool()
-			if err != nil {
-				pool = x509.NewCertPool()
-			}
-			pem, err := os.ReadFile(cfg.SMTP.CAFile) //nolint:gosec // G304: deployment configuration (MG_SMTP_CA_FILE)
-			if err != nil || !pool.AppendCertsFromPEM(pem) {
-				return nil, fmt.Errorf("MG_SMTP_CA_FILE: no PEM certificate could be read from %s", cfg.SMTP.CAFile)
-			}
-			mc.RootCAs = pool
-		}
-		m, err := notifications.NewSMTPMailer(mc)
+		m, err := NewSMTPMailer(cfg.SMTP)
 		if err != nil {
 			return nil, err
 		}
@@ -367,4 +366,23 @@ func newNotificationSender(cfg config.Config, st *store.Store, log *slog.Logger)
 			"auth", cfg.SMTP.Username != "")
 	}
 	return notifications.NewSender(st, sc)
+}
+
+// NewSMTPMailer is the worker's SMTP client of MG_SMTP_* (notification.send, `admin mail-test`): the relay's address and
+// TLS mode, the system roots plus MG_SMTP_CA_FILE (the internal CA of the mail relay — P3-T05b-mail).
+func NewSMTPMailer(c config.SMTP) (*notifications.SMTPMailer, error) {
+	mc := notifications.SMTPConfig{Addr: c.Addr, TLS: c.TLS, ServerName: c.ServerName, Username: c.Username,
+		PasswordFile: c.PasswordFile, From: c.From}
+	if c.CAFile != "" {
+		pool, err := x509.SystemCertPool()
+		if err != nil {
+			pool = x509.NewCertPool()
+		}
+		pem, err := os.ReadFile(c.CAFile) //nolint:gosec // G304: deployment configuration (MG_SMTP_CA_FILE)
+		if err != nil || !pool.AppendCertsFromPEM(pem) {
+			return nil, fmt.Errorf("MG_SMTP_CA_FILE: no PEM certificate could be read from %s", c.CAFile)
+		}
+		mc.RootCAs = pool
+	}
+	return notifications.NewSMTPMailer(mc)
 }

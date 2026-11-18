@@ -6,13 +6,16 @@
 // of idp.audit_sync (P3-T15 — auditsync.go); admin apikey-rotate, the rotation of a tenant's instance API key now
 // (P3-T10 — apikeyrotate.go); admin relay-probe, the relay probe of a tenant's regions now (P3-T05c — relayprobe.go);
 // admin post-restore-reconcile, the reconcile after PostgreSQL was restored to an older point (P3-T17 —
-// postrestore.go); healthcheck, the container healthcheck.
+// postrestore.go); healthcheck, the container healthcheck. mailrelay is the one long-running subcommand:
+// the SMTP bridge of the outbound e-mail relay, run as its own container from this image (P3-T05b-mail —
+// mailrelay.go).
 package main
 
 import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/signal"
 	"syscall"
@@ -34,6 +37,10 @@ func dispatch(args []string, stdout, stderr io.Writer, run func() int) int {
 	switch args[0] {
 	case "kek-drill":
 		return kekDrill(args[1:], stdout, stderr)
+	case "mailrelay":
+		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		defer stop()
+		return mailRelay(ctx, args[1:], stdout, stderr, os.Getenv, os.Environ(), net.InterfaceAddrs)
 	case "admin":
 		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 		defer stop()
@@ -51,6 +58,8 @@ func dispatch(args []string, stdout, stderr io.Writer, run func() int) int {
 		"       meshguard-worker admin apikey-rotate --tenant <uuid|slug> [--force] [--allow-bootstrap]\n"+
 		"       meshguard-worker admin relay-probe --tenant <uuid|slug>   (the tenant's relay regions now — P3-T05c)\n"+
 		"       meshguard-worker admin post-restore-reconcile --restore-point <RFC 3339> [--dry-run]\n"+
+		"       meshguard-worker admin mail-test --to <address>   (one test e-mail through MG_SMTP_* — P3-T05b-mail)\n"+
+		"       meshguard-worker mailrelay     (SMTP bridge to the Cloudflare Worker — P3-T05b-mail, MG_MAILRELAY_*)\n"+
 		"       meshguard-worker healthcheck   (container healthcheck: /readyz of this process)\n")
 	return 2
 }

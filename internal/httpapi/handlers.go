@@ -148,6 +148,13 @@ type BackupHandlers interface {
 	ListPlatformBackups(ctx context.Context, request gen.ListPlatformBackupsRequestObject) (gen.ListPlatformBackupsResponseObject, error)
 }
 
+// QuarantineHandlers — P3-T18 (`provisioning` quarantine): the quarantine of an instance (job instance.quarantine,
+// immediate) and its release (always dual control, job instance.release after the approval — §11.4).
+type QuarantineHandlers interface {
+	QuarantinePlatformInstance(ctx context.Context, request gen.QuarantinePlatformInstanceRequestObject) (gen.QuarantinePlatformInstanceResponseObject, error)
+	ReleasePlatformInstance(ctx context.Context, request gen.ReleasePlatformInstanceRequestObject) (gen.ReleasePlatformInstanceResponseObject, error)
+}
+
 // Handlers is the extension point of the API: one handler set per building task. A nil set answers every operation
 // of its interface with 501 not_implemented. A set may also implement only part of its interface by embedding
 // NotImplemented. Handlers return a *problem.Error for an expected failure (not_found, conflict…); any other error
@@ -170,13 +177,15 @@ type Handlers struct {
 	Reconfigure   ReconfigureHandlers  // P3-T13
 	Backups       BackupHandlers       // P3-T11
 	Deprovision   DeprovisionHandlers  // P3-T09
+	Quarantine    QuarantineHandlers   // P3-T18
 }
 
 func (h Handlers) mounted() bool {
 	return h.Auth != nil || h.Tenants != nil || h.Devices != nil || h.Audit != nil || h.Jobs != nil || h.Monitoring != nil ||
 		h.Notifications != nil || h.Approvals != nil || h.Invitations != nil || h.Hosts != nil || h.IdPConsole != nil ||
 		h.Provisioning != nil || h.Lifecycle != nil || h.Relay != nil || h.Reconfigure != nil || h.Backups != nil ||
-		h.Deprovision != nil
+		h.Deprovision != nil ||
+		h.Quarantine != nil
 }
 
 // dispatcher implements gen.StrictServerInterface by promotion from the disjoint interfaces.
@@ -197,6 +206,7 @@ type dispatcher struct {
 	RelayHandlers
 	ReconfigureHandlers
 	BackupHandlers
+	QuarantineHandlers
 	DeprovisionHandlers
 }
 
@@ -204,7 +214,7 @@ var _ gen.StrictServerInterface = dispatcher{}
 
 func newDispatcher(h Handlers) dispatcher {
 	d := dispatcher{h.Auth, h.Tenants, h.Devices, h.Audit, h.Jobs, h.Monitoring, h.Notifications, h.Approvals, h.Invitations,
-		h.Hosts, h.IdPConsole, h.Provisioning, h.Lifecycle, h.Relay, h.Reconfigure, h.Backups, h.Deprovision}
+		h.Hosts, h.IdPConsole, h.Provisioning, h.Lifecycle, h.Relay, h.Reconfigure, h.Backups, h.Quarantine, h.Deprovision}
 	if d.DeprovisionHandlers == nil {
 		d.DeprovisionHandlers = NotImplemented{}
 	}
@@ -222,6 +232,9 @@ func newDispatcher(h Handlers) dispatcher {
 	}
 	if d.ReconfigureHandlers == nil {
 		d.ReconfigureHandlers = NotImplemented{}
+	}
+	if d.QuarantineHandlers == nil {
+		d.QuarantineHandlers = NotImplemented{}
 	}
 	if d.ApprovalHandlers == nil {
 		d.ApprovalHandlers = NotImplemented{}
@@ -503,4 +516,12 @@ func (NotImplemented) ListPlatformRelayRegions(context.Context, gen.ListPlatform
 
 func (NotImplemented) ReconfigurePlatformInstance(context.Context, gen.ReconfigurePlatformInstanceRequestObject) (gen.ReconfigurePlatformInstanceResponseObject, error) {
 	return nil, problem.NotImplemented("ReconfigurePlatformInstance")
+}
+
+func (NotImplemented) QuarantinePlatformInstance(context.Context, gen.QuarantinePlatformInstanceRequestObject) (gen.QuarantinePlatformInstanceResponseObject, error) {
+	return nil, problem.NotImplemented("QuarantinePlatformInstance")
+}
+
+func (NotImplemented) ReleasePlatformInstance(context.Context, gen.ReleasePlatformInstanceRequestObject) (gen.ReleasePlatformInstanceResponseObject, error) {
+	return nil, problem.NotImplemented("ReleasePlatformInstance")
 }

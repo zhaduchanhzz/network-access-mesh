@@ -36,6 +36,8 @@ const (
 	KindIdPConsoleLogin       Kind = "idp.console_login"        // platform: a sign-in to the Keycloak administration (P3-T15)
 	KindInstanceRestored      Kind = "instance.restored"        // the tenant's control plane was restored from a backup (P3-T11, §17.2 step 7)
 	KindTenantDeleted         Kind = "tenant.deleted"           // the tenant was deprovisioned (P3-T09, §11.4)
+	KindInstanceQuarantined   Kind = "instance.quarantined"     // platform: an instance was quarantined (P3-T18, §11.4)
+	KindInstanceReleased      Kind = "instance.released"        // platform: the release (2P) of a quarantined instance ended (P3-T18)
 )
 
 // Tenant and platform role keys of the default recipient rules (§6.3, roles of §8.4).
@@ -106,6 +108,10 @@ var specs = map[Kind]spec{
 		required: []string{"job_id", "backup_created_at", "owner_review"}},
 	KindTenantDeleted: {fields: map[string]fieldType{"job_id": fUUID, "keys_destroy_after": fTime, "final_backup": fString},
 		required: []string{"job_id", "keys_destroy_after", "final_backup"}},
+	KindInstanceQuarantined: {fields: map[string]fieldType{"instance_id": fUUID, "tenant_slug": fString, "job_id": fUUID,
+		"outcome": fString}, required: []string{"instance_id", "tenant_slug", "job_id", "outcome"}, platform: true},
+	KindInstanceReleased: {fields: map[string]fieldType{"instance_id": fUUID, "tenant_slug": fString, "job_id": fUUID,
+		"outcome": fString}, required: []string{"instance_id", "tenant_slug", "job_id", "outcome"}, platform: true},
 }
 
 // Kinds returns every kind, sorted.
@@ -446,6 +452,31 @@ func IdPConsoleLogin(eventID, username, client, ip string, occurredAt time.Time)
 		ev.Payload["ip"] = ip
 	}
 	return ev
+}
+
+// Outcomes of the quarantine notifications (payload "outcome").
+const (
+	OutcomeIsolated   = "isolated"   // instance.quarantined: the host isolation is verified
+	OutcomeIncomplete = "incomplete" // instance.quarantined: the job could not isolate it — act by hand (RUNBOOK)
+	OutcomeReleased   = "released"   // instance.released: serving again after the start guard and the post-start gate
+	OutcomeRefused    = "refused"    // instance.released: a check failed — the instance stays quarantined
+)
+
+// InstanceQuarantined — platform security notification (§11.4 Quarantine, P3-T18): the quarantine job of an instance
+// ended — isolated, or incomplete (Critical: the instance may still serve): Super Admins and Platform Operators. One per
+// job.
+func InstanceQuarantined(instanceID uuid.UUID, tenantSlug string, jobID uuid.UUID, outcome string) Event {
+	return Event{Kind: KindInstanceQuarantined, Ref: "job:" + jobID.String(),
+		Payload: map[string]any{"instance_id": instanceID, "tenant_slug": tenantSlug, "job_id": jobID, "outcome": outcome},
+		To:      Audience{PlatformRoles: []string{RoleSuperAdmin, RolePlatformOperator}}}
+}
+
+// InstanceReleased — platform notification (P3-T18): the release job (2P) of a quarantined instance ended — released,
+// or refused (still quarantined): Super Admins and Platform Operators. One per job.
+func InstanceReleased(instanceID uuid.UUID, tenantSlug string, jobID uuid.UUID, outcome string) Event {
+	return Event{Kind: KindInstanceReleased, Ref: "job:" + jobID.String(),
+		Payload: map[string]any{"instance_id": instanceID, "tenant_slug": tenantSlug, "job_id": jobID, "outcome": outcome},
+		To:      Audience{PlatformRoles: []string{RoleSuperAdmin, RolePlatformOperator}}}
 }
 
 // ApprovalRequested — a tenant approval request (P3-T04a, §8.6) waits for a decision: the members holding the
