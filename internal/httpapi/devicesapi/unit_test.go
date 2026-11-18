@@ -124,13 +124,14 @@ func TestHandlersMapRequestsAndResponses(t *testing.T) {
 		Principal: authz.Principal{IdentityID: identity}}})
 	base := "/tenants/" + tenant.String() + "/devices"
 
-	rec := serve(t, svc, authorizer, http.MethodGet, base+"?limit=7&online=true&tag=tag:x&q=lap&fresh=true&owner="+member.String(), "", nil)
+	rec := serve(t, svc, authorizer, http.MethodGet, base+"?limit=7&online=true&tag=tag:x&q=lap&fresh=true&tagged=true&has_expiry=false&owner="+member.String(), "", nil)
 	var list gen.DeviceList
 	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &list) != nil || len(list.Items) != 1 || list.NextCursor == nil {
 		t.Fatalf("list: %d %s", rec.Code, rec.Body.String())
 	}
 	q := svc.query
-	if q.Limit != 7 || q.Online == nil || !*q.Online || q.Tag != "tag:x" || q.Search != "lap" || !q.Fresh || q.Owner == nil || *q.Owner != member {
+	if q.Limit != 7 || q.Online == nil || !*q.Online || q.Tag != "tag:x" || q.Search != "lap" || !q.Fresh || q.Owner == nil || *q.Owner != member ||
+		q.Tagged == nil || !*q.Tagged || q.HasExpiry == nil || *q.HasExpiry {
 		t.Errorf("query passed: %+v", q)
 	}
 	if !svc.access.OwnOnly || svc.access.MembershipID != member || svc.access.IdentityID != identity {

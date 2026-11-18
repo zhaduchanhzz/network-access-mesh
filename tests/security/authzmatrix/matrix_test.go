@@ -53,6 +53,14 @@ type actor struct {
 	host    string
 }
 
+// membership is the actor's membership (uuid.Nil for platform staff and anonymous clients).
+func (a *actor) membership() uuid.UUID {
+	if a.fx == nil {
+		return uuid.Nil
+	}
+	return a.fx.MembershipID
+}
+
 func (a *actor) tenantName() string {
 	if a.fx == nil || a.fx.Tenant == nil {
 		return ""
@@ -237,6 +245,8 @@ func (m *matrix) objectCases(op authz.Operation, a *actor, tenantCase string) []
 		return []string{"existing", "missing"}
 	case objInstance, objTenant, objHost:
 		return []string{"existing", "missing"}
+	case objNotification: // always tenant-scoped; own-only for every role (§8.6)
+		return []string{"own", "other-member", "other-tenant", "missing"}
 	case objSession:
 		if a.session == nil || a.fx == nil || a.kind == kindCrossOrigin {
 			return []string{"missing"}
@@ -338,6 +348,13 @@ func (m *matrix) place(t *testing.T, c *call) {
 		c.objectID = w.A.ID
 	case kind == objHost:
 		c.objectID = m.obj.host
+	case kind == objNotification:
+		// own: a notification addressed to the caller's own membership (each tenant actor has one); anything else — or a
+		// caller without one of its own in that tenant (cross-site clients) — a notification of another member
+		c.objectID = m.obj.notifOther[owner.Name]
+		if id, ok := m.obj.notifOwn[c.actor.membership()]; ok && c.objectCase == "own" && c.actor.fx.Tenant == owner {
+			c.objectID = id
+		}
 	case kind == objIdP:
 		c.objectID = c.ownIdP(w)
 	case kind == objSession && c.objectCase == "own":

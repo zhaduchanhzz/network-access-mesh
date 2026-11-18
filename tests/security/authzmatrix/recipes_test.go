@@ -80,6 +80,9 @@ var recipes = map[string]recipe{
 	"getPlatformHealth":  {ok: answer{status: http.StatusOK}},
 	// notifications (P3-T05b, notificationsapi — mounted; own-only for every role, the list is the caller's own rows)
 	"listNotifications": {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
+	// P4-T04 (notificationsapi as PortalHandlers — mounted): the caller's own notification ⇒ 200 every time (idempotent);
+	// another member's ⇒ 404 not_own_resource, another tenant's or a missing one ⇒ 404
+	"markNotificationRead": {ok: answer{status: http.StatusOK}},
 	// relay (P3-T05c, relayapi — mounted; reads only the database)
 	"getTenantRelay":           {ok: answer{status: http.StatusOK}},
 	"listPlatformRelayRegions": {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
@@ -184,13 +187,15 @@ const (
 	objIdP        objectKind = "idp"
 	objApproval   objectKind = "approval"
 	objInvitation objectKind = "invitation"
-	objHost       objectKind = "host"  // /platform/hosts/{hostId} (P3-T04)
-	objGroup      objectKind = "group" // /tenants/{t}/groups/{groupId} (P4-T09)
+	objHost       objectKind = "host" // /platform/hosts/{hostId} (P3-T04)
+	// /tenants/{tenantId}/notifications/{notificationId} (P4-T04): own-only for every role
+	objNotification objectKind = "notification"
+	objGroup        objectKind = "group" // /tenants/{t}/groups/{groupId} (P4-T09)
 )
 
 // paramObjects maps path parameters to object kinds; a new parameter must be added (TestEveryOperationHasAnExpectation).
 var paramObjects = map[string]objectKind{
 	"deviceId": objDevice, "membershipId": objMembership, "jobId": objJob, "instanceId": objInstance,
 	"tenantId": objTenant, "sessionId": objSession, "idpId": objIdP, "approvalId": objApproval, "invitationId": objInvitation,
-	"hostId": objHost, "groupId": objGroup,
+	"hostId": objHost, "notificationId": objNotification, "groupId": objGroup,
 }

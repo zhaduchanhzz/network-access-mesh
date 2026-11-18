@@ -54,6 +54,7 @@ var specOperations = []Operation{
 	{ID: "listTenantInvitations", Method: "GET", Path: "/tenants/{tenantId}/invitations", Permission: "tenant.invitation:manage", AuditAction: "invitation.list"},
 	{ID: "listTenantJobs", Method: "GET", Path: "/tenants/{tenantId}/jobs", Permission: "tenant.job:read", AuditAction: "job.list"},
 	{ID: "listTenantUsers", Method: "GET", Path: "/tenants/{tenantId}/users", Permission: "tenant.user:read", AuditAction: "user.list"},
+	{ID: "markNotificationRead", Method: "POST", Path: "/tenants/{tenantId}/notifications/{notificationId}/read", Permission: "tenant.notification:read", AuditAction: "notification.mark_read", OwnResource: true},
 	{ID: "offboardTenantUser", Method: "DELETE", Path: "/tenants/{tenantId}/users/{membershipId}", Permission: "tenant.user:manage", AuditAction: "user.offboard"},
 	{ID: "quarantinePlatformInstance", Method: "POST", Path: "/platform/instances/{instanceId}/quarantine", Permission: "platform.instance:quarantine", AuditAction: "platform.instance.quarantine"},
 	{ID: "reconfigurePlatformInstance", Method: "POST", Path: "/platform/instances/{instanceId}/reconfigure", Permission: "platform.instance:operate", AuditAction: "platform.instance.reconfigure"},
