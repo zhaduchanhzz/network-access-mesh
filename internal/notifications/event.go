@@ -39,6 +39,11 @@ const (
 	KindInstanceQuarantined   Kind = "instance.quarantined"      // platform: an instance was quarantined (P3-T18, §11.4)
 	KindInstanceReleased      Kind = "instance.released"         // platform: the release (2P) of a quarantined instance ended (P3-T18)
 	KindInstanceOpFailed      Kind = "instance.operation_failed" // platform: an instance.restart / instance.upgrade failed (P3-T13a)
+	// P4-T03a
+	KindIdPConfigChanged              Kind = "idp.config_changed"                 // the claim constraints / client secret of the tenant's IdP changed, or a platform change of it was requested
+	KindSecuritySettingsChanged       Kind = "tenant.security_settings_changed"   // PUT /settings/security wrote the security settings (§8.6)
+	KindTenantDeletionRequested       Kind = "tenant.deletion_requested"          // a Tenant Owner asked the platform to delete the tenant
+	KindPlatformTenantDeletionRequest Kind = "platform.tenant_deletion_requested" // platform: the same request, for Super Admins / Platform Operators
 )
 
 // Tenant and platform role keys of the default recipient rules (§6.3, roles of §8.4).
@@ -112,6 +117,15 @@ var specs = map[Kind]spec{
 	KindInstanceOpFailed: {fields: map[string]fieldType{"instance_id": fUUID, "tenant_slug": fString, "job_id": fUUID,
 		"operation": fString, "code": fString, "outcome": fString},
 		required: []string{"instance_id", "tenant_slug", "job_id", "operation", "code", "outcome"}, platform: true},
+	KindIdPConfigChanged: {fields: map[string]fieldType{"idp_id": fUUID, "stage": fString, "origin": fString,
+		"actor": fString, "changed": fString, "approval_id": fUUID}, required: []string{"idp_id", "stage", "origin", "changed"}},
+	KindSecuritySettingsChanged: {fields: map[string]fieldType{"changed": fString, "actor": fString, "approval_id": fUUID},
+		required: []string{"changed"}},
+	KindTenantDeletionRequested: {fields: map[string]fieldType{"requested_by": fString, "requested_at": fTime},
+		required: []string{"requested_at"}},
+	KindPlatformTenantDeletionRequest: {fields: map[string]fieldType{"tenant_id": fUUID, "tenant_slug": fString,
+		"requested_by": fString, "requested_at": fTime}, required: []string{"tenant_id", "tenant_slug", "requested_at"},
+		platform: true},
 	KindInstanceQuarantined: {fields: map[string]fieldType{"instance_id": fUUID, "tenant_slug": fString, "job_id": fUUID,
 		"outcome": fString}, required: []string{"instance_id", "tenant_slug", "job_id", "outcome"}, platform: true},
 	KindInstanceReleased: {fields: map[string]fieldType{"instance_id": fUUID, "tenant_slug": fString, "job_id": fUUID,
@@ -538,4 +552,71 @@ func TenantDeleted(tenantID, jobID uuid.UUID, keysDestroyAfter time.Time, finalB
 	return Event{Kind: KindTenantDeleted, TenantID: tenantPtr(tenantID), Ref: "job:" + jobID.String(),
 		Payload: map[string]any{"job_id": jobID, "keys_destroy_after": keysDestroyAfter.UTC(), "final_backup": fb},
 		To:      Audience{Roles: []string{RoleTenantOwner, RoleTenantAdmin}}}
+}
+
+// IdP change origins and stages (payload of idp.config_changed).
+const (
+	IdPChangeByTenant   = "tenant"    // PATCH /tenants/{t}/identity-provider by a Tenant Owner
+	IdPChangeByPlatform = "platform"  // PATCH /platform/identity-providers/{id} on the tenant's row (2P)
+	IdPStageRequested   = "requested" // a platform change waits for its second Super Admin — not in effect
+	IdPStageApplied     = "applied"   // the change is in effect
+)
+
+// IdPConfigChanged — security notification (§8.2 "mọi thay đổi do nền tảng khởi xướng lên IdP của tenant … ghi audit
+// hiển thị cho tenant + thông báo Owner", P4-T03a): the Tenant Owners, cannot be switched off. ref = the approval and
+// the stage (a platform change) or the IdP version written (a tenant change). changed lists the fields
+// (comma-separated); actor is the person as the platform describes it.
+func IdPConfigChanged(tenantID, idpID uuid.UUID, stage, origin, changed, actor string, approvalID *uuid.UUID, version int64) Event {
+	ref := fmt.Sprintf("idp:%s:v%d", idpID, version)
+	if approvalID != nil {
+		ref = "approval:" + approvalID.String() + ":" + stage
+	}
+	ev := Event{Kind: KindIdPConfigChanged, TenantID: tenantPtr(tenantID), Ref: ref,
+		Payload: map[string]any{"idp_id": idpID, "stage": stage, "origin": origin, "changed": changed},
+		To:      Audience{Roles: []string{RoleTenantOwner}}}
+	if actor != "" {
+		ev.Payload["actor"] = actor
+	}
+	if approvalID != nil {
+		ev.Payload["approval_id"] = *approvalID
+	}
+	return ev
+}
+
+// SecuritySettingsChanged — security notification (§8.6 tenant.settings:update_security "step-up + audit + thông
+// báo"): Tenant Owners and Admins, cannot be switched off. ref = the settings ETag written (one per state).
+func SecuritySettingsChanged(tenantID uuid.UUID, etag, changed, actor string, approvalID *uuid.UUID) Event {
+	ev := Event{Kind: KindSecuritySettingsChanged, TenantID: tenantPtr(tenantID), Ref: "settings:" + strings.Trim(etag, `"`),
+		Payload: map[string]any{"changed": changed},
+		To:      Audience{Roles: []string{RoleTenantOwner, RoleTenantAdmin}}}
+	if actor != "" {
+		ev.Payload["actor"] = actor
+	}
+	if approvalID != nil {
+		ev.Payload["approval_id"] = *approvalID
+	}
+	return ev
+}
+
+// TenantDeletionRequested — a Tenant Owner asked the platform to delete the tenant (POST /request-deletion): every
+// Tenant Owner; one per tenant and UTC day.
+func TenantDeletionRequested(tenantID uuid.UUID, requestedBy string, at time.Time) Event {
+	ev := Event{Kind: KindTenantDeletionRequested, TenantID: tenantPtr(tenantID), Ref: "deletion:" + at.UTC().Format("2006-01-02"),
+		Payload: map[string]any{"requested_at": at}, To: Audience{Roles: []string{RoleTenantOwner}}}
+	if requestedBy != "" {
+		ev.Payload["requested_by"] = requestedBy
+	}
+	return ev
+}
+
+// PlatformTenantDeletionRequested — platform notification of the same request: Super Admins and Platform Operators
+// (the deletion itself is DELETE /platform/tenants/{id}, 2P). One per tenant and UTC day.
+func PlatformTenantDeletionRequested(tenantID uuid.UUID, slug, requestedBy string, at time.Time) Event {
+	ev := Event{Kind: KindPlatformTenantDeletionRequest, Ref: "tenant-deletion:" + tenantID.String() + ":" + at.UTC().Format("2006-01-02"),
+		Payload: map[string]any{"tenant_id": tenantID, "tenant_slug": slug, "requested_at": at},
+		To:      Audience{PlatformRoles: []string{RoleSuperAdmin, RolePlatformOperator}}}
+	if requestedBy != "" {
+		ev.Payload["requested_by"] = requestedBy
+	}
+	return ev
 }

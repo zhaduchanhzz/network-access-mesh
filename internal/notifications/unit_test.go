@@ -45,6 +45,10 @@ func samples() []Event {
 		TenantDeleted(tA, idX, when, true),
 		InstanceQuarantined(idX, "acme", idX, OutcomeIsolated),
 		InstanceReleased(idX, "acme", idX, OutcomeReleased),
+		IdPConfigChanged(tA, idX, IdPStageRequested, IdPChangeByPlatform, "required_claims", "Super Admin", &idX, 3),
+		SecuritySettingsChanged(tA, `"abc"`, "policy.four_eyes", "Alice", nil),
+		TenantDeletionRequested(tA, "Alice", when),
+		PlatformTenantDeletionRequested(tA, "tenant-a", "Alice", when),
 	}
 }
 

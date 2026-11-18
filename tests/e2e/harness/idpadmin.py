@@ -232,7 +232,9 @@ def check_console_session(r, st: Stack, state: dict) -> None:
     sa2["sub"] = kc.create_user("platform", sa2["username"], sa2["password"])
     p = admin_cmd(st, ["bootstrap-super-admin", "--subject", sa2["sub"], "--display-name", "E2E SA2"],
                   env={"MG_IDP_ID_PLATFORM": st.env["MG_IDP_ID_PLATFORM"]})
-    b2, s2 = platform_session(st, sa2, TOTP())
+    otp2 = TOTP()
+    b2, s2 = platform_session(st, sa2, otp2)
+    st.platform_sa2 = {**sa2, "otp": otp2}   # P4-T03a (admin.py): the second Super Admin of the platform 2P cases
     seen = b2.get(f"{admin}/api/v1/platform/approvals/{appr.get('id')}").json()
     ok_approve = approve(st, b2, s2, seen)
     executed = ok_approve.json().get("status")

@@ -78,6 +78,8 @@ tags:
     description: Dual control trong tenant — yêu cầu phê duyệt phạm vi tenant (§8.6) — P3-T04a
   - name: invitations
     description: Lời mời người chưa từng đăng nhập (§6.3, §8.2) — P3-T05a
+  - name: settings
+    description: Thiết lập của tenant, thiết lập bảo mật (phê duyệt trong tenant khi nới lỏng), IdP của tenant (§8.2, §8.6, §13.3) — P4-T03a
   - name: tags
     description: Danh mục tag của tenant — nguồn render `tagOwners`, đổi danh mục ⇒ `policy.apply` (§6.3, §7.2) — P4-T15
 paths:
@@ -1777,6 +1779,61 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+    # -------------------------------------------------------------- sửa tenant (P4-T03a, §8.5 platform.tenant:update)
+    patch:
+      tags: [platform]
+      operationId: updatePlatformTenant
+      summary: Sửa tên, gói và override quota của một tenant
+      description: |-
+        §8.5 `platform.tenant:update` (Super Admin, Platform Operator): `name`, `plan_key` (gói đang mở — đổi gói của
+        subscription còn hiệu lực), `limits_override` (`PlanLimits` từng phần ghi đè gói; `{}` gỡ mọi override). Cần
+        `If-Match` = `ETag` của `GET /platform/tenants/{tenantId}` (thiếu ⇒ `428`, lệch ⇒ `412`); mọi thay đổi tăng
+        `version` của tenant. Tenant `deleted` ⇒ `404`; `deprovisioning` ⇒ `409`; gói không tồn tại hoặc đã đóng ⇒ `422`;
+        tenant không có subscription còn hiệu lực mà đổi gói/override ⇒ `409`. Hạ quota dưới mức đang dùng không xóa gì —
+        chỉ chặn lần thêm tiếp theo (QuotaChecker). Audit `platform.tenant.update` với giá trị trước/sau.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: platform.tenant:update
+      x-task: P4-T03a
+      x-audit-action: platform.tenant.update
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TenantUpdate'
+      responses:
+        '200':
+          description: Tenant sau khi sửa
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tenant'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
         '429':
           $ref: '#/components/responses/RateLimited'
         default:
@@ -3634,6 +3691,938 @@ paths:
           $ref: '#/components/responses/RateLimited'
         default:
           $ref: '#/components/responses/Unexpected'
+  # ---------------------------------------------------------------- thiết lập của tenant (P4-T03a, §8.6, §13.3)
+  /tenants/{tenantId}/settings:
+    get:
+      tags: [settings]
+      operationId: getTenantSettings
+      summary: TenantSettings hiệu lực của tenant (§13.3)
+      description: >-
+        Khóa thiếu hoặc sai kiểu đọc ra giá trị mặc định. `dns` chỉ để xem (sửa qua `PUT /dns/settings` — P4-T12).
+        `ETag` đổi khi và chỉ khi tài liệu thiết lập đổi — dùng cho `If-Match` của `PATCH /settings` và
+        `PUT /settings/security`.
+      x-permission: tenant.settings:read
+      x-task: P4-T03a
+      x-audit-action: tenant.settings.read
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '200':
+          description: Thiết lập của tenant
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantSettingsView'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+    patch:
+      tags: [settings]
+      operationId: updateTenantSettings
+      summary: Sửa thiết lập thường (thông báo, trần hạn pre-auth key)
+      description: |-
+        §8.6 `tenant.settings:update` (Tenant Owner, Tenant Admin). Chỉ nhận khóa thường: `enrollment.preauth_key_ttl_max`
+        (`""` gỡ trần) và `notifications.*`. Khóa bảo mật (`enrollment.identity_mode`, `web_auth_enabled`, `self_enroll`,
+        `requires_approval`, `node_expiry`, `policy.four_eyes`, `policy.sensitive_groups`, `routes.four_eyes`) chỉ đổi qua
+        `PUT /settings/security` — gửi chúng ở đây ⇒ `422` (`security_setting`); `dns` qua `PUT /dns/settings` ⇒ `422`.
+        Cần `If-Match` = `ETag` của `GET /settings` (thiếu ⇒ `428`, lệch ⇒ `412`). Audit `tenant.settings.update`
+        (khóa đổi, trước/sau) cùng transaction.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.settings:update
+      x-task: P4-T03a
+      x-audit-action: tenant.settings.update
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TenantSettingsPatch'
+      responses:
+        '200':
+          description: Thiết lập sau khi sửa
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantSettingsView'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/settings/security:
+    put:
+      tags: [settings]
+      operationId: putTenantSecuritySettings
+      summary: Đặt thiết lập bảo mật của tenant — step-up; nới lỏng một kiểm soát hai người ⇒ 202 + phê duyệt trong tenant
+      description: |-
+        §8.6 `tenant.settings:update_security` (Tenant Owner): body là TOÀN BỘ khóa bảo mật. Người gọi step-up
+        (`auth_time` ≤ 15 phút, nếu không ⇒ `401 reauth_required`); `If-Match` = `ETag` của `GET /settings` (thiếu ⇒
+        `428`, lệch ⇒ `412`). Không đổi gì ⇒ `200`, không ghi. `enrollment.identity_mode` bất biến khi tenant đã có
+        Headscale user hoặc thiết bị đầu tiên (ID-08) ⇒ `409`; `headscale_oidc` (phương thức C) chưa có trong bản này ⇒
+        `422`; `policy.sensitive_groups` chỉ nhận group của tenant ⇒ `422`.
+
+        Thay đổi **nới lỏng** một kiểm soát hai người — tắt `policy.four_eyes` hoặc `routes.four_eyes` đang bật, hoặc
+        bỏ một group khỏi `policy.sensitive_groups` — không áp dụng ngay: `202` + `Location:
+        /api/v1/tenants/{tenantId}/approvals/{id}` (action `tenant.settings.update_security`, payload = `If-Match` đã
+        gửi + thiết lập bảo mật mới). Một Tenant Owner hoặc Tenant Admin **khác** duyệt (`tenant.approval:decide`,
+        step-up); khi duyệt, thiết lập chỉ được ghi nếu tài liệu thiết lập vẫn đúng `ETag` lúc yêu cầu (đã đổi ⇒ `409`,
+        không ghi). Tenant chỉ có một người đủ quyền duyệt thì chưa nới lỏng được. Thay đổi khác áp dụng ngay: `200`.
+        Mỗi lần ghi: audit `tenant.settings.security_update` (khóa đổi, trước/sau) + thông báo
+        `tenant.security_settings_changed` cho Tenant Owner/Admin, cùng transaction.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.settings:update_security
+      x-task: P4-T03a
+      x-audit-action: tenant.settings.security_update
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TenantSecuritySettings'
+      responses:
+        '200':
+          description: Thiết lập sau khi ghi (hoặc không đổi)
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantSettingsView'
+        '202':
+          description: Thay đổi nới lỏng kiểm soát hai người — yêu cầu phê duyệt trong tenant đã tạo
+          headers:
+            Location:
+              $ref: '#/components/headers/ApprovalLocation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  # ---------------------------------------------------------------- IdP của tenant (P4-T03a, §8.2)
+  /tenants/{tenantId}/identity-provider:
+    get:
+      tags: [settings]
+      operationId: getTenantIdentityProvider
+      summary: IdP đang hoạt động của tenant (không có secret)
+      description: >-
+        Hàng `identity_providers` `active` của tenant (§8.2). Client secret không bao giờ được trả — chỉ cho biết đã có
+        hay chưa. `ETag` = phiên bản của hàng.
+      x-permission: tenant.idp:read
+      x-task: P4-T03a
+      x-audit-action: tenant.idp.read
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '200':
+          description: IdP của tenant
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityProvider'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+    patch:
+      tags: [settings]
+      operationId: updateTenantIdentityProvider
+      summary: Sửa ràng buộc claim / domain / client secret của IdP — issuer và client_id bất biến; step-up
+      description: |-
+        §8.2 MVP: chỉ `claim_mapping`, `required_claims`, `allowed_email_domains` và — IdP `external` — `client_secret`
+        (chỉ-ghi: vào SecretStore dưới khóa của tenant, không bao giờ được trả lại; IdP `keycloak` do nền tảng host ⇒
+        `422`). `issuer`, `client_id`, `driver` có trong body ⇒ `422` (bất biến — đổi IdP là quy trình di trú P7-T06).
+        Tenant Owner, step-up (`401 reauth_required`); `If-Match` = `ETag` của `GET /identity-provider` (thiếu ⇒ `428`,
+        lệch ⇒ `412`). Audit `tenant.idp.update` (trường đổi, không có secret) + thông báo `idp.config_changed` cho
+        Tenant Owner cùng transaction. Thay đổi có hiệu lực ở lần đăng nhập kế tiếp.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.idp:update
+      x-task: P4-T03a
+      x-audit-action: tenant.idp.update
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TenantIdentityProviderUpdate'
+      responses:
+        '200':
+          description: IdP sau khi sửa
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityProvider'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  # ---------------------------------------------------------------- yêu cầu xóa tenant (P4-T03a, §8.4 Tenant Owner)
+  /tenants/{tenantId}/request-deletion:
+    post:
+      tags: [tenants]
+      operationId: requestTenantDeletion
+      summary: Tenant Owner yêu cầu nền tảng xóa tenant — step-up; không xóa gì
+      description: |-
+        §8.6 `tenant.lifecycle:request_delete` (Tenant Owner). `confirm_slug` phải đúng slug của tenant (`422`); người gọi
+        step-up (`401 reauth_required`). Không xóa, không suspend: việc xóa là `DELETE /platform/tenants/{id}` do nền tảng
+        thực hiện với 2P (§11.4). Ghi audit `tenant.deletion.request` của tenant + thông báo `tenant.deletion_requested`
+        cho Tenant Owner khác, và một sự kiện + thông báo phạm vi platform cho Super Admin / Platform Operator (lý do,
+        người yêu cầu). Mỗi tenant tối đa một thông báo nền tảng mỗi ngày (UTC) — gọi lại trong ngày chỉ ghi audit.
+        Tenant `deprovisioning` ⇒ `403 tenant_suspended` như mọi thao tác ghi.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.lifecycle:request_delete
+      x-task: P4-T03a
+      x-audit-action: tenant.deletion.request
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TenantDeletionRequestCreate'
+      responses:
+        '200':
+          description: Yêu cầu đã ghi nhận
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantDeletionRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  # ---------------------------------------------------------------- platform users (P4-T03a, §8.2, §8.4 bất biến 3, §8.5)
+  /platform/users:
+    get:
+      tags: [platform]
+      operationId: listPlatformUsers
+      summary: Nhân sự nền tảng và role platform
+      x-permission: platform.user:read
+      x-task: P4-T03a
+      x-audit-action: platform.user.list
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/PlatformUserStatusFilter'
+        - $ref: '#/components/parameters/PlatformRoleFilter'
+      responses:
+        '200':
+          description: Một trang platform user (cũ nhất trước)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformUserList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+    post:
+      tags: [platform]
+      operationId: createPlatformUser
+      summary: Thêm nhân sự nền tảng theo `sub` của IdP platform — không bao giờ role Super Admin; step-up
+      description: |-
+        §8.2: người đó phải có tài khoản ở IdP platform trước; request mang `sub` + role, backend tạo sẵn `identities`
+        (IdP platform, `sub`) + `platform_users` — không có lời mời phạm vi platform; lần đăng nhập đầu khớp theo
+        `(idp_id, sub)`, không bao giờ theo email. `platform.user:assign` của Super Admin mang điều kiện
+        `excludes_super_admin`: role `super_admin` không nhận ở đây (schema) — gán qua
+        `PUT /platform/users/{id}/super-admin-role` (2P). Người gọi step-up. Identity đã là platform user ⇒ `409`;
+        `sub` sai dạng của driver ⇒ `422`. Audit `platform.user.create`.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: platform.user:assign
+      x-conditions: [excludes_super_admin]
+      x-task: P4-T03a
+      x-audit-action: platform.user.create
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlatformUserCreate'
+      responses:
+        '201':
+          description: Platform user đã tạo
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformUser'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /platform/users/{platformUserId}:
+    get:
+      tags: [platform]
+      operationId: getPlatformUser
+      summary: Một platform user
+      x-permission: platform.user:read
+      x-task: P4-T03a
+      x-audit-action: platform.user.read
+      parameters:
+        - $ref: '#/components/parameters/PlatformUserId'
+      responses:
+        '200':
+          description: Platform user
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformUser'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+    patch:
+      tags: [platform]
+      operationId: updatePlatformUser
+      summary: Đổi role (dưới Super Admin) hoặc khóa/mở một platform user — step-up
+      description: |-
+        Điều kiện `excludes_super_admin`: platform user đang giữ role `super_admin` không sửa được ở đây (`403`) — gỡ role
+        SA trước bằng `super-admin-role` (2P); role mới không bao giờ là `super_admin` (schema). Người gọi step-up; không
+        sửa chính mình (`403`); `If-Match` (thiếu ⇒ `428`, lệch ⇒ `412`). Đổi role hoặc khóa thu hồi mọi session của người
+        đó cùng transaction (§8.3 bước 8). Audit `platform.user.update` (trước/sau).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: platform.user:assign
+      x-conditions: [excludes_super_admin]
+      x-task: P4-T03a
+      x-audit-action: platform.user.update
+      parameters:
+        - $ref: '#/components/parameters/PlatformUserId'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlatformUserUpdate'
+      responses:
+        '200':
+          description: Platform user sau khi sửa
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformUser'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+    delete:
+      tags: [platform]
+      operationId: deletePlatformUser
+      summary: Gỡ một nhân sự nền tảng (status `disabled`, thu hồi session) — step-up
+      description: |-
+        Như `PATCH {"status":"disabled"}`: hàng không bị xóa (audit tham chiếu nó), mọi session của người đó bị thu hồi;
+        mở lại bằng `PATCH {"status":"active"}`. Super Admin ⇒ `403` (gỡ role SA trước, 2P); chính mình ⇒ `403`;
+        `If-Match` bắt buộc. Audit `platform.user.delete`.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: platform.user:assign
+      x-conditions: [excludes_super_admin]
+      x-task: P4-T03a
+      x-audit-action: platform.user.delete
+      parameters:
+        - $ref: '#/components/parameters/PlatformUserId'
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: Platform user sau khi gỡ
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformUser'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /platform/users/{platformUserId}/super-admin-role:
+    put:
+      tags: [platform]
+      operationId: setPlatformUserSuperAdminRole
+      summary: Gán hoặc gỡ role Super Admin — luôn 2P; 202 + Location của yêu cầu phê duyệt
+      description: |-
+        §8.4 bất biến 3, §8.5 `platform.user:assign_super_admin` (2P): tạo yêu cầu `platform.user.super_admin` (người yêu
+        cầu step-up). `super_admin: true` — platform user `active` chưa là SA; `false` — đang là SA, `role_after` (role mới,
+        dưới SA) bắt buộc. Payload (thứ người duyệt thấy, đầu vào duy nhất của việc thực thi): platform user, identity, role
+        trước/sau, `version`. Một Super Admin **khác** duyệt (step-up). Khi thực thi: cùng khóa advisory với
+        `meshguard admin bootstrap-super-admin` (P2-T11a), platform user phải còn đúng `version` (đã đổi ⇒ `409`), role đổi
+        và mọi session của người đó bị thu hồi cùng transaction; không bao giờ còn 0 Super Admin hoạt động. Đã đúng trạng
+        thái yêu cầu ⇒ `409`. Khi số SA hoạt động < 2 không ai duyệt được — dùng lệnh bootstrap (§8.2).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: platform.user:assign_super_admin
+      x-dual-control: true
+      x-task: P4-T03a
+      x-audit-action: platform.user.super_admin.request
+      parameters:
+        - $ref: '#/components/parameters/PlatformUserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SuperAdminRoleChange'
+      responses:
+        '202':
+          description: Yêu cầu phê duyệt đã tạo — người thứ hai duyệt ở `Location`
+          headers:
+            Location:
+              $ref: '#/components/headers/ApprovalLocation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  # ---------------------------------------------------------------- system settings (P4-T03a, §6.3 system_settings)
+  /platform/settings:
+    get:
+      tags: [platform]
+      operationId: listPlatformSettings
+      summary: Các khóa system_settings được phục vụ (cấu hình + cờ chỉ đọc)
+      description: >-
+        Tập khóa đóng (internal/config): khóa cấu hình sửa được (`writable`) và cờ chỉ lệnh host ghi (`maintenance`).
+        Con trỏ đọc nội bộ `idp.audit_sync.*` không bao giờ được trả.
+      x-permission: platform.settings:read
+      x-task: P4-T03a
+      x-audit-action: platform.settings.list
+      responses:
+        '200':
+          description: Mọi khóa được phục vụ, sắp theo khóa
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemSettingList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /platform/settings/{settingKey}:
+    get:
+      tags: [platform]
+      operationId: getPlatformSetting
+      summary: Một khóa system_settings
+      x-permission: platform.settings:read
+      x-task: P4-T03a
+      x-audit-action: platform.settings.read
+      parameters:
+        - $ref: '#/components/parameters/SettingKey'
+      responses:
+        '200':
+          description: Khóa và giá trị (null khi chưa có hàng)
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemSetting'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+    put:
+      tags: [platform]
+      operationId: putPlatformSetting
+      summary: Đặt giá trị một khóa cấu hình — Super Admin, step-up, ETag
+      description: |-
+        §8.5 `platform.settings:update` (Super Admin). Chỉ khóa `writable`: `approval.ttl_hours` (số nguyên 1–168),
+        `quota.max_tenants` (số nguyên ≥ 0); giá trị sai ⇒ `422`. Khóa chỉ đọc (`maintenance` — lệnh host) ⇒ `422`
+        (`read_only`); khóa lạ và con trỏ nội bộ `idp.audit_sync.*` ⇒ `404`. Người gọi step-up. `If-Match` = `ETag` của
+        `GET` (thiếu ⇒ `428`, lệch ⇒ `412`; khóa chưa có hàng: `ETag` của `GET` là `"0"`). Audit `platform.settings.update`
+        (trước/sau) cùng transaction; người đọc khóa nhận giá trị mới ở lần đọc kế tiếp.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: platform.settings:update
+      x-task: P4-T03a
+      x-audit-action: platform.settings.update
+      parameters:
+        - $ref: '#/components/parameters/SettingKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SystemSettingUpdate'
+      responses:
+        '200':
+          description: Khóa sau khi ghi
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemSetting'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  # ---------------------------------------------------------------- identity providers (P4-T03a, §8.2, §8.5)
+  /platform/identity-providers:
+    get:
+      tags: [platform]
+      operationId: listPlatformIdentityProviders
+      summary: Đăng ký IdP của platform và của các tenant (không có secret)
+      x-permission: platform.idp:read
+      x-task: P4-T03a
+      x-audit-action: platform.idp.list
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/IdPScopeFilter'
+      responses:
+        '200':
+          description: Một trang IdP (cũ nhất trước)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityProviderList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /platform/identity-providers/{idpId}:
+    get:
+      tags: [platform]
+      operationId: getPlatformIdentityProvider
+      summary: Một đăng ký IdP
+      x-permission: platform.idp:read
+      x-task: P4-T03a
+      x-audit-action: platform.idp.read
+      parameters:
+        - $ref: '#/components/parameters/IdpId'
+      responses:
+        '200':
+          description: IdP
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityProvider'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+    patch:
+      tags: [platform]
+      operationId: updatePlatformIdentityProvider
+      summary: Sửa ràng buộc claim / domain của một IdP — hàng của tenant ⇒ 202 + phê duyệt 2P; step-up
+      description: |-
+        §8.2 "Quản trị IdP không được là cửa sau vào tenant", §8.5 `platform.idp:manage` (Super Admin; IdP của tenant:
+        2P — điều kiện `tenant_idp_dual_control`). Chỉ `claim_mapping`, `required_claims`, `allowed_email_domains`;
+        `issuer`, `client_id`, `driver` có trong body ⇒ `422` (bất biến — §8.2 (1)); client secret không đổi được ở đây
+        (`meshguard admin set-idp-client-secret` cho platform, Tenant Owner qua `PATCH /tenants/{t}/identity-provider`).
+        Người gọi step-up; `If-Match` = `ETag` của `GET` (thiếu ⇒ `428`, lệch ⇒ `412`). Không đổi gì ⇒ `200`, không ghi.
+
+        Hàng `scope=platform`: áp dụng ngay — `200`, audit `platform.idp.update`. Hàng `scope=tenant`: **không** có hiệu
+        lực ngay — `202` + `Location: /api/v1/platform/approvals/{id}` (action `platform.idp.update_tenant`, payload =
+        IdP, tenant, `version`, giá trị mới); một Super Admin khác duyệt (break-glass 2P — §8.2). Lúc yêu cầu và lúc thực
+        thi, audit ghi vào **audit của tenant** (`identity_provider.platform_change.request` /
+        `identity_provider.platform_change.apply`, kèm người yêu cầu và người duyệt) + thông báo `idp.config_changed`
+        cho Tenant Owner; khi thực thi, hàng phải còn đúng `version` (đã đổi ⇒ `409`, không ghi).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: platform.idp:manage
+      x-conditions: [tenant_idp_dual_control]
+      x-task: P4-T03a
+      x-audit-action: platform.idp.update
+      parameters:
+        - $ref: '#/components/parameters/IdpId'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IdentityProviderUpdate'
+      responses:
+        '200':
+          description: IdP sau khi sửa (hàng của platform) hoặc không đổi
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityProvider'
+        '202':
+          description: Hàng của tenant — yêu cầu phê duyệt 2P đã tạo, chưa có hiệu lực
+          headers:
+            Location:
+              $ref: '#/components/headers/ApprovalLocation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  # ---------------------------------------------------------------- plans (P4-T03a, §6.3 subscription_plans, §13.3 PlanLimits)
+  /platform/plans:
+    get:
+      tags: [platform]
+      operationId: listPlatformPlans
+      summary: Các gói (cả gói đã đóng)
+      x-permission: platform.plan:read
+      x-task: P4-T03a
+      x-audit-action: platform.plan.list
+      responses:
+        '200':
+          description: Mọi gói, sắp theo khóa
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlanList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+    post:
+      tags: [platform]
+      operationId: createPlatformPlan
+      summary: Tạo một gói
+      description: >-
+        `key` bất biến (`TenantCreate.plan_key`); `limits` theo `PlanLimits` (§13.3) và phải có đủ bốn khóa quota
+        (`max_devices`, `max_users`, `max_tagged_devices`, `max_live_enrollment_credentials` — CHECK
+        `mg_plan_limits_valid` của 0012) ⇒ thiếu/sai ⇒ `422`; khóa đã có ⇒ `409`. Audit `platform.plan.create`.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: platform.plan:manage
+      x-task: P4-T03a
+      x-audit-action: platform.plan.create
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlanCreate'
+      responses:
+        '201':
+          description: Gói đã tạo
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Plan'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /platform/plans/{planId}:
+    get:
+      tags: [platform]
+      operationId: getPlatformPlan
+      summary: Một gói
+      x-permission: platform.plan:read
+      x-task: P4-T03a
+      x-audit-action: platform.plan.read
+      parameters:
+        - $ref: '#/components/parameters/PlanId'
+      responses:
+        '200':
+          description: Gói
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Plan'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+    patch:
+      tags: [platform]
+      operationId: updatePlatformPlan
+      summary: Sửa tên, limits hoặc đóng/mở một gói
+      description: >-
+        `key` không đổi được. `limits` thay toàn bộ tài liệu (đủ bốn khóa quota — `422`); gói đóng (`is_active: false`)
+        không nhận tenant mới, tenant đang dùng giữ gói. Hạn mức mới có hiệu lực ở lần kiểm quota kế tiếp. `If-Match`
+        (thiếu ⇒ `428`, lệch ⇒ `412`). Audit `platform.plan.update` (trước/sau).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: platform.plan:manage
+      x-task: P4-T03a
+      x-audit-action: platform.plan.update
+      parameters:
+        - $ref: '#/components/parameters/PlanId'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlanUpdate'
+      responses:
+        '200':
+          description: Gói sau khi sửa
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Plan'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
 components:
   securitySchemes:
     sessionCookie:
@@ -3876,6 +4865,50 @@ components:
       description: Lọc theo trạng thái hiệu lực
       schema:
         $ref: '#/components/schemas/InvitationStatus'
+    PlatformUserId:
+      name: platformUserId
+      in: path
+      required: true
+      description: ID của platform user (`platform_users.id`)
+      schema:
+        type: string
+        format: uuid
+    PlatformUserStatusFilter:
+      name: status
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/PlatformUserStatus'
+    PlatformRoleFilter:
+      name: role
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/PlatformRole'
+    SettingKey:
+      name: settingKey
+      in: path
+      required: true
+      description: Khóa của `system_settings` (ví dụ `approval.ttl_hours`)
+      schema:
+        type: string
+        pattern: '^[a-z][a-z0-9_]*(\.[a-z0-9_]+)*$'
+        maxLength: 128
+    IdPScopeFilter:
+      name: scope
+      in: query
+      required: false
+      schema:
+        type: string
+        enum: [platform, tenant]
+    PlanId:
+      name: planId
+      in: path
+      required: true
+      description: ID của gói (`subscription_plans.id`)
+      schema:
+        type: string
+        format: uuid
   headers:
     JobLocation:
       description: Job theo dõi thao tác — `/api/v1/tenants/{tenantId}/jobs/{jobId}` (phạm vi tenant) hoặc `/api/v1/platform/jobs/{jobId}` (phạm vi platform)
@@ -6182,3 +7215,557 @@ components:
           items:
             type: string
             pattern: '^tag:[a-z][a-z0-9-]{0,49}$'
+    # ------------------------------------------------------------ P4-T03a: sửa tenant, thiết lập, IdP, platform users, settings, plans
+    TenantUpdate:
+      type: object
+      description: Sửa tenant (§8.5 `platform.tenant:update` — tên, gói, quota); ít nhất một trường
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+        plan_key:
+          type: string
+          pattern: '^[a-z][a-z0-9_-]{0,62}$'
+          description: Khóa của một gói đang mở
+        limits_override:
+          $ref: '#/components/schemas/PlanLimits'
+          description: Override từng khóa của gói (`subscriptions.overrides`); `{}` gỡ mọi override
+          x-go-type: json.RawMessage
+    TenantIdentityMode:
+      type: string
+      enum: [portal, headscale_oidc]
+    TenantEnrollmentSettings:
+      type: object
+      required: [identity_mode, web_auth_enabled, self_enroll, requires_approval]
+      properties:
+        identity_mode:
+          $ref: '#/components/schemas/TenantIdentityMode'
+        web_auth_enabled:
+          type: boolean
+        self_enroll:
+          type: boolean
+          description: End User tự thêm thiết bị (ô có điều kiện `self_enroll` của §8.6)
+        requires_approval:
+          type: boolean
+        preauth_key_ttl_max:
+          type: [string, 'null']
+          description: Trần hạn pre-auth key (`<phút>m` hoặc `<giờ>h`, 5 phút – 90 ngày); null = trần của nền tảng
+    TenantSettings:
+      type: object
+      description: >-
+        TenantSettings hiệu lực (§13.3). Khóa bảo mật (`enrollment.identity_mode`, `web_auth_enabled`, `self_enroll`,
+        `requires_approval`, `node_expiry`, `policy.four_eyes`, `policy.sensitive_groups`, `routes.four_eyes`) chỉ đổi
+        qua `PUT /settings/security`; `dns` qua `PUT /dns/settings` (P4-T12).
+      required: [enrollment, node_expiry, policy, routes, dns, notifications]
+      properties:
+        enrollment:
+          $ref: '#/components/schemas/TenantEnrollmentSettings'
+        node_expiry:
+          type: [string, 'null']
+          description: Hạn node tối đa của tenant (`0` = không hết hạn, `<ngày>d`, `<giờ>h`); null = theo cấu hình instance
+        policy:
+          type: object
+          required: [four_eyes, sensitive_groups]
+          properties:
+            four_eyes:
+              type: boolean
+            sensitive_groups:
+              type: array
+              items:
+                type: string
+                format: uuid
+        routes:
+          type: object
+          required: [four_eyes]
+          properties:
+            four_eyes:
+              type: boolean
+        dns:
+          type: object
+          additionalProperties: true
+          description: Thiết lập DNS như đã lưu — chỉ để xem ở đây
+          x-go-type: json.RawMessage
+        notifications:
+          type: object
+          required: [new_device, policy_applied]
+          properties:
+            new_device:
+              type: boolean
+            policy_applied:
+              type: boolean
+    TenantSettingsView:
+      type: object
+      required: [settings, etag]
+      properties:
+        settings:
+          $ref: '#/components/schemas/TenantSettings'
+        etag:
+          type: string
+          description: Bằng giá trị header `ETag`
+    TenantSettingsPatch:
+      type: object
+      description: Thiết lập thường (§8.6 `tenant.settings:update`); ít nhất một khóa
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        enrollment:
+          type: object
+          additionalProperties: false
+          properties:
+            preauth_key_ttl_max:
+              type: string
+              maxLength: 16
+              description: '`<phút>m` hoặc `<giờ>h` (5 phút – 90 ngày); chuỗi rỗng gỡ trần'
+            identity_mode:
+              description: Khóa bảo mật — bị từ chối ở đây (`422`), dùng `PUT /settings/security`
+            web_auth_enabled:
+              description: Khóa bảo mật — bị từ chối ở đây
+            self_enroll:
+              description: Khóa bảo mật — bị từ chối ở đây
+            requires_approval:
+              description: Khóa bảo mật — bị từ chối ở đây
+        notifications:
+          type: object
+          additionalProperties: false
+          properties:
+            new_device:
+              type: boolean
+            policy_applied:
+              type: boolean
+        node_expiry:
+          description: Khóa bảo mật — bị từ chối ở đây
+        policy:
+          description: Khóa bảo mật — bị từ chối ở đây
+        routes:
+          description: Khóa bảo mật — bị từ chối ở đây
+        dns:
+          description: Sửa qua `PUT /dns/settings` (P4-T12) — bị từ chối ở đây
+    TenantSecuritySettings:
+      type: object
+      description: Toàn bộ khóa bảo mật của TenantSettings (§8.6 `tenant.settings:update_security`)
+      required: [enrollment, node_expiry, policy, routes]
+      additionalProperties: false
+      properties:
+        enrollment:
+          type: object
+          required: [identity_mode, web_auth_enabled, self_enroll, requires_approval]
+          additionalProperties: false
+          properties:
+            identity_mode:
+              $ref: '#/components/schemas/TenantIdentityMode'
+            web_auth_enabled:
+              type: boolean
+            self_enroll:
+              type: boolean
+            requires_approval:
+              type: boolean
+        node_expiry:
+          type: [string, 'null']
+          maxLength: 16
+          description: '`0`, `<ngày>d` (≤ 3650) hoặc `<giờ>h`; null = theo cấu hình instance'
+        policy:
+          type: object
+          required: [four_eyes, sensitive_groups]
+          additionalProperties: false
+          properties:
+            four_eyes:
+              type: boolean
+            sensitive_groups:
+              type: array
+              maxItems: 100
+              items:
+                type: string
+                format: uuid
+        routes:
+          type: object
+          required: [four_eyes]
+          additionalProperties: false
+          properties:
+            four_eyes:
+              type: boolean
+    TenantDeletionRequestCreate:
+      type: object
+      required: [confirm_slug, reason]
+      additionalProperties: false
+      properties:
+        confirm_slug:
+          type: string
+          maxLength: 63
+          description: Slug của tenant, gõ lại để xác nhận
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 1000
+    TenantDeletionRequest:
+      type: object
+      required: [tenant_id, requested_at, requested_by, platform_notified]
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+        requested_at:
+          type: string
+          format: date-time
+        requested_by:
+          $ref: '#/components/schemas/IdentityRef'
+        platform_notified:
+          type: boolean
+          description: false khi nền tảng đã được báo trong ngày (UTC) — lần này chỉ ghi audit
+    IdentityProviderStatus:
+      type: string
+      enum: [pending, active, retiring, disabled]
+    IdentityProvider:
+      type: object
+      description: >-
+        Đăng ký IdP (`identity_providers` — §8.2): bộ ba (issuer, client_id, ràng buộc tổ chức). `issuer`, `client_id`,
+        `driver`, `scope` bất biến; client secret không bao giờ được trả (`client_secret_set` cho biết đã có).
+      required: [id, scope, issuer, client_id, driver, status, required_claims, require_email_verified, allowed_email_domains, claim_mapping, client_secret_set, created_at, updated_at, version, etag]
+      properties:
+        id:
+          type: string
+          format: uuid
+        scope:
+          type: string
+          enum: [platform, tenant]
+        tenant_id:
+          type: string
+          format: uuid
+          description: Tenant của hàng `scope=tenant`
+        issuer:
+          type: string
+        client_id:
+          type: string
+        driver:
+          type: string
+          enum: [keycloak, external]
+        status:
+          $ref: '#/components/schemas/IdentityProviderStatus'
+        required_claims:
+          type: object
+          additionalProperties: true
+          x-go-type: json.RawMessage
+        require_email_verified:
+          type: boolean
+        allowed_email_domains:
+          type: array
+          items:
+            type: string
+        claim_mapping:
+          type: object
+          additionalProperties:
+            type: string
+        client_secret_set:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+        etag:
+          type: string
+    IdentityProviderList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/IdentityProvider'
+        next_cursor:
+          type: [string, 'null']
+    IdentityProviderUpdate:
+      type: object
+      description: >-
+        Ràng buộc của IdP sửa được (§8.2 MVP); ít nhất một trường. `issuer`, `client_id`, `driver` khai báo chỉ để bị từ
+        chối (`422` — bất biến).
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        claim_mapping:
+          type: object
+          maxProperties: 8
+          description: 'Trường hồ sơ → tên claim: khóa `email`, `email_verified`, `name`'
+          additionalProperties:
+            type: string
+            minLength: 1
+            maxLength: 128
+        required_claims:
+          type: object
+          maxProperties: 16
+          description: 'Tên claim → giá trị bắt buộc (chuỗi/số/bool, hoặc mảng các giá trị chấp nhận)'
+          additionalProperties: true
+          x-go-type: json.RawMessage
+        allowed_email_domains:
+          type: array
+          maxItems: 32
+          items:
+            type: string
+            maxLength: 253
+        issuer:
+          description: Bất biến — có mặt ⇒ `422`
+        client_id:
+          description: Bất biến — có mặt ⇒ `422`
+        driver:
+          description: Bất biến — có mặt ⇒ `422`
+    TenantIdentityProviderUpdate:
+      type: object
+      description: Như `IdentityProviderUpdate`, thêm `client_secret` chỉ-ghi của IdP `external`; ít nhất một trường
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        claim_mapping:
+          type: object
+          maxProperties: 8
+          additionalProperties:
+            type: string
+            minLength: 1
+            maxLength: 128
+        required_claims:
+          type: object
+          maxProperties: 16
+          additionalProperties: true
+          x-go-type: json.RawMessage
+        allowed_email_domains:
+          type: array
+          maxItems: 32
+          items:
+            type: string
+            maxLength: 253
+        client_secret:
+          type: string
+          writeOnly: true
+          minLength: 16
+          maxLength: 512
+          description: Client secret mới của IdP `external` (16–512 ký tự ASCII nhìn thấy được) — vào SecretStore, không trả lại
+        issuer:
+          description: Bất biến — có mặt ⇒ `422`
+        client_id:
+          description: Bất biến — có mặt ⇒ `422`
+        driver:
+          description: Bất biến — có mặt ⇒ `422`
+    PlatformRole:
+      type: string
+      enum: [super_admin, platform_operator, platform_support, platform_viewer]
+    PlatformAssignableRole:
+      type: string
+      description: Role platform gán được bằng `platform.user:assign` — không bao giờ `super_admin` (§8.5)
+      enum: [platform_operator, platform_support, platform_viewer]
+    PlatformUserStatus:
+      type: string
+      enum: [active, disabled]
+    PlatformUser:
+      type: object
+      required: [id, identity_id, subject, display_name, role, status, created_at, updated_at, version, etag]
+      properties:
+        id:
+          type: string
+          format: uuid
+        identity_id:
+          type: string
+          format: uuid
+        subject:
+          type: string
+          description: '`sub` của IdP platform'
+        display_name:
+          type: string
+        email:
+          type: string
+        role:
+          $ref: '#/components/schemas/PlatformRole'
+        status:
+          $ref: '#/components/schemas/PlatformUserStatus'
+        identity_status:
+          type: string
+          description: Trạng thái của identity (`disabled` sau `meshguard admin revoke-sessions`)
+        last_login_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+        etag:
+          type: string
+    PlatformUserList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlatformUser'
+        next_cursor:
+          type: [string, 'null']
+    PlatformUserCreate:
+      type: object
+      required: [subject, role]
+      additionalProperties: false
+      properties:
+        subject:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: '`sub` của người đó ở IdP platform (Keycloak: id user dạng UUID chữ thường)'
+        role:
+          $ref: '#/components/schemas/PlatformAssignableRole'
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 128
+    PlatformUserUpdate:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        role:
+          $ref: '#/components/schemas/PlatformAssignableRole'
+        status:
+          $ref: '#/components/schemas/PlatformUserStatus'
+    SuperAdminRoleChange:
+      type: object
+      required: [super_admin, reason]
+      additionalProperties: false
+      properties:
+        super_admin:
+          type: boolean
+          description: true = gán role Super Admin, false = gỡ
+        role_after:
+          $ref: '#/components/schemas/PlatformAssignableRole'
+          description: Role mới khi gỡ (bắt buộc khi `super_admin` là false)
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 1000
+          description: Lý do — người duyệt đọc
+    SystemSetting:
+      type: object
+      required: [key, value, writable, description, version, etag]
+      properties:
+        key:
+          type: string
+        value:
+          description: Giá trị JSON như đã lưu; null khi chưa có hàng
+          x-go-type: json.RawMessage
+        default:
+          description: Giá trị người đọc dùng khi chưa có hàng (nếu có)
+          x-go-type: json.RawMessage
+        writable:
+          type: boolean
+        description:
+          type: string
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+          description: 0 khi chưa có hàng
+        updated_at:
+          type: string
+          format: date-time
+        updated_by:
+          type: string
+          format: uuid
+          description: Identity đã ghi lần cuối (không có với lệnh host)
+        etag:
+          type: string
+    SystemSettingList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SystemSetting'
+    SystemSettingUpdate:
+      type: object
+      required: [value]
+      additionalProperties: false
+      properties:
+        value:
+          description: Giá trị JSON mới (theo khóa)
+          x-go-type: json.RawMessage
+    Plan:
+      type: object
+      required: [id, key, name, limits, is_active, created_at, updated_at, version, etag]
+      properties:
+        id:
+          type: string
+          format: uuid
+        key:
+          type: string
+        name:
+          type: string
+        limits:
+          $ref: '#/components/schemas/PlanLimits'
+          x-go-type: json.RawMessage
+        is_active:
+          type: boolean
+        tenant_count:
+          type: integer
+          minimum: 0
+          description: Số subscription còn hiệu lực đang dùng gói
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+        etag:
+          type: string
+    PlanList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Plan'
+    PlanCreate:
+      type: object
+      required: [key, name, limits]
+      additionalProperties: false
+      properties:
+        key:
+          type: string
+          pattern: '^[a-z][a-z0-9_-]{0,62}$'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        limits:
+          $ref: '#/components/schemas/PlanLimits'
+          x-go-type: json.RawMessage
+        is_active:
+          type: boolean
+          default: true
+    PlanUpdate:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        limits:
+          $ref: '#/components/schemas/PlanLimits'
+          x-go-type: json.RawMessage
+        is_active:
+          type: boolean
