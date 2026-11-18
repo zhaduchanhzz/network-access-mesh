@@ -6,7 +6,7 @@
 |---|---|
 | Panel `mg-demo-panel` | headscale-admin 1.3.0, build từ mã nguồn commit `0a4ca5e` (Dockerfile của repo, `node:22-alpine` pin theo digest). Chỉ nằm trong network internal `mg-demo-int` (không ra Internet, không Docker socket, không publish cổng). Chạy non-root, rootfs read-only, `cap_drop: ALL` |
 | Proxy `mg-demo-proxy` | Image edge của dự án (Caddy), non-root. Nối `mg-demo-int` với `mg-admin`, gắn token nội bộ của listener admin và **ghim instance `tenant-c`** ([Caddyfile](Caddyfile)) |
-| Tenant | `tenant-c` — tenant demo riêng ([tham số](../../environments/staging/tenants/tenant-c.json)). Panel chỉ có API key của tenant này, hạn 168 giờ. A/B không bị đụng tới |
+| Tenant | `tenant-c` — tenant demo riêng (tham số `infrastructure/environments/staging/tenants/tenant-c.json`, **đã gỡ 2026-11-18** cùng tenant; xem lịch sử git). Panel chỉ có API key của tenant này, hạn 168 giờ. A/B không bị đụng tới |
 | Secret | `/opt/meshguard/demo/r2/` (root 0700): `panel.env` (master key, session secret, API key — panel chỉ đọc được qua biến môi trường, đây là độ lệch so với chuẩn của dự án); bản sao token nội bộ cho proxy. Sinh trên host, không in ra |
 
 ```bash
