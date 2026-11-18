@@ -256,12 +256,17 @@ func TestBackfillAdoptedInstance(t *testing.T) {
 		t.Fatalf("restore before the backfill: %v", err)
 	}
 	refused := jobOf(backup.KindRestore)
-	h.waitJob(t, refused, 3*time.Minute, jobs.StatusFailedResumable)
-	if code := h.jobErrorCode(t, refused); code != "agent_state" {
-		t.Fatalf("restore before the backfill: %s, want agent_state", code)
+	// restore lock fix (P3-T11): the worker asks the agent first (GetInstanceStatus) — a never-activated instance is not
+	// restored and the job ends rolled_back, the tenant's lifecycle lock released (before the fix: failed_resumable
+	// agent_state holding the lock — the staging drill); after the backfill a new restore request runs
+	h.waitJob(t, refused, 3*time.Minute, jobs.StatusRolledBack)
+	if code := h.jobErrorCode(t, refused); code != "instance_not_restorable" {
+		t.Fatalf("restore before the backfill: %s, want instance_not_restorable", code)
 	}
-	// the refused job keeps the instance's restore slot (failed_resumable: neither /cancel nor /rollback apply to
-	// instance.restore) — after the backfill, /retry runs it again (the staging drill's path, procedure §6)
+	if n := scalar[int64](t, h, `SELECT count(*) FROM provisioning_jobs WHERE tenant_id = $1
+		AND status IN ('running', 'compensating', 'failed_resumable')`, tenantID); n != 0 {
+		t.Fatalf("the refused restore still holds the lifecycle lock (%d jobs)", n)
+	}
 	if s := h.status(t, ref); !s.GetStartedAt().AsTime().Equal(st.GetStartedAt().AsTime()) || s.GetActivated() {
 		t.Fatal("the refused restore touched the instance")
 	}
@@ -314,15 +319,25 @@ func TestBackfillAdoptedInstance(t *testing.T) {
 		t.Fatalf("second backfill: %+v %v", plan, err)
 	}
 
-	// /retry of the refused instance.restore (P3-T11, AC-19) — the backup taken BEFORE the backfill, the staging case: its
+	// a new instance.restore after the backfill (P3-T11, AC-19) — the backup taken BEFORE the backfill, the staging case: its
 	// manifest carries the Noise key the helper computed, which the backfill recorded since. The device inventory holds
 	// the two nodes, as inventory.sync records them.
 	for _, n := range nodes {
 		h.exec(t, `INSERT INTO device_inventory_cache (tenant_id, instance_id, headscale_node_id, machine_key, name)
 			VALUES ($1, $2, $3, $4, $5)`, tenantID, instanceID, int64(n.ID), n.MachineKey, "node-"+strconv.FormatUint(n.ID, 10)) //nolint:gosec // a node id
 	}
-	h.retry(t, refused)
-	restoreJob := &refused
+	if err := h.api.WithPlatformJobTx(h.reqCtx(t, backup.AuditRestore), func(tx *store.Tx) error {
+		_, err := bsvc.EnqueueRestore(ctx, tx, h.actor, uuid.New(), backup.RestorePayload{BackupID: preBackup, InstanceID: instanceID,
+			RestorePointOlderThanBackup: true})
+		return err
+	}); err != nil {
+		t.Fatalf("restore after the backfill: %v", err)
+	}
+	again := jobOf(backup.KindRestore)
+	if again == refused {
+		t.Fatal("no new restore job after the backfill")
+	}
+	restoreJob := &again
 	h.waitJob(t, *restoreJob, 8*time.Minute, jobs.StatusSucceeded)
 	restored := h.status(t, ref)
 	if !restored.GetStartedAt().AsTime().After(st.GetStartedAt().AsTime()) || restored.GetNoiseKeyFingerprint() != fp ||
