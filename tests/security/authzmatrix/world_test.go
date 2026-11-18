@@ -33,6 +33,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/idpconsoleapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/invitationsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/jobsapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/lifecycleapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/monitoringapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/notificationsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/provisioningapi"
@@ -44,6 +45,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/monitoring"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/notifications"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/platform"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/lifecycle"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/orchestrator"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/secrets"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
@@ -147,6 +149,8 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 		Notifications: notificationsapi.New(notifications.NewReader(w.Store)),
 		Hosts:         hostsapi.New(platform.New(w.Store)),
 		Provisioning:  provisioningapi.New(creator, orchestrator.NewControl(w.Store)),
+		// Lifecycle (P3-T08): suspend/resume requests of the api (no worker here: a job would stay queued)
+		Lifecycle: lifecycleapi.New(lifecycle.NewRequester(w.Store)),
 	}
 }
 

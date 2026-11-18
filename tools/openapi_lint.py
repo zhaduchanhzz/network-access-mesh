@@ -998,6 +998,14 @@ def lint(spec: dict, master: Master, coverage: bool = True) -> list[str]:
                 err(where, f"x-dual-control: true required — {perm} is 2P (§13.1)")
             if dual is True and not p.dual_any:
                 err(where, f"x-dual-control set but {perm} has no 2P cell (§13.1)")
+        # ---- §8.4 invariant 5 (P3-T08): a suspended tenant refuses every write of its roles. The Authorizer decides it
+        # for every operation whose permission is a tenant permission (internal/authz: a method other than GET/HEAD is a
+        # write), not the handlers — so an operation of the tenant context (web-auth/claim and enrollment/* of P4-T06
+        # included) must carry one, or it would escape the guard.
+        if tenant_scoped and isinstance(perm, str) and not perm.startswith("tenant."):
+            err(where, f"x-permission {perm} under /tenants/{{tenantId}} escapes the suspension guard of §8.4 invariant 5 "
+                       f"— an operation of the tenant context declares a tenant permission (a write of a suspended "
+                       f"tenant ⇒ 403 tenant_suspended)")
         conds = op.get("x-conditions")
         if conds is not None:
             if not (isinstance(conds, list) and conds and all(isinstance(c, str) for c in conds)
@@ -1111,6 +1119,17 @@ def lint(spec: dict, master: Master, coverage: bool = True) -> list[str]:
     if coverage:
         errs += row_coverage(spec, master)[0]
     return errs
+
+
+def tenant_writes(spec: dict) -> list[str]:
+    """operationIds of the writes of the tenant context — unsafe methods under /tenants/{tenantId}: the operations a
+    suspended tenant refuses to its roles (§8.4 invariant 5, decided by internal/authz from the generated table)."""
+    out = []
+    for path, method, op, _ in operations(spec):
+        segs = path.strip("/").split("/")
+        if segs[:1] == ["tenants"] and len(segs) >= 2 and method in UNSAFE and isinstance(op.get("operationId"), str):
+            out.append(op["operationId"])
+    return sorted(out)
 
 
 def _used_permissions(spec: dict) -> set[str]:
@@ -1547,6 +1566,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  - {n}")
         dup = sorted(k for k, p in master.perms.items() if len(p.lines) > 1)
         print(f"permissions on more than one matrix row (merged; their cells must agree): {', '.join(dup) or '—'}")
+        writes = tenant_writes(spec)
+        print(f"writes of the tenant context, refused while the tenant is suspended (§8.4 invariant 5) "
+              f"({len(writes)}): {', '.join(writes)}")
         print(f"seed: {len(model.roles)} roles, {len(model.permissions)} permissions, {len(model.grants)} grants; "
               f"conditional grants: {', '.join(f'{g.role}/{g.permission}={g.condition}' for g in model.grants if g.condition)}")
     for e in errs:

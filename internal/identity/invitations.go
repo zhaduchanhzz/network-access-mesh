@@ -14,7 +14,8 @@ import (
 // A person is added to a tenant only through an invitation (or the host-only seed of Phase 2). The invitation names
 // the tenant's IdP, an e-mail address and a role; the callback binds it — creates the membership with that role and
 // marks the invitation accepted, once — when an identity of THAT IdP that has never completed a login signs in with a
-// verified e-mail equal to the invitation's (case-insensitive) before the invitation expires. An identity that already
+// verified e-mail equal to the invitation's (case-insensitive) before the invitation expires, while the tenant is not
+// suspended (§8.4 invariant 5: no member joins a suspended tenant — P3-T08). An identity that already
 // completed a login (identities.last_login_at set) is never bound by e-mail; nor is a platform identity. A first login
 // that cannot be bound — no pending invitation for the verified e-mail, another IdP, an unverified e-mail, an expired
 // invitation — is refused with that reason (403 forbidden, audited): the identity then still counts as never logged
@@ -27,6 +28,9 @@ const (
 	ReasonInvitationIdPMismatch      = "invitation_idp_mismatch"       // the invitation names another IdP of the tenant
 	ReasonInvitationEmailNotVerified = "invitation_email_not_verified" // the IdP does not vouch for the e-mail
 	ReasonInvitationExpired          = "invitation_expired"
+	// ReasonTenantSuspended: the tenant is suspended — no member is added until it is resumed, the invitation stays
+	// pending (§8.4 invariant 5, P3-T08).
+	ReasonTenantSuspended = "tenant_suspended"
 )
 
 // FirstLogin is a tenant identity that has never completed a login, at its login callback — every value comes from the

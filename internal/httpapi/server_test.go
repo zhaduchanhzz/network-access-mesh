@@ -80,6 +80,9 @@ var operations = []struct {
 	{http.MethodPost, "/api/v1/platform/jobs/" + itemID + "/retry", "", "RetryPlatformJob", []func(*http.Request){idempotency}},
 	{http.MethodPost, "/api/v1/platform/jobs/" + itemID + "/cancel", "", "CancelPlatformJob", []func(*http.Request){idempotency}},
 	{http.MethodPost, "/api/v1/platform/jobs/" + itemID + "/rollback", "", "RollbackPlatformJob", []func(*http.Request){idempotency}},
+	// suspend / resume (P3-T08)
+	{http.MethodPost, "/api/v1/platform/tenants/" + tenantID + "/suspend", "", "SuspendPlatformTenant", []func(*http.Request){idempotency}},
+	{http.MethodPost, "/api/v1/platform/tenants/" + tenantID + "/resume", "", "ResumePlatformTenant", []func(*http.Request){idempotency}},
 }
 
 // TestEveryOperationAnswers501: with no handler set mounted, every operation of the spec is routed under /api/v1

@@ -152,9 +152,16 @@ func (c *Control) Cancel(ctx context.Context, actor, jobID uuid.UUID, idem *Idem
 			return ControlResult{}, err
 		}
 		out := ControlResult{Job: r.Job, From: r.From, Changed: r.Event != ""}
-		if r.Event == jobs.EventCancelQueued && rec.Kind == JobKind {
+		switch {
+		case r.Event == jobs.EventCancelQueued && rec.Kind == JobKind:
 			// Nothing of the tenant was created beyond the registry rows of step 2: it ends failed, like a rollback.
 			if err := failCancelled(ctx, tx, rec); err != nil {
+				return out, err
+			}
+		case r.Event == jobs.EventCancelQueued:
+			// Another job requested through the API (tenant.suspend, tenant.resume — P3-T08) never ran: its audit
+			// operation closes with .failed (cancelled), nothing else changed.
+			if err := closeCancelledOperation(ctx, tx, rec); err != nil {
 				return out, err
 			}
 		}
@@ -175,6 +182,22 @@ func failCancelled(ctx context.Context, tx *store.Tx, rec sqlcdb.ProvisioningJob
 		if errors.Is(err, store.ErrNoRows) {
 			return nil
 		}
+		return err
+	}
+	return in.Operation.Failed(ctx, tx.Q, jobs.CodeCancelled, audit.Details{"job_id": rec.ID, "cancelled": true})
+}
+
+// closeCancelledOperation closes the audit operation a cancelled job carries in its input ({"operation": …} — the
+// lifecycle jobs requested through the API) with .failed (cancelled), once; a job without one has nothing to close.
+func closeCancelledOperation(ctx context.Context, tx *store.Tx, rec sqlcdb.ProvisioningJob) error {
+	var in struct {
+		Operation audit.Operation `json:"operation"`
+	}
+	if err := json.Unmarshal(rec.Input, &in); err != nil || in.Operation.ID == uuid.Nil || in.Operation.Action == "" {
+		return nil //nolint:nilerr // no operation in the input: nothing to close
+	}
+	st, err := tx.Q.OperationState(ctx, in.Operation.ID)
+	if err != nil || !st.Requested || st.Finished {
 		return err
 	}
 	return in.Operation.Failed(ctx, tx.Q, jobs.CodeCancelled, audit.Details{"job_id": rec.ID, "cancelled": true})

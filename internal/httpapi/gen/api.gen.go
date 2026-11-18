@@ -1830,6 +1830,18 @@ type CreatePlatformTenantParams struct {
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
 
+// ResumePlatformTenantParams defines parameters for ResumePlatformTenant.
+type ResumePlatformTenantParams struct {
+	// IdempotencyKey Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// SuspendPlatformTenantParams defines parameters for SuspendPlatformTenant.
+type SuspendPlatformTenantParams struct {
+	// IdempotencyKey Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
 // ListMyTenantsParams defines parameters for ListMyTenants.
 type ListMyTenantsParams struct {
 	// Limit Số phần tử tối đa của trang
@@ -2078,6 +2090,12 @@ type ServerInterface interface {
 	// GetPlatformTenant Metadata registry của một tenant
 	// (GET /platform/tenants/{tenantId})
 	GetPlatformTenant(w http.ResponseWriter, r *http.Request, tenantId TenantId)
+	// ResumePlatformTenant Resume tenant — job tenant.resume (áp lại version policy mong muốn, mở lại thao tác ghi)
+	// (POST /platform/tenants/{tenantId}/resume)
+	ResumePlatformTenant(w http.ResponseWriter, r *http.Request, tenantId TenantId, params ResumePlatformTenantParams)
+	// SuspendPlatformTenant Suspend tenant — job tenant.suspend (policy deny-all, chặn thao tác ghi, expire pre-auth key)
+	// (POST /platform/tenants/{tenantId}/suspend)
+	SuspendPlatformTenant(w http.ResponseWriter, r *http.Request, tenantId TenantId, params SuspendPlatformTenantParams)
 	// ListMyTenants Các tenant mà người gọi là thành viên
 	// (GET /tenants)
 	ListMyTenants(w http.ResponseWriter, r *http.Request, params ListMyTenantsParams)
@@ -3499,6 +3517,114 @@ func (siw *ServerInterfaceWrapper) GetPlatformTenant(w http.ResponseWriter, r *h
 	handler.ServeHTTP(w, r)
 }
 
+// ResumePlatformTenant operation middleware
+func (siw *ServerInterfaceWrapper) ResumePlatformTenant(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ResumePlatformTenantParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ResumePlatformTenant(w, r, tenantId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SuspendPlatformTenant operation middleware
+func (siw *ServerInterfaceWrapper) SuspendPlatformTenant(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SuspendPlatformTenantParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SuspendPlatformTenant(w, r, tenantId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListMyTenants operation middleware
 func (siw *ServerInterfaceWrapper) ListMyTenants(w http.ResponseWriter, r *http.Request) {
 
@@ -4894,6 +5020,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/platform/tenants", wrapper.ListPlatformTenants)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/platform/tenants", wrapper.CreatePlatformTenant)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/platform/tenants/{tenantId}", wrapper.GetPlatformTenant)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/platform/tenants/{tenantId}/suspend", wrapper.SuspendPlatformTenant)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/platform/tenants/{tenantId}/resume", wrapper.ResumePlatformTenant)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/platform/instances", wrapper.ListPlatformInstances)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/platform/instances/{instanceId}", wrapper.GetPlatformInstance)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/platform/hosts", wrapper.ListPlatformHosts)
@@ -9077,6 +9205,368 @@ func (response GetPlatformTenantdefaultApplicationProblemPlusJSONResponse) Visit
 	return err
 }
 
+type ResumePlatformTenantRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	Params   ResumePlatformTenantParams
+}
+
+type ResumePlatformTenantResponseObject interface {
+	VisitResumePlatformTenantResponse(w http.ResponseWriter) error
+}
+
+type ResumePlatformTenant202ResponseHeaders struct {
+	Location string
+}
+
+type ResumePlatformTenant202JSONResponse struct {
+	Body    Job
+	Headers ResumePlatformTenant202ResponseHeaders
+}
+
+func (response ResumePlatformTenant202JSONResponse) VisitResumePlatformTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Location", fmt.Sprint(response.Headers.Location))
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResumePlatformTenant401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response ResumePlatformTenant401ApplicationProblemPlusJSONResponse) VisitResumePlatformTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResumePlatformTenant403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response ResumePlatformTenant403ApplicationProblemPlusJSONResponse) VisitResumePlatformTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResumePlatformTenant404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response ResumePlatformTenant404ApplicationProblemPlusJSONResponse) VisitResumePlatformTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResumePlatformTenant409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response ResumePlatformTenant409ApplicationProblemPlusJSONResponse) VisitResumePlatformTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResumePlatformTenant422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response ResumePlatformTenant422ApplicationProblemPlusJSONResponse) VisitResumePlatformTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResumePlatformTenant429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response ResumePlatformTenant429ApplicationProblemPlusJSONResponse) VisitResumePlatformTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResumePlatformTenantdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response ResumePlatformTenantdefaultApplicationProblemPlusJSONResponse) VisitResumePlatformTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SuspendPlatformTenantRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	Params   SuspendPlatformTenantParams
+}
+
+type SuspendPlatformTenantResponseObject interface {
+	VisitSuspendPlatformTenantResponse(w http.ResponseWriter) error
+}
+
+type SuspendPlatformTenant202ResponseHeaders struct {
+	Location string
+}
+
+type SuspendPlatformTenant202JSONResponse struct {
+	Body    Job
+	Headers SuspendPlatformTenant202ResponseHeaders
+}
+
+func (response SuspendPlatformTenant202JSONResponse) VisitSuspendPlatformTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Location", fmt.Sprint(response.Headers.Location))
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SuspendPlatformTenant401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response SuspendPlatformTenant401ApplicationProblemPlusJSONResponse) VisitSuspendPlatformTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SuspendPlatformTenant403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response SuspendPlatformTenant403ApplicationProblemPlusJSONResponse) VisitSuspendPlatformTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SuspendPlatformTenant404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response SuspendPlatformTenant404ApplicationProblemPlusJSONResponse) VisitSuspendPlatformTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SuspendPlatformTenant409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response SuspendPlatformTenant409ApplicationProblemPlusJSONResponse) VisitSuspendPlatformTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SuspendPlatformTenant422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response SuspendPlatformTenant422ApplicationProblemPlusJSONResponse) VisitSuspendPlatformTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SuspendPlatformTenant429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response SuspendPlatformTenant429ApplicationProblemPlusJSONResponse) VisitSuspendPlatformTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SuspendPlatformTenantdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response SuspendPlatformTenantdefaultApplicationProblemPlusJSONResponse) VisitSuspendPlatformTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListMyTenantsRequestObject struct {
 	Params ListMyTenantsParams
 }
@@ -12721,6 +13211,12 @@ type StrictServerInterface interface {
 	// GetPlatformTenant Metadata registry của một tenant
 	// (GET /platform/tenants/{tenantId})
 	GetPlatformTenant(ctx context.Context, request GetPlatformTenantRequestObject) (GetPlatformTenantResponseObject, error)
+	// ResumePlatformTenant Resume tenant — job tenant.resume (áp lại version policy mong muốn, mở lại thao tác ghi)
+	// (POST /platform/tenants/{tenantId}/resume)
+	ResumePlatformTenant(ctx context.Context, request ResumePlatformTenantRequestObject) (ResumePlatformTenantResponseObject, error)
+	// SuspendPlatformTenant Suspend tenant — job tenant.suspend (policy deny-all, chặn thao tác ghi, expire pre-auth key)
+	// (POST /platform/tenants/{tenantId}/suspend)
+	SuspendPlatformTenant(ctx context.Context, request SuspendPlatformTenantRequestObject) (SuspendPlatformTenantResponseObject, error)
 	// ListMyTenants Các tenant mà người gọi là thành viên
 	// (GET /tenants)
 	ListMyTenants(ctx context.Context, request ListMyTenantsRequestObject) (ListMyTenantsResponseObject, error)
@@ -13586,6 +14082,60 @@ func (sh *strictHandler) GetPlatformTenant(w http.ResponseWriter, r *http.Reques
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetPlatformTenantResponseObject); ok {
 		if err := validResponse.VisitGetPlatformTenantResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ResumePlatformTenant operation middleware
+func (sh *strictHandler) ResumePlatformTenant(w http.ResponseWriter, r *http.Request, tenantId TenantId, params ResumePlatformTenantParams) {
+	var request ResumePlatformTenantRequestObject
+
+	request.TenantId = tenantId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ResumePlatformTenant(ctx, request.(ResumePlatformTenantRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ResumePlatformTenant")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ResumePlatformTenantResponseObject); ok {
+		if err := validResponse.VisitResumePlatformTenantResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SuspendPlatformTenant operation middleware
+func (sh *strictHandler) SuspendPlatformTenant(w http.ResponseWriter, r *http.Request, tenantId TenantId, params SuspendPlatformTenantParams) {
+	var request SuspendPlatformTenantRequestObject
+
+	request.TenantId = tenantId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SuspendPlatformTenant(ctx, request.(SuspendPlatformTenantRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SuspendPlatformTenant")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SuspendPlatformTenantResponseObject); ok {
+		if err := validResponse.VisitSuspendPlatformTenantResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

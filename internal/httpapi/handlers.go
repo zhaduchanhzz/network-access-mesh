@@ -114,6 +114,13 @@ type ProvisioningHandlers interface {
 	RollbackPlatformJob(ctx context.Context, request gen.RollbackPlatformJobRequestObject) (gen.RollbackPlatformJobResponseObject, error)
 }
 
+// LifecycleHandlers — P3-T08 (`provisioning` lifecycle): suspension of a tenant and its reversal (§11.4, §13.2). The
+// refusal of a suspended tenant's writes is not a handler's: it is layer 1 (internal/authz), for every operation.
+type LifecycleHandlers interface {
+	SuspendPlatformTenant(ctx context.Context, request gen.SuspendPlatformTenantRequestObject) (gen.SuspendPlatformTenantResponseObject, error)
+	ResumePlatformTenant(ctx context.Context, request gen.ResumePlatformTenantRequestObject) (gen.ResumePlatformTenantResponseObject, error)
+}
+
 // Handlers is the extension point of the API: one handler set per building task. A nil set answers every operation
 // of its interface with 501 not_implemented. A set may also implement only part of its interface by embedding
 // NotImplemented. Handlers return a *problem.Error for an expected failure (not_found, conflict…); any other error
@@ -131,12 +138,13 @@ type Handlers struct {
 	Notifications NotificationHandlers // P3-T05b
 	IdPConsole    IdPConsoleHandlers   // P3-T15
 	Provisioning  ProvisioningHandlers // P3-T05
+	Lifecycle     LifecycleHandlers    // P3-T08
 }
 
 func (h Handlers) mounted() bool {
 	return h.Auth != nil || h.Tenants != nil || h.Devices != nil || h.Audit != nil || h.Jobs != nil || h.Monitoring != nil ||
 		h.Notifications != nil || h.Approvals != nil || h.Invitations != nil || h.Hosts != nil || h.IdPConsole != nil ||
-		h.Provisioning != nil
+		h.Provisioning != nil || h.Lifecycle != nil
 }
 
 // dispatcher implements gen.StrictServerInterface by promotion from the disjoint interfaces.
@@ -153,15 +161,19 @@ type dispatcher struct {
 	HostHandlers
 	IdPConsoleHandlers
 	ProvisioningHandlers
+	LifecycleHandlers
 }
 
 var _ gen.StrictServerInterface = dispatcher{}
 
 func newDispatcher(h Handlers) dispatcher {
 	d := dispatcher{h.Auth, h.Tenants, h.Devices, h.Audit, h.Jobs, h.Monitoring, h.Notifications, h.Approvals, h.Invitations,
-		h.Hosts, h.IdPConsole, h.Provisioning}
+		h.Hosts, h.IdPConsole, h.Provisioning, h.Lifecycle}
 	if d.ProvisioningHandlers == nil {
 		d.ProvisioningHandlers = NotImplemented{}
+	}
+	if d.LifecycleHandlers == nil {
+		d.LifecycleHandlers = NotImplemented{}
 	}
 	if d.ApprovalHandlers == nil {
 		d.ApprovalHandlers = NotImplemented{}
@@ -407,4 +419,12 @@ func (NotImplemented) CancelPlatformJob(context.Context, gen.CancelPlatformJobRe
 
 func (NotImplemented) RollbackPlatformJob(context.Context, gen.RollbackPlatformJobRequestObject) (gen.RollbackPlatformJobResponseObject, error) {
 	return nil, problem.NotImplemented("RollbackPlatformJob")
+}
+
+func (NotImplemented) SuspendPlatformTenant(context.Context, gen.SuspendPlatformTenantRequestObject) (gen.SuspendPlatformTenantResponseObject, error) {
+	return nil, problem.NotImplemented("SuspendPlatformTenant")
+}
+
+func (NotImplemented) ResumePlatformTenant(context.Context, gen.ResumePlatformTenantRequestObject) (gen.ResumePlatformTenantResponseObject, error) {
+	return nil, problem.NotImplemented("ResumePlatformTenant")
 }
