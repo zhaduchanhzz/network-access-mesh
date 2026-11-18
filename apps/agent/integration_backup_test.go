@@ -147,6 +147,14 @@ func TestBackupRestoreEndToEnd(t *testing.T) {
 		}
 		t.Logf("%s: refused %s (%s)", what, r.GetReason(), r.GetMessage())
 	}
+	// restore lock fix (P3-T11): a Restore refused before its first change says so on the wire (Refusal.unchanged)
+	restoreRefused := func(what string, err error, want agentv1.RefusalReason) {
+		t.Helper()
+		refusedAs(what, err, want)
+		if r, _ := agentclient.RefusalOf(err); !r.GetUnchanged() {
+			t.Fatalf("%s: the refusal is not marked unchanged", what)
+		}
+	}
 
 	// ---- the fake edge (as in TestAgentOperationsEndToEnd)
 	enr, err := dc.NetworkCreate(ctx, edgeNet, client.NetworkCreateOptions{Driver: "bridge",
@@ -479,10 +487,10 @@ func TestBackupRestoreEndToEnd(t *testing.T) {
 		write(t, filepath.Join(bdir, n), string(raw), 0o440)
 	}
 	_, err = ac.Restore(ctx, restoreReq(tb, artA, dkA))
-	refusedAs("A's archive restored into B", err, agentv1.RefusalReason_REFUSAL_REASON_IDENTITY_MISMATCH)
+	restoreRefused("A's archive restored into B", err, agentv1.RefusalReason_REFUSAL_REASON_IDENTITY_MISMATCH)
 	// B's data key on A's archive: the helper cannot decrypt (real age)
 	_, err = ac.Restore(ctx, restoreReq(ta, artA, dkB))
-	refusedAs("A's archive with B's data key", err, agentv1.RefusalReason_REFUSAL_REASON_INTEGRITY)
+	restoreRefused("A's archive with B's data key", err, agentv1.RefusalReason_REFUSAL_REASON_INTEGRITY)
 	// a changed manifest, then a manifest signed by another key
 	mpath := filepath.Join(a.cfg.Host.BackupsDir, ta.ref.GetInstanceId(), backupfmt.ManifestName(2000))
 	spath := filepath.Join(a.cfg.Host.BackupsDir, ta.ref.GetInstanceId(), backupfmt.SignatureName(2000))
@@ -490,12 +498,12 @@ func TestBackupRestoreEndToEnd(t *testing.T) {
 	origS, _ := os.ReadFile(spath) //nolint:gosec // G304: the test host
 	write(t, mpath, string(bytes.Replace(origM, []byte(ta.ref.GetTenantId()), []byte(tb.ref.GetTenantId()), 1)), 0o400)
 	_, err = ac.Restore(ctx, restoreReq(ta, artA, dkA))
-	refusedAs("changed manifest", err, agentv1.RefusalReason_REFUSAL_REASON_INTEGRITY)
+	restoreRefused("changed manifest", err, agentv1.RefusalReason_REFUSAL_REASON_INTEGRITY)
 	write(t, mpath, string(origM), 0o400)
 	_, other, _ := ed25519.GenerateKey(rand.Reader)
 	write(t, spath, string(backupfmt.Sign(other, origM)), 0o400)
 	_, err = ac.Restore(ctx, restoreReq(ta, artA, dkA))
-	refusedAs("manifest signed by another key", err, agentv1.RefusalReason_REFUSAL_REASON_INTEGRITY)
+	restoreRefused("manifest signed by another key", err, agentv1.RefusalReason_REFUSAL_REASON_INTEGRITY)
 	write(t, spath, string(origS), 0o400)
 	if n := restoreHelpers(); n != 0 {
 		t.Fatalf("%d restore swaps after refusals", n)

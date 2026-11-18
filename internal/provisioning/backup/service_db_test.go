@@ -14,6 +14,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -75,6 +76,19 @@ type fakeAgent struct {
 	detached   int
 	backupErr  error
 	served     string // the policy the restored instance serves (keep branch)
+	// restore lock fix: errors returned by successive Restore calls (then the normal behaviour), the instance never
+	// activated (GetInstanceStatus), the status calls
+	restoreErrs []error
+	inactive    bool
+	statuses    int
+}
+
+func (a *fakeAgent) GetInstanceStatus(_ context.Context, in *agentv1.GetInstanceStatusRequest, _ ...grpc.CallOption) (*agentv1.GetInstanceStatusResponse, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.statuses++
+	return &agentv1.GetInstanceStatusResponse{Status: &agentv1.InstanceStatus{Instance: in.GetInstance(), Activated: !a.inactive,
+		ContainerState: agentv1.ContainerState_CONTAINER_STATE_RUNNING, NoiseKeyFingerprint: strings.Repeat("d", 64)}}, nil
 }
 
 func (a *fakeAgent) Backup(_ context.Context, in *agentv1.BackupRequest, _ ...grpc.CallOption) (*agentv1.BackupResponse, error) {
@@ -113,10 +127,23 @@ func refusal(code codes.Code, reason agentv1.RefusalReason, msg string) error {
 	return st.Err()
 }
 
+// unchangedRefusal is a refusal the agent marks as one that changed nothing (Refusal.unchanged — restore lock fix).
+func unchangedRefusal(code codes.Code, reason agentv1.RefusalReason, msg string) error {
+	st, _ := status.New(code, msg).WithDetails(&agentv1.Refusal{Reason: reason, Field: "instance", Message: msg, Unchanged: true})
+	return st.Err()
+}
+
 func (a *fakeAgent) Restore(_ context.Context, in *agentv1.RestoreRequest, _ ...grpc.CallOption) (*agentv1.RestoreResponse, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.restores = append(a.restores, in)
+	if len(a.restoreErrs) > 0 {
+		e := a.restoreErrs[0]
+		a.restoreErrs = a.restoreErrs[1:]
+		if e != nil {
+			return nil, e
+		}
+	}
 	pub, err := backupfmt.DataRecipient(in.GetDataKey())
 	if err != nil || !bytes.Equal(pub, a.recipients[in.GetArtifact().GetSequence()]) {
 		return nil, refusal(codes.FailedPrecondition, agentv1.RefusalReason_REFUSAL_REASON_INTEGRITY, "the archive does not decrypt with this data key")
@@ -361,7 +388,7 @@ func (f *fix) worker() {
 func (f *fix) wait(kind string) (status, code, output string) {
 	f.t.Helper()
 	deadline := time.Now().Add(60 * time.Second)
-	for f.count(`SELECT count(*) FROM provisioning_jobs WHERE kind = $1 AND status IN ('succeeded', 'failed', 'failed_resumable')`, kind) == 0 {
+	for f.count(`SELECT count(*) FROM provisioning_jobs WHERE kind = $1 AND status IN ('succeeded', 'failed', 'failed_resumable', 'rolled_back')`, kind) == 0 {
 		if time.Now().After(deadline) {
 			f.t.Fatalf("%s did not finish", kind)
 		}
@@ -692,8 +719,9 @@ func TestRestoreRefusals(t *testing.T) {
 			t.Fatalf("%s: enqueue %v", name, err)
 		}
 		st, code, _ := f.wait(backup.KindRestore)
-		if st == "succeeded" || len(f.agent.restores) != restores {
-			t.Fatalf("%s: job %s %s, restore calls %d → %d", name, st, code, restores, len(f.agent.restores))
+		// nothing changed: rolled_back, the tenant's lifecycle lock released (restore lock fix)
+		if st != "rolled_back" || len(f.agent.restores) != restores || f.held() != 0 {
+			t.Fatalf("%s: job %s %s, restore calls %d → %d, lock held %d", name, st, code, restores, len(f.agent.restores), f.held())
 		}
 		t.Logf("%s: %s (%s), the agent was not asked to decrypt", name, st, code)
 	}
@@ -725,8 +753,9 @@ func TestRestoreRefusals(t *testing.T) {
 	if _, err := f.enqueueRestore(backup.RestorePayload{BackupID: id, InstanceID: f.instance}); err != nil {
 		t.Fatal(err)
 	}
-	if st, code, _ := f.wait(backup.KindRestore); st == "succeeded" || code != "restore_check_failed" {
-		t.Fatalf("check: %s %s", st, code)
+	// past the point of no return: failed_resumable, the lock held (§11.3)
+	if st, code, _ := f.wait(backup.KindRestore); st != "failed_resumable" || code != "restore_check_failed" || f.held() != 1 {
+		t.Fatalf("check: %s %s, lock held %d", st, code, f.held())
 	}
 	if f.agent.detached != 1 {
 		t.Fatalf("edge detached %d times", f.agent.detached)
@@ -738,6 +767,218 @@ func TestRestoreRefusals(t *testing.T) {
 }
 
 var origManifest, origSig, origWrapped []byte
+
+// held counts the jobs that hold the tenant's lifecycle lock (running, compensating, failed_resumable — §11.3).
+func (f *fix) held() int {
+	return f.count(`SELECT count(*) FROM provisioning_jobs WHERE tenant_id = $1 AND lock_key IS NOT NULL
+		AND status IN ('running', 'compensating', 'failed_resumable')`, f.tenant)
+}
+
+// waitJob waits until the job is in one of the statuses and returns its status and error code.
+func (f *fix) waitJob(id uuid.UUID, statuses ...string) (status, code string) {
+	f.t.Helper()
+	deadline := time.Now().Add(60 * time.Second)
+	for {
+		s := f.str(`SELECT status || '|' || coalesce(error->>'code', '') FROM provisioning_jobs WHERE id = $1`, id)
+		status, code, _ = strings.Cut(s, "|")
+		if slices.Contains(statuses, status) {
+			return status, code
+		}
+		if time.Now().After(deadline) {
+			f.t.Fatalf("job %s: %s %s, want %v", id, status, code, statuses)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// control runs /rollback or /retry of a job as the api process does (jobs.Rollback / jobs.Retry in a platform job
+// transaction of the api's pool).
+func (f *fix) control(api *store.Store, fn func(context.Context, *store.Tx, uuid.UUID) (jobs.Controlled, error), id uuid.UUID) error {
+	return api.WithPlatformJobTx(context.Background(), func(tx *store.Tx) error {
+		_, err := fn(context.Background(), tx, id)
+		return err
+	})
+}
+
+// opEvents lists the audit events of the restore's operation (action/reason, oldest first).
+func (f *fix) opEvents(jobID uuid.UUID) string {
+	return f.str(`SELECT coalesce(string_agg(e.action || '/' || coalesce(e.details->>'reason', '-') || '/' ||
+			coalesce(e.details->>'instance_changed', '-'), ',' ORDER BY e.occurred_at, e.id), '')
+		FROM audit_events e JOIN provisioning_jobs j ON e.operation_id = (j.input->'operation'->>'id')::uuid WHERE j.id = $1`, jobID)
+}
+
+// TestRestoreLockRelease — the restore lock fix of P3-T11 (staging: a restore of an adopted instance refused by the
+// agent held the tenant's lifecycle lock in failed_resumable with no way out but /retry). A restore that changed nothing
+// ends rolled_back — lock released, no later step run, the audit operation closed once — whether the worker's own check
+// of the agent's view refused it (never activated: Restore is not even called) or the agent refused before any change
+// (Refusal.unchanged). A refusal the agent does not mark (an older agent), or one after an earlier call of the job,
+// keeps the lock and refuses /rollback (point_of_no_return). A job of a worker before the fix (restore.instance failed,
+// nothing recorded) is rolled back by /rollback only when the agent reports the instance never activated; otherwise the
+// rollback fails (lock kept) and /retry completes the restore.
+func TestRestoreLockRelease(t *testing.T) {
+	f := newFix(t)
+	f.worker()
+	api := f.pg.OpenStore(t, f.db, "mg_api_tenant", "mg_api_platform", 4)
+	id := f.backupNow()
+	p := backup.RestorePayload{BackupID: id, InstanceID: f.instance}
+	enqueue := func(name string) uuid.UUID {
+		t.Helper()
+		jobID, err := f.enqueueRestore(p)
+		if err != nil || jobID == nil {
+			t.Fatalf("%s: enqueue %v", name, err)
+		}
+		return *jobID
+	}
+	mark := func(jobID uuid.UUID) string {
+		return f.str(`SELECT coalesce(created_resources::text, 'null') FROM provisioning_job_steps WHERE job_id = $1 AND name = 'restore.instance'`, jobID)
+	}
+	later := func(jobID uuid.UUID) int {
+		return f.count(`SELECT count(*) FROM provisioning_job_steps WHERE job_id = $1 AND name NOT IN ('restore.verify', 'restore.instance')`, jobID)
+	}
+	calls := func() (restores, statuses, plans, attached int) {
+		f.agent.mu.Lock()
+		defer f.agent.mu.Unlock()
+		return len(f.agent.restores), f.agent.statuses, len(f.agent.plans), f.agent.attached
+	}
+	released := func(name string, jobID uuid.UUID, wantCode string) {
+		t.Helper()
+		st, code := f.waitJob(jobID, "rolled_back", "failed_resumable", "succeeded")
+		if st != "rolled_back" || code != wantCode || f.held() != 0 || later(jobID) != 0 {
+			t.Fatalf("%s: %s %s, lock held %d, later steps %d", name, st, code, f.held(), later(jobID))
+		}
+		if n := f.count(`SELECT count(*) FROM provisioning_job_steps WHERE job_id = $1 AND compensation_status IS DISTINCT FROM 'skipped'`, jobID); n != 0 {
+			t.Fatalf("%s: %d steps not marked compensation skipped", name, n)
+		}
+		if ev := f.opEvents(jobID); ev != "instance.restore.requested/-/-,instance.restore.failed/"+wantCode+"/false" {
+			t.Fatalf("%s: audit %s", name, ev)
+		}
+	}
+
+	// 1. the agent's view: never activated (an adopted instance) ⇒ no Restore call, rolled_back
+	f.agent.mu.Lock()
+	f.agent.inactive = true
+	f.agent.mu.Unlock()
+	r0, s0, _, _ := calls()
+	j1 := enqueue("never activated")
+	released("never activated", j1, "instance_not_restorable")
+	if r, s, _, _ := calls(); r != r0 || s != s0+1 {
+		t.Fatalf("never activated: restores %d → %d, statuses %d → %d", r0, r, s0, s)
+	}
+	if m := mark(j1); !strings.Contains(m, `"point_of_no_return": false`) || !strings.Contains(m, `"not_called"`) {
+		t.Fatalf("never activated: restore.instance recorded %s", m)
+	}
+	f.agent.mu.Lock()
+	f.agent.inactive = false
+	f.agent.mu.Unlock()
+
+	// 2. the agent refuses before any change (STATE, unchanged — the staging case with a fixed agent) ⇒ rolled_back,
+	// nothing after restore.instance (no reconcile, no edge)
+	f.agent.mu.Lock()
+	f.agent.restoreErrs = []error{unchangedRefusal(codes.FailedPrecondition, agentv1.RefusalReason_REFUSAL_REASON_STATE,
+		"only an activated instance with a recorded Noise key fingerprint is restored (v1)")}
+	f.agent.mu.Unlock()
+	r0, _, pl0, at0 := calls()
+	j2 := enqueue("refused unchanged")
+	released("refused unchanged", j2, "agent_state")
+	if r, _, pl, at := calls(); r != r0+1 || pl != pl0 || at != at0 {
+		t.Fatalf("refused unchanged: restores %d → %d, plans %d → %d, attached %d → %d", r0, r, pl0, pl, at0, at)
+	}
+	if m := mark(j2); !strings.Contains(m, `"point_of_no_return": false`) || !strings.Contains(m, `"refused_unchanged"`) ||
+		!strings.Contains(m, `"state"`) {
+		t.Fatalf("refused unchanged: restore.instance recorded %s", m)
+	}
+
+	// 3. the same refusal without the mark (an older agent) ⇒ failed_resumable, the lock held, /rollback refused
+	// point_of_no_return; another lifecycle job of the tenant cannot start meanwhile
+	f.agent.mu.Lock()
+	f.agent.restoreErrs = []error{refusal(codes.FailedPrecondition, agentv1.RefusalReason_REFUSAL_REASON_STATE, "refused")}
+	f.agent.mu.Unlock()
+	j3 := enqueue("refused, not marked")
+	if st, code := f.waitJob(j3, "rolled_back", "failed_resumable", "succeeded"); st != "failed_resumable" || code != "agent_state" || f.held() != 1 {
+		t.Fatalf("refused, not marked: %s %s, lock held %d", st, code, f.held())
+	}
+	var se *jobs.StateError
+	if err := f.control(api, jobs.Rollback, j3); !errors.As(err, &se) || se.Reason != jobs.ReasonPointOfNoReturn {
+		t.Fatalf("rollback past the point of no return: %v", err)
+	}
+	if ev := f.opEvents(j3); ev != "instance.restore.requested/-/-,instance.restore.failed/agent_state/true" {
+		t.Fatalf("refused, not marked: audit %s", ev)
+	}
+	// /retry completes it (the agent accepts now)
+	if err := f.control(api, jobs.Retry, j3); err != nil {
+		t.Fatal(err)
+	}
+	if st, code := f.waitJob(j3, "succeeded", "failed_resumable", "rolled_back"); st != "succeeded" || f.held() != 0 {
+		t.Fatalf("retry: %s %s, lock held %d", st, code, f.held())
+	}
+
+	// 4. an unchanged refusal AFTER an earlier call of the job (agent unavailable, then refused) ⇒ the job may have
+	// changed the instance at its first call: failed_resumable, the lock held
+	f.agent.mu.Lock()
+	f.agent.restoreErrs = []error{status.Error(codes.Unavailable, "agent restarting"),
+		unchangedRefusal(codes.FailedPrecondition, agentv1.RefusalReason_REFUSAL_REASON_STATE, "refused")}
+	f.agent.mu.Unlock()
+	j4 := enqueue("refused after an earlier call")
+	if st, code := f.waitJob(j4, "rolled_back", "failed_resumable", "succeeded"); st != "failed_resumable" || code != "agent_state" || f.held() != 1 {
+		t.Fatalf("refused after an earlier call: %s %s, lock held %d", st, code, f.held())
+	}
+	if m := mark(j4); !strings.Contains(m, `"point_of_no_return": true`) {
+		t.Fatalf("refused after an earlier call: restore.instance recorded %s", m)
+	}
+	if err := f.control(api, jobs.Retry, j4); err != nil {
+		t.Fatal(err)
+	}
+	if st, code := f.waitJob(j4, "succeeded", "failed_resumable", "rolled_back"); st != "succeeded" {
+		t.Fatalf("retry after an earlier call: %s %s", st, code)
+	}
+
+	// 5. a job of a worker before the fix: restore.instance failed with nothing recorded (simulated) — the escape of
+	// the stuck staging job. The instance never activated ⇒ /rollback ⇒ rolled_back, the operation not closed twice.
+	legacy := func(name string) uuid.UUID {
+		t.Helper()
+		f.agent.mu.Lock()
+		f.agent.restoreErrs = []error{refusal(codes.FailedPrecondition, agentv1.RefusalReason_REFUSAL_REASON_STATE, "refused")}
+		f.agent.mu.Unlock()
+		j := enqueue(name)
+		if st, _ := f.waitJob(j, "rolled_back", "failed_resumable", "succeeded"); st != "failed_resumable" {
+			t.Fatalf("%s: %s", name, st)
+		}
+		f.exec(`UPDATE provisioning_job_steps SET created_resources = NULL WHERE job_id = $1 AND name = 'restore.instance'`, j)
+		return j
+	}
+	j5 := legacy("legacy, never activated")
+	f.agent.mu.Lock()
+	f.agent.inactive = true
+	f.agent.mu.Unlock()
+	if err := f.control(api, jobs.Rollback, j5); err != nil {
+		t.Fatalf("legacy rollback: %v", err)
+	}
+	if st, code := f.waitJob(j5, "rolled_back", "failed_resumable"); st != "rolled_back" || code != "agent_state" || f.held() != 0 {
+		t.Fatalf("legacy, never activated: %s %s, lock held %d", st, code, f.held())
+	}
+	if ev := f.opEvents(j5); ev != "instance.restore.requested/-/-,instance.restore.failed/agent_state/true" {
+		t.Fatalf("legacy, never activated: audit %s (closed once)", ev)
+	}
+	f.agent.mu.Lock()
+	f.agent.inactive = false
+	f.agent.mu.Unlock()
+
+	// 6. the same job shape, the instance activated ⇒ the rollback refuses (compensation_failed, the lock kept);
+	// /retry completes the restore
+	j6 := legacy("legacy, activated")
+	if err := f.control(api, jobs.Rollback, j6); err != nil {
+		t.Fatalf("legacy rollback (activated): %v", err)
+	}
+	if st, code := f.waitJob(j6, "rolled_back", "failed_resumable"); st != "failed_resumable" || code != jobs.CodeCompensationFailed || f.held() != 1 {
+		t.Fatalf("legacy, activated: %s %s, lock held %d", st, code, f.held())
+	}
+	if err := f.control(api, jobs.Retry, j6); err != nil {
+		t.Fatal(err)
+	}
+	if st, code := f.waitJob(j6, "succeeded", "failed_resumable", "rolled_back"); st != "succeeded" || f.held() != 0 {
+		t.Fatalf("legacy retry: %s %s, lock held %d", st, code, f.held())
+	}
+}
 
 // TestBackupAPI — the service behind POST /platform/instances/{id}/backup, GET /platform/backups and the request-time
 // check of POST /platform/instances/{id}/restore: one queued API backup per instance (the same job back); an

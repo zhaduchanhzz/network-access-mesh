@@ -624,6 +624,7 @@ func (r *Run) Step(ctx context.Context, name string, fn func(ctx context.Context
 	var (
 		started, cancelled bool
 		prev               []byte
+		attempt            int32
 		gated              error
 	)
 	err := r.w.bookkeep(ctx, func(bctx context.Context, tx *store.Tx) error {
@@ -643,7 +644,7 @@ func (r *Run) Step(ctx context.Context, name string, fn func(ctx context.Context
 		if err != nil {
 			return err
 		}
-		started, prev = true, row.CreatedResources
+		started, prev, attempt = true, row.CreatedResources, row.Attempt
 		return tx.Q.SetJobCurrentStep(bctx, sqlcdb.SetJobCurrentStepParams{CurrentStep: name, ID: r.ID, Attempt: int32(r.Attempt)}) //nolint:gosec // attempt count
 	})
 	if err != nil {
@@ -658,7 +659,7 @@ func (r *Run) Step(ctx context.Context, name string, fn func(ctx context.Context
 	if !started {
 		return nil
 	}
-	s := &StepRun{run: r, name: name, prev: prev}
+	s := &StepRun{run: r, name: name, prev: prev, attempt: int(attempt)}
 	ferr := call(ctx, func(ctx context.Context, _ *Run) error { return fn(ctx, s) }, r)
 	status, code, detail := StepSucceeded, (*string)(nil), s.detail
 	if ferr != nil {
@@ -693,11 +694,16 @@ func (r *Run) gate(ctx context.Context, q *sqlcdb.Queries) error {
 
 // StepRun is the running step handed to a Step function.
 type StepRun struct {
-	run    *Run
-	name   string
-	detail []byte
-	prev   []byte // created_resources recorded by an earlier attempt of this step
+	run     *Run
+	name    string
+	detail  []byte
+	prev    []byte // created_resources recorded by an earlier attempt of this step
+	attempt int    // attempts of this step, this one included (1 = its first start)
 }
+
+// Attempt is the number of times this step has started, this attempt included: 1 on its first start. With Previous it
+// tells a step that never ran before from one whose earlier attempts recorded nothing.
+func (s *StepRun) Attempt() int { return s.attempt }
 
 // Previous decodes into v what an earlier attempt of this step recorded with RecordCreated (the step failed, or the
 // worker died after recording): found = false on the first attempt. A step that chooses an identifier before creating

@@ -162,6 +162,11 @@ func (a *BackupAgent) RemoveEdgeAttachment(ctx context.Context, r *agentv1.Remov
 	return a.Next.RemoveEdgeAttachment(ctx, r, o...)
 }
 
+// GetInstanceStatus implements backup.Agent (no fault — the restore's check of the Host Agent's view).
+func (a *BackupAgent) GetInstanceStatus(ctx context.Context, r *agentv1.GetInstanceStatusRequest, o ...grpc.CallOption) (*agentv1.GetInstanceStatusResponse, error) {
+	return a.Next.GetInstanceStatus(ctx, r, o...)
+}
+
 // ---------------------------------------------------------------------------------------------------- registry
 
 type storeLayer struct{}

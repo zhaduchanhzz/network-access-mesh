@@ -522,7 +522,23 @@ func (d *Driver) headscaleVersion(ctx context.Context, ref agentspec.Ref, image 
 // the restored database never serves its old policy; the edge_attach flag is cleared, the edge detached, the instance
 // stopped; data/ is renamed to data.prev-<time> and the staging data/ renamed into place; the instance starts — still
 // without the edge — passing the start guard; the policy is set again over the CLI (exact bytes) and read back.
+//
+// Every refusal before the first change — the edge_attach flag cleared, the edge detached, the instance stopped
+// (detachForRestore), or the restore of the same job found already swapped in — is marked unchanged
+// (Refusal.unchanged): the worker then ends the job without keeping the tenant's lifecycle lock. Until then only the
+// scratch files of a restore are written (the staging directory, removed on return, and config/restore-policy.hujson,
+// which the running instance never reads and the next restore rewrites).
 func (d *Driver) Restore(ctx context.Context, r agentspec.Restore) (*agentv1.RestoreResponse, error) {
+	changed := false
+	resp, err := d.restore(ctx, r, &changed)
+	if err != nil && !changed {
+		return nil, agentspec.Unchanged(err)
+	}
+	return resp, err
+}
+
+// restore is Restore; *changed is set just before the first change of the instance.
+func (d *Driver) restore(ctx context.Context, r agentspec.Restore, changed *bool) (*agentv1.RestoreResponse, error) {
 	cfg, err := d.backupCfg()
 	if err != nil {
 		return nil, err
@@ -562,6 +578,7 @@ func (d *Driver) Restore(ctx context.Context, r agentspec.Restore) (*agentv1.Res
 	}
 	if prev, ok := st.meta[metaRestore].(map[string]any); ok && prev["job_id"] == r.JobID.String() && prev["sequence"] == strconv.FormatUint(r.Sequence, 10) {
 		kept, _ := prev["kept_as"].(string)
+		*changed = true // swapped in by an earlier call of this job
 		return d.finishRestore(ctx, t, l, n, r, filesSum, kept, true)
 	}
 	staging, err := d.newStaging(t, l, int(st.runUID), "restore")
@@ -603,7 +620,8 @@ func (d *Driver) Restore(ctx context.Context, r agentspec.Restore) (*agentv1.Res
 			return nil, err
 		}
 	}
-	// §17.2 step 3: no edge, stopped, swap
+	// §17.2 step 3: no edge, stopped, swap — from here on a failure is not "unchanged"
+	*changed = true
 	if err := d.detachForRestore(ctx, t, l, n, r.Ref, st.meta); err != nil {
 		return nil, err
 	}

@@ -15,6 +15,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	agentv1 "github.com/zhaduchanhzz/network-access-mesh/api/agent/v1"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/agentclient"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/audit"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/headscale"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/jobs"
@@ -100,6 +101,24 @@ type verified struct {
 	seq      uint64
 }
 
+// restoreJob is instance.restore: jobs.Handler + jobs.Compensator (restore lock fix of P3-T11). A permanent error while
+// the restore has changed nothing — before its point of no return restore.instance asked the Host Agent to restore
+// (jobs.Kind.PointOfNoReturn), or when the Host Agent refused before any change (Refusal.unchanged) — stays permanent:
+// the worker compensates (nothing to undo) and the job ends rolled_back, releasing the tenant's lifecycle lock. Past it,
+// or when that cannot be shown, the error stops the job failed_resumable as before (§11.3: the lock stays, /retry
+// resumes from the failed step; /rollback ⇒ 409 point_of_no_return).
+type restoreJob struct{ s *Service }
+
+var _ jobs.Compensator = restoreJob{}
+
+// Run implements jobs.Handler.
+func (j restoreJob) Run(ctx context.Context, run *jobs.Run) error { return j.s.runRestore(ctx, run) }
+
+// Compensate implements jobs.Compensator.
+func (j restoreJob) Compensate(ctx context.Context, run *jobs.Run, cause error) error {
+	return j.s.compensateRestore(ctx, run, cause)
+}
+
 func (s *Service) runRestore(ctx context.Context, run *jobs.Run) error {
 	if run.TenantID == nil || run.InstanceID == nil {
 		return jobs.Permanent("invalid_input", errors.New("instance.restore needs a tenant and an instance"))
@@ -111,8 +130,15 @@ func (s *Service) runRestore(ctx context.Context, run *jobs.Run) error {
 	rep, err := s.restore(ctx, run, *run.TenantID, in)
 	if err != nil {
 		var je *jobs.Error
-		if in.Operation != nil && errors.As(err, &je) && (je.Permanent || je.Stop) {
-			s.closeRestore(ctx, *in.Operation, nil, je.Code)
+		final := errors.As(err, &je) && (je.Permanent || je.Stop)
+		var extra audit.Details
+		if final && je.Permanent && ctx.Err() == nil {
+			var unchanged bool
+			unchanged, err = s.settle(ctx, run.ID, *run.TenantID, in.InstanceID, je.Code, err)
+			extra = audit.Details{"instance_changed": !unchanged}
+		}
+		if in.Operation != nil && final {
+			s.closeRestore(ctx, *in.Operation, nil, je.Code, extra)
 		}
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -120,7 +146,7 @@ func (s *Service) runRestore(ctx context.Context, run *jobs.Run) error {
 		return err
 	}
 	if in.Operation != nil {
-		s.closeRestore(ctx, *in.Operation, &rep, "")
+		s.closeRestore(ctx, *in.Operation, &rep, "", nil)
 	}
 	if err := run.SetOutput(rep); err != nil {
 		return jobs.Permanent("invalid_output", err)
@@ -128,12 +154,69 @@ func (s *Service) runRestore(ctx context.Context, run *jobs.Run) error {
 	return nil
 }
 
-func (s *Service) closeRestore(ctx context.Context, op audit.Operation, rep *RestoreReport, code string) {
+// settle decides how a permanent error ends a restore: still permanent when the restore changed nothing (the worker then
+// compensates — nothing to undo — and the job ends rolled_back, the lifecycle lock released), Resumable otherwise
+// (failed_resumable with the same code, the lock held — §11.3: once the instance may have changed, the tenant's lock
+// stays until /retry completes the restore). Unknown (the registry or the Host Agent unreachable) counts as changed.
+func (s *Service) settle(ctx context.Context, jobID, tenantID, instanceID uuid.UUID, code string, cause error) (bool, error) {
+	unchanged, err := s.unchanged(ctx, jobID, tenantID, instanceID)
+	if err != nil {
+		s.log.WarnContext(ctx, "backup: whether the restore changed the instance is unknown — the job keeps the lifecycle lock",
+			"job_id", jobID.String(), "code", jobs.CodeOf(err))
+	}
+	if err == nil && unchanged {
+		return true, cause
+	}
+	return false, jobs.Resumable(code, cause)
+}
+
+// compensateRestore is the rollback of instance.restore — by the worker after a permanent error, or /rollback of a
+// failed_resumable job (a restore cancelled, timed out or out of attempts before it reached the Host Agent, or one of a
+// worker before the restore lock fix): nothing to undo, allowed only while the restore changed nothing (unchanged —
+// defence in depth behind the point of no return of jobs.Rollback). Every step is marked compensation skipped and the
+// audit operation closed (.failed, once).
+func (s *Service) compensateRestore(ctx context.Context, run *jobs.Run, cause error) error {
+	if run.TenantID == nil || run.InstanceID == nil {
+		return jobs.Permanent("invalid_input", errors.New("instance.restore needs a tenant and an instance"))
+	}
+	var in RestoreInput
+	if err := run.DecodeInput(&in); err != nil {
+		return jobs.Permanent("invalid_input", errors.New("instance.restore: the input is unreadable"))
+	}
+	unchanged, err := s.unchanged(ctx, run.ID, *run.TenantID, *run.InstanceID)
+	if err != nil {
+		return err
+	}
+	if !unchanged {
+		return jobs.Permanent(jobs.ReasonPointOfNoReturn,
+			errors.New("the Host Agent may have changed the instance (restore.instance was reached): a restore is not rolled back — /retry completes it"))
+	}
+	if err := run.CompensateSteps(ctx, nil); err != nil {
+		return err
+	}
+	if in.Operation != nil {
+		s.closeRestore(ctx, *in.Operation, nil, jobs.CodeOf(cause), audit.Details{"instance_changed": false, "rolled_back": true})
+	}
+	return nil
+}
+
+// closeRestore closes the audit operation of the restore: .succeeded with the report; .failed once — an operation already
+// closed (an earlier attempt, or the run before its compensation) gets no second .failed (a restore completed by /retry
+// after a failure still records its .succeeded, as before).
+func (s *Service) closeRestore(ctx context.Context, op audit.Operation, rep *RestoreReport, code string, extra audit.Details) {
 	wctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 	defer cancel()
 	err := s.st.WithPlatformTx(wctx, func(q *sqlcdb.Queries) error {
 		if rep == nil {
-			return op.Failed(wctx, q, code, audit.Details{"instance_id": op.ResourceID})
+			st, err := q.OperationState(wctx, op.ID)
+			if err != nil || st.Finished {
+				return err
+			}
+			d := audit.Details{"instance_id": op.ResourceID}
+			for k, v := range extra {
+				d[k] = v
+			}
+			return op.Failed(wctx, q, code, d)
 		}
 		return op.Succeeded(wctx, q, audit.Details{"backup_id": rep.BackupID.String(), "sequence": rep.Sequence,
 			"restore_point_older_than_backup": rep.RestorePointOlderThanBackup, "policy_sha256": rep.PolicySHA256,
@@ -142,6 +225,80 @@ func (s *Service) closeRestore(ctx context.Context, op audit.Operation, rep *Res
 	if err != nil {
 		s.log.ErrorContext(ctx, "backup: closing the restore audit operation failed", "operation", op.ID.String())
 	}
+}
+
+// unchanged reports whether a restore job has changed nothing of the instance — the condition of its rollback (§11.3):
+// restore.instance never started; or it recorded that the Host Agent was not asked yet, or refused before any change
+// (restoreMark with point_of_no_return false); or — a restore.instance of a worker before the restore lock fix, which
+// recorded nothing — the Host Agent reports the instance never activated: Restore refuses such an instance before
+// anything else (its first check, in every version), and nothing a restore does removes meta/activated.
+func (s *Service) unchanged(ctx context.Context, jobID, tenantID, instanceID uuid.UUID) (bool, error) {
+	var row *sqlcdb.ProvisioningJobStep
+	err := s.st.WithTenantTx(ctx, tenantID, func(q *sqlcdb.Queries) error {
+		r, err := q.GetJobStep(ctx, sqlcdb.GetJobStepParams{JobID: jobID, Name: stepInstance})
+		if errors.Is(err, store.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		row = &r
+		return nil
+	})
+	switch {
+	case err != nil:
+		return false, jobs.Transient("registry_unavailable", err)
+	case row == nil:
+		return true, nil
+	case jobs.PointOfNoReturnPassed(row.Status, row.CreatedResources):
+		return false, nil
+	case len(row.CreatedResources) > 0 && string(row.CreatedResources) != "null":
+		return true, nil // marked {"point_of_no_return": false}
+	}
+	inst, err := s.instance(ctx, tenantID, instanceID)
+	if err != nil {
+		return false, err
+	}
+	st, err := s.agentStatus(ctx, inst)
+	if err != nil {
+		return false, err
+	}
+	return !st.GetActivated(), nil
+}
+
+// agentStatus is the Host Agent's view of the instance (GetInstanceStatus).
+func (s *Service) agentStatus(ctx context.Context, inst instance) (*agentv1.InstanceStatus, error) {
+	if s.cfg.Agent == nil {
+		return nil, jobs.Permanent("agent_not_configured", errors.New("the worker has no Host Agent (MG_AGENT_SOCKET)"))
+	}
+	cctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	r, err := s.cfg.Agent.GetInstanceStatus(cctx, &agentv1.GetInstanceStatusRequest{Instance: inst.ref()})
+	if err != nil {
+		return nil, agentErr("GetInstanceStatus", err)
+	}
+	return r.GetStatus(), nil
+}
+
+// restorable is the Host Agent's view of the instance before it is asked to restore (restore lock fix — the cheap check
+// of what Restore refuses first): v1 restores only an activated instance (meta/activated, written with the Noise key
+// fingerprint at the first edge attachment), never a quarantined one. A refusal here changed nothing.
+func (s *Service) restorable(ctx context.Context, inst instance, sr detailer) error {
+	st, err := s.agentStatus(ctx, inst)
+	if err != nil {
+		return err
+	}
+	switch {
+	case st.GetQuarantined():
+		_ = sr.SetDetail(map[string]any{"agent_restore": markNotCalled, "quarantined": true})
+		return jobs.Permanent("instance_quarantined",
+			errors.New("the Host Agent reports the instance quarantined (meta/quarantined): no restore (§11.4) — nothing was changed"))
+	case !st.GetActivated():
+		_ = sr.SetDetail(map[string]any{"agent_restore": markNotCalled, "activated": false})
+		return jobs.Permanent("instance_not_restorable",
+			errors.New("the Host Agent reports the instance never activated (no meta/activated): restore v1 needs an activated instance with a recorded Noise key fingerprint — nothing was changed"))
+	}
+	return nil
 }
 
 // verify — §17.2 step 2, the worker's half (the agent repeats it): the backup row of the tenant (RLS), succeeded, of
@@ -215,7 +372,7 @@ func (s *Service) restore(ctx context.Context, run *jobs.Run, tenantID uuid.UUID
 		return rep, err
 	}
 	if err := run.Step(ctx, stepInstance, func(ctx context.Context, sr *jobs.StepRun) error {
-		return s.stepInstance(ctx, run.ID, tenantID, v, in, sr)
+		return s.stepInstance(ctx, run.ID, tenantID, v, in, sr, sr)
 	}); err != nil {
 		return rep, err
 	}
@@ -259,9 +416,58 @@ func (s *Service) restore(ctx context.Context, run *jobs.Run, tenantID uuid.UUID
 
 // ---------------------------------------------------------------------------------------------------- steps
 
+// pointOfNoReturn is how restore.instance of a job records its point of no return (jobs.Kind.PointOfNoReturn — the
+// restore lock fix of P3-T11): the job's *jobs.StepRun; nil in an upgrade's rollback (RollbackRestore — the upgrade's
+// own compensation decides).
+type pointOfNoReturn interface {
+	Previous(v any) (bool, error)
+	RecordCreated(ctx context.Context, resources any) error
+	Attempt() int
+}
+
+// restoreMark is created_resources of restore.instance: point_of_no_return false while the Host Agent has not been asked
+// to restore (recorded when the step first starts) or refused before any change (Refusal.unchanged, on the job's first
+// call); true from just before the call on. A step that started under a worker before the fix recorded nothing.
+type restoreMark struct {
+	PointOfNoReturn bool   `json:"point_of_no_return"`
+	AgentRestore    string `json:"agent_restore"`
+	Refusal         string `json:"refusal,omitempty"`
+}
+
+const (
+	markNotCalled        = "not_called"
+	markCalled           = "called"
+	markRefusedUnchanged = "refused_unchanged"
+)
+
 // stepInstance — §17.2 steps 2–4 at the agent: unwrap the data key (online path), hand it over with the policy to set
-// (the current applied policy, or "keep the archive's" on the older branch), record the policy application.
-func (s *Service) stepInstance(ctx context.Context, jobID, tenantID uuid.UUID, v verified, in RestoreInput, sr detailer) error {
+// (the current applied policy, or "keep the archive's" on the older branch), record the policy application. In a job
+// (pnr not nil) the Host Agent's view of the instance is checked first (restorable) and the point of no return is
+// recorded around the call (restoreMark).
+func (s *Service) stepInstance(ctx context.Context, jobID, tenantID uuid.UUID, v verified, in RestoreInput, sr detailer,
+	pnr pointOfNoReturn,
+) error {
+	// fresh: this job has not asked the Host Agent to restore yet — known from the step's own record only
+	fresh := false
+	if pnr != nil {
+		var prev restoreMark
+		found, err := pnr.Previous(&prev)
+		if err != nil {
+			return err
+		}
+		switch {
+		case found:
+			fresh = !prev.PointOfNoReturn
+		case pnr.Attempt() == 1:
+			if err := pnr.RecordCreated(ctx, restoreMark{AgentRestore: markNotCalled}); err != nil {
+				return err
+			}
+			fresh = true
+		}
+		if err := s.restorable(ctx, v.inst, sr); err != nil {
+			return err
+		}
+	}
 	ref, err := keyRef(tenantID, v)
 	if err != nil {
 		return err
@@ -295,6 +501,11 @@ func (s *Service) stepInstance(ctx context.Context, jobID, tenantID uuid.UUID, v
 	} else {
 		req.Policy = &agentv1.RestoreRequest_KeepBackupPolicy{KeepBackupPolicy: true}
 	}
+	if pnr != nil { // BEFORE the call: from here on the job may have changed the instance
+		if err := pnr.RecordCreated(ctx, restoreMark{PointOfNoReturn: true, AgentRestore: markCalled}); err != nil {
+			return err
+		}
+	}
 	cctx, cancel := context.WithTimeout(ctx, s.cfg.CallTimeout)
 	defer cancel()
 	resp, err := s.cfg.Agent.Restore(cctx, req)
@@ -304,6 +515,16 @@ func (s *Service) stepInstance(ctx context.Context, jobID, tenantID uuid.UUID, v
 			d := refusalDetails(err)
 			d["backup_id"], d["instance_id"] = v.row.ID.String(), v.inst.ID.String()
 			s.raise(ctx, tenantID, kind, sev, v.row.ID.String(), d)
+		}
+		if rf, ok := agentclient.RefusalOf(err); ok && rf.GetUnchanged() && pnr != nil && fresh {
+			// refused before any change, on the job's first call: the point of no return is not passed (if this record
+			// fails the step stays "called" — the job then keeps the lock, the safe side)
+			code := refusalCode(rf.GetReason())
+			if rerr := pnr.RecordCreated(context.WithoutCancel(ctx), restoreMark{AgentRestore: markRefusedUnchanged, Refusal: code}); rerr != nil {
+				s.log.WarnContext(ctx, "backup: the unchanged refusal of Restore was not recorded — the job keeps the lifecycle lock",
+					"job_id", jobID.String())
+			}
+			_ = sr.SetDetail(map[string]any{"agent_restore": markRefusedUnchanged, "refusal": code})
 		}
 		return agentErr("Restore", err)
 	}

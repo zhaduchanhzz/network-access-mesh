@@ -6,6 +6,7 @@ package jobs
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -149,11 +150,8 @@ func Rollback(ctx context.Context, tx *store.Tx, id uuid.UUID) (Controlled, erro
 	if err != nil {
 		return Controlled{}, err
 	}
-	if !k.Compensable {
-		return Controlled{}, &StateError{Action: ActionRollback, Kind: rec.Kind, Status: rec.Status, Reason: "kind_not_compensable"}
-	}
-	if _, ok := NextStatus(rec.Status, EventRollback); !ok {
-		return Controlled{}, &StateError{Action: ActionRollback, Kind: rec.Kind, Status: rec.Status, Reason: "status_not_allowed"}
+	if se := rollbackRefusal(rec, k); se != nil {
+		return Controlled{}, se
 	}
 	if passed, err := PastPointOfNoReturn(ctx, tx.Q, k, rec.ID); err != nil {
 		return Controlled{}, err
@@ -172,13 +170,28 @@ func Rollback(ctx context.Context, tx *store.Tx, id uuid.UUID) (Controlled, erro
 	return controlled(ctx, tx, row, rec.Status, EventRollback)
 }
 
+// rollbackRefusal is what the kind and the status alone decide of a /rollback (nil: allowed so far). Every lifecycle
+// kind of the registry is compensable today (instance.restore since the restore lock fix of P3-T11); a kind added
+// without a compensation is refused kind_not_compensable.
+func rollbackRefusal(rec sqlcdb.ProvisioningJob, k Kind) *StateError {
+	if !k.Compensable {
+		return &StateError{Action: ActionRollback, Kind: rec.Kind, Status: rec.Status, Reason: "kind_not_compensable"}
+	}
+	if _, ok := NextStatus(rec.Status, EventRollback); !ok {
+		return &StateError{Action: ActionRollback, Kind: rec.Kind, Status: rec.Status, Reason: "status_not_allowed"}
+	}
+	return nil
+}
+
 // ReasonPointOfNoReturn: /rollback of a job past its kind's point of no return (Kind.PointOfNoReturn).
 const ReasonPointOfNoReturn = "point_of_no_return"
 
 // PastPointOfNoReturn reports whether job id of kind k has passed the kind's point of no return: the step
-// Kind.PointOfNoReturn exists and recorded its created_resources (the step records them just before its first
-// irreversible action). Kinds without one never pass it. Used by /rollback and by the compensation itself (defence in
-// depth: a compensation that finds the job past it refuses).
+// Kind.PointOfNoReturn exists and either succeeded or recorded its created_resources (the step records them just before
+// its first irreversible action) — unless what it recorded is an object whose "point_of_no_return" is false (a step
+// that records, when it starts, that it has not passed it yet: instance.restore — the Host Agent not asked yet, or
+// refused before any change). Kinds without one never pass it. Used by /rollback and by the compensation itself
+// (defence in depth: a compensation that finds the job past it refuses).
 func PastPointOfNoReturn(ctx context.Context, q *sqlcdb.Queries, k Kind, id uuid.UUID) (bool, error) {
 	if k.PointOfNoReturn == "" {
 		return false, nil
@@ -190,7 +203,25 @@ func PastPointOfNoReturn(ctx context.Context, q *sqlcdb.Queries, k Kind, id uuid
 	if err != nil {
 		return false, err
 	}
-	return len(row.CreatedResources) > 0 && string(row.CreatedResources) != "null", nil
+	return PointOfNoReturnPassed(row.Status, row.CreatedResources), nil
+}
+
+// PointOfNoReturnPassed is the rule of PastPointOfNoReturn on one step row: succeeded, or created_resources recorded
+// and not marked {"point_of_no_return": false}.
+func PointOfNoReturnPassed(status string, createdResources []byte) bool {
+	if status == StepSucceeded {
+		return true
+	}
+	if len(createdResources) == 0 || string(createdResources) == "null" {
+		return false
+	}
+	var mark struct {
+		PointOfNoReturn *bool `json:"point_of_no_return"`
+	}
+	if err := json.Unmarshal(createdResources, &mark); err == nil && mark.PointOfNoReturn != nil {
+		return *mark.PointOfNoReturn
+	}
+	return true
 }
 
 // KindOf returns the kind of the §13.5 registry named name (ok = false: unknown).

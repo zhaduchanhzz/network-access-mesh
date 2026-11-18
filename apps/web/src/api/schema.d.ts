@@ -979,9 +979,11 @@ export interface paths {
         put?: never;
         /**
          * Hoàn tác job failed_resumable — compensation ngược thứ tự các step đã làm
-         * @description §11.3: job `failed_resumable` của kind có compensation (`tenant.provision`) ⇒ `compensating` → `rolled_back`
-         *     (tenant `failed`); compensation lỗi ⇒ lại `failed_resumable` (`compensation_failed`) và `/rollback` lần nữa tiếp
-         *     tục từ step dừng. Kind không có compensation hoặc trạng thái khác ⇒ `409`.
+         * @description §11.3: job `failed_resumable` của kind có compensation ⇒ `compensating` → `rolled_back`, nhả khóa lifecycle
+         *     (`tenant.provision`: tenant `failed`); compensation lỗi ⇒ lại `failed_resumable` (`compensation_failed`) và
+         *     `/rollback` lần nữa tiếp tục từ step dừng. Đã qua điểm không quay lại của kind (`tenant.deprovision`: từ
+         *     `nodes.expire`; `instance.restore`: `restore.instance` đã gọi Host Agent `Restore` — sửa lỗi khóa restore của
+         *     P3-T11) ⇒ `409 point_of_no_return`, chỉ `/retry`. Kind không có compensation hoặc trạng thái khác ⇒ `409`.
          */
         post: operations["rollbackPlatformJob"];
         delete?: never;

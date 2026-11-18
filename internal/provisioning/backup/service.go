@@ -59,6 +59,9 @@ type Agent interface {
 	PostRestoreReconcile(ctx context.Context, in *agentv1.PostRestoreReconcileRequest, opts ...grpc.CallOption) (*agentv1.PostRestoreReconcileResponse, error)
 	EnsureEdgeAttachment(ctx context.Context, in *agentv1.EnsureEdgeAttachmentRequest, opts ...grpc.CallOption) (*agentv1.EnsureEdgeAttachmentResponse, error)
 	RemoveEdgeAttachment(ctx context.Context, in *agentv1.RemoveEdgeAttachmentRequest, opts ...grpc.CallOption) (*agentv1.RemoveEdgeAttachmentResponse, error)
+	// GetInstanceStatus: the restore's check that the instance is activated (the Host Agent's view) before it is asked to
+	// restore — and the proof that a restore of an older worker changed nothing (restore lock fix).
+	GetInstanceStatus(ctx context.Context, in *agentv1.GetInstanceStatusRequest, opts ...grpc.CallOption) (*agentv1.GetInstanceStatusResponse, error)
 }
 
 // SecretStore is the part of the SecretStore the jobs use (*secrets.Store).
@@ -138,7 +141,7 @@ func (s *Service) Register(w *jobs.Worker) error {
 	if err := w.Register(KindBackup, jobs.HandlerFunc(s.runBackup)); err != nil {
 		return err
 	}
-	return w.Register(KindRestore, jobs.HandlerFunc(s.runRestore))
+	return w.Register(KindRestore, restoreJob{s})
 }
 
 func (s *Service) enabled() error {

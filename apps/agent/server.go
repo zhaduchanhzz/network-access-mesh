@@ -526,12 +526,22 @@ func (s *server) Backup(ctx context.Context, r *agentv1.BackupRequest) (*agentv1
 	return &agentv1.BackupResponse{Artifact: a}, nil
 }
 
+// Restore: a refusal before the driver runs (validation, quarantine, the per-instance lock) changed nothing — it is
+// marked so (Refusal.unchanged); the driver marks its own refusals that precede its first change.
 func (s *server) Restore(ctx context.Context, r *agentv1.RestoreRequest) (*agentv1.RestoreResponse, error) {
 	rs, err := s.v.Restore(r)
 	if err != nil {
-		return nil, err
+		return nil, agentspec.Unchanged(err)
 	}
-	return onActive(ctx, s, rs.Call, func() (*agentv1.RestoreResponse, error) { return s.drv.Restore(ctx, rs) })
+	ran := false
+	resp, err := onActive(ctx, s, rs.Call, func() (*agentv1.RestoreResponse, error) {
+		ran = true
+		return s.drv.Restore(ctx, rs)
+	})
+	if err != nil && !ran {
+		err = agentspec.Unchanged(err)
+	}
+	return resp, err
 }
 
 func (s *server) PostRestoreReconcile(ctx context.Context, r *agentv1.PostRestoreReconcileRequest) (*agentv1.PostRestoreReconcileResponse, error) {

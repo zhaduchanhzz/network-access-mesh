@@ -64,6 +64,7 @@ type opsHost struct {
 	cfgValid  bool
 	preflight func() (*agentv1.PreflightUpgradeResponse, error)
 	detached  bool
+	inactive  bool // never activated (no meta/activated — an adopted instance)
 }
 
 func newOpsHost() *opsHost {
@@ -91,7 +92,8 @@ func (h *opsHost) fail(m string, errs ...error) {
 
 func (h *opsHost) statusLocked() *agentv1.InstanceStatus {
 	st := &agentv1.InstanceStatus{ContainerState: agentv1.ContainerState_CONTAINER_STATE_EXITED, Health: agentv1.HealthState_HEALTH_STATE_NONE,
-		ConfigSha256: h.cfgSHA, ImageDigest: h.ctrImage, StartedAt: timestamppb.New(h.started), NoiseKeyFingerprint: h.fp}
+		ConfigSha256: h.cfgSHA, ImageDigest: h.ctrImage, StartedAt: timestamppb.New(h.started), NoiseKeyFingerprint: h.fp,
+		Activated: !h.inactive}
 	if h.running {
 		st.ContainerState, st.Health = agentv1.ContainerState_CONTAINER_STATE_RUNNING, agentv1.HealthState_HEALTH_STATE_HEALTHY
 		if ok, set := h.healthyOn[h.ctrImage]; set && !ok {
@@ -891,6 +893,8 @@ func TestUpgradePreflightRefusals(t *testing.T) {
 			g.hs.checkErr = &headscale.Error{Op: headscale.OpCheckPolicy, Kind: headscale.KindPolicyRejected}
 		}, "policy_check_failed"},
 		{"quarantined", func(g *opsRig) { g.st.inst.Status = tenants.InstanceQuarantined }, "instance_quarantined"},
+		// restore lock fix (P3-T11): an instance the agent never activated is refused before it is stopped
+		{"never activated", func(g *opsRig) { g.h.inactive = true }, "instance_not_upgradable"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

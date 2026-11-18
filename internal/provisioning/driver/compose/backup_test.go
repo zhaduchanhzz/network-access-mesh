@@ -158,16 +158,16 @@ func TestBackupRestore(t *testing.T) {
 		undo := c.setup()
 		_, err := rg.d.Restore(ctx, c.req)
 		undo()
-		if reason(err) != c.want {
-			t.Errorf("%s: want %v, got %v", c.name, c.want, err)
+		if reason(err) != c.want || !unchanged(err) {
+			t.Errorf("%s: want %v (unchanged), got %v (unchanged %v)", c.name, c.want, err, unchanged(err))
 		}
 	}
 	if n := rg.e.helperRuns(RestoreUnpackCommand); n != runsBefore {
 		t.Fatalf("a refused restore ran the decrypting helper (%d runs)", n-runsBefore)
 	}
 	// wrong data key: the helper cannot decrypt — nothing swapped
-	if _, err := rg.d.Restore(ctx, restoreReq(rg.s.Ref, a, other, policy)); reason(err) != agentv1.RefusalReason_REFUSAL_REASON_INTEGRITY {
-		t.Fatalf("wrong data key: %v", err)
+	if _, err := rg.d.Restore(ctx, restoreReq(rg.s.Ref, a, other, policy)); reason(err) != agentv1.RefusalReason_REFUSAL_REASON_INTEGRITY || !unchanged(err) {
+		t.Fatalf("wrong data key: %v (unchanged %v)", err, unchanged(err))
 	}
 	if cur, _ := os.ReadFile(db); !bytes.Equal(cur, after) { //nolint:gosec // a temporary directory of the test
 		t.Fatal("a refused restore changed data/")
@@ -224,6 +224,50 @@ func TestBackupRestore(t *testing.T) {
 	kr, err := rg.d.Restore(ctx, keep)
 	if err != nil || !bytes.Equal(kr.GetBackupPolicyHujson(), policy) {
 		t.Fatalf("keep backup policy: %v %+v", err, kr)
+	}
+}
+
+// unchanged: the refusal in err is marked as one that changed nothing (Refusal.unchanged — restore lock fix).
+func unchanged(err error) bool {
+	r, ok := agentspec.AsRefusal(err)
+	return ok && r.Unchanged
+}
+
+// TestRestoreUnchangedMark — restore lock fix (P3-T11): every refusal of Restore before its first change is marked
+// unchanged — the instance never activated (an adopted instance: the staging case), refused first, with the host exactly
+// as before —, and a refusal after the first change (the edge flag cleared and the edge detached, then no container to
+// stop) is not.
+func TestRestoreUnchangedMark(t *testing.T) {
+	rg := newRig(t)
+	rg.withEdge()
+	rg.provision(t, rg.s) // running, never attached: no meta/activated, no fingerprint
+	rg.withBackups(t)
+	ctx := context.Background()
+	dk, a := rg.backup(t, 5, uuid.New())
+	before := rg.snapshot(t)
+	_, err := rg.d.Restore(ctx, restoreReq(rg.s.Ref, a, dk, []byte(`{"grants":[]}`)))
+	if reason(err) != agentv1.RefusalReason_REFUSAL_REASON_STATE || !unchanged(err) ||
+		!strings.Contains(err.Error(), "only an activated instance") {
+		t.Fatalf("never activated: %v (unchanged %v)", err, unchanged(err))
+	}
+	if after := rg.snapshot(t); after != before {
+		t.Fatalf("a refused restore changed the host:\n%s\n---\n%s", before, after)
+	}
+	// activated, then the container gone: refused AFTER the flag was cleared and the edge detached — not unchanged
+	if _, err := rg.attachRef(rg.s.Ref, uuid.New()); err != nil {
+		t.Fatal(err)
+	}
+	dk, a = rg.backup(t, 6, uuid.New())
+	name := rg.h.Names(rg.s.Ref).Container
+	rg.e.mu.Lock()
+	delete(rg.e.ctrs, name)
+	rg.e.mu.Unlock()
+	_, err = rg.d.Restore(ctx, restoreReq(rg.s.Ref, a, dk, []byte(`{"grants":[]}`)))
+	if reason(err) != agentv1.RefusalReason_REFUSAL_REASON_STATE || unchanged(err) || !strings.Contains(err.Error(), "does not exist") {
+		t.Fatalf("after the first change: %v (unchanged %v)", err, unchanged(err))
+	}
+	if m := rg.meta(t); m[metaEdgeAttach] == true {
+		t.Fatal("the edge flag was not cleared — the refusal was not after the first change")
 	}
 }
 

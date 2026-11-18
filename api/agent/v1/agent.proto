@@ -80,6 +80,7 @@ service AgentService {
   // Backup writes an encrypted archive + signed manifest to /opt/meshguard/backups/tenants/<instance_id>/ (§17.1).
   rpc Backup(BackupRequest) returns (BackupResponse);
   // Restore verifies the signed manifest against the instance BEFORE decrypting, then swaps data/ (§17.2 steps 2–4).
+  // A refusal before the first change carries Refusal.unchanged.
   rpc Restore(RestoreRequest) returns (RestoreResponse);
   // PostRestoreReconcile expires keys/nodes and resets routes/tags of a restored instance (§17.2 step 5).
   rpc PostRestoreReconcile(PostRestoreReconcileRequest) returns (PostRestoreReconcileResponse);
@@ -300,6 +301,11 @@ message Refusal {
   RefusalReason reason = 1;
   string field = 2;
   string message = 3;
+  // unchanged: the refused call changed nothing of the instance — set only where the agent can prove it: every refusal
+  // of Restore before its first change (the edge flag cleared, the instance stopped), and every refusal before the
+  // driver runs (validation, quarantine). false says nothing (an older agent, or a refusal after a change): the worker
+  // then keeps the job's lifecycle lock (instance.restore — P3-T11, restore lock fix).
+  bool unchanged = 4;
 }
 
 // ---------------------------------------------------------------------------------------------------- health, host

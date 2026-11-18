@@ -4,8 +4,9 @@ package orchestrator
 // allowlist of the Host Agent, rolled back by restore when it does not come up.
 //
 //	 1 upgrade.preflight   no change yet. Instance running (quarantined ⇒ refused), tenant active/suspended, a
-//	                       configuration version recorded; both digests in the agent's allowlist; the versions their
-//	                       binaries report (InspectImage — the daemon pulls the target now, before any downtime); the path
+//	                       configuration version recorded; activated at the Host Agent (GetInstanceStatus — restore lock
+//	                       fix: an instance never activated is refused before the stop); both digests in the agent's
+//	                       allowlist; the versions their binaries report (InspectImage — the daemon pulls the target now, before any downtime); the path
 //	                       of §11.4 (same minor, patch not lower — equal: another build —, or exactly the next minor;
 //	                       HS-04/RT-10) and an adapter for the target version (the contract of internal/headscale); GET
 //	                       /version of the running instance = the current image's version; configtest of the target
@@ -264,6 +265,17 @@ func (c *InstanceUpgrader) stepPreflight(ctx context.Context, a *opsAttempt, s s
 		d["refused"] = code
 		_ = detail(s, d)
 		return jobs.Permanent(code, err)
+	}
+	// the Host Agent's view of the instance first (restore lock fix of P3-T11): v1 upgrades only an activated instance —
+	// PreflightUpgrade and UpgradeInstance refuse any other, but only after the instance was stopped and backed up
+	st, err := o.status(ctx, t.ref())
+	if err != nil {
+		return err
+	}
+	if !st.GetActivated() {
+		d["activated"] = false
+		return fail("instance_not_upgradable", errors.New("the Host Agent reports the instance never activated (no meta/activated): "+
+			"v1 upgrades only an activated instance with a recorded Noise key fingerprint — nothing was stopped"))
 	}
 	// both images in the agent's allowlist (it stays the authority — §11.1)
 	cctx, cancel := o.call(ctx)

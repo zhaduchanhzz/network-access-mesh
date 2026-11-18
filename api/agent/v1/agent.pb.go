@@ -1525,10 +1525,15 @@ func (x *InstanceStatus) GetQuarantined() bool {
 // Refusal is the typed detail of every refusal status. field is the path of the offending request field (for
 // example "spec.instance.instance_id"); the refused value is never echoed.
 type Refusal struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Reason        RefusalReason          `protobuf:"varint,1,opt,name=reason,proto3,enum=meshguard.agent.v1.RefusalReason" json:"reason,omitempty"`
-	Field         string                 `protobuf:"bytes,2,opt,name=field,proto3" json:"field,omitempty"`
-	Message       string                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Reason  RefusalReason          `protobuf:"varint,1,opt,name=reason,proto3,enum=meshguard.agent.v1.RefusalReason" json:"reason,omitempty"`
+	Field   string                 `protobuf:"bytes,2,opt,name=field,proto3" json:"field,omitempty"`
+	Message string                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
+	// unchanged: the refused call changed nothing of the instance — set only where the agent can prove it: every refusal
+	// of Restore before its first change (the edge flag cleared, the instance stopped), and every refusal before the
+	// driver runs (validation, quarantine). false says nothing (an older agent, or a refusal after a change): the worker
+	// then keeps the job's lifecycle lock (instance.restore — P3-T11, restore lock fix).
+	Unchanged     bool `protobuf:"varint,4,opt,name=unchanged,proto3" json:"unchanged,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1582,6 +1587,13 @@ func (x *Refusal) GetMessage() string {
 		return x.Message
 	}
 	return ""
+}
+
+func (x *Refusal) GetUnchanged() bool {
+	if x != nil {
+		return x.Unchanged
+	}
+	return false
 }
 
 type HealthRequest struct {
@@ -5286,11 +5298,12 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\tactivated\x18\f \x01(\bR\tactivated\x12(\n" +
 	"\x10edge_attach_flag\x18\r \x01(\bR\x0eedgeAttachFlag\x129\n" +
 	"\bapi_keys\x18\x0e \x03(\v2\x1e.meshguard.agent.v1.ApiKeyInfoR\aapiKeys\x12 \n" +
-	"\vquarantined\x18\x0f \x01(\bR\vquarantined\"t\n" +
+	"\vquarantined\x18\x0f \x01(\bR\vquarantined\"\x92\x01\n" +
 	"\aRefusal\x129\n" +
 	"\x06reason\x18\x01 \x01(\x0e2!.meshguard.agent.v1.RefusalReasonR\x06reason\x12\x14\n" +
 	"\x05field\x18\x02 \x01(\tR\x05field\x12\x18\n" +
-	"\amessage\x18\x03 \x01(\tR\amessage\"\x0f\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\x12\x1c\n" +
+	"\tunchanged\x18\x04 \x01(\bR\tunchanged\"\x0f\n" +
 	"\rHealthRequest\"\xf7\x01\n" +
 	"\x0eHealthResponse\x129\n" +
 	"\x06status\x18\x01 \x01(\x0e2!.meshguard.agent.v1.ServingStatusR\x06status\x12\x18\n" +

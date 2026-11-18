@@ -121,7 +121,7 @@ func (a *opsDBAgent) GetInstanceStatus(ctx context.Context, in *agentv1.GetInsta
 	defer a.mu.Unlock()
 	i := a.get(in.GetInstance().GetInstanceId())
 	st := r.GetStatus()
-	st.ConfigSha256, st.StartedAt, st.ImageDigest = i.sha, timestamppb.New(i.started), i.image
+	st.ConfigSha256, st.StartedAt, st.ImageDigest, st.Activated = i.sha, timestamppb.New(i.started), i.image, true
 	if !i.running {
 		st.ContainerState, st.Health = agentv1.ContainerState_CONTAINER_STATE_EXITED, agentv1.HealthState_HEALTH_STATE_NONE
 	} else if a.unhealthy[i.image] {

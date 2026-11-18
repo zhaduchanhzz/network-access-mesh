@@ -21,4 +21,10 @@
 // report, audit, notification. The "PostgreSQL older than the backup" branch (an operator assertion of the request,
 // shown verbatim to the approver) keeps the archive's policy — imported as a validated version to review — sends no
 // revocation list and resets no route/tag, and flags the tenant for Owner review (security event + notification).
+//
+// Restore lock fix (after staging round 10): a restore that changed nothing — refused by the worker's checks, by the
+// Host Agent's view (GetInstanceStatus: never activated, quarantined) before Restore is called, or by Restore itself
+// before its first change (Refusal.unchanged) — ends rolled_back (instance.restore has a compensation with nothing to
+// undo, only before its point of no return restore.instance), releasing the tenant's lifecycle lock; past that point a
+// failure keeps the lock in failed_resumable as before (/retry; /rollback ⇒ 409 point_of_no_return).
 package backup

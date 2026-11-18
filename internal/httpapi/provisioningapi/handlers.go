@@ -264,6 +264,7 @@ func failure(err error) error {
 			"status_changed":       "The job changed status meanwhile; read it again.",
 			"kind_not_lifecycle":   "Only lifecycle jobs can be controlled.",
 			"kind_not_compensable": "This kind of job cannot be rolled back.",
+			"point_of_no_return":   "The job passed its point of no return: it cannot be rolled back, only retried.",
 			"tenant_not_failed":    "The tenant is not in status failed.",
 		}[reason]
 		if detail == "" {

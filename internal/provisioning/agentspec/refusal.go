@@ -13,6 +13,9 @@ type Refusal struct {
 	Reason agentv1.RefusalReason
 	Field  string
 	Msg    string
+	// Unchanged: the refused call changed nothing of the instance (Refusal.unchanged on the wire) — set by Unchanged
+	// where the agent can prove it (the checks of Restore before its first change, the refusals before the driver).
+	Unchanged bool
 }
 
 func (r *Refusal) Error() string {
@@ -24,7 +27,19 @@ func (r *Refusal) Error() string {
 
 // Proto returns the wire form of the refusal (the detail of the gRPC status).
 func (r *Refusal) Proto() *agentv1.Refusal {
-	return &agentv1.Refusal{Reason: r.Reason, Field: r.Field, Message: r.Msg}
+	return &agentv1.Refusal{Reason: r.Reason, Field: r.Field, Message: r.Msg, Unchanged: r.Unchanged}
+}
+
+// Unchanged returns err with its refusal, if any, marked as one that changed nothing (a copy: the refusal in err is not
+// modified). Any other error is returned as it is — an internal error proves nothing.
+func Unchanged(err error) error {
+	r, ok := AsRefusal(err)
+	if !ok {
+		return err
+	}
+	c := *r
+	c.Unchanged = true
+	return &c
 }
 
 // AsRefusal extracts the refusal of err, if any.
