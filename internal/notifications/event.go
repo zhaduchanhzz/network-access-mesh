@@ -34,6 +34,7 @@ const (
 	KindApprovalRequested     Kind = "approval.requested"       // a tenant approval request waits for a decision (P3-T04a)
 	KindIdPAdminChange        Kind = "idp.admin_change"         // a change made at the tenant's IdP through Keycloak's Admin API (P3-T15)
 	KindIdPConsoleLogin       Kind = "idp.console_login"        // platform: a sign-in to the Keycloak administration (P3-T15)
+	KindInstanceRestored      Kind = "instance.restored"        // the tenant's control plane was restored from a backup (P3-T11, §17.2 step 7)
 	KindInstanceQuarantined   Kind = "instance.quarantined"     // platform: an instance was quarantined (P3-T18, §11.4)
 	KindInstanceReleased      Kind = "instance.released"        // platform: the release (2P) of a quarantined instance ended (P3-T18)
 )
@@ -102,6 +103,8 @@ var specs = map[Kind]spec{
 		"user": fString, "occurred_at": fTime}, required: []string{"event_id", "action", "actor", "occurred_at"}},
 	KindIdPConsoleLogin: {fields: map[string]fieldType{"event_id": fString, "username": fString, "client": fString,
 		"ip": fString, "occurred_at": fTime}, required: []string{"event_id", "client", "occurred_at"}, platform: true},
+	KindInstanceRestored: {fields: map[string]fieldType{"job_id": fUUID, "backup_created_at": fTime, "owner_review": fString},
+		required: []string{"job_id", "backup_created_at", "owner_review"}},
 	KindInstanceQuarantined: {fields: map[string]fieldType{"instance_id": fUUID, "tenant_slug": fString, "job_id": fUUID,
 		"outcome": fString}, required: []string{"instance_id", "tenant_slug", "job_id", "outcome"}, platform: true},
 	KindInstanceReleased: {fields: map[string]fieldType{"instance_id": fUUID, "tenant_slug": fString, "job_id": fUUID,
@@ -489,4 +492,17 @@ func ApprovalRequested(tenantID, approvalID uuid.UUID, action, permission, reque
 		ev.Payload["expires_at"] = expiresAt
 	}
 	return ev
+}
+
+// InstanceRestored — §17.2 step 7: the Tenant Owners and Admins (a security notification: not switchable); ref = the
+// restore job. ownerReview is "required" when PostgreSQL was older than the backup (revocations after the backup's
+// time are not known to the platform: the Owner reviews members and devices — §17.2 step 4), "none" otherwise.
+func InstanceRestored(tenantID, jobID uuid.UUID, backupCreatedAt time.Time, ownerReview bool) Event {
+	review := "none"
+	if ownerReview {
+		review = "required"
+	}
+	return Event{Kind: KindInstanceRestored, TenantID: tenantPtr(tenantID), Ref: "job:" + jobID.String(),
+		Payload: map[string]any{"job_id": jobID, "backup_created_at": backupCreatedAt.UTC(), "owner_review": review},
+		To:      Audience{Roles: []string{RoleTenantOwner, RoleTenantAdmin}}}
 }

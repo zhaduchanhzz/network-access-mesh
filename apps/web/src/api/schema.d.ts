@@ -590,6 +590,82 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/platform/instances/{instanceId}/backup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Backup một instance ngay — job `instance.backup` (202)
+         * @description §17.1: một job `instance.backup` (cùng job của lịch `MG_BACKUP_INTERVAL`): instance đang chạy ⇒ `VACUUM INTO`
+         *     trong container trợ giúp (data/ chỉ-đọc), đang dừng ⇒ cold copy; archive age mã hóa tới data key của bản backup
+         *     (bọc bằng khóa backup của tenant — đường online) và recovery recipient của nền tảng (đường DR); manifest ký Ed25519
+         *     được worker kiểm trước khi hàng `backups` thành `succeeded`. Trong lúc một backup theo yêu cầu đang chờ/chạy, gọi
+         *     lại trả đúng job đó. Instance `quarantined`/`removed` hoặc tenant không còn phục vụ ⇒ `409`. Thư mục dữ liệu thù
+         *     địch (symlink, FIFO, file thưa quá lớn, DB hỏng) ⇒ job `failed` + security event (IT-15).
+         */
+        post: operations["backupPlatformInstance"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/instances/{instanceId}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Xin restore một instance từ một bản backup — luôn 2P; 202 + Location của yêu cầu phê duyệt
+         * @description §17.2: tạo yêu cầu dual control `platform.instance.restore` (người yêu cầu step-up); payload — đúng thứ người
+         *     duyệt thấy và đúng đầu vào duy nhất của job — gồm `backup_id`, `instance_id` và `restore_point_older_than_backup`
+         *     (người vận hành khẳng định PostgreSQL đã được khôi phục về thời điểm CŨ HƠN bản backup: giữ policy trong bản
+         *     backup làm version cần rà soát, không đặt lại route/tag/thu hồi theo PostgreSQL, đánh dấu tenant cần Owner rà
+         *     soát). Người duyệt khác người yêu cầu, step-up, giữ `platform.instance:restore` (Platform Operator duyệt được nhờ
+         *     điều kiện `restore_only`). Sau khi duyệt, job vòng đời `instance.restore` chạy theo thứ tự provisioning: kiểm
+         *     manifest ký + danh tính trước khi mở bọc data key, restore (policy đặt offline trước lần start đầu, edge gỡ),
+         *     `PostRestoreReconcile` (mọi API key/pre-auth key của bản backup hết hiệu lực, node thu hồi sau backup bị expire lại
+         *     theo `machine_key`), gắn lại edge, kiểm qua API, phân giải lại Headscale user theo tên, `inventory.sync`, báo cáo.
+         *     `backup_id` không phải bản backup `succeeded` của chính instance này ⇒ `422`/`409`; đang có yêu cầu mở cho
+         *     instance ⇒ `409`.
+         */
+        post: operations["restorePlatformInstance"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/backups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Sổ backup — mới nhất trước
+         * @description Hàng `backups` (§6.3): bản backup instance của mọi tenant (P3-T11) và — về sau — bản phạm vi nền tảng. Không trả
+         *     data key đã bọc hay nội dung manifest, chỉ digest. Lọc theo instance, trạng thái.
+         */
+        get: operations["listPlatformBackups"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/platform/hosts": {
         parameters: {
             query?: never;
@@ -1647,6 +1723,77 @@ export interface components {
         };
         InstanceList: {
             items: components["schemas"]["Instance"][];
+            next_cursor: string | null;
+        };
+        /** @description Xin restore một instance từ một bản backup (luôn cần người thứ hai duyệt — §8.5) */
+        InstanceRestoreCreate: {
+            /**
+             * Format: uuid
+             * @description Bản backup `succeeded` của chính instance này (`GET /platform/backups?instance=…`)
+             */
+            backup_id: string;
+            /**
+             * @description Người vận hành khẳng định PostgreSQL đã được khôi phục về thời điểm cũ hơn bản backup (§17.2 bước 4): policy trong bản backup được giữ và nhập thành version cần rà soát; không đặt lại route/tag và không thu hồi lại theo PostgreSQL; tenant được đánh dấu cần Owner rà soát
+             * @default false
+             */
+            restore_point_older_than_backup: boolean;
+            /** @description Lý do (sự cố, ticket) — người duyệt đọc trước khi duyệt */
+            reason: string;
+        };
+        /**
+         * @description Trạng thái hàng `backups` (0011): `running` (đang chạy), `succeeded` (archive + manifest ký đã kiểm), `failed`, `purged` (archive đã xóa theo retention; hàng giữ để audit)
+         * @enum {string}
+         */
+        BackupStatus: "running" | "succeeded" | "failed" | "purged";
+        /**
+         * @description Loại bản backup — `instance` (Headscale của một tenant, P3-T11); các loại phạm vi nền tảng nhập về sau
+         * @enum {string}
+         */
+        BackupKind: "instance" | "postgres" | "idp" | "edge";
+        /**
+         * @description `vacuum_into` (instance đang chạy, data/ chỉ-đọc) hoặc `cold_copy` (instance đang dừng)
+         * @enum {string}
+         */
+        BackupMethod: "vacuum_into" | "cold_copy";
+        /** @description Một bản backup (§6.3 `backups`). Không chứa data key đã bọc hay nội dung manifest — chỉ digest của ciphertext (`sha256`) và của manifest ký (`manifest_sha256`) */
+        Backup: {
+            /** Format: uuid */
+            id: string;
+            kind: components["schemas"]["BackupKind"];
+            status: components["schemas"]["BackupStatus"];
+            /** Format: uuid */
+            tenant_id?: string | null;
+            /** Format: uuid */
+            instance_id?: string | null;
+            /**
+             * Format: int64
+             * @description Số thứ tự tăng dần của archive trong thư mục của instance (ghi trong manifest ký)
+             */
+            sequence?: number | null;
+            method?: components["schemas"]["BackupMethod"] | null;
+            /** Format: int64 */
+            size_bytes?: number | null;
+            sha256?: string | null;
+            manifest_sha256?: string | null;
+            headscale_version?: string | null;
+            /** @description Vị trí archive (không chứa credential) */
+            storage_uri: string;
+            /** Format: date-time */
+            started_at: string;
+            /** Format: date-time */
+            finished_at?: string | null;
+            /** Format: date-time */
+            expires_at?: string | null;
+            /**
+             * Format: date-time
+             * @description Lần restore từ bản này hoàn tất gần nhất
+             */
+            verified_at?: string | null;
+            /** Format: uuid */
+            job_id?: string | null;
+        };
+        BackupList: {
+            items: components["schemas"]["Backup"][];
             next_cursor: string | null;
         };
         /**
@@ -3296,6 +3443,109 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    backupPlatformInstance: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                instanceId: components["parameters"]["InstanceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Job backup đã xếp hàng; theo dõi ở job */
+            202: {
+                headers: {
+                    Location: components["headers"]["JobLocation"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    restorePlatformInstance: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                instanceId: components["parameters"]["InstanceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstanceRestoreCreate"];
+            };
+        };
+        responses: {
+            /** @description Yêu cầu phê duyệt đã tạo — người thứ hai duyệt ở `Location` */
+            202: {
+                headers: {
+                    Location: components["headers"]["ApprovalLocation"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalRequest"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    listPlatformBackups: {
+        parameters: {
+            query?: {
+                /** @description Số phần tử tối đa của trang */
+                limit?: components["parameters"]["Limit"];
+                /** @description Con trỏ mờ lấy từ `next_cursor` của trang trước */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Lọc theo instance */
+                instance?: string;
+                status?: components["schemas"]["BackupStatus"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Một trang backup */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackupList"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationFailed"];
             429: components["responses"]["RateLimited"];
             default: components["responses"]["Unexpected"];

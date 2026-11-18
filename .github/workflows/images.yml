@@ -222,6 +222,18 @@ jobs:
               test "$(sha256sum "${RUNNER_TEMP}/docker-compose" | cut -d' ' -f1)" = "$dc_sha"
               docker run --rm --network none --read-only --cap-drop ALL --entrypoint /usr/local/bin/docker-compose "${IMAGE}:${GITHUB_SHA}" version \
                 | grep -qx "Docker Compose version ${dc_version}"
+              # P3-T11: tools of the backup helpers — sqlite3 (versions.lock [sources.sqlite], static, reproducible) and age
+              # ([sources.age]) with their pinned sha256, both running as a tenant UID on a read-only rootfs without network
+              read -r sq_version sq_sha age_version age_sha < <(python3 -c 'import tomllib; s = tomllib.load(open("versions.lock", "rb"))["sources"]; print(s["sqlite"]["version"], s["sqlite"]["build_sha256"], s["age"]["version"], s["age"]["age_linux_amd64_sha256"])')
+              cid=$(docker create "${IMAGE}:${GITHUB_SHA}")
+              docker cp "$cid:/usr/local/bin/sqlite3" "${RUNNER_TEMP}/sqlite3"
+              docker cp "$cid:/usr/local/bin/age" "${RUNNER_TEMP}/age"
+              docker rm "$cid" >/dev/null
+              test "$(sha256sum "${RUNNER_TEMP}/sqlite3" | cut -d' ' -f1)" = "$sq_sha"
+              test "$(sha256sum "${RUNNER_TEMP}/age" | cut -d' ' -f1)" = "$age_sha"
+              tool=(docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges -u 39999:39999)
+              "${tool[@]}" --entrypoint /usr/local/bin/sqlite3 "${IMAGE}:${GITHUB_SHA}" -version | grep -q "^${sq_version} "
+              "${tool[@]}" --entrypoint /usr/local/bin/age "${IMAGE}:${GITHUB_SHA}" --version | grep -qx "$age_version"
               d="${RUNNER_TEMP}/agent"; mkdir -p "$d/run" "$d/tenants" "$d/cfg"
               openssl rand -hex 32 > "$d/cfg/token"
               python3 -c 'import tomllib; e = tomllib.load(open("versions.lock", "rb"))["images"]["mg-headscale"]; print(e["image"] + "@" + e["index"])' > "$d/cfg/allowlist"

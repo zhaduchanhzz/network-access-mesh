@@ -43,9 +43,9 @@ type Driver interface {
 
 // composeDriver is the driver of the agent: the compose driver for EnsureInstance (storage → config → network →
 // container), status, inventory, start/stop/restart and remove (P3-T02); ValidateConfig (configtest in a throw-away
-// container), BootstrapPolicy, BootstrapApiKey, the edge attachment, the start guard and the edge supervisor (P3-T03).
-// Still UNIMPLEMENTED (after validation, authorisation, lock and guard): WriteDnsRecords, Backup/Restore/
-// PostRestoreReconcile (P3-T11), UpgradeInstance (P3-T13a).
+// container), BootstrapPolicy, BootstrapApiKey, the edge attachment, the start guard and the edge supervisor (P3-T03);
+// Backup, Restore, PostRestoreReconcile (P3-T11). Still UNIMPLEMENTED (after validation, authorisation, lock and
+// guard): WriteDnsRecords, UpgradeInstance (P3-T13a).
 type composeDriver struct {
 	noDriver
 	c *compose.Driver
@@ -81,6 +81,15 @@ func (d composeDriver) BootstrapPolicy(ctx context.Context, c agentspec.Call, ki
 }
 func (d composeDriver) BootstrapAPIKey(ctx context.Context, k agentspec.APIKey) (*agentv1.BootstrapApiKeyResponse, error) {
 	return d.c.BootstrapAPIKey(ctx, k)
+}
+func (d composeDriver) Backup(ctx context.Context, b agentspec.Backup) (*agentv1.BackupArtifact, error) {
+	return d.c.Backup(ctx, b)
+}
+func (d composeDriver) Restore(ctx context.Context, r agentspec.Restore) (*agentv1.RestoreResponse, error) {
+	return d.c.Restore(ctx, r)
+}
+func (d composeDriver) PostRestoreReconcile(ctx context.Context, r agentspec.Reconcile) (*agentv1.PostRestoreReconcileResponse, error) {
+	return d.c.PostRestoreReconcile(ctx, r)
 }
 func (d composeDriver) EnsureEdgeAttachment(ctx context.Context, c agentspec.Call) (*agentv1.EnsureEdgeAttachmentResponse, error) {
 	return d.c.EnsureEdgeAttachment(ctx, c)

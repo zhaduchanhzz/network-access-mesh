@@ -286,17 +286,21 @@ func TestOtherRequestRefusals(t *testing.T) {
 		{"apikey: prefix with slash", key(hours(2160), "abc/def/ghij"), rMalformed, "keep_prefix"},
 		{"apikey: full key as prefix", key(hours(2160), "hskey-api-abcdefghijkl-secret"), rMalformed, "keep_prefix"},
 		{"backup: sequence 0", func() error {
-			_, err := v.Backup(&agentv1.BackupRequest{Instance: ref, JobId: jobID, DataKey: make([]byte, 32)})
+			_, err := v.Backup(&agentv1.BackupRequest{Instance: ref, JobId: jobID, DataRecipient: make([]byte, 32)})
 			return err
 		}(), rBounds, "sequence"},
-		{"backup: short data key", func() error {
-			_, err := v.Backup(&agentv1.BackupRequest{Instance: ref, JobId: jobID, Sequence: 1, DataKey: make([]byte, 31)})
+		{"backup: short data recipient", func() error {
+			_, err := v.Backup(&agentv1.BackupRequest{Instance: ref, JobId: jobID, Sequence: 1, DataRecipient: make([]byte, 31)})
 			return err
-		}(), rMalformed, "data_key"},
-		{"backup: no data key", func() error {
+		}(), rMalformed, "data_recipient"},
+		{"backup: no data recipient", func() error {
 			_, err := v.Backup(&agentv1.BackupRequest{Instance: ref, JobId: jobID, Sequence: 1})
 			return err
-		}(), rMalformed, "data_key"},
+		}(), rMalformed, "data_recipient"},
+		{"backup: retention above the sequence", func() error {
+			_, err := v.Backup(&agentv1.BackupRequest{Instance: ref, JobId: jobID, Sequence: 3, DataRecipient: make([]byte, 32), RetainFromSequence: 4})
+			return err
+		}(), rBounds, "retain_from_sequence"},
 		{"restore: no artifact", restore(func(r *agentv1.RestoreRequest) { r.Artifact = nil }), rMalformed, "artifact"},
 		{"restore: sequence 0", restore(func(r *agentv1.RestoreRequest) { r.Artifact.Sequence = 0 }), rBounds, "artifact.sequence"},
 		{"restore: archive hash", restore(func(r *agentv1.RestoreRequest) { r.Artifact.ArchiveSha256 = "../" + otherID }), rMalformed, "artifact.archive_sha256"},

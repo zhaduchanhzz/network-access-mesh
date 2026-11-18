@@ -15,7 +15,7 @@ import (
 // quarantined instance (§8.5 platform.instance:release, 2P for every role — no decide condition: a Platform Operator,
 // whose :decide is restore_only, never approves it); the payload is the typed one, unknown fields refused.
 func TestReleaseAction(t *testing.T) {
-	r, err := approvalActions()
+	r, err := approvalActions(nil)
 	if err != nil {
 		t.Fatal(err)
 	}

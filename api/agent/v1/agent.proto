@@ -277,6 +277,9 @@ enum RefusalReason {
   REFUSAL_REASON_PERMISSION_DENIED = 17;
   // The operation is not allowed in the instance's current state (e.g. storage on an activated instance).
   REFUSAL_REASON_STATE = 18;
+  // A backup archive or its manifest fails a check — signature, hash, identity, sequence, version — or the database
+  // of the instance (or of an archive) fails its integrity check (P3-T11, T-15). Nothing was decrypted or changed.
+  REFUSAL_REASON_INTEGRITY = 19;
 }
 
 // Refusal is the typed detail of every refusal status. field is the path of the offending request field (for
@@ -545,6 +548,18 @@ message BootstrapApiKeyResponse {
 
 // ---------------------------------------------------------------------------------------------------- backup, restore
 
+// Backup/restore v1 (P3-T11; §17.1–§17.2). One archive per backup under backups/tenants/<instance_id>/:
+// <sequence>.tar.age (an age v1 file — X25519 recipients only — holding a tar of data/db.sqlite [VACUUM INTO or cold
+// copy, integrity-checked], data/noise_private.key, data/derp_server_private.key, config/config.yaml,
+// records/extra-records.json), <sequence>.manifest.json (canonical JSON: tenant, instance, slug, sequence, time,
+// method, image and Headscale version, Noise key fingerprint, sha256 + size of every file and of the ciphertext) and
+// <sequence>.manifest.sig (Ed25519 over the manifest — key held by the agent only). Two key paths (§17.1): the archive
+// is encrypted to the X25519 public key of the backup's random 32-byte data key (online path: the worker wraps the data
+// key with the tenant's backup key in the SecretStore and hands it over for a restore only) and to the platform
+// recovery recipient (DR path: `age -d -i <offline identity>`). Every tenant byte is read, copied, encrypted and
+// decrypted by a one-shot helper container (run_uid, network none, read-only rootfs, no capability); the agent itself
+// only hashes ciphertext and signs/verifies manifests.
+
 enum BackupMethod {
   BACKUP_METHOD_UNSPECIFIED = 0;
   BACKUP_METHOD_VACUUM_INTO = 1; // instance running (§17.1)
@@ -554,11 +569,15 @@ enum BackupMethod {
 message BackupRequest {
   InstanceRef instance = 1;
   string job_id = 2;
-  // Strictly increasing per instance; names the archive under backups/tenants/<instance_id>/.
+  // Strictly increasing per instance; names the archive under backups/tenants/<instance_id>/. An existing complete
+  // archive of the same sequence with a valid manifest is returned as is (a retried job); a partial one is removed.
   uint64 sequence = 3;
-  // Random 32-byte data key, wrapped by the worker with the tenant's backup key (online path, §17.1); the agent
-  // also wraps it to the platform recovery recipient (DR path).
-  bytes data_key = 4 [debug_redact = true];
+  // The X25519 public key (32 bytes) of the backup's random data key: the archive is encrypted to it (online path) and
+  // to the platform recovery recipient (DR path). The data key itself never reaches the agent for a backup.
+  bytes data_recipient = 4;
+  // Local retention decided by the worker (backups.expires_at): once this backup succeeded, the archives of this
+  // instance with a smaller sequence are removed. 0 keeps every archive; must not exceed sequence.
+  uint64 retain_from_sequence = 5;
 }
 
 message BackupArtifact {
@@ -569,6 +588,13 @@ message BackupArtifact {
   BackupMethod method = 5;
   google.protobuf.Timestamp created_at = 6;
   string headscale_version = 7;
+  // The signed manifest as written (canonical JSON) and its Ed25519 signature: the worker verifies both with
+  // MG_BACKUP_MANIFEST_PUBKEY before recording the backup, and again before any restore (§17.1 — worker AND agent).
+  bytes manifest = 8;
+  bytes manifest_signature = 9;
+  string noise_key_fingerprint = 10;
+  // Archives removed by retain_from_sequence.
+  uint32 removed_archives = 11;
 }
 
 message BackupResponse {
@@ -587,6 +613,7 @@ message RestoreRequest {
   InstanceRef instance = 1;
   string job_id = 2;
   ArtifactRef artifact = 3;
+  // The backup's data key (the X25519 identity of the online path), unwrapped by the worker for this job only.
   bytes data_key = 4 [debug_redact = true];
   // §17.2 step 4: the policy set (offline, before the first start) on the restored database.
   oneof policy {
@@ -598,8 +625,17 @@ message RestoreRequest {
 }
 
 message RestoreResponse {
+  // sha256 over the manifest's list of the restored data/ files (path, size, sha256 — sorted).
   string restored_data_sha256 = 1;
+  // The previous data/, kept under the instance directory (removed after MG_AGENT_RESTORE_KEEP).
   string previous_data_kept_as = 2;
+  // sha256 of the policy the restored instance serves (read back over the CLI after the start; one trailing newline
+  // removed): the applied policy, or the archive's policy with keep_backup_policy.
+  string policy_sha256 = 3;
+  // keep_backup_policy only: the policy the restored instance serves, for the worker to import as a version to review.
+  bytes backup_policy_hujson = 4;
+  // The restore happened earlier under the same job_id (a retried call): nothing was decrypted or swapped again.
+  bool already_restored = 5;
 }
 
 // NodeDesiredState is the PostgreSQL state of one node, matched by machine key (never by numeric id — §17.2).
@@ -612,14 +648,16 @@ message NodeDesiredState {
 message ReconcilePlan {
   // Expiration of the API key bootstrapped after every restored key is expired (whole hours, 24h..8760h).
   google.protobuf.Duration api_key_ttl = 1;
-  // Nodes revoked after the backup was taken (≤ 10000).
+  // Nodes revoked (expired) after the backup was taken — expired again (≤ 10000).
   repeated string revoked_machine_keys = 2;
-  // Routes and tags to reset (skipped when restore_point_older_than_backup).
+  // Routes and tags to reset (must be empty when restore_point_older_than_backup).
   repeated NodeDesiredState nodes = 3;
-  // Headscale users of offboarded members: mg-<membership uuid> (≤ 10000).
+  // Headscale users of offboarded members: mg-<membership uuid> (≤ 10000) — every node of theirs is expired.
   repeated string offboarded_users = 4;
-  // §17.2 step 4 branch: PostgreSQL is older than the backup.
+  // §17.2 step 4 branch: PostgreSQL is older than the backup (no revocation list, no route/tag reset).
   bool restore_point_older_than_backup = 5;
+  // Nodes deleted after the backup was taken — deleted again (≤ 10000).
+  repeated string deleted_machine_keys = 6;
 }
 
 message PostRestoreReconcileRequest {
@@ -638,7 +676,12 @@ message PostRestoreReconcileResponse {
   uint32 routes_reset = 7;
   uint32 tags_reset = 8;
   uint32 users_handled = 9;
+  // Machine keys of the plan (revoked, deleted or desired state) that the restored database does not have.
   repeated string unmatched_machine_keys = 10;
+  uint32 nodes_deleted = 11;
+  // Nodes whose tags differ from the desired state but cannot be reset through the CLI (Headscale 0.29 never removes
+  // a tag from a tagged node): reported for the Owner, never guessed.
+  repeated string tags_not_reset = 12;
 }
 
 // ---------------------------------------------------------------------------------------------------- edge attachment

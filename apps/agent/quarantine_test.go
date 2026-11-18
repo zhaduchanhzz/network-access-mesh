@@ -132,7 +132,7 @@ func TestQuarantineRefusals(t *testing.T) {
 			return err
 		},
 		"Backup": func() error {
-			_, err := h.client.Backup(c, &agentv1.BackupRequest{Instance: goodRef(), JobId: jobID, Sequence: 1, DataKey: key})
+			_, err := h.client.Backup(c, &agentv1.BackupRequest{Instance: goodRef(), JobId: jobID, Sequence: 1, DataRecipient: key})
 			return err
 		},
 		"GetInstanceStatus": func() error {

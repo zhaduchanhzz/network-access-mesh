@@ -115,9 +115,15 @@ var recipes = map[string]recipe{
 	// failed_resumable lifecycle job)
 	"createPlatformTenant": {idempotent: true, body: `{"slug":"matrix-new","name":"Matrix","plan_key":"standard",` +
 		`"owner_email":"owner@matrix.example","identity_provider":{"driver":"keycloak"}}`},
-	"retryPlatformJob":    {idempotent: true},
-	"cancelPlatformJob":   {idempotent: true},
-	"rollbackPlatformJob": {idempotent: true},
+	// Backup/restore (P3-T11, backupapi — mounted with the restore action, world_test.go): a backup of instance A now
+	// (202, the same job for the next granted caller); a restore request is always 2P — a backup id that is no backup of
+	// the instance ⇒ 422, any answer that is not a refusal; the backup book
+	"backupPlatformInstance":  {idempotent: true},
+	"restorePlatformInstance": {idempotent: true, body: `{"backup_id":"0190a000-0000-7000-8000-0000000000b1","reason":"matrix"}`},
+	"listPlatformBackups":     {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
+	"retryPlatformJob":        {idempotent: true},
+	"cancelPlatformJob":       {idempotent: true},
+	"rollbackPlatformJob":     {idempotent: true},
 	// suspend / resume (P3-T08, lifecycleapi — mounted): the matrix's tenants have no desired policy version, so a
 	// granted request is answered 409 (no_policy_to_restore, already_suspended, not_suspended) — any answer that is not
 	// a refusal; the flows themselves are internal/provisioning/lifecycle's DB tests and E2E-56…E2E-58

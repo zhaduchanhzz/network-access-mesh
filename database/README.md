@@ -7,8 +7,8 @@ PostgreSQL của Management Plane (§6 của [bản master](../docs/planning/imp
 | Đường dẫn | Nội dung |
 |---|---|
 | `bootstrap/superuser.sql` | Chạy **một lần** bằng superuser của cụm, trong database `meshguard`, trước migration đầu tiên (chạy lại được): tạo `mg_migrator` (CREATEROLE, owner database) và `mg_backup` (BYPASSRLS + `pg_read_all_data`) — hai role chỉ superuser tạo được |
-| `migrations/0001…0016_*.sql` | Migration goose, forward-only (không có phần Down), nhúng vào binary qua `embed.go`; bản đồ bảng ở §6.3. `0007` (G2 vòng 1, F3) chỉ thêm CHECK: owner segment của `identity_providers.client_secret_ref` = `tenant_id` (hoặc `platform`); `0008` (G2 vòng 2, A-1) chỉ thêm cột `sessions.id_token_hint_enc`; `0009`–`0013` (P3-T06) `0014` (P3-T04, chỉ CHECK/DEFAULT cho placement) `0015` (P3-T05, chỉ cột `provisioning_jobs.cancel_requested_at`) và `0019` (P3-T05c, số hiệu tạm — `0016`–`0018` dành cho các task Phase 3 song song; chỉ cột `relay_regions.last_probe`/`last_probe_at`) — xem mục "Bảng của Phase 3" |
-| `queries/*.sql` + `sqlc.yaml` | Truy vấn sqlc → mã sinh ở `internal/store/sqlcdb` (không sửa tay); `jobs.sql` = khung job + idempotency (P2-T12); `devices.sql` = sổ thiết bị + trạng thái sync + thu hồi hai pha (P2-T13); `placement.sql` = khóa host + trạng thái cấp phát (P3-T04); `hosts.sql` = API `/platform/hosts` và lệnh `host-set` (P3-T04); `usage.sql` = QuotaChecker (P3-T06a) |
+| `migrations/0001…0017_*.sql` | Migration goose, forward-only (không có phần Down), nhúng vào binary qua `embed.go`; bản đồ bảng ở §6.3. `0007` (G2 vòng 1, F3) chỉ thêm CHECK: owner segment của `identity_providers.client_secret_ref` = `tenant_id` (hoặc `platform`); `0008` (G2 vòng 2, A-1) chỉ thêm cột `sessions.id_token_hint_enc`; `0009`–`0013` (P3-T06) `0014` (P3-T04, chỉ CHECK/DEFAULT cho placement) `0015` (P3-T05, chỉ cột `provisioning_jobs.cancel_requested_at`) và `0017` (P3-T11, số hiệu tạm; chỉ cột manifest/data key của `backups`) — xem mục "Bảng của Phase 3" |
+| `queries/*.sql` + `sqlc.yaml` | Truy vấn sqlc → mã sinh ở `internal/store/sqlcdb` (không sửa tay); `jobs.sql` = khung job + idempotency (P2-T12); `devices.sql` = sổ thiết bị + trạng thái sync + thu hồi hai pha (P2-T13); `placement.sql` = khóa host + trạng thái cấp phát (P3-T04); `hosts.sql` = API `/platform/hosts` và lệnh `host-set` (P3-T04); `usage.sql` = QuotaChecker (P3-T06a); `backups.sql` = backup/restore v1 (P3-T11) |
 | `river/grants.sql` | Quyền trên schema `river` của job queue (P2-T12), chạy lại sau mỗi lần migrate River — xem mục "Job queue (River)" |
 | `checks/partition_grants.sql` | Truy vấn CI: mỗi hàng là một vi phạm (quyền trên partition, partition chưa bật RLS, default privileges) |
 | `embed.go` | Package Go `database`: `Migrations`, `Seeds`, `Bootstrap`, `Checks`, `River` (embed.FS) |
@@ -145,7 +145,7 @@ không có thông điệp thô của Headscale) và `last_health_at` = đồng h
 đầu sớm hơn kết quả đã ghi bị bỏ qua. `version`/`updated_at` của instance (ETag) không đổi. Dashboard tenant đọc qua
 pool tenant (RLS), Platform Health qua pool platform; số thiết bị chỉ đến từ service của `devices`.
 
-## Bảng của Phase 3 (P3-T06, migration 0009–0013; P3-T04, 0014; P3-T05, 0015; P3-T05c, 0016)
+## Bảng của Phase 3 (P3-T06, migration 0009–0013; P3-T04, 0014; P3-T05, 0015; P3-T05c, 0016; P3-T11, 0017)
 
 Bằng chứng: [`P3-T06.md`](../docs/planning/evidence/P3-T06.md). Mọi bảng có FK ghép theo tenant, `ENABLE` + `FORCE` RLS
 theo ký hiệu §6.3, quyền cấp tường minh theo tiến trình (ma trận đầy đủ: `TestP3GrantMatrix` trong
@@ -185,6 +185,15 @@ tài liệu `{"schema":1,"status":"healthy|unhealthy","reason"?,"derp":{"ok","st
 `mg_worker_platform` có `UPDATE` hai cột; `CHECK` có tài liệu ⇔ có thời điểm, tài liệu là object; kết quả của lần probe
 bắt đầu sớm hơn kết quả đã ghi bị bỏ qua; `version`/`updated_at` của region (trạng thái quản trị) không đổi. Đọc:
 `GET /tenants/{t}/relay` qua pool tenant (RLS của 0010), `GET /platform/relay-regions` qua pool platform. Expand-only — bằng chứng [`P3-T05c.md`](../docs/planning/evidence/P3-T05c.md).
+
+**`0017` (P3-T11 — backup/restore v1 của instance, không bảng mới):** cột của `backups` — `sequence` (> 0, `UNIQUE (instance_id, sequence)`: tên file archive
+trong `backups/tenants/<instance_id>/`), `wrapped_data_key` (đúng 60 byte: data key của archive bọc AES-256-GCM bằng
+secret `backup-key` của tenant — không mở được nếu thiếu khóa của chính tenant), `manifest` (≤ 64 KiB) + `manifest_signature`
+(64 byte Ed25519 của Agent) + `manifest_sha256`, `method` (`vacuum_into` | `cold_copy`). CHECK `NOT VALID`: hàng `instance`
+phải có `sequence` + `wrapped_data_key`; `succeeded`/`purged` phải có manifest, chữ ký, `manifest_sha256` và `method`.
+`mg_worker_tenant`, `mg_worker_platform` được `UPDATE` thêm bốn cột manifest/method (ghi khi backup xong); `sequence`,
+`wrapped_data_key` bất biến từ lúc chèn. Truy vấn ở `queries/backups.sql` (job `instance.backup`/`instance.restore`, API
+`/platform/backups`). Expand-only — bằng chứng [`P3-T11.md`](../docs/planning/evidence/P3-T11.md).
 
 Gói tối thiểu (`seeds/plans.sql`): `standard` = `max_devices` 100, `max_users` 100, `max_tagged_devices` 25,
 `max_live_enrollment_credentials` 25, `backup_interval_minutes` 60, `instance` {cpus 1, memory_mb 512, pids 256} — giá trị

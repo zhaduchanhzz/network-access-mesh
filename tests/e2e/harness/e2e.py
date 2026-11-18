@@ -31,6 +31,7 @@ import dualcontrol  # noqa: E402 — E2E-37 … E2E-39 (P3-T05a, P3-T04a)
 import idpadmin  # noqa: E402 — E2E-40 … E2E-43 (P3-T15)
 import lifecycle  # noqa: E402 — E2E-56 … E2E-58 (P3-T08)
 import phase3  # noqa: E402 — E2E-32 … E2E-36 (P3-T14a, P3-T03a, P3-T08a)
+import restore  # noqa: E402 — E2E-59, E2E-60 (P3-T11: V-11)
 from stack import CLIENTS, SECRET_RE, TENANTS, Stack, StackError, log  # noqa: E402
 
 PHASES: dict[str, float] = {}
@@ -187,6 +188,8 @@ def test(st: Stack, r: checks.Results) -> None:
         dualcontrol.run_all(r, st, guarded)
     with timed("ca E2E-40 … E2E-43 (Phase 3: quản trị IdP P3-T15 — idp.audit_sync, console Keycloak sau 2P)"):
         idpadmin.run_all(r, st, guarded)
+    with timed("ca E2E-59, E2E-60 (P3-T11: V-11 — restore bản chụp cũ, Noise key bị thay; restart Headscale của tenant-a)"):
+        restore.run_all(r, st, guarded)
     with timed("ca E2E-56 … E2E-58 (Phase 3: suspend/resume P3-T08 — policy suspension, TCP thật, 403 tenant_suspended)"):
         lifecycle.run_all(r, st, guarded)
 

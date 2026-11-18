@@ -40,6 +40,7 @@ func samples() []Event {
 		ApprovalRequested(tA, idX, "tenant.settings.four_eyes_off", "", "Alice", when),
 		IdPAdminChange(tA, idX.String(), "idp.user.credential_reset", "platform IdP administrator", "Alice", when),
 		IdPConsoleLogin(idX.String(), "mg-bootstrap-admin", "security-admin-console", "203.0.113.7", when),
+		InstanceRestored(tA, idX, when, true),
 		InstanceQuarantined(idX, "acme", idX, OutcomeIsolated),
 		InstanceReleased(idX, "acme", idX, OutcomeReleased),
 	}
