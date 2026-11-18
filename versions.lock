@@ -189,33 +189,33 @@ note = "tailscale.com/cmd/stund tại tag v1.104.7 (commit cbc74fe…), Go 1.27.
 
 [images.mg-api]
 image = "ghcr.io/zhaduchanhzz/network-access-mesh/api"
-tag = "85b81315ea6cf79ff946612602af88aea3ae4fc9"
-index = "sha256:f330d027052e7a3a041e9faa32b1c83e4630ab26ff25f9649c95a13eb1261e5f"   # một manifest linux/amd64 (docker v2 schema 2)
-amd64 = "sha256:f330d027052e7a3a041e9faa32b1c83e4630ab26ff25f9649c95a13eb1261e5f"
+tag = "031b813ad20924d71e74bd754787308abf4b8c61"
+index = "sha256:c6d258c1351f52781edf9f213e021df76773504bcaaf352f8f0751c74179e74c"   # một manifest linux/amd64 (docker v2 schema 2)
+amd64 = "sha256:c6d258c1351f52781edf9f213e021df76773504bcaaf352f8f0751c74179e74c"
 user = "65532:65532"
 run_as = "65532:65532 + nhóm mg-sec-app (20001) / mg-sec-api (20002); job migrate 20004; rootfs chỉ đọc, cap_drop ALL; project mg-app (P2-T16)"
 released = "2026-11-18"
-note = "meshguard-api build từ 85b8131 (+ P3-T18 quarantine/release, P3-T05b-mail, thư mời qua notification.send; trước đó 0e09da5, 33d8b09); workflow images run 44279769617 xanh; digest, user và label org.opencontainers.image.revision đọc từ GHCR ngày 2026-11-18. CÙNG commit với [images.mg-worker] (tools/render_app.py từ chối nếu khác)"
+note = "meshguard-api build từ 031b813 (+ P3-T09 DELETE /platform/tenants/{id} 2P, migration 0019; trước đó 85b8131, 0e09da5); workflow images run 44291745726 xanh; digest, user và label org.opencontainers.image.revision đọc từ GHCR ngày 2026-11-18. CÙNG commit với [images.mg-worker] (tools/render_app.py từ chối nếu khác)"
 
 [images.mg-worker]
 image = "ghcr.io/zhaduchanhzz/network-access-mesh/worker"
-tag = "85b81315ea6cf79ff946612602af88aea3ae4fc9"
-index = "sha256:425cd4972a92c09f23131ef4d5a8ff7961b11df8191438ae2104c8d3a719c39c"   # một manifest linux/amd64 (docker v2 schema 2)
-amd64 = "sha256:425cd4972a92c09f23131ef4d5a8ff7961b11df8191438ae2104c8d3a719c39c"
+tag = "031b813ad20924d71e74bd754787308abf4b8c61"
+index = "sha256:6419b440d7b6f66c94935c963f5e51bb4f226766df6894b2c501f3abd66d40c6"   # một manifest linux/amd64 (docker v2 schema 2)
+amd64 = "sha256:6419b440d7b6f66c94935c963f5e51bb4f226766df6894b2c501f3abd66d40c6"
 user = "65532:65532"
 run_as = "65532:65532 + nhóm mg-sec-app (20001) / mg-sec-worker (20003); rootfs chỉ đọc, cap_drop ALL; project mg-app (P2-T16)"
 released = "2026-11-18"
-note = "meshguard-worker build từ 85b8131 (+ lệnh mailrelay — cầu SMTP mail-bridge, admin mail-test, instance.quarantine/release (hàng đợi urgent); trước đó 0e09da5); workflow images run 44279769617 xanh; digest, user và label revision đọc từ GHCR ngày 2026-11-18. CÙNG commit với [images.mg-api]"
+note = "meshguard-worker build từ 031b813 (+ P3-T09 tenant.deprovision 15 bước, tenant.keys_destroy; trước đó 85b8131); workflow images run 44291745726 xanh; digest, user và label revision đọc từ GHCR ngày 2026-11-18. CÙNG commit với [images.mg-api]"
 
 [images.mg-agent]
 image = "ghcr.io/zhaduchanhzz/network-access-mesh/agent"
-tag = "85b81315ea6cf79ff946612602af88aea3ae4fc9"
-index = "sha256:d417b79eb2a7d379c6c2dcd5b91c392fd70955846ca534f9391e530b74c5d0ba"   # một manifest linux/amd64 (docker v2 schema 2)
-amd64 = "sha256:d417b79eb2a7d379c6c2dcd5b91c392fd70955846ca534f9391e530b74c5d0ba"
+tag = "031b813ad20924d71e74bd754787308abf4b8c61"
+index = "sha256:5727c3762039cfefd7c580fa4bedb385b6153824eff17e1564e4aea4c01009eb"   # một manifest linux/amd64 (docker v2 schema 2)
+amd64 = "sha256:5727c3762039cfefd7c580fa4bedb385b6153824eff17e1564e4aea4c01009eb"
 user = "0:0"
 run_as = "root (Host Agent — thành phần DUY NHẤT có Docker socket, ADR-05); compose: network_mode none, cap_drop ALL + CHOWN/FOWNER/DAC_OVERRIDE, rootfs chỉ đọc; chỉ Unix socket 0660 nhóm mg-sec-worker (P3-T01/P3-T02)"
 released = "2026-11-18"
-note = "meshguard-agent build từ 85b8131 (+ P3-T18: RemoveEdgeAttachment lý do QUARANTINE, dừng/kiểm instance khi release; trước đó 0e09da5, 391ad74); workflow images run 44279769617 xanh (gồm bước kiểm image); digest, user và label revision đọc từ GHCR ngày 2026-11-18"
+note = "meshguard-agent build từ 031b813 (+ P3-T09 RemoveInstance/storage.remove DELETE_ARCHIVED; trước đó 85b8131, 0e09da5); workflow images run 44291745726 xanh (gồm bước kiểm image); digest, user và label revision đọc từ GHCR ngày 2026-11-18"
 
 [images.mg-probe]
 image = "ghcr.io/zhaduchanhzz/network-access-mesh/probe"
