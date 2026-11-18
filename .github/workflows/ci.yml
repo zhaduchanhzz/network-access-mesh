@@ -98,6 +98,32 @@ jobs:
           docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD:/src:ro" -w /src/infrastructure/mail/cf-worker \
             "$NODE_IMAGE" npm test
 
+  # P4-T01: SPA apps/web — ESLint (gồm meshguard/no-literal-ui-string và chặn Web Storage/fetch ngoài chỗ cho phép),
+  # tsc strict, Vitest (unit/component, axe, không token trong storage, type client khớp spec, RBAC khớp seed, CSP khớp
+  # edge), vite build + check-dist, npm audit (chặn High/Critical) — tất cả trong Node pin digest của versions.lock.
+  web:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      NODE_IMAGE: docker.io/library/node@sha256:e6bedef217677b276c591795e169840edd9096dbf13f29df8ef8d1856b8820bc   # 26.13.1-trixie-slim (versions.lock)
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - name: npm ci (package-lock.json, không chạy script cài đặt) · lint · typecheck · test · build · audit
+        run: |
+          docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -e CI=true -e npm_config_update_notifier=false \
+            -v "$PWD:/src" -w /src/apps/web "$NODE_IMAGE" sh -ec '
+              npm ci --ignore-scripts --no-audit --no-fund
+              echo "== lint";      npm run --silent lint
+              echo "== typecheck"; npm run --silent typecheck
+              echo "== test";      npm run --silent test
+              echo "== build";     npm run --silent build
+              echo "== audit";     npm audit --audit-level=high
+            '
+      - name: Không file nào bị sinh lại hay sửa (rbac.gen.ts, schema.d.ts, package-lock.json)
+        run: git diff --exit-code -- apps/web/ || { echo "::error::apps/web lệch sau npm ci/test — chạy 'npm run gen:rbac' / 'make api-gen' rồi commit"; exit 1; }
+
   secret-scan:
     runs-on: ubuntu-24.04
     timeout-minutes: 10

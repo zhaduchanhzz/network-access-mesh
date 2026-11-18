@@ -1,24 +1,58 @@
 {
   "name": "@meshguard/web",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
-  "description": "MeshGuard Web Management (React SPA, P4-T01). Hiện chỉ dùng để sinh type TypeScript từ api/openapi.yaml (P2-T02).",
+  "description": "MeshGuard Web Management — SPA React cho Tenant Portal (app.<domain>) và Platform Console (admin.<domain>), P4-T01. Type API sinh từ api/openapi.yaml (P2-T02).",
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.12"
   },
   "scripts": {
+    "dev": "vite",
+    "build": "vite build && node scripts/check-dist.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "eslint --max-warnings 0 .",
+    "test": "vitest run",
+    "check": "npm run --silent lint && npm run --silent typecheck && npm run --silent test && npm run --silent build",
     "gen:api": "openapi-typescript ../../api/openapi.yaml --output src/api/schema.d.ts",
+    "gen:rbac": "node scripts/gen-rbac.mjs",
     "spec:json": "node scripts/spec-to-json.mjs"
   },
+  "dependencies": {
+    "@tanstack/react-query": "5.106.0",
+    "i18next": "26.7.1",
+    "openapi-fetch": "0.17.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "react-i18next": "17.1.12",
+    "react-router": "7.18.5"
+  },
   "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@tailwindcss/vite": "4.3.4",
+    "@testing-library/dom": "10.4.2",
+    "@testing-library/jest-dom": "7.0.1",
+    "@testing-library/react": "16.3.3",
+    "@testing-library/user-event": "14.6.8",
+    "@types/node": "26.6.6",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.2.1",
+    "axe-core": "4.14.0",
+    "eslint": "10.14.0",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "globals": "17.14.0",
     "js-yaml": "4.3.2",
+    "jsdom": "30.1.3",
     "openapi-typescript": "7.13.0",
-    "typescript": "5.9.3"
+    "tailwindcss": "4.3.4",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.72.1",
+    "vite": "8.3.5",
+    "vitest": "5.1.0"
   },
   "overrides": {
     "@redocly/openapi-core": "1.34.23",
-    "brace-expansion": "2.1.7",
     "uri-js-replace": "1.0.2"
   }
 }

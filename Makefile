@@ -3,7 +3,7 @@ PYTHON ?= python3
 
 SQLC_VERSION ?= v1.31.1
 
-.PHONY: help docs docs-check render-test monitoring-test lint secret-scan api-lint api-gen agent-gen authz-gen go-test go-lint go-build sqlc sqlc-diff e2e-functional isolation isolation-headscale agent-it provisioning-it
+.PHONY: help docs docs-check render-test monitoring-test lint secret-scan api-lint api-gen agent-gen authz-gen web-check web-image go-test go-lint go-build sqlc sqlc-diff e2e-functional isolation isolation-headscale agent-it provisioning-it
 
 help: ## Liệt kê các target
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-14s %s\n", $$1, $$2}'
@@ -34,12 +34,19 @@ api-lint: ## Spec-lint api/openapi.yaml (x-permission hai chiều với §8.5/§
 agent-gen: ## Lint (buf) và sinh lại api/agent/v1 (Go + gRPC) từ api/agent/v1/agent.proto — buf và protoc-gen-go-grpc pin trong api/agent/v1/generate.go, api/buf.gen.yaml
 	go generate ./api/agent/v1
 
-authz-gen: ## Sinh lại database/seeds/rbac.sql (từ §8.4–§8.6) và internal/authz/operations_gen.go (từ api/openapi.yaml)
+authz-gen: ## Sinh lại database/seeds/rbac.sql (từ §8.4–§8.6), internal/authz/operations_gen.go (từ api/openapi.yaml) và apps/web/src/auth/rbac.gen.ts (nav theo role)
 	$(PYTHON) tools/openapi_lint.py --write
+	cd apps/web && node scripts/gen-rbac.mjs
 
 api-gen: ## Sinh lại server Go (oapi-codegen qua go tool) và type TypeScript (openapi-typescript) từ api/openapi.yaml
 	go generate ./internal/httpapi/gen
 	cd apps/web && npm ci --ignore-scripts --no-audit --no-fund && npm run gen:api
+
+web-check: ## apps/web (P4-T01): npm ci theo lockfile + ESLint + tsc + Vitest + vite build + check-dist (giống job CI web)
+	cd apps/web && npm ci --ignore-scripts --no-audit --no-fund && npm run check
+
+web-image: ## Build image web (SPA tĩnh + Caddy trên distroless — infrastructure/docker/web; cần Docker)
+	$(DOCKER) build -f infrastructure/docker/web/Dockerfile -t meshguard-web:dev .
 
 lint: docs-check render-test api-lint secret-scan ## Mọi kiểm tra hiện có
 

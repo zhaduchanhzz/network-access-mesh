@@ -1,0 +1,169 @@
+{
+  "app": {
+    "name": "MeshGuard"
+  },
+  "common": {
+    "loading": "Đang tải…",
+    "retry": "Thử lại",
+    "dismiss": "Đóng",
+    "home": "Về trang chủ"
+  },
+  "shell": {
+    "skipToContent": "Chuyển tới nội dung chính",
+    "platformConsole": "Platform Console",
+    "tenantPortal": "Tenant Portal",
+    "switchTenant": "Đổi tenant",
+    "signOut": "Đăng xuất",
+    "navigation": "Điều hướng chính"
+  },
+  "prefs": {
+    "language": "Ngôn ngữ",
+    "theme": "Giao diện",
+    "languages": {
+      "vi": "Tiếng Việt",
+      "en": "English"
+    },
+    "themes": {
+      "system": "Theo hệ thống",
+      "light": "Sáng",
+      "dark": "Tối"
+    }
+  },
+  "login": {
+    "title": "Đăng nhập",
+    "tenantHeading": "Đăng nhập Tenant Portal",
+    "platformHeading": "Đăng nhập Platform Console",
+    "tenantLabel": "Mã tenant (slug)",
+    "tenantHint": "Ví dụ: tenant-a — chữ thường, số và dấu gạch ngang.",
+    "tenantInvalid": "Mã tenant không hợp lệ: 3–32 ký tự, bắt đầu bằng chữ cái, chỉ gồm chữ thường, số và dấu gạch ngang.",
+    "platformHint": "Dành cho nhân sự nền tảng. Đăng nhập luôn yêu cầu mật khẩu và yếu tố xác thực thứ hai.",
+    "submit": "Tiếp tục tới trang đăng nhập",
+    "expired": "Phiên đăng nhập đã hết hạn hoặc đã bị thu hồi. Hãy đăng nhập lại."
+  },
+  "tenantSelect": {
+    "title": "Chọn tenant",
+    "noMemberships": "Tài khoản này chưa là thành viên của tenant nào đang hoạt động.",
+    "noGrants": "Không có Support Access Grant nào còn hiệu lực. Truy cập vào tenant chỉ qua grant được tenant phê duyệt.",
+    "grantExpires": "hết hạn {{at}}"
+  },
+  "tenant": {
+    "suspendedBanner": "Tenant đang bị tạm ngưng: mọi thao tác ghi bị từ chối, dữ liệu chỉ đọc."
+  },
+  "nav": {
+    "soon": "Sắp có",
+    "groups": {
+      "overview": "Tổng quan",
+      "devices": "Thiết bị",
+      "access": "Truy cập",
+      "network": "Mạng",
+      "people": "Người dùng",
+      "governance": "Quản trị",
+      "operations": "Vận hành"
+    },
+    "tenant": {
+      "overview": "Tổng quan",
+      "notifications": "Thông báo",
+      "devices": "Thiết bị",
+      "enroll": "Thêm thiết bị",
+      "enrollmentKeys": "Enrollment key",
+      "relay": "Relay",
+      "policies": "Policy truy cập",
+      "routes": "Routes",
+      "dns": "DNS",
+      "resources": "Tài nguyên mạng",
+      "diagnostics": "Chẩn đoán",
+      "users": "Người dùng",
+      "groups": "Nhóm",
+      "invitations": "Lời mời",
+      "audit": "Audit log",
+      "approvals": "Chờ phê duyệt",
+      "supportAccess": "Support Access",
+      "settings": "Thiết lập",
+      "identityProvider": "Identity Provider",
+      "usage": "Mức sử dụng",
+      "billing": "Gói và thanh toán"
+    },
+    "platform": {
+      "health": "Platform Health",
+      "tenants": "Tenant",
+      "approvals": "Chờ phê duyệt (2P)",
+      "jobs": "Job",
+      "instances": "Instance",
+      "hosts": "Host",
+      "relayRegions": "Relay Region",
+      "plans": "Gói dịch vụ",
+      "settings": "Thiết lập hệ thống",
+      "users": "Nhân sự nền tảng",
+      "identityProviders": "Identity Provider",
+      "supportAccess": "Support Access",
+      "audit": "Audit log",
+      "securityEvents": "Security Events",
+      "usage": "Mức sử dụng",
+      "backups": "Backup"
+    }
+  },
+  "roles": {
+    "super_admin": "Super Admin",
+    "platform_operator": "Platform Operator",
+    "platform_support": "Platform Support",
+    "platform_viewer": "Platform Viewer",
+    "tenant_owner": "Tenant Owner",
+    "tenant_admin": "Tenant Admin",
+    "tenant_operator": "Tenant Operator",
+    "tenant_viewer": "Tenant Viewer",
+    "end_user": "End User",
+    "support_operator": "Support Operator",
+    "support_admin": "Support Admin"
+  },
+  "unavailable": {
+    "title": "Chưa khả dụng",
+    "planned": "Màn hình này chưa được xây (task {{task}}). Không hiển thị số liệu thay thế.",
+    "postMvp": "Tính năng sau MVP (task {{task}}) — chưa có nguồn dữ liệu nên không hiển thị số liệu."
+  },
+  "notFound": {
+    "title": "Không tìm thấy",
+    "description": "Trang hoặc tài nguyên này không tồn tại, hoặc bạn không có quyền truy cập."
+  },
+  "forbidden": {
+    "title": "Không có quyền",
+    "description": "Role hiện tại của bạn không được xem màn hình này."
+  },
+  "error": {
+    "title": "Đã xảy ra lỗi"
+  },
+  "stepUp": {
+    "title": "Cần xác thực lại",
+    "description": "Thao tác này nhạy cảm và yêu cầu bạn vừa xác thực trong vòng 15 phút. Xác thực lại rồi thực hiện lại thao tác.",
+    "action": "Xác thực lại"
+  },
+  "rateLimit": {
+    "wait_other": "Bạn đã gửi quá nhiều yêu cầu. Hãy thử lại sau {{count}} giây.",
+    "ready": "Bạn có thể thử lại."
+  },
+  "maintenance": {
+    "banner": "Nền tảng đang bảo trì. Một số chức năng tạm thời không khả dụng."
+  },
+  "problem": {
+    "requestId": "Mã yêu cầu:",
+    "retryAfter_other": "Thử lại sau {{count}} giây.",
+    "unauthenticated": "Bạn chưa đăng nhập hoặc phiên đã hết hạn.",
+    "reauth_required": "Cần xác thực lại để thực hiện thao tác này.",
+    "forbidden": "Bạn không có quyền thực hiện thao tác này.",
+    "tenant_suspended": "Tenant đang bị tạm ngưng — thao tác ghi bị từ chối.",
+    "quota_exceeded": "Đã vượt hạn mức của gói dịch vụ.",
+    "not_found": "Không tìm thấy.",
+    "conflict": "Xung đột với trạng thái hiện tại — tải lại rồi thử lại.",
+    "precondition_failed": "Dữ liệu đã bị thay đổi bởi người khác — tải lại rồi thử lại.",
+    "precondition_required": "Thiếu phiên bản của dữ liệu (If-Match) — tải lại rồi thử lại.",
+    "validation_failed": "Dữ liệu không hợp lệ.",
+    "idempotency_key_reuse": "Yêu cầu trùng khóa idempotency nhưng khác nội dung.",
+    "rate_limited": "Quá nhiều yêu cầu — hãy chờ rồi thử lại.",
+    "upstream_rejected": "Hệ thống phía sau từ chối yêu cầu.",
+    "instance_unavailable": "Control plane của tenant tạm thời không phản hồi.",
+    "maintenance": "Nền tảng đang bảo trì.",
+    "internal_error": "Lỗi nội bộ của máy chủ.",
+    "not_implemented": "Chức năng này chưa được hiện thực ở máy chủ.",
+    "network_error": "Không kết nối được tới máy chủ.",
+    "unexpected_response": "Máy chủ trả lời không như mong đợi."
+  }
+}

@@ -1,0 +1,55 @@
+# Caddy của image web (P4-T01): phục vụ SPA tĩnh /srv/web trên :8080 (HTTP thường — TLS kết thúc ở edge, §14.6).
+# Không admin API, không TLS, không ghi cấu hình; chỉ module chuẩn. Một bản build cho app.<domain> và admin.<domain>.
+{
+	admin off
+	persist_config off
+	auto_https off
+	servers {
+		protocols h1
+	}
+	log {
+		output stdout
+		format json
+		level WARN
+	}
+}
+
+:8080 {
+	root * /srv/web
+
+	# Cùng CSP với portal_headers của edge (infrastructure/caddy/Caddyfile.tmpl — test src/security/csp.test.ts):
+	# chỉ tài nguyên cùng origin, không inline script/style, không nhúng frame, form chỉ về chính origin.
+	header {
+		Content-Security-Policy "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'"
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy no-referrer
+		Cross-Origin-Opener-Policy same-origin
+		Cross-Origin-Resource-Policy same-origin
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+		-Server
+		defer
+	}
+
+	@api path /api /api/*
+	@hidden path_regexp hidden (^|/)\.
+	@unsafe path_regexp unsafe \x5c
+	route {
+		# API không bao giờ do container này trả lời — edge định tuyến /api/* tới api
+		respond @api 404
+		respond @hidden 404
+		respond @unsafe 404
+		# asset có hash nội dung trong tên: cache lâu; thiếu file ⇒ 404 (không trả index.html thay cho JS/CSS)
+		handle /assets/* {
+			header Cache-Control "public, max-age=31536000, immutable"
+			file_server
+		}
+		# mọi đường dẫn khác: file nếu có (favicon), nếu không là index.html — router của SPA quyết định (404 thống nhất)
+		handle {
+			header Cache-Control "no-cache"
+			try_files {path} /index.html
+			file_server
+		}
+	}
+}
