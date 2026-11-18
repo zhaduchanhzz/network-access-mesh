@@ -8,7 +8,7 @@
 # (CGO tắt) ⇒ giữ base distroless static, không đổi base. P3-T11 thêm hai công cụ của container trợ giúp backup/restore
 # (§17.1 — chạy chính image này với run_uid của tenant): sqlite3 3.54.1 (≥ 3.51.3 — bản sửa WAL-reset; build TĨNH từ
 # amalgamation autoconf của sqlite.org, sha256 + SHA3-256 công bố, versions.lock [sources.sqlite]) và age v1.3.2 (công
-# thức của build-age.sh / image backup — versions.lock [sources.age]).
+# thức của build-age.sh / image backup, x/crypto đã vá — versions.lock [sources.age]).
 # Base và công cụ pin theo digest/SHA-256 (versions.lock [images.golang], [images.distroless-static],
 # [sources.docker-compose]); module Go kiểm bằng go.sum; template instance nhúng vào binary (infrastructure/headscale/templates).
 #   docker build -f infrastructure/docker/agent/Dockerfile --build-arg VERSION=… --build-arg COMMIT=… .
@@ -66,18 +66,23 @@ RUN curl -fsSLo s.tgz "${SQLITE_URL}" \
  && echo "${SQLITE_BUILD_SHA256}  /sqlite3" | sha256sum -c - \
  && /sqlite3 -version | grep -q "^3.54.1 "
 
-# age — versions.lock [sources.age] (công thức của infrastructure/host/key-ceremony/build-age.sh, như image backup)
+# age — versions.lock [sources.age] (công thức của infrastructure/host/key-ceremony/build-age.sh, như image backup):
+# module bọc infrastructure/host/key-ceremony/age-build (go.mod/go.sum: filippo.io/age + golang.org/x/crypto v0.56.0 —
+# grype High GO-2026-6354/6355 của x/crypto v0.55.0 mà v1.3.2 khai báo; P3-T11a), -mod=readonly; -X main.Version ⇒
+# `age --version` = v1.3.2. Build tái lập: sha256 phải trùng versions.lock.
 FROM ${GOLANG} AS age
 ARG AGE_MODULE=filippo.io/age
 ARG AGE_VERSION=v1.3.2
-ARG AGE_SHA256=e442c7bc47bb52e08ccb02dfa5fc09ecf58ce6bce5de0cdda8443b918ae7055e
-ENV HOME=/tmp CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS=-trimpath GOBIN=/out \
+ARG AGE_SHA256=571136ee8b7cbb0f67cd8ddd2e46ed834b933c62d59500b631a82af6c627e44d
+ENV HOME=/tmp CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS="-trimpath -mod=readonly" \
     GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GONOSUMDB= GOPRIVATE= GOINSECURE= \
     GOMODCACHE=/tmp/modcache GOCACHE=/tmp/gocache
-WORKDIR /tmp
-RUN go install "${AGE_MODULE}/cmd/age@${AGE_VERSION}" \
+WORKDIR /src
+COPY infrastructure/host/key-ceremony/age-build/go.mod infrastructure/host/key-ceremony/age-build/go.sum ./
+RUN test "$(go list -m "${AGE_MODULE}")" = "${AGE_MODULE} ${AGE_VERSION}" \
+ && go build -ldflags "-X main.Version=${AGE_VERSION}" -o /out/age "${AGE_MODULE}/cmd/age" \
  && echo "${AGE_SHA256}  /out/age" | sha256sum -c - \
- && /out/age --version
+ && test "$(/out/age --version)" = "${AGE_VERSION}"
 
 FROM ${RUNTIME}
 COPY --from=build /out/meshguard-agent /usr/local/bin/meshguard-agent
