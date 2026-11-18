@@ -61,7 +61,7 @@ func ParseRange(s string) (Range, error) {
 // container runs as run_uid:run_uid (§6.3), so the run_uid range must never contain one of them — a tenant process
 // with GID 20003 (mg-sec-worker) could read the agent token and the worker's database passwords (§14.2).
 // TestReservedIDsCoverVersionsLock keeps this list in step with versions.lock.
-var reservedIDs = []uint32{0, 999, 1000, 10001, 10007, 20001, 20002, 20003, 20004, 20005, 20006, 20007, 20008, 65532, 65534}
+var reservedIDs = []uint32{0, 999, 1000, 10001, 10007, 20001, 20002, 20003, 20004, 20005, 20006, 20007, 20008, 20009, 65532, 65534}
 
 // reservedPorts are the ports the platform itself listens on at the host or the public entry: edge (80, 443, tunnel
 // 8080/8443) and the shared STUN responder (3478).
