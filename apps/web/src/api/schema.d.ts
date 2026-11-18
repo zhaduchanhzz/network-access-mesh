@@ -562,6 +562,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/platform/instances/{instanceId}/reconfigure": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Đổi cấu hình instance — job instance.reconfigure (version mới, restart, health gate, tự lùi)
+         * @description §11.4 hàng Reconfigure: render version mới từ version đang hiệu lực + thay đổi yêu cầu → `configtest` (Agent,
+         *     container tạm) → version `pending` → `CheckPolicy` chuỗi đang áp dụng → ghi atomically → restart → health gate
+         *     (container healthy, `GET /api/v1/health` qua adapter, post-start gate) → `edge.verify` rút gọn → version
+         *     `applied`. Lỗi không phục hồi sau khi ghi ⇒ ghi lại version trước + restart + kiểm lại, version mới `failed`,
+         *     job `rolled_back`; lùi lỗi ⇒ `failed_resumable` (`compensation_failed`) + `security_event` Critical. Instance
+         *     phải `running` (quarantined ⇒ `409`) và đã có version cấu hình do orchestrator ghi (`409 no_config_version`);
+         *     một job reconfigure chưa kết thúc với thay đổi khác ⇒ `409`, cùng thay đổi ⇒ chính job đó. Chạy trong khóa
+         *     lifecycle của tenant (§13.5 (d)). Audit `platform.instance.reconfigure.requested` (worker đóng
+         *     `.succeeded`/`.failed`).
+         */
+        post: operations["reconfigurePlatformInstance"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/platform/hosts": {
         parameters: {
             query?: never;
@@ -1565,6 +1593,21 @@ export interface components {
         InstanceList: {
             items: components["schemas"]["Instance"][];
             next_cursor: string | null;
+        };
+        /**
+         * @description `log.level` của Headscale (§11.3 bước 8: chỉ `info`, `warn`, `error`)
+         * @enum {string}
+         */
+        InstanceLogLevel: "info" | "warn" | "error";
+        /** @description Tham số do nền tảng quản lý của cấu hình instance (§11.1 `HeadscaleParams`); trường vắng mặt giữ giá trị của version đang hiệu lực. `derp.server.ipv4` luôn render lại từ điểm vào công khai hiện tại của host (§17.4) — `{}` render lại đúng version hiện hành với giá trị mới nhất của registry (không đổi gì ⇒ job kết thúc không restart). Thiết lập DNS, OIDC, hạn khóa của tenant đi qua API Phase 4 (cùng job) */
+        InstanceReconfigure: {
+            log_level?: components["schemas"]["InstanceLogLevel"];
+            /** @description `node.expiry` theo ngày (render thành giờ — Headscale 0.29.7 không có đơn vị ngày) */
+            node_expiry_days?: number;
+            /** @description `dns.nameservers.global` (`override_local_dns` — RT-07): địa chỉ IP unicast dùng được (không loopback, link-local, multicast), không trùng; ngoài dải network tenant của host (Agent kiểm) */
+            nameservers?: string[];
+            /** @description `derp.server.region_id` của DERP nhúng (§10.1) */
+            derp_region_id?: number;
         };
         /**
          * @description Trạng thái host (`hosts.status`, 0014): `active` nhận instance mới; `draining` giữ instance đang có, không nhận mới; `disabled` ngừng hẳn — placement chỉ chọn host `active`
@@ -3152,6 +3195,43 @@ export interface operations {
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    reconfigurePlatformInstance: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                instanceId: components["parameters"]["InstanceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstanceReconfigure"];
+            };
+        };
+        responses: {
+            /** @description Job instance.reconfigure đã xếp hàng; theo dõi ở job */
+            202: {
+                headers: {
+                    Location: components["headers"]["JobLocation"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
             429: components["responses"]["RateLimited"];
             default: components["responses"]["Unexpected"];
         };

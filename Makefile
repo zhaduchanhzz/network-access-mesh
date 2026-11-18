@@ -51,7 +51,7 @@ isolation: ## Isolation suite v1 (P2-T15): ma trận authz sinh từ OpenAPI + I
 isolation-headscale: ## IT-06, IT-10 (API key), IT-20 (gồm Locator thật + PostgreSQL) trên hai Headscale thật (cần Docker, python3 ≥ 3.11)
 	bash tests/isolation/headscale/run.sh
 
-agent-it: ## Test tích hợp Host Agent trên Docker thật (P3-T02 compose driver, P3-T03 thao tác/edge supervisor/start guard): tenant dùng-một-lần trong image agent đã hardening, snapshot trước/sau (cần Docker, python3 ≥ 3.11; DOCKER="sudo docker" nếu cần)
+agent-it: ## Test tích hợp Host Agent trên Docker thật (P3-T02 compose driver, P3-T03 thao tác/edge supervisor/start guard, P3-T12 reconcile, P3-T13 reconfigure + tự lùi): tenant dùng-một-lần trong image agent đã hardening, snapshot trước/sau (cần Docker, python3 ≥ 3.11; DOCKER="sudo docker" nếu cần)
 	bash tests/integration/agent/run.sh
 
 provisioning-it: ## Harness tiêm lỗi provisioning (P3-T07): orchestrator thật + Host Agent thật + Headscale thật trên Docker, lỗi tại từng bước 3–19, worker bị kill giữa bước 13, /retry, bộ phát hiện tài nguyên mồ côi (cần Docker, python3 ≥ 3.11; DOCKER="sudo docker" nếu cần)

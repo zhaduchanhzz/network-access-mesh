@@ -1275,6 +1275,61 @@ paths:
           $ref: '#/components/responses/RateLimited'
         default:
           $ref: '#/components/responses/Unexpected'
+  # ---------------------------------------------------------------- thao tác trên instance: reconfigure (P3-T13)
+  /platform/instances/{instanceId}/reconfigure:
+    post:
+      tags: [platform]
+      operationId: reconfigurePlatformInstance
+      summary: Đổi cấu hình instance — job instance.reconfigure (version mới, restart, health gate, tự lùi)
+      description: |-
+        §11.4 hàng Reconfigure: render version mới từ version đang hiệu lực + thay đổi yêu cầu → `configtest` (Agent,
+        container tạm) → version `pending` → `CheckPolicy` chuỗi đang áp dụng → ghi atomically → restart → health gate
+        (container healthy, `GET /api/v1/health` qua adapter, post-start gate) → `edge.verify` rút gọn → version
+        `applied`. Lỗi không phục hồi sau khi ghi ⇒ ghi lại version trước + restart + kiểm lại, version mới `failed`,
+        job `rolled_back`; lùi lỗi ⇒ `failed_resumable` (`compensation_failed`) + `security_event` Critical. Instance
+        phải `running` (quarantined ⇒ `409`) và đã có version cấu hình do orchestrator ghi (`409 no_config_version`);
+        một job reconfigure chưa kết thúc với thay đổi khác ⇒ `409`, cùng thay đổi ⇒ chính job đó. Chạy trong khóa
+        lifecycle của tenant (§13.5 (d)). Audit `platform.instance.reconfigure.requested` (worker đóng
+        `.succeeded`/`.failed`).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: platform.instance:operate
+      x-task: P3-T13
+      x-audit-action: platform.instance.reconfigure
+      parameters:
+        - $ref: '#/components/parameters/InstanceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InstanceReconfigure'
+      responses:
+        '202':
+          description: Job instance.reconfigure đã xếp hàng; theo dõi ở job
+          headers:
+            Location:
+              $ref: '#/components/headers/JobLocation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
   # ---------------------------------------------------------------- platform hosts (P3-T04)
   /platform/hosts:
     get:
@@ -3561,6 +3616,44 @@ components:
             $ref: '#/components/schemas/Instance'
         next_cursor:
           type: [string, 'null']
+    # ------------------------------------------------------------ instance.reconfigure (§11.4, §13.5 — P3-T13)
+    InstanceLogLevel:
+      type: string
+      description: '`log.level` của Headscale (§11.3 bước 8: chỉ `info`, `warn`, `error`)'
+      enum: [info, warn, error]
+    InstanceReconfigure:
+      type: object
+      description: >-
+        Tham số do nền tảng quản lý của cấu hình instance (§11.1 `HeadscaleParams`); trường vắng mặt giữ giá trị của
+        version đang hiệu lực. `derp.server.ipv4` luôn render lại từ điểm vào công khai hiện tại của host (§17.4) —
+        `{}` render lại đúng version hiện hành với giá trị mới nhất của registry (không đổi gì ⇒ job kết thúc không
+        restart). Thiết lập DNS, OIDC, hạn khóa của tenant đi qua API Phase 4 (cùng job)
+      additionalProperties: false
+      properties:
+        log_level:
+          $ref: '#/components/schemas/InstanceLogLevel'
+        node_expiry_days:
+          type: integer
+          minimum: 1
+          maximum: 3650
+          description: '`node.expiry` theo ngày (render thành giờ — Headscale 0.29.7 không có đơn vị ngày)'
+        nameservers:
+          type: array
+          minItems: 1
+          maxItems: 8
+          uniqueItems: true
+          description: >-
+            `dns.nameservers.global` (`override_local_dns` — RT-07): địa chỉ IP unicast dùng được (không loopback,
+            link-local, multicast), không trùng; ngoài dải network tenant của host (Agent kiểm)
+          items:
+            type: string
+            minLength: 2
+            maxLength: 45
+        derp_region_id:
+          type: integer
+          minimum: 900
+          maximum: 999
+          description: '`derp.server.region_id` của DERP nhúng (§10.1)'
     # ------------------------------------------------------------ platform hosts (§6.3 `hosts`, migration 0014 — P3-T04)
     HostStatus:
       type: string

@@ -128,6 +128,12 @@ type RelayHandlers interface {
 	ListPlatformRelayRegions(ctx context.Context, request gen.ListPlatformRelayRegionsRequestObject) (gen.ListPlatformRelayRegionsResponseObject, error)
 }
 
+// ReconfigureHandlers — P3-T13 (`provisioning` orchestrator): the reconfiguration of an instance (job
+// instance.reconfigure — §11.4).
+type ReconfigureHandlers interface {
+	ReconfigurePlatformInstance(ctx context.Context, request gen.ReconfigurePlatformInstanceRequestObject) (gen.ReconfigurePlatformInstanceResponseObject, error)
+}
+
 // Handlers is the extension point of the API: one handler set per building task. A nil set answers every operation
 // of its interface with 501 not_implemented. A set may also implement only part of its interface by embedding
 // NotImplemented. Handlers return a *problem.Error for an expected failure (not_found, conflict…); any other error
@@ -147,12 +153,13 @@ type Handlers struct {
 	Provisioning  ProvisioningHandlers // P3-T05
 	Lifecycle     LifecycleHandlers    // P3-T08
 	Relay         RelayHandlers        // P3-T05c
+	Reconfigure   ReconfigureHandlers  // P3-T13
 }
 
 func (h Handlers) mounted() bool {
 	return h.Auth != nil || h.Tenants != nil || h.Devices != nil || h.Audit != nil || h.Jobs != nil || h.Monitoring != nil ||
 		h.Notifications != nil || h.Approvals != nil || h.Invitations != nil || h.Hosts != nil || h.IdPConsole != nil ||
-		h.Provisioning != nil || h.Lifecycle != nil || h.Relay != nil
+		h.Provisioning != nil || h.Lifecycle != nil || h.Relay != nil || h.Reconfigure != nil
 }
 
 // dispatcher implements gen.StrictServerInterface by promotion from the disjoint interfaces.
@@ -171,13 +178,14 @@ type dispatcher struct {
 	ProvisioningHandlers
 	LifecycleHandlers
 	RelayHandlers
+	ReconfigureHandlers
 }
 
 var _ gen.StrictServerInterface = dispatcher{}
 
 func newDispatcher(h Handlers) dispatcher {
 	d := dispatcher{h.Auth, h.Tenants, h.Devices, h.Audit, h.Jobs, h.Monitoring, h.Notifications, h.Approvals, h.Invitations,
-		h.Hosts, h.IdPConsole, h.Provisioning, h.Lifecycle, h.Relay}
+		h.Hosts, h.IdPConsole, h.Provisioning, h.Lifecycle, h.Relay, h.Reconfigure}
 	if d.RelayHandlers == nil {
 		d.RelayHandlers = NotImplemented{}
 	}
@@ -186,6 +194,9 @@ func newDispatcher(h Handlers) dispatcher {
 	}
 	if d.LifecycleHandlers == nil {
 		d.LifecycleHandlers = NotImplemented{}
+	}
+	if d.ReconfigureHandlers == nil {
+		d.ReconfigureHandlers = NotImplemented{}
 	}
 	if d.ApprovalHandlers == nil {
 		d.ApprovalHandlers = NotImplemented{}
@@ -447,4 +458,8 @@ func (NotImplemented) GetTenantRelay(context.Context, gen.GetTenantRelayRequestO
 
 func (NotImplemented) ListPlatformRelayRegions(context.Context, gen.ListPlatformRelayRegionsRequestObject) (gen.ListPlatformRelayRegionsResponseObject, error) {
 	return nil, problem.NotImplemented("ListPlatformRelayRegions")
+}
+
+func (NotImplemented) ReconfigurePlatformInstance(context.Context, gen.ReconfigurePlatformInstanceRequestObject) (gen.ReconfigurePlatformInstanceResponseObject, error) {
+	return nil, problem.NotImplemented("ReconfigurePlatformInstance")
 }

@@ -47,7 +47,7 @@ const partitionRole = "mg_partition_maint"
 //	reconcile        instance.reconcile + host.reconcile, report only, and their schedule (P3-T12; agent: MG_AGENT_*)
 //	apikey           apikey.rotate (P3-T10): its handler, its daily schedule per instance and the key expiry gauge
 //	orchestrator     tenant.provision — the 19 steps of §11.3 with compensation (P3-T05; MG_PROVISION_*, MG_PROBER_URL,
-//	                 the same agent client as reconcile)
+//	                 the same agent client as reconcile); instance.reconfigure (P3-T13: MG_AGENT_* — prober optional)
 //	lifecycle        tenant.suspend + tenant.resume (P3-T08, §11.4) over a Headscale registry of their own that reaches a
 //	                 suspended tenant's instance (lifecycle.go), always wired — no Host Agent needed
 //	relay            relay.probe + its schedule over the prober (P3-T05c; MG_PROBER_URL towards MG_PROVISION_EDGE_ADDR —
@@ -154,6 +154,15 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 	}
 	if prov != nil {
 		if err := prov.Register(w); err != nil {
+			return nil, err
+		}
+	}
+	rcfg, err := newReconfigurer(cfg, d, agent) // P3-T13: instance.reconfigure (new version, restart, health gate, rollback)
+	if err != nil {
+		return nil, err
+	}
+	if rcfg != nil {
+		if err := rcfg.Register(w); err != nil {
 			return nil, err
 		}
 	}

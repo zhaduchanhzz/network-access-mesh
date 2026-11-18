@@ -37,6 +37,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/monitoringapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/notificationsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/provisioningapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/reconfigureapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/relayapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/tenantsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/idp/console"
@@ -160,6 +161,8 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 		Lifecycle: lifecycleapi.New(lifecycle.NewRequester(w.Store)),
 		// Relay (P3-T05c): the tenant's relays and the platform's regions, reads only
 		Relay: relayapi.New(relays),
+		// Reconfigure (P3-T13): instance.reconfigure requests of the api
+		Reconfigure: reconfigureapi.New(orchestrator.NewReconfigureService(w.Store)),
 	}
 }
 

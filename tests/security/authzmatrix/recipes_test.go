@@ -123,6 +123,10 @@ var recipes = map[string]recipe{
 	// a refusal; the flows themselves are internal/provisioning/lifecycle's DB tests and E2E-56…E2E-58
 	"suspendPlatformTenant": {idempotent: true},
 	"resumePlatformTenant":  {idempotent: true},
+	// instance.reconfigure (P3-T13, reconfigureapi — mounted): the matrix's instances carry no configuration version
+	// recorded by the orchestrator, so a granted call reaches the service and answers 409 no_config_version
+	"reconfigurePlatformInstance": {idempotent: true, body: `{"log_level":"warn"}`,
+		ok: answer{http.StatusConflict, gen.ProblemCodeConflict}},
 }
 
 // objectKind is what a path parameter (other than the {tenantId} context of a tenant route) designates.
