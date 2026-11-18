@@ -66,10 +66,12 @@ JOIN roles r ON r.id = m.role_id AND r.scope = m.role_scope
 WHERE m.tenant_id = sqlc.arg(tenant_id) AND m.id = sqlc.arg(id);
 
 -- name: ListInstancesPage :many
--- GET /platform/instances (pool platform). api_key_secret_ref không bao giờ rời service (schema Instance không có nó).
+-- GET /platform/instances và GET /platform/tenants/{t}/instances (P4-T02 — tenant_id) (pool platform).
+-- api_key_secret_ref không bao giờ rời service (schema Instance không có nó).
 SELECT * FROM tenant_instances
 WHERE (sqlc.narg(status)::text IS NULL OR status = sqlc.narg(status)::text)
   AND (sqlc.narg(host_id)::uuid IS NULL OR host_id = sqlc.narg(host_id)::uuid)
+  AND (sqlc.narg(tenant_id)::uuid IS NULL OR tenant_id = sqlc.narg(tenant_id)::uuid)
   AND (sqlc.narg(after_created_at)::timestamptz IS NULL
        OR (created_at, id) > (sqlc.narg(after_created_at)::timestamptz, sqlc.narg(after_id)::uuid))
 ORDER BY created_at, id

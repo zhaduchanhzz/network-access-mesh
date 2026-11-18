@@ -282,25 +282,29 @@ const listInstancesPage = `-- name: ListInstancesPage :many
 SELECT id, tenant_id, host_id, status, headscale_version, image_digest, control_hostname, server_url, base_domain, internal_address, stun_port, derp_region_id, config_version_id, api_key_secret_ref, api_key_prefix, api_key_expires_at, noise_key_fingerprint, run_uid, net_cidr, data_path, last_health_at, last_health, created_at, updated_at, version FROM tenant_instances
 WHERE ($1::text IS NULL OR status = $1::text)
   AND ($2::uuid IS NULL OR host_id = $2::uuid)
-  AND ($3::timestamptz IS NULL
-       OR (created_at, id) > ($3::timestamptz, $4::uuid))
+  AND ($3::uuid IS NULL OR tenant_id = $3::uuid)
+  AND ($4::timestamptz IS NULL
+       OR (created_at, id) > ($4::timestamptz, $5::uuid))
 ORDER BY created_at, id
-LIMIT $5
+LIMIT $6
 `
 
 type ListInstancesPageParams struct {
 	Status         *string
 	HostID         *uuid.UUID
+	TenantID       *uuid.UUID
 	AfterCreatedAt *time.Time
 	AfterID        *uuid.UUID
 	RowLimit       int32
 }
 
-// GET /platform/instances (pool platform). api_key_secret_ref không bao giờ rời service (schema Instance không có nó).
+// GET /platform/instances và GET /platform/tenants/{t}/instances (P4-T02 — tenant_id) (pool platform).
+// api_key_secret_ref không bao giờ rời service (schema Instance không có nó).
 func (q *Queries) ListInstancesPage(ctx context.Context, arg ListInstancesPageParams) ([]TenantInstance, error) {
 	rows, err := q.db.Query(ctx, listInstancesPage,
 		arg.Status,
 		arg.HostID,
+		arg.TenantID,
 		arg.AfterCreatedAt,
 		arg.AfterID,
 		arg.RowLimit,

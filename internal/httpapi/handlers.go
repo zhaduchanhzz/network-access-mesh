@@ -166,33 +166,83 @@ type QuarantineHandlers interface {
 // of its interface with 501 not_implemented. A set may also implement only part of its interface by embedding
 // NotImplemented. Handlers return a *problem.Error for an expected failure (not_found, conflict…); any other error
 // becomes 500 internal_error and its text goes to the internal log only.
+// PlatformTenantViewHandlers — P4-T02 (Platform Console, tenant detail — §12.2): the jobs, instances and relay regions
+// of one tenant, read on the platform pool. The three operations reuse the services and mappings of P2-T12 (jobsapi),
+// P2-T11 (tenantsapi) and P3-T05c (relayapi); PlatformTenantView assembles them into this set.
+type PlatformTenantViewHandlers interface {
+	ListPlatformTenantJobs(ctx context.Context, request gen.ListPlatformTenantJobsRequestObject) (gen.ListPlatformTenantJobsResponseObject, error)
+	ListPlatformTenantInstances(ctx context.Context, request gen.ListPlatformTenantInstancesRequestObject) (gen.ListPlatformTenantInstancesResponseObject, error)
+	ListPlatformTenantRelayRegions(ctx context.Context, request gen.ListPlatformTenantRelayRegionsRequestObject) (gen.ListPlatformTenantRelayRegionsResponseObject, error)
+}
+
+// PlatformTenantView is the PlatformTenantViewHandlers of three handler sets (jobsapi, tenantsapi, relayapi — each
+// implements one operation next to its other ones); a nil part answers 501 like any unmounted operation.
+type PlatformTenantView struct {
+	Jobs interface {
+		ListPlatformTenantJobs(ctx context.Context, request gen.ListPlatformTenantJobsRequestObject) (gen.ListPlatformTenantJobsResponseObject, error)
+	}
+	Instances interface {
+		ListPlatformTenantInstances(ctx context.Context, request gen.ListPlatformTenantInstancesRequestObject) (gen.ListPlatformTenantInstancesResponseObject, error)
+	}
+	Relay interface {
+		ListPlatformTenantRelayRegions(ctx context.Context, request gen.ListPlatformTenantRelayRegionsRequestObject) (gen.ListPlatformTenantRelayRegionsResponseObject, error)
+	}
+}
+
+var _ PlatformTenantViewHandlers = PlatformTenantView{}
+
+// ListPlatformTenantJobs implements PlatformTenantViewHandlers.
+func (v PlatformTenantView) ListPlatformTenantJobs(ctx context.Context, request gen.ListPlatformTenantJobsRequestObject) (gen.ListPlatformTenantJobsResponseObject, error) {
+	if v.Jobs == nil {
+		return NotImplemented{}.ListPlatformTenantJobs(ctx, request)
+	}
+	return v.Jobs.ListPlatformTenantJobs(ctx, request)
+}
+
+// ListPlatformTenantInstances implements PlatformTenantViewHandlers.
+func (v PlatformTenantView) ListPlatformTenantInstances(ctx context.Context, request gen.ListPlatformTenantInstancesRequestObject) (gen.ListPlatformTenantInstancesResponseObject, error) {
+	if v.Instances == nil {
+		return NotImplemented{}.ListPlatformTenantInstances(ctx, request)
+	}
+	return v.Instances.ListPlatformTenantInstances(ctx, request)
+}
+
+// ListPlatformTenantRelayRegions implements PlatformTenantViewHandlers.
+func (v PlatformTenantView) ListPlatformTenantRelayRegions(ctx context.Context, request gen.ListPlatformTenantRelayRegionsRequestObject) (gen.ListPlatformTenantRelayRegionsResponseObject, error) {
+	if v.Relay == nil {
+		return NotImplemented{}.ListPlatformTenantRelayRegions(ctx, request)
+	}
+	return v.Relay.ListPlatformTenantRelayRegions(ctx, request)
+}
+
 type Handlers struct {
-	Auth          AuthHandlers         // P2-T06
-	Tenants       TenantHandlers       // P2-T11
-	Devices       DeviceHandlers       // P2-T13
-	Audit         AuditHandlers        // P2-T08
-	Jobs          JobHandlers          // P2-T12
-	Monitoring    MonitoringHandlers   // P2-T13a
-	Hosts         HostHandlers         // P3-T04
-	Approvals     ApprovalHandlers     // P3-T04a
-	Invitations   InvitationHandlers   // P3-T05a
-	Notifications NotificationHandlers // P3-T05b
-	IdPConsole    IdPConsoleHandlers   // P3-T15
-	Provisioning  ProvisioningHandlers // P3-T05
-	Lifecycle     LifecycleHandlers    // P3-T08
-	Relay         RelayHandlers        // P3-T05c
-	Reconfigure   ReconfigureHandlers  // P3-T13
-	Backups       BackupHandlers       // P3-T11
-	InstanceOps   InstanceOpsHandlers  // P3-T13a
-	Deprovision   DeprovisionHandlers  // P3-T09
-	Quarantine    QuarantineHandlers   // P3-T18
+	Auth          AuthHandlers               // P2-T06
+	Tenants       TenantHandlers             // P2-T11
+	Devices       DeviceHandlers             // P2-T13
+	Audit         AuditHandlers              // P2-T08
+	Jobs          JobHandlers                // P2-T12
+	Monitoring    MonitoringHandlers         // P2-T13a
+	Hosts         HostHandlers               // P3-T04
+	Approvals     ApprovalHandlers           // P3-T04a
+	Invitations   InvitationHandlers         // P3-T05a
+	Notifications NotificationHandlers       // P3-T05b
+	IdPConsole    IdPConsoleHandlers         // P3-T15
+	Provisioning  ProvisioningHandlers       // P3-T05
+	Lifecycle     LifecycleHandlers          // P3-T08
+	Relay         RelayHandlers              // P3-T05c
+	Reconfigure   ReconfigureHandlers        // P3-T13
+	Backups       BackupHandlers             // P3-T11
+	InstanceOps   InstanceOpsHandlers        // P3-T13a
+	Deprovision   DeprovisionHandlers        // P3-T09
+	Quarantine    QuarantineHandlers         // P3-T18
+	TenantView    PlatformTenantViewHandlers // P4-T02
 }
 
 func (h Handlers) mounted() bool {
 	return h.Auth != nil || h.Tenants != nil || h.Devices != nil || h.Audit != nil || h.Jobs != nil || h.Monitoring != nil ||
 		h.Notifications != nil || h.Approvals != nil || h.Invitations != nil || h.Hosts != nil || h.IdPConsole != nil ||
 		h.Provisioning != nil || h.Lifecycle != nil || h.Relay != nil || h.Reconfigure != nil || h.Backups != nil ||
-		h.InstanceOps != nil || h.Quarantine != nil || h.Deprovision != nil
+		h.InstanceOps != nil || h.Quarantine != nil || h.Deprovision != nil || h.TenantView != nil
 }
 
 // dispatcher implements gen.StrictServerInterface by promotion from the disjoint interfaces.
@@ -216,6 +266,7 @@ type dispatcher struct {
 	InstanceOpsHandlers
 	QuarantineHandlers
 	DeprovisionHandlers
+	PlatformTenantViewHandlers
 }
 
 var _ gen.StrictServerInterface = dispatcher{}
@@ -223,7 +274,7 @@ var _ gen.StrictServerInterface = dispatcher{}
 func newDispatcher(h Handlers) dispatcher {
 	d := dispatcher{h.Auth, h.Tenants, h.Devices, h.Audit, h.Jobs, h.Monitoring, h.Notifications, h.Approvals, h.Invitations,
 		h.Hosts, h.IdPConsole, h.Provisioning, h.Lifecycle, h.Relay, h.Reconfigure, h.Backups, h.InstanceOps,
-		h.Quarantine, h.Deprovision}
+		h.Quarantine, h.Deprovision, h.TenantView}
 	if d.InstanceOpsHandlers == nil {
 		d.InstanceOpsHandlers = NotImplemented{}
 	}
@@ -280,6 +331,9 @@ func newDispatcher(h Handlers) dispatcher {
 	}
 	if d.HostHandlers == nil {
 		d.HostHandlers = NotImplemented{}
+	}
+	if d.PlatformTenantViewHandlers == nil {
+		d.PlatformTenantViewHandlers = NotImplemented{}
 	}
 	return d
 }
@@ -544,4 +598,16 @@ func (NotImplemented) QuarantinePlatformInstance(context.Context, gen.Quarantine
 
 func (NotImplemented) ReleasePlatformInstance(context.Context, gen.ReleasePlatformInstanceRequestObject) (gen.ReleasePlatformInstanceResponseObject, error) {
 	return nil, problem.NotImplemented("ReleasePlatformInstance")
+}
+
+func (NotImplemented) ListPlatformTenantJobs(context.Context, gen.ListPlatformTenantJobsRequestObject) (gen.ListPlatformTenantJobsResponseObject, error) {
+	return nil, problem.NotImplemented("ListPlatformTenantJobs")
+}
+
+func (NotImplemented) ListPlatformTenantInstances(context.Context, gen.ListPlatformTenantInstancesRequestObject) (gen.ListPlatformTenantInstancesResponseObject, error) {
+	return nil, problem.NotImplemented("ListPlatformTenantInstances")
+}
+
+func (NotImplemented) ListPlatformTenantRelayRegions(context.Context, gen.ListPlatformTenantRelayRegionsRequestObject) (gen.ListPlatformTenantRelayRegionsResponseObject, error) {
+	return nil, problem.NotImplemented("ListPlatformTenantRelayRegions")
 }

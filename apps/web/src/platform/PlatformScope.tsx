@@ -38,8 +38,11 @@ export function PlatformHome() {
   return first ? <Navigate to={`/platform/${first.path}`} replace /> : <ForbiddenPage />;
 }
 
+/** Mục điều hướng: role không có quyền đọc ⇒ "không có quyền"; chưa xây ⇒ "chưa khả dụng"; đã xây ⇒ màn hình con
+ * (platform/screens.tsx). */
 export function PlatformNavRoute({ item }: { item: NavItem }) {
   const role = usePlatformRole();
   if (!can(role, item.permission)) return <ForbiddenPage />;
-  return <UnavailablePage item={item} />;
+  if (!item.available) return <UnavailablePage item={item} />;
+  return <Outlet />;
 }

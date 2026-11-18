@@ -77,10 +77,10 @@ func TestHostsAndInstances(t *testing.T) {
 	}
 
 	// instances of two tenants; the API key reference never leaves the service
-	var insts []uuid.UUID
+	var insts, tids []uuid.UUID
 	for i, slug := range []string{"tenant-a", "tenant-b"} {
 		tid, iid := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-		insts = append(insts, iid)
+		insts, tids = append(insts, iid), append(tids, tid)
 		exec(`INSERT INTO tenants (id, slug, name, status) VALUES ($1, $2::text, $2::text, 'active')`, tid, slug)
 		exec(`INSERT INTO tenant_instances (id, tenant_id, host_id, status, headscale_version, image_digest,
 				control_hostname, server_url, base_domain, internal_address, derp_region_id, run_uid, net_cidr, data_path,
@@ -114,6 +114,17 @@ func TestHostsAndInstances(t *testing.T) {
 	}
 	if p, err := svc.ListInstances(ctx, platform.InstanceFilter{HostID: uuid.New()}); err != nil || len(p.Items) != 0 {
 		t.Errorf("host filter: %+v %v", p, err)
+	}
+	// P4-T02: the instances of one tenant (GET /platform/tenants/{t}/instances); an unknown tenant is ErrNotFound
+	if p, err := svc.ListInstances(ctx, platform.InstanceFilter{TenantID: tids[1]}); err != nil || len(p.Items) != 1 ||
+		p.Items[0].ID != insts[1] || p.Items[0].TenantID != tids[1] {
+		t.Errorf("tenant filter: %+v %v", p, err)
+	}
+	if p, err := svc.ListInstances(ctx, platform.InstanceFilter{TenantID: tids[0], Status: "stopped"}); err != nil || len(p.Items) != 0 {
+		t.Errorf("tenant + status filter: %+v %v", p, err)
+	}
+	if _, err := svc.ListInstances(ctx, platform.InstanceFilter{TenantID: uuid.New()}); !errors.Is(err, platform.ErrNotFound) {
+		t.Errorf("unknown tenant: %v, want ErrNotFound", err)
 	}
 	p1, err := svc.ListInstances(ctx, platform.InstanceFilter{Limit: 1})
 	if err != nil || len(p1.Items) != 1 || p1.NextCursor == "" {

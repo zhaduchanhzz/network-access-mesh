@@ -16,6 +16,8 @@
   --mg-danger-bg: #fef2f2;
   --mg-warn: #78350f;
   --mg-warn-bg: #fef3c7;
+  --mg-ok: #166534;
+  --mg-ok-bg: #dcfce7;
   --mg-focus: #2563eb;
   color-scheme: light;
 }
@@ -33,6 +35,8 @@
     --mg-danger-bg: #2a1215;
     --mg-warn: #fde68a;
     --mg-warn-bg: #2b2210;
+    --mg-ok: #86efac;
+    --mg-ok-bg: #0f2a1a;
     --mg-focus: #93b4ff;
     color-scheme: dark;
   }
@@ -50,6 +54,8 @@
   --mg-danger-bg: #2a1215;
   --mg-warn: #fde68a;
   --mg-warn-bg: #2b2210;
+  --mg-ok: #86efac;
+  --mg-ok-bg: #0f2a1a;
   --mg-focus: #93b4ff;
   color-scheme: dark;
 }
@@ -66,6 +72,8 @@
   --color-danger-bg: var(--mg-danger-bg);
   --color-warn: var(--mg-warn);
   --color-warn-bg: var(--mg-warn-bg);
+  --color-ok: var(--mg-ok);
+  --color-ok-bg: var(--mg-ok-bg);
   --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial, sans-serif;
 }
 
@@ -82,6 +90,11 @@
   code {
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-size: 0.9em;
+  }
+  /* Quy tắc mà react-aria (usePress) tự chèn bằng một thẻ <style> lúc chạy — CSP `default-src 'self'` chặn thẻ đó.
+     index.html có sẵn phần tử id="react-aria-pressable-style" nên react-aria không chèn; quy tắc nằm ở đây (P4-T02). */
+  [data-react-aria-pressable] {
+    touch-action: pan-x pan-y pinch-zoom;
   }
 }
 
@@ -121,6 +134,45 @@
   }
   .banner-warn {
     @apply rounded-md border border-warn/30 bg-warn-bg text-warn;
+  }
+  .badge {
+    @apply inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap;
+  }
+  .badge-ok {
+    @apply border-ok/30 bg-ok-bg text-ok;
+  }
+  .badge-warn {
+    @apply border-warn/30 bg-warn-bg text-warn;
+  }
+  .badge-danger {
+    @apply border-danger/30 bg-danger-bg text-danger;
+  }
+  .badge-neutral {
+    @apply border-line bg-bg text-muted;
+  }
+  .btn-danger {
+    @apply inline-flex items-center justify-center rounded-md bg-danger px-4 py-2 text-sm font-medium text-surface hover:opacity-90 disabled:opacity-50;
+  }
+  .card {
+    @apply rounded-lg border border-line bg-surface p-4;
+  }
+  .table {
+    @apply w-full border-collapse text-left text-sm;
+  }
+  .table th {
+    @apply border-b border-line px-3 py-2 text-xs font-semibold tracking-wide text-muted uppercase;
+  }
+  .table td {
+    @apply border-b border-line px-3 py-2 align-top;
+  }
+  .label {
+    @apply mb-1 block text-sm font-medium;
+  }
+  .hint {
+    @apply mt-1 text-xs text-muted;
+  }
+  .field-error {
+    @apply mt-1 text-xs text-danger;
   }
   .skip-link {
     @apply sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:rounded-md focus:bg-surface focus:px-3 focus:py-2;

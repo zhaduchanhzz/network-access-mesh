@@ -94,15 +94,15 @@ Hai origin tách biệt dùng chung một bản build SPA: `app.<domain>` (Tenan
 | `platform.tenant:suspend` | `POST /platform/tenants/{id}/suspend`, `/resume` | ✔ | ✔ | — | — |
 | `platform.tenant:delete` | `DELETE /platform/tenants/{id}` | 2P | — | — | — |
 | `platform.approval:read` / `:decide` | `GET /platform/approvals[/{id}]` / `POST /platform/approvals/{id}/approve`, `/reject` (người duyệt ≠ người yêu cầu; step-up) | ✔ / ✔ | ✔ / chỉ cho restore | — | ✔ / — |
-| `platform.instance:read` | `GET /platform/instances[/{id}]` | ✔ | ✔ | ✔ | ✔ |
+| `platform.instance:read` | `GET /platform/instances[/{id}]`, `GET /platform/tenants/{id}/instances` (chi tiết tenant — P4-T02) | ✔ | ✔ | ✔ | ✔ |
 | `platform.instance:operate` | `POST /platform/instances/{id}/restart`, `/reconfigure`, `/backup` | ✔ | ✔ | — | — |
 | `platform.instance:upgrade` | `POST /platform/instances/{id}/upgrade` | ✔ | ✔ | — | — |
 | `platform.instance:restore` | `POST /platform/instances/{id}/restore` | 2P | 2P | — | — |
 | `platform.instance:quarantine` / `:release` | `POST /platform/instances/{id}/quarantine` / `/release` | ✔ / 2P | ✔ / 2P | — | — |
 | `platform.host:read` / `:manage` | `GET` / `POST,PATCH /platform/hosts` | ✔ / ✔ | ✔ / ✔ | ✔ / — | ✔ / — |
-| `platform.relay:read` / `:manage` | `GET` / `POST,PATCH,DELETE /platform/relay-regions` | ✔ / ✔ | ✔ / ✔ | ✔ / — | ✔ / — |
+| `platform.relay:read` / `:manage` | `GET /platform/relay-regions`, `GET /platform/tenants/{id}/relay-regions` (chi tiết tenant — P4-T02) / `POST,PATCH,DELETE /platform/relay-regions` | ✔ / ✔ | ✔ / ✔ | ✔ / — | ✔ / — |
 | `platform.health:read` | `GET /platform/health` | ✔ | ✔ | ✔ | ✔ |
-| `platform.job:read` / `:control` | `GET /platform/jobs[/{id}]` / `POST /platform/jobs/{id}/retry`, `/cancel`, `/rollback` (ngữ nghĩa ở §11.3) | ✔ / ✔ | ✔ / ✔ | ✔ / — | ✔ / — |
+| `platform.job:read` / `:control` | `GET /platform/jobs[/{id}]`, `GET /platform/tenants/{id}/jobs` (chi tiết tenant — P4-T02) / `POST /platform/jobs/{id}/retry`, `/cancel`, `/rollback` (ngữ nghĩa ở §11.3) | ✔ / ✔ | ✔ / ✔ | ✔ / — | ✔ / — |
 | `platform.settings:read` / `:update` | `GET` / `PUT /platform/settings/{key}` | ✔ / ✔ | ✔ / — | — / — | ✔ / — |
 | `platform.idp:read` / `:manage` | `GET /platform/identity-providers`, `GET /platform/idp-console/sessions` / `POST,PATCH /platform/identity-providers` (`issuer` bất biến; thay đổi lên hàng `scope='tenant'` cần Tenant Owner phê duyệt hoặc break-glass 2P, ghi audit hiển thị cho tenant + thông báo Owner — §8.2; `idp-console/sessions`: phiên console quản trị Keycloak — P3-T15) | ✔ / ✔ (IdP của tenant: 2P) | ✔ / — | — / — | ✔ / — |
 | `platform.idp:console` | `POST /platform/idp-console/sessions` (xin phiên console quản trị Keycloak có thời hạn 5–60 phút, gắn với người xin và CIDR nguồn; luôn 2P — người duyệt ≠ người xin, cả hai step-up, người duyệt cũng giữ quyền này; edge chỉ mở console ở `admin.<domain>` qua `forward_auth` khi phiên còn hiệu lực — §8.2 (3), P3-T15) | 2P | — | — | — |

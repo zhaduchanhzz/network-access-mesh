@@ -57,6 +57,12 @@ func (f *fakeService) GetPlatformJob(context.Context, uuid.UUID) (jobs.PlatformJ
 	return f.platform, f.err
 }
 
+func (f *fakeService) ListPlatformTenantJobs(_ context.Context, t uuid.UUID, fl jobs.ListFilter) (jobs.JobList, error) {
+	f.calls++
+	f.tenants, f.filters = append(f.tenants, t), append(f.filters, fl)
+	return f.list, f.err
+}
+
 // fakeAuthorizer answers every operation with a fixed decision, completed the way authz completes it (the tenant of
 // the path on tenant routes). Authorization itself is tested by P2-T07; with real sessions and roles by the authz
 // matrix (tests/security/authzmatrix — the Jobs set is mounted there since P2-T16).
@@ -267,3 +273,86 @@ func TestFilterValidation(t *testing.T) {
 func noSession(next http.Handler) http.Handler { return next }
 
 func noAudit(f gen.StrictHandlerFunc, _ string) gen.StrictHandlerFunc { return f }
+
+// platformAuthorizer answers like authz on a platform route: granted, no tenant in the decision even when the path
+// carries a {tenantId} (the tenant of /platform/tenants/{tenantId}/… filters the registry, it is not a tenant context).
+type platformAuthorizer struct{}
+
+func (platformAuthorizer) RequireOperation(context.Context, string, uuid.UUID) (authz.Decision, error) {
+	return authz.Decision{}, nil
+}
+
+func serveTenantView(t *testing.T, svc *fakeService, authorizer gen.StrictMiddlewareFunc, path string) *httptest.ResponseRecorder {
+	t.Helper()
+	h, err := httpapi.New(httpapi.Options{Logger: logx.New(io.Discard, slog.LevelInfo, "api"),
+		Handlers: httpapi.Handlers{TenantView: httpapi.PlatformTenantView{Jobs: New(svc)}},
+		Hooks:    httpapi.Hooks{Authz: authorizer, Session: noSession, Audit: noAudit}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return serveHandler(t, h, path)
+}
+
+// TestPlatformTenantJobs (P4-T02): GET /platform/tenants/{tenantId}/jobs asks the service for the tenant of the path
+// only, with the filters of the platform list; it answers the safe projection (no raw detail); an unknown tenant is
+// 404; a job of another tenant (or a platform job) returned by a lower layer is never sent (500); a decision about a
+// tenant or no decision at all reaches nothing (500); filters out of range are 422 before the service.
+func TestPlatformTenantJobs(t *testing.T) {
+	tenant := uuid.New()
+	j := sampleJob(&tenant)
+	next := "c-2"
+	svc := &fakeService{list: jobs.JobList{Items: []jobs.Job{j}, NextCursor: &next}}
+	base := "/platform/tenants/" + tenant.String() + "/jobs"
+	rec := serveTenantView(t, svc, authzhook.Authz(platformAuthorizer{}), base+"?limit=10&status=failed&kind=device.revoke&cursor=abc")
+	var list gen.JobList
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &list) != nil {
+		t.Fatalf("list: %d %s", rec.Code, rec.Body)
+	}
+	if len(list.Items) != 1 || list.Items[0].Id != j.ID || *list.Items[0].TenantId != tenant || *list.NextCursor != "c-2" ||
+		strings.Contains(rec.Body.String(), `"detail"`) {
+		t.Fatalf("list = %s", rec.Body)
+	}
+	if f := svc.filters[0]; len(svc.tenants) != 1 || svc.tenants[0] != tenant || f.Limit != 10 || f.Status != "failed" ||
+		f.Kind != "device.revoke" || f.Cursor != "abc" {
+		t.Fatalf("service asked %v %+v", svc.tenants, svc.filters)
+	}
+
+	if rec := serveTenantView(t, &fakeService{err: fmt.Errorf("x: %w", jobs.ErrNotFound)}, authzhook.Authz(platformAuthorizer{}),
+		base); rec.Code != http.StatusNotFound || code(t, rec) != "not_found" {
+		t.Fatalf("unknown tenant: %d %s", rec.Code, rec.Body)
+	}
+	other := uuid.New()
+	for name, s := range map[string]*fakeService{
+		"job of another tenant": {list: jobs.JobList{Items: []jobs.Job{j, sampleJob(&other)}}},
+		"platform job":          {list: jobs.JobList{Items: []jobs.Job{sampleJob(nil)}}},
+	} {
+		if rec := serveTenantView(t, s, authzhook.Authz(platformAuthorizer{}), base); rec.Code != http.StatusInternalServerError ||
+			strings.Contains(rec.Body.String(), other.String()) || strings.Contains(rec.Body.String(), j.ID.String()) {
+			t.Errorf("%s: %d %s", name, rec.Code, rec.Body)
+		}
+	}
+	noDecision := gen.StrictMiddlewareFunc(func(f gen.StrictHandlerFunc, _ string) gen.StrictHandlerFunc { return f })
+	for name, a := range map[string]gen.StrictMiddlewareFunc{"no decision": noDecision, "tenant decision": granted(false)} {
+		s := &fakeService{}
+		if rec := serveTenantView(t, s, a, base); rec.Code != http.StatusInternalServerError || s.calls != 0 {
+			t.Errorf("%s: %d, %d calls", name, rec.Code, s.calls)
+		}
+	}
+	for q, want := range map[string]string{"limit=0": "validation_failed:limit", "status=done": "validation_failed:status"} {
+		s := &fakeService{}
+		if rec := serveTenantView(t, s, authzhook.Authz(platformAuthorizer{}), base+"?"+q); rec.Code != http.StatusUnprocessableEntity ||
+			code(t, rec) != want || s.calls != 0 {
+			t.Errorf("%s: %d %s", q, rec.Code, code(t, rec))
+		}
+	}
+	// not mounted ⇒ 501, like every operation of a set that is not plugged in
+	h, err := httpapi.New(httpapi.Options{Logger: logx.New(io.Discard, slog.LevelInfo, "api"),
+		Handlers: httpapi.Handlers{TenantView: httpapi.PlatformTenantView{}},
+		Hooks:    httpapi.Hooks{Authz: authzhook.Authz(platformAuthorizer{}), Session: noSession, Audit: noAudit}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec := serveHandler(t, h, base); rec.Code != http.StatusNotImplemented {
+		t.Errorf("unmounted part: %d", rec.Code)
+	}
+}

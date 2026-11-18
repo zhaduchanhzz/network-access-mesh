@@ -92,34 +92,67 @@ func (h *Handlers) GetTenantRelay(ctx context.Context, req gen.GetTenantRelayReq
 
 // ListPlatformRelayRegions implements GET /platform/relay-regions.
 func (h *Handlers) ListPlatformRelayRegions(ctx context.Context, req gen.ListPlatformRelayRegionsRequestObject) (gen.ListPlatformRelayRegionsResponseObject, error) {
+	out, err := h.platformRegions(ctx, req.Params.Limit, req.Params.Cursor, uuid.Nil)
+	if err != nil {
+		return nil, err
+	}
+	return gen.ListPlatformRelayRegions200JSONResponse(out), nil
+}
+
+// ListPlatformTenantRelayRegions implements GET /platform/tenants/{tenantId}/relay-regions (P4-T02 — the relay of the
+// tenant detail of the Platform Console; mounted through httpapi.PlatformTenantView): the platform list filtered by the
+// tenant of the path, which must exist (404). A region of another tenant is never sent (500).
+func (h *Handlers) ListPlatformTenantRelayRegions(ctx context.Context, req gen.ListPlatformTenantRelayRegionsRequestObject) (gen.ListPlatformTenantRelayRegionsResponseObject, error) {
+	if req.TenantId == uuid.Nil {
+		return nil, problem.New(gen.ProblemCodeNotFound, "The resource does not exist.")
+	}
+	out, err := h.platformRegions(ctx, req.Params.Limit, req.Params.Cursor, req.TenantId)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range out.Items {
+		if r.TenantId == nil || *r.TenantId != req.TenantId {
+			return nil, problem.Internal(errForeignRegion)
+		}
+	}
+	return gen.ListPlatformTenantRelayRegions200JSONResponse(out), nil
+}
+
+// errForeignRegion: the service answered a region of another tenant on a tenant-filtered list — never sent.
+var errForeignRegion = errors.New("relayapi: a region of another tenant reached a tenant-filtered list")
+
+// platformRegions answers the platform lists (a decision of a platform route only); tenant = uuid.Nil ⇒ every region.
+func (h *Handlers) platformRegions(ctx context.Context, limit *gen.Limit, cursor *gen.Cursor, tenant uuid.UUID) (gen.RelayRegionList, error) {
 	d, ok := authzhook.DecisionFrom(ctx)
 	switch {
 	case !ok:
-		return nil, problem.Internal(errNoDecision)
+		return gen.RelayRegionList{}, problem.Internal(errNoDecision)
 	case d.TenantID != uuid.Nil:
-		return nil, problem.Internal(errWrongDecision)
+		return gen.RelayRegionList{}, problem.Internal(errWrongDecision)
 	}
-	var f relay.RegionFilter
-	if p := req.Params.Limit; p != nil {
-		if *p < 1 || *p > relay.MaxLimit {
-			return nil, problem.Validation(invalidQuery, problem.Field("limit", "out_of_range", "must be between 1 and 200"))
+	f := relay.RegionFilter{TenantID: tenant}
+	if limit != nil {
+		if *limit < 1 || *limit > relay.MaxLimit {
+			return gen.RelayRegionList{}, problem.Validation(invalidQuery, problem.Field("limit", "out_of_range", "must be between 1 and 200"))
 		}
-		f.Limit = *p
+		f.Limit = *limit
 	}
-	if c := req.Params.Cursor; c != nil {
-		if *c == "" {
-			return nil, problem.Validation(invalidQuery, problem.Field("cursor", "invalid", "not a cursor of this list"))
+	if cursor != nil {
+		if *cursor == "" {
+			return gen.RelayRegionList{}, problem.Validation(invalidQuery, problem.Field("cursor", "invalid", "not a cursor of this list"))
 		}
-		f.Cursor = *c
+		f.Cursor = *cursor
 	}
 	page, err := h.svc.PlatformRegions(ctx, f)
 	switch {
+	case errors.Is(err, relay.ErrNotFound):
+		return gen.RelayRegionList{}, problem.New(gen.ProblemCodeNotFound, "The resource does not exist.")
 	case errors.Is(err, relay.ErrInvalid):
-		return nil, problem.Validation(invalidQuery, problem.Field("cursor", "invalid", "not a cursor of this list"))
+		return gen.RelayRegionList{}, problem.Validation(invalidQuery, problem.Field("cursor", "invalid", "not a cursor of this list"))
 	case err != nil:
-		return nil, problem.Internal(err)
+		return gen.RelayRegionList{}, problem.Internal(err)
 	}
-	out := gen.ListPlatformRelayRegions200JSONResponse{Items: make([]gen.PlatformRelayRegion, 0, len(page.Items)),
+	out := gen.RelayRegionList{Items: make([]gen.PlatformRelayRegion, 0, len(page.Items)),
 		Unavailable: unavailable(page.Unavailable)}
 	if page.NextCursor != "" {
 		c := page.NextCursor

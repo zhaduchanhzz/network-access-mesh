@@ -75,10 +75,11 @@ type InstancePage struct {
 
 // InstanceFilter holds the query parameters of GET /platform/instances.
 type InstanceFilter struct {
-	Limit  int
-	Cursor string
-	Status string    // one of tenants.InstanceStatuses
-	HostID uuid.UUID // uuid.Nil = every host
+	Limit    int
+	Cursor   string
+	Status   string    // one of tenants.InstanceStatuses
+	HostID   uuid.UUID // uuid.Nil = every host
+	TenantID uuid.UUID // uuid.Nil = every tenant; otherwise the tenant must exist (ErrNotFound) — P4-T02
 }
 
 // Host is a registered host (hosts, §6.3; shapes of status, capacity and public_entry fixed by 0014 — P3-T04).
@@ -134,6 +135,10 @@ func (s *Service) ListInstances(ctx context.Context, f InstanceFilter) (Instance
 		h := f.HostID
 		p.HostID = &h
 	}
+	if f.TenantID != uuid.Nil {
+		t := f.TenantID
+		p.TenantID = &t
+	}
 	if f.Cursor != "" {
 		t, id, err := decodeCursor(f.Cursor)
 		if err != nil {
@@ -143,6 +148,13 @@ func (s *Service) ListInstances(ctx context.Context, f InstanceFilter) (Instance
 	}
 	var out InstancePage
 	err := s.st.WithPlatformTx(ctx, func(q *sqlcdb.Queries) error {
+		if p.TenantID != nil {
+			if _, err := q.GetTenantView(ctx, *p.TenantID); errors.Is(err, store.ErrNoRows) {
+				return ErrNotFound
+			} else if err != nil {
+				return err
+			}
+		}
 		rows, err := q.ListInstancesPage(ctx, p)
 		if err != nil {
 			return err
