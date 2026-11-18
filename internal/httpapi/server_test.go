@@ -60,6 +60,9 @@ var operations = []struct {
 	{http.MethodGet, "/api/v1/platform/instances/" + itemID, "", "GetPlatformInstance", nil},
 	// instance.reconfigure (P3-T13)
 	{http.MethodPost, "/api/v1/platform/instances/" + itemID + "/reconfigure", `{"node_expiry_days":30}`, "ReconfigurePlatformInstance", []func(*http.Request){idempotency}},
+	// instance.restart, instance.upgrade (P3-T13a)
+	{http.MethodPost, "/api/v1/platform/instances/" + itemID + "/restart", "", "RestartPlatformInstance", []func(*http.Request){idempotency}},
+	{http.MethodPost, "/api/v1/platform/instances/" + itemID + "/upgrade", `{"image_digest":"sha256:` + strings.Repeat("e", 64) + `"}`, "UpgradePlatformInstance", []func(*http.Request){idempotency}},
 	// quarantine / release (P3-T18)
 	{http.MethodPost, "/api/v1/platform/instances/" + itemID + "/quarantine", `{"reason":"suspected compromise"}`, "QuarantinePlatformInstance", []func(*http.Request){idempotency}},
 	{http.MethodPost, "/api/v1/platform/instances/" + itemID + "/release", `{"reason":"investigation closed"}`, "ReleasePlatformInstance", []func(*http.Request){idempotency}},

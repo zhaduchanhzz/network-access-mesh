@@ -67,6 +67,18 @@ var catalog = map[Kind]map[string]mailTemplate{
 				"{{if eq .final_backup \"kept\"}} The final backup is kept until {{.keys_destroy_after}} (UTC).{{else}} There is no final backup (an operator skipped it; this is audited).{{end}}" +
 				" From {{.keys_destroy_after}} (UTC) the tenant's encryption keys are destroyed and nothing can be restored.\n\nJob ID: {{.job_id}}"},
 	},
+	KindInstanceOpFailed: {
+		LocaleVI: {"[MeshGuard] Thao tác {{.operation}} trên instance {{.tenant_slug}} thất bại",
+			"Job {{.operation}} trên instance Headscale của tenant {{.tenant_slug}} thất bại (mã {{.code}}); kết quả: {{.outcome}} " +
+				"(rolled_back: đã trở về trạng thái trước; rollback_failed: tự lùi cũng lỗi — cần xử lý ngay, /rollback để chạy tiếp; " +
+				"resumable: hết lượt thử lại, khóa vòng đời của tenant còn giữ tới /retry hoặc /rollback). " +
+				"Xem job trong Platform Console: {{.console_url}}\n\nMã job: {{.job_id}}\nMã instance: {{.instance_id}}"},
+		LocaleEN: {"[MeshGuard] {{.operation}} of instance {{.tenant_slug}} failed",
+			"The {{.operation}} job of the Headscale instance of tenant {{.tenant_slug}} failed (code {{.code}}); outcome: {{.outcome}} " +
+				"(rolled_back: the previous state is back; rollback_failed: the automatic rollback failed too — act now, /rollback resumes it; " +
+				"resumable: the retries are spent, the tenant's lifecycle lock is held until /retry or /rollback). " +
+				"See the job in the Platform Console: {{.console_url}}\n\nJob ID: {{.job_id}}\nInstance ID: {{.instance_id}}"},
+	},
 	KindTenantResumed: {
 		LocaleVI: {"[MeshGuard] Tenant {{.tenant_name}} đã được khôi phục",
 			"Tenant {{.tenant_name}} ({{.tenant_slug}}) đã hoạt động lại; policy trước khi tạm ngưng được áp lại.\n\nMã job: {{.job_id}}"},

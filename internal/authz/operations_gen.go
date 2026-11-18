@@ -58,6 +58,7 @@ var specOperations = []Operation{
 	{ID: "renameDevice", Method: "PATCH", Path: "/tenants/{tenantId}/devices/{deviceId}", Permission: "tenant.device:rename", AuditAction: "device.rename", OwnResource: true},
 	{ID: "requestIdpConsoleSession", Method: "POST", Path: "/platform/idp-console/sessions", Permission: "platform.idp:console", AuditAction: "platform.idp.console_session.request", DualControl: true},
 	{ID: "resendTenantInvitation", Method: "POST", Path: "/tenants/{tenantId}/invitations/{invitationId}/resend", Permission: "tenant.invitation:manage", AuditAction: "invitation.resend"},
+	{ID: "restartPlatformInstance", Method: "POST", Path: "/platform/instances/{instanceId}/restart", Permission: "platform.instance:operate", AuditAction: "platform.instance.restart"},
 	{ID: "restorePlatformInstance", Method: "POST", Path: "/platform/instances/{instanceId}/restore", Permission: "platform.instance:restore", AuditAction: "platform.instance.restore.request", DualControl: true},
 	{ID: "resumePlatformTenant", Method: "POST", Path: "/platform/tenants/{tenantId}/resume", Permission: "platform.tenant:suspend", AuditAction: "platform.tenant.resume"},
 	{ID: "retryPlatformJob", Method: "POST", Path: "/platform/jobs/{jobId}/retry", Permission: "platform.job:control", AuditAction: "platform.job.retry"},
@@ -67,4 +68,5 @@ var specOperations = []Operation{
 	{ID: "suspendPlatformTenant", Method: "POST", Path: "/platform/tenants/{tenantId}/suspend", Permission: "platform.tenant:suspend", AuditAction: "platform.tenant.suspend"},
 	{ID: "syncDevices", Method: "POST", Path: "/tenants/{tenantId}/devices/sync", Permission: "tenant.device:sync", AuditAction: "device.sync"},
 	{ID: "updatePlatformHost", Method: "PATCH", Path: "/platform/hosts/{hostId}", Permission: "platform.host:manage", AuditAction: "platform.host.update"},
+	{ID: "upgradePlatformInstance", Method: "POST", Path: "/platform/instances/{instanceId}/upgrade", Permission: "platform.instance:upgrade", AuditAction: "platform.instance.upgrade"},
 }

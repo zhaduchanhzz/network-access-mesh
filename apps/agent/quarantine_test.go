@@ -46,9 +46,16 @@ func (d *markedDriver) ReleaseInstance(_ context.Context, r agentspec.Release) (
 	return &agentv1.ReleaseInstanceResponse{WasQuarantined: true, PolicySha256: r.ExpectedPolicySHA256}, nil
 }
 
+// specOn is goodSpec on another image (the target of an upgrade — P3-T13a).
+func specOn(digest string) *agentv1.InstanceSpec {
+	s := goodSpec()
+	s.ImageDigest = digest
+	return s
+}
+
 // TestQuarantineRefusals — §11.4 Quarantine on the agent's server (P3-T18): while the instance carries meta/quarantined,
 // every call that could make it serve or change it is refused STATE before the driver (start, restart, compose up,
-// configtest, upgrade, DNS records, policy and API key bootstrap, restore, post-restore reconcile, edge attachment, the
+// configtest, upgrade and its preflight (P3-T13a), DNS records, policy and API key bootstrap, restore, post-restore reconcile, edge attachment, the
 // compensation that would remove meta/activated, a removal deleting data); stop, a detach, a removal keeping data,
 // backup, status, quarantine and release still reach the driver. A release needs a 64-hex policy sha256.
 func TestQuarantineRefusals(t *testing.T) {
@@ -73,7 +80,13 @@ func TestQuarantineRefusals(t *testing.T) {
 		},
 		"UpgradeInstance": func() error {
 			_, err := h.client.UpgradeInstance(c, &agentv1.UpgradeInstanceRequest{Instance: goodRef(), JobId: jobID,
-				FromImageDigest: digestA, ToImageDigest: digestB})
+				FromImageDigest: digestA, ToImageDigest: digestB, Spec: specOn(digestB)})
+			return err
+		},
+		"PreflightUpgrade": func() error { // P3-T13a
+			_, err := h.client.PreflightUpgrade(c, &agentv1.PreflightUpgradeRequest{Spec: specOn(digestB), JobId: jobID,
+				FromImageDigest: digestA, DataKey: key,
+				Artifact: &agentv1.ArtifactRef{Sequence: 1, ArchiveSha256: strings.Repeat("1", 64), ManifestSha256: strings.Repeat("2", 64)}})
 			return err
 		},
 		"WriteDnsRecords": func() error {

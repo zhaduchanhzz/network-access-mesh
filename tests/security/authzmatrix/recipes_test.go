@@ -137,6 +137,13 @@ var recipes = map[string]recipe{
 	// recorded by the orchestrator, so a granted call reaches the service and answers 409 no_config_version
 	"reconfigurePlatformInstance": {idempotent: true, body: `{"log_level":"warn"}`,
 		ok: answer{http.StatusConflict, gen.ProblemCodeConflict}},
+	// instance.restart, instance.upgrade (P3-T13a, instanceopsapi — mounted): a restart of the matrix's instance is
+	// enqueued (202 — the next granted caller gets the same unfinished job) or refused 409 when the instance does not
+	// run — any answer that is not a refusal; an upgrade needs a configuration version recorded by the orchestrator,
+	// which the matrix's instances do not have ⇒ 409 no_config_version for every granted caller
+	"restartPlatformInstance": {idempotent: true},
+	"upgradePlatformInstance": {idempotent: true, body: `{"image_digest":"sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}`,
+		ok: answer{http.StatusConflict, gen.ProblemCodeConflict}},
 	// quarantine / release (P3-T18, quarantineapi — mounted): a granted quarantine reaches the service, finds the
 	// instance (404 otherwise) and refuses the blank reason (422) — the matrix's instances are never quarantined, which
 	// would change the answers of the other operations on them; a granted release finds the instance not quarantined

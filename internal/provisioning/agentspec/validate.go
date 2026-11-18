@@ -97,10 +97,28 @@ type Remove struct {
 	ArchiveSequence uint64
 }
 
-// Upgrade is a validated UpgradeInstanceRequest.
+// Upgrade is a validated UpgradeInstanceRequest. Spec is the instance's spec with the target image (Spec.Image == To).
 type Upgrade struct {
 	Call
 	From, To AllowedImage
+	Spec     InstanceSpec
+}
+
+// Inspect is a validated InspectImageRequest (P3-T13a).
+type Inspect struct {
+	Call
+	Image AllowedImage
+}
+
+// Preflight is a validated PreflightUpgradeRequest (P3-T13a). Spec carries the target image; DataKey is a secret.
+type Preflight struct {
+	Call
+	Spec           InstanceSpec
+	From           AllowedImage
+	Sequence       uint64
+	ArchiveSHA256  string
+	ManifestSHA256 string
+	DataKey        []byte
 }
 
 // DNSRecord is a validated record.
@@ -494,7 +512,8 @@ func (v *Validator) RemoveInstance(r *agentv1.RemoveInstanceRequest) (Remove, er
 	return Remove{Call: c, Data: r.GetData(), ArchiveSequence: r.GetArchivedBackupSequence()}, nil
 }
 
-// UpgradeInstance validates an UpgradeInstanceRequest: both digests must be allowed (§11.4).
+// UpgradeInstance validates an UpgradeInstanceRequest: both digests must be allowed (§11.4), the spec must be the
+// instance's own with the target image.
 func (v *Validator) UpgradeInstance(r *agentv1.UpgradeInstanceRequest) (Upgrade, error) {
 	c, err := v.Call(r)
 	if err != nil {
@@ -511,7 +530,85 @@ func (v *Validator) UpgradeInstance(r *agentv1.UpgradeInstanceRequest) (Upgrade,
 	if from == to {
 		return Upgrade{}, malformed("to_image_digest", "equals from_image_digest")
 	}
-	return Upgrade{Call: c, From: from, To: to}, nil
+	spec, err := v.targetSpec(r.GetSpec(), c.Ref, to)
+	if err != nil {
+		return Upgrade{}, err
+	}
+	return Upgrade{Call: c, From: from, To: to, Spec: spec}, nil
+}
+
+// targetSpec validates the spec of an upgrade request: the instance of the call, the target image.
+func (v *Validator) targetSpec(s *agentv1.InstanceSpec, ref Ref, to AllowedImage) (InstanceSpec, error) {
+	spec, err := v.Spec("spec", s)
+	if err != nil {
+		return InstanceSpec{}, err
+	}
+	if spec.Ref != ref {
+		return InstanceSpec{}, refuse(agentv1.RefusalReason_REFUSAL_REASON_IDENTITY_MISMATCH, "spec.instance", "differs from the instance of the request")
+	}
+	if spec.Image != to {
+		return InstanceSpec{}, malformed("spec.image_digest", "must be the target image")
+	}
+	return spec, nil
+}
+
+// InspectImage validates an InspectImageRequest (P3-T13a): an allowed digest, on behalf of an instance.
+func (v *Validator) InspectImage(r *agentv1.InspectImageRequest) (Inspect, error) {
+	c, err := v.Call(r)
+	if err != nil {
+		return Inspect{}, err
+	}
+	img, err := v.Image("image_digest", r.GetImageDigest())
+	if err != nil {
+		return Inspect{}, err
+	}
+	return Inspect{Call: c, Image: img}, nil
+}
+
+// PreflightUpgrade validates a PreflightUpgradeRequest (P3-T13a): the target spec, the current image (both allowed and
+// different), the cold backup (same rules as Restore) and its data key.
+func (v *Validator) PreflightUpgrade(r *agentv1.PreflightUpgradeRequest) (Preflight, error) {
+	if r.GetSpec() == nil {
+		return Preflight{}, missing("spec")
+	}
+	c, err := v.call(r.GetSpec().GetInstance(), r.GetJobId())
+	if err != nil {
+		return Preflight{}, err
+	}
+	to, err := v.Image("spec.image_digest", r.GetSpec().GetImageDigest())
+	if err != nil {
+		return Preflight{}, err
+	}
+	spec, err := v.targetSpec(r.GetSpec(), c.Ref, to)
+	if err != nil {
+		return Preflight{}, err
+	}
+	from, err := v.Image("from_image_digest", r.GetFromImageDigest())
+	if err != nil {
+		return Preflight{}, err
+	}
+	if from == to {
+		return Preflight{}, malformed("spec.image_digest", "equals from_image_digest")
+	}
+	a := r.GetArtifact()
+	if a == nil {
+		return Preflight{}, missing("artifact")
+	}
+	if a.GetSequence() == 0 {
+		return Preflight{}, outOfBounds("artifact.sequence", "must be at least 1")
+	}
+	if err := sha256Hex("artifact.archive_sha256", a.GetArchiveSha256()); err != nil {
+		return Preflight{}, err
+	}
+	if err := sha256Hex("artifact.manifest_sha256", a.GetManifestSha256()); err != nil {
+		return Preflight{}, err
+	}
+	k, err := dataKey("data_key", r.GetDataKey())
+	if err != nil {
+		return Preflight{}, err
+	}
+	return Preflight{Call: c, Spec: spec, From: from, Sequence: a.GetSequence(), ArchiveSHA256: a.GetArchiveSha256(),
+		ManifestSHA256: a.GetManifestSha256(), DataKey: k}, nil
 }
 
 var dnsTypes = map[agentv1.DnsRecordType]string{

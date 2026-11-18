@@ -96,7 +96,7 @@ Cửa sổ mất dữ liệu tới 24 giờ trước khi có PITR là nợ TD-05
 
 ### 17.6 Upgrade & rollback
 
-- **Headscale:** §11.4 (bản vá cùng minor hoặc tuần tự từng minor, cold backup, preflight `configtest` bằng binary đích trên bản sao dữ liệu, canary, health + contract smoke, rollback bằng restore vì upstream không hỗ trợ downgrade schema).
+- **Headscale:** §11.4 (bản vá cùng minor hoặc tuần tự từng minor, cold backup, preflight `configtest` bằng binary đích trên bản sao dữ liệu, canary, health + contract smoke, rollback bằng restore vì upstream không hỗ trợ downgrade schema). Hiện thực: P3-T13a — job `instance.upgrade` và lệnh `meshguard-worker admin upgrade-wave --image sha256:<digest> --canary <instance> (--instances … | --all)`; digest đích phải có sẵn trong allowlist của Agent (cả digest cũ và mới) trước đợt nâng.
 - **Management Plane:** migration chạy trước (expand), triển khai image mới, contract sau (contract) ở bản phát hành kế tiếp; rollback = image cũ (schema vẫn tương thích ngược) hoặc restore PostgreSQL nếu migration lỗi (kèm đối soát sau restore — §17.2).
 - **Edge/IdP/monitoring:** pin digest, nâng từng thành phần, có bước kiểm tra sau nâng và đường lùi về digest cũ. Riêng **edge**: recreate làm rớt stream của mọi tenant và mất mọi attach lúc chạy ⇒ **runbook nâng cấp/recreate edge**: pre-pull image → thông báo → recreate project `mg-edge` → chờ edge supervisor gắn lại (§11.4) → khẳng định số network tenant đã gắn = số instance có `edge_attach: true` → probe `/key?v=<capver>` mọi tenant; đường lùi = recreate với digest cũ theo đúng trình tự này. Ở Phase 1–2 (chưa có Agent) **không có gì tự gắn lại**: sau mỗi lần recreate edge phải chạy script `reattach-edge` (runbook P1-T08) rồi kiểm lại `/key?v=<capver>` của A và B.
 

@@ -207,6 +207,18 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 			return nil, err
 		}
 	}
+	restarts, upgrades, err := newInstanceOps(cfg, d, agent, bk) // P3-T13a: instance.restart + instance.upgrade (§11.4)
+	if err != nil {
+		return nil, err
+	}
+	if restarts != nil {
+		if err := restarts.Register(w); err != nil {
+			return nil, err
+		}
+		if err := upgrades.Register(w); err != nil {
+			return nil, err
+		}
+	}
 	log.Info("worker wired", "idp_drivers", drivers.Names(), "keycloak_provisioner_bootstrapped", provisioned)
 	if !provisioned {
 		log.Warn("the keycloak driver's provisioning identity is not bootstrapped yet: run `meshguard-worker admin " +

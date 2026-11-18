@@ -229,6 +229,25 @@ func TestRestorableVersions(t *testing.T) {
 	}
 }
 
+func TestUpgradePath(t *testing.T) {
+	ok := []struct{ from, to, path string }{
+		{"0.29.7", "v0.29.7", PathPatch}, {"v0.29.7+mg.1", "v0.29.7", PathPatch}, {"0.29.6", "0.29.7", PathPatch},
+		{"0.29.7", "0.30.0", PathMinor}, {"0.29.7", "v0.30.2", PathMinor},
+	}
+	for _, c := range ok {
+		if p, err := UpgradePath(c.from, c.to); err != nil || p != c.path {
+			t.Errorf("%s → %s: %q, %v", c.from, c.to, p, err)
+		}
+	}
+	bad := [][2]string{{"0.29.7", "0.29.6"}, {"0.30.0", "0.29.7"}, {"0.29.7", "0.31.0"}, {"0.29.7", "1.0.0"},
+		{"unknown", "0.29.7"}, {"0.29.7", ""}}
+	for _, c := range bad {
+		if _, err := UpgradePath(c[0], c[1]); !errors.Is(err, ErrVersionPath) {
+			t.Errorf("%s → %s accepted (%v)", c[0], c[1], err)
+		}
+	}
+}
+
 func TestNames(t *testing.T) {
 	for _, n := range []string{ArchiveName(42), ManifestName(42), SignatureName(42), ArchiveName(42) + ".partial"} {
 		if seq, ok := ParseName(n); !ok || seq != 42 {

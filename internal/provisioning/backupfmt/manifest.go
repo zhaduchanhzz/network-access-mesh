@@ -319,6 +319,40 @@ func Restorable(backupVersion, backupImage, runningVersion, runningImage string)
 	}
 }
 
+// ErrVersionPath is an upgrade path that §11.4 does not allow (HS-04, RT-10).
+var ErrVersionPath = errors.New("backupfmt: upgrade path refused")
+
+// Upgrade paths (UpgradePath).
+const (
+	PathPatch = "patch" // same minor, patch not lower (equal: another build of the same version — official ↔ MeshGuard)
+	PathMinor = "minor" // exactly the next minor
+)
+
+// UpgradePath is the version rule of §11.4 Upgrade (HS-04; RT-10 enforced by Headscale at start-up) from the version
+// the data was written with to the target binary: the same minor with a patch not lower (a security patch; an equal
+// version is another build of it), or exactly the next minor. Another major, a lower version (no downgrade — the
+// rollback is a restore), a skipped minor or an unknown version is refused (ErrVersionPath).
+func UpgradePath(from, to string) (string, error) {
+	f, okf := ParseVersion(from)
+	t, okt := ParseVersion(to)
+	refuse := func(format string, args ...any) error {
+		return fmt.Errorf("%w: %s", ErrVersionPath, fmt.Sprintf(format, args...))
+	}
+	switch {
+	case !okf || !okt:
+		return "", refuse("unknown Headscale version (%q → %q): the path cannot be checked", from, to)
+	case f.Major != t.Major:
+		return "", refuse("%s → %s changes the major version", f, t)
+	case t.Minor == f.Minor && t.Patch >= f.Patch:
+		return PathPatch, nil
+	case t.Minor == f.Minor+1:
+		return PathMinor, nil
+	case t.Minor < f.Minor || t.Minor == f.Minor:
+		return "", refuse("%s → %s is a downgrade (RT-10: the rollback of an upgrade is a restore)", f, t)
+	}
+	return "", refuse("%s → %s skips a minor: upgrade through the pinned intermediate images (HS-04)", f, t)
+}
+
 // SortedCopy returns the files sorted by path (helpers of tests and of the worker's report).
 func SortedCopy(files []File) []File {
 	out := slices.Clone(files)

@@ -148,6 +148,13 @@ type BackupHandlers interface {
 	ListPlatformBackups(ctx context.Context, request gen.ListPlatformBackupsRequestObject) (gen.ListPlatformBackupsResponseObject, error)
 }
 
+// InstanceOpsHandlers — P3-T13a (`provisioning` orchestrator): the restart and the upgrade of an instance (jobs
+// instance.restart, instance.upgrade — §11.4).
+type InstanceOpsHandlers interface {
+	RestartPlatformInstance(ctx context.Context, request gen.RestartPlatformInstanceRequestObject) (gen.RestartPlatformInstanceResponseObject, error)
+	UpgradePlatformInstance(ctx context.Context, request gen.UpgradePlatformInstanceRequestObject) (gen.UpgradePlatformInstanceResponseObject, error)
+}
+
 // QuarantineHandlers — P3-T18 (`provisioning` quarantine): the quarantine of an instance (job instance.quarantine,
 // immediate) and its release (always dual control, job instance.release after the approval — §11.4).
 type QuarantineHandlers interface {
@@ -176,6 +183,7 @@ type Handlers struct {
 	Relay         RelayHandlers        // P3-T05c
 	Reconfigure   ReconfigureHandlers  // P3-T13
 	Backups       BackupHandlers       // P3-T11
+	InstanceOps   InstanceOpsHandlers  // P3-T13a
 	Deprovision   DeprovisionHandlers  // P3-T09
 	Quarantine    QuarantineHandlers   // P3-T18
 }
@@ -184,8 +192,7 @@ func (h Handlers) mounted() bool {
 	return h.Auth != nil || h.Tenants != nil || h.Devices != nil || h.Audit != nil || h.Jobs != nil || h.Monitoring != nil ||
 		h.Notifications != nil || h.Approvals != nil || h.Invitations != nil || h.Hosts != nil || h.IdPConsole != nil ||
 		h.Provisioning != nil || h.Lifecycle != nil || h.Relay != nil || h.Reconfigure != nil || h.Backups != nil ||
-		h.Deprovision != nil ||
-		h.Quarantine != nil
+		h.InstanceOps != nil || h.Quarantine != nil || h.Deprovision != nil
 }
 
 // dispatcher implements gen.StrictServerInterface by promotion from the disjoint interfaces.
@@ -206,6 +213,7 @@ type dispatcher struct {
 	RelayHandlers
 	ReconfigureHandlers
 	BackupHandlers
+	InstanceOpsHandlers
 	QuarantineHandlers
 	DeprovisionHandlers
 }
@@ -214,7 +222,11 @@ var _ gen.StrictServerInterface = dispatcher{}
 
 func newDispatcher(h Handlers) dispatcher {
 	d := dispatcher{h.Auth, h.Tenants, h.Devices, h.Audit, h.Jobs, h.Monitoring, h.Notifications, h.Approvals, h.Invitations,
-		h.Hosts, h.IdPConsole, h.Provisioning, h.Lifecycle, h.Relay, h.Reconfigure, h.Backups, h.Quarantine, h.Deprovision}
+		h.Hosts, h.IdPConsole, h.Provisioning, h.Lifecycle, h.Relay, h.Reconfigure, h.Backups, h.InstanceOps,
+		h.Quarantine, h.Deprovision}
+	if d.InstanceOpsHandlers == nil {
+		d.InstanceOpsHandlers = NotImplemented{}
+	}
 	if d.DeprovisionHandlers == nil {
 		d.DeprovisionHandlers = NotImplemented{}
 	}
@@ -512,6 +524,14 @@ func (NotImplemented) GetTenantRelay(context.Context, gen.GetTenantRelayRequestO
 
 func (NotImplemented) ListPlatformRelayRegions(context.Context, gen.ListPlatformRelayRegionsRequestObject) (gen.ListPlatformRelayRegionsResponseObject, error) {
 	return nil, problem.NotImplemented("ListPlatformRelayRegions")
+}
+
+func (NotImplemented) RestartPlatformInstance(context.Context, gen.RestartPlatformInstanceRequestObject) (gen.RestartPlatformInstanceResponseObject, error) {
+	return nil, problem.NotImplemented("RestartPlatformInstance")
+}
+
+func (NotImplemented) UpgradePlatformInstance(context.Context, gen.UpgradePlatformInstanceRequestObject) (gen.UpgradePlatformInstanceResponseObject, error) {
+	return nil, problem.NotImplemented("UpgradePlatformInstance")
 }
 
 func (NotImplemented) ReconfigurePlatformInstance(context.Context, gen.ReconfigurePlatformInstanceRequestObject) (gen.ReconfigurePlatformInstanceResponseObject, error) {

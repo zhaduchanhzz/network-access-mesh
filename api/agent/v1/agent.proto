@@ -31,8 +31,8 @@ import "google/protobuf/timestamp.proto";
 option go_package = "github.com/zhaduchanhzz/network-access-mesh/api/agent/v1;agentv1";
 
 // AgentService is served by `meshguard-agent` (apps/agent), one per host; the worker is the only client
-// (internal/agentclient). One RPC per method of the InfrastructureDriver interface (§11.5), plus Health, GetHostInfo
-// and ListInstances.
+// (internal/agentclient). One RPC per method of the InfrastructureDriver interface (§11.5), plus Health, GetHostInfo,
+// ListInstances and the two read-only checks of the upgrade (InspectImage, PreflightUpgrade — P3-T13a).
 service AgentService {
   // Health is the liveness/readiness check of the agent process (the container healthcheck may call it with the
   // agent's own UID; every other method requires a worker UID).
@@ -56,8 +56,20 @@ service AgentService {
   rpc RestartInstance(RestartInstanceRequest) returns (RestartInstanceResponse);
   // RemoveInstance: compose down, remove the network and — per data — the directory (§11.3 steps 7/9/10, §11.4).
   rpc RemoveInstance(RemoveInstanceRequest) returns (RemoveInstanceResponse);
-  // UpgradeInstance swaps the image digest (compare-and-swap on from_image_digest; §11.4 Upgrade).
+  // UpgradeInstance swaps the image digest (compare-and-swap on from_image_digest; §11.4 Upgrade): the instance must be
+  // stopped; compose.yaml is rendered again from spec (the target image, the configuration in force otherwise — the
+  // same config_sha256) and the container is created again WITHOUT starting it (StartInstance starts it, after the
+  // start guard). Already on to_image_digest ⇒ nothing changes (a retried call).
   rpc UpgradeInstance(UpgradeInstanceRequest) returns (UpgradeInstanceResponse);
+  // InspectImage reports the Headscale version of an allowlisted image (`headscale version -o json` in a one-shot
+  // container: no network, no mount, no capability); the daemon pulls the image when it is missing (P3-T13a).
+  rpc InspectImage(InspectImageRequest) returns (InspectImageResponse);
+  // PreflightUpgrade is the preflight of §11.4 Upgrade with the TARGET binary: the instance stopped, the cold backup of
+  // this upgrade (artifact, same instance) is verified and decrypted into the instance's staging directory, then
+  // `headscale configtest` of the target image runs on that COPY (it opens and migrates the database and loads the stored
+  // policy) with the configuration rendered for the target — never on data/. The copy and config.next/ are removed
+  // whatever happens; nothing of the instance changes (P3-T13a).
+  rpc PreflightUpgrade(PreflightUpgradeRequest) returns (PreflightUpgradeResponse);
   // WriteDnsRecords writes records/extra-records.json atomically from typed records (sorted, [] when empty).
   rpc WriteDnsRecords(WriteDnsRecordsRequest) returns (WriteDnsRecordsResponse);
   // BootstrapPolicy sets the baseline deny-all policy through the CLI inside the container (§11.3 step 12), reads it
@@ -478,10 +490,56 @@ message UpgradeInstanceRequest {
   // Both digests must be in the allowlist; from_image_digest must be the running one (compare-and-swap).
   string from_image_digest = 3;
   string to_image_digest = 4;
+  // The instance's typed spec with image_digest = to_image_digest (P3-T13a): compose.yaml is rendered from it. Its
+  // instance must be `instance` and its configuration the one in force (same config_sha256 — an upgrade changes the
+  // image only; a configuration change is a reconfiguration).
+  InstanceSpec spec = 5;
 }
 
 message UpgradeInstanceResponse {
   InstanceStatus status = 1;
+}
+
+message InspectImageRequest {
+  // The instance on whose behalf the image is inspected (names the helper container; the instance must exist).
+  InstanceRef instance = 1;
+  string job_id = 2;
+  // sha256:<64 hex> in the agent's allowlist.
+  string image_digest = 3;
+}
+
+message InspectImageResponse {
+  string repository = 1;
+  string image_digest = 2;
+  // As the binary reports it ("v0.29.7").
+  string headscale_version = 3;
+  // VCS revision of the binary (40 hex) — the patched build carries its own (P2-T10a).
+  string commit = 4;
+}
+
+message PreflightUpgradeRequest {
+  // The instance's typed spec with image_digest = the target (the configuration in force otherwise).
+  InstanceSpec spec = 1;
+  string job_id = 2;
+  // The image the instance runs now (compare-and-swap with meta/instance.json; the cold backup was taken with it).
+  string from_image_digest = 3;
+  // The cold backup of this upgrade (an archive of the same instance; same rules as RestoreRequest.artifact).
+  ArtifactRef artifact = 4;
+  // The backup's data key (the X25519 identity of the online path), unwrapped by the worker for this call only.
+  bytes data_key = 5 [debug_redact = true];
+}
+
+message PreflightUpgradeResponse {
+  // configtest of the target image exited 0 on the copy and logged no warning or error.
+  bool valid = 1;
+  int32 exit_code = 2;
+  // When not valid: stderr and the warning/error lines of configtest, redacted, at most 4 KiB.
+  string detail = 3;
+  // sha256 of the configuration rendered for the target (equals the one in force — checked by the agent).
+  string config_sha256 = 4;
+  // Versions: of the cold backup's image (manifest) and of the target image (its binary).
+  string backup_headscale_version = 5;
+  string target_headscale_version = 6;
 }
 
 enum DnsRecordType {

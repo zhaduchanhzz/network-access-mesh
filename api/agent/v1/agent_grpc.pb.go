@@ -54,6 +54,8 @@ const (
 	AgentService_RestartInstance_FullMethodName      = "/meshguard.agent.v1.AgentService/RestartInstance"
 	AgentService_RemoveInstance_FullMethodName       = "/meshguard.agent.v1.AgentService/RemoveInstance"
 	AgentService_UpgradeInstance_FullMethodName      = "/meshguard.agent.v1.AgentService/UpgradeInstance"
+	AgentService_InspectImage_FullMethodName         = "/meshguard.agent.v1.AgentService/InspectImage"
+	AgentService_PreflightUpgrade_FullMethodName     = "/meshguard.agent.v1.AgentService/PreflightUpgrade"
 	AgentService_WriteDnsRecords_FullMethodName      = "/meshguard.agent.v1.AgentService/WriteDnsRecords"
 	AgentService_BootstrapPolicy_FullMethodName      = "/meshguard.agent.v1.AgentService/BootstrapPolicy"
 	AgentService_BootstrapApiKey_FullMethodName      = "/meshguard.agent.v1.AgentService/BootstrapApiKey"
@@ -71,8 +73,8 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
 // AgentService is served by `meshguard-agent` (apps/agent), one per host; the worker is the only client
-// (internal/agentclient). One RPC per method of the InfrastructureDriver interface (§11.5), plus Health, GetHostInfo
-// and ListInstances.
+// (internal/agentclient). One RPC per method of the InfrastructureDriver interface (§11.5), plus Health, GetHostInfo,
+// ListInstances and the two read-only checks of the upgrade (InspectImage, PreflightUpgrade — P3-T13a).
 type AgentServiceClient interface {
 	// Health is the liveness/readiness check of the agent process (the container healthcheck may call it with the
 	// agent's own UID; every other method requires a worker UID).
@@ -96,8 +98,20 @@ type AgentServiceClient interface {
 	RestartInstance(ctx context.Context, in *RestartInstanceRequest, opts ...grpc.CallOption) (*RestartInstanceResponse, error)
 	// RemoveInstance: compose down, remove the network and — per data — the directory (§11.3 steps 7/9/10, §11.4).
 	RemoveInstance(ctx context.Context, in *RemoveInstanceRequest, opts ...grpc.CallOption) (*RemoveInstanceResponse, error)
-	// UpgradeInstance swaps the image digest (compare-and-swap on from_image_digest; §11.4 Upgrade).
+	// UpgradeInstance swaps the image digest (compare-and-swap on from_image_digest; §11.4 Upgrade): the instance must be
+	// stopped; compose.yaml is rendered again from spec (the target image, the configuration in force otherwise — the
+	// same config_sha256) and the container is created again WITHOUT starting it (StartInstance starts it, after the
+	// start guard). Already on to_image_digest ⇒ nothing changes (a retried call).
 	UpgradeInstance(ctx context.Context, in *UpgradeInstanceRequest, opts ...grpc.CallOption) (*UpgradeInstanceResponse, error)
+	// InspectImage reports the Headscale version of an allowlisted image (`headscale version -o json` in a one-shot
+	// container: no network, no mount, no capability); the daemon pulls the image when it is missing (P3-T13a).
+	InspectImage(ctx context.Context, in *InspectImageRequest, opts ...grpc.CallOption) (*InspectImageResponse, error)
+	// PreflightUpgrade is the preflight of §11.4 Upgrade with the TARGET binary: the instance stopped, the cold backup of
+	// this upgrade (artifact, same instance) is verified and decrypted into the instance's staging directory, then
+	// `headscale configtest` of the target image runs on that COPY (it opens and migrates the database and loads the stored
+	// policy) with the configuration rendered for the target — never on data/. The copy and config.next/ are removed
+	// whatever happens; nothing of the instance changes (P3-T13a).
+	PreflightUpgrade(ctx context.Context, in *PreflightUpgradeRequest, opts ...grpc.CallOption) (*PreflightUpgradeResponse, error)
 	// WriteDnsRecords writes records/extra-records.json atomically from typed records (sorted, [] when empty).
 	WriteDnsRecords(ctx context.Context, in *WriteDnsRecordsRequest, opts ...grpc.CallOption) (*WriteDnsRecordsResponse, error)
 	// BootstrapPolicy sets the baseline deny-all policy through the CLI inside the container (§11.3 step 12), reads it
@@ -249,6 +263,26 @@ func (c *agentServiceClient) UpgradeInstance(ctx context.Context, in *UpgradeIns
 	return out, nil
 }
 
+func (c *agentServiceClient) InspectImage(ctx context.Context, in *InspectImageRequest, opts ...grpc.CallOption) (*InspectImageResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(InspectImageResponse)
+	err := c.cc.Invoke(ctx, AgentService_InspectImage_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentServiceClient) PreflightUpgrade(ctx context.Context, in *PreflightUpgradeRequest, opts ...grpc.CallOption) (*PreflightUpgradeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PreflightUpgradeResponse)
+	err := c.cc.Invoke(ctx, AgentService_PreflightUpgrade_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *agentServiceClient) WriteDnsRecords(ctx context.Context, in *WriteDnsRecordsRequest, opts ...grpc.CallOption) (*WriteDnsRecordsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(WriteDnsRecordsResponse)
@@ -354,8 +388,8 @@ func (c *agentServiceClient) ReleaseInstance(ctx context.Context, in *ReleaseIns
 // for forward compatibility.
 //
 // AgentService is served by `meshguard-agent` (apps/agent), one per host; the worker is the only client
-// (internal/agentclient). One RPC per method of the InfrastructureDriver interface (§11.5), plus Health, GetHostInfo
-// and ListInstances.
+// (internal/agentclient). One RPC per method of the InfrastructureDriver interface (§11.5), plus Health, GetHostInfo,
+// ListInstances and the two read-only checks of the upgrade (InspectImage, PreflightUpgrade — P3-T13a).
 type AgentServiceServer interface {
 	// Health is the liveness/readiness check of the agent process (the container healthcheck may call it with the
 	// agent's own UID; every other method requires a worker UID).
@@ -379,8 +413,20 @@ type AgentServiceServer interface {
 	RestartInstance(context.Context, *RestartInstanceRequest) (*RestartInstanceResponse, error)
 	// RemoveInstance: compose down, remove the network and — per data — the directory (§11.3 steps 7/9/10, §11.4).
 	RemoveInstance(context.Context, *RemoveInstanceRequest) (*RemoveInstanceResponse, error)
-	// UpgradeInstance swaps the image digest (compare-and-swap on from_image_digest; §11.4 Upgrade).
+	// UpgradeInstance swaps the image digest (compare-and-swap on from_image_digest; §11.4 Upgrade): the instance must be
+	// stopped; compose.yaml is rendered again from spec (the target image, the configuration in force otherwise — the
+	// same config_sha256) and the container is created again WITHOUT starting it (StartInstance starts it, after the
+	// start guard). Already on to_image_digest ⇒ nothing changes (a retried call).
 	UpgradeInstance(context.Context, *UpgradeInstanceRequest) (*UpgradeInstanceResponse, error)
+	// InspectImage reports the Headscale version of an allowlisted image (`headscale version -o json` in a one-shot
+	// container: no network, no mount, no capability); the daemon pulls the image when it is missing (P3-T13a).
+	InspectImage(context.Context, *InspectImageRequest) (*InspectImageResponse, error)
+	// PreflightUpgrade is the preflight of §11.4 Upgrade with the TARGET binary: the instance stopped, the cold backup of
+	// this upgrade (artifact, same instance) is verified and decrypted into the instance's staging directory, then
+	// `headscale configtest` of the target image runs on that COPY (it opens and migrates the database and loads the stored
+	// policy) with the configuration rendered for the target — never on data/. The copy and config.next/ are removed
+	// whatever happens; nothing of the instance changes (P3-T13a).
+	PreflightUpgrade(context.Context, *PreflightUpgradeRequest) (*PreflightUpgradeResponse, error)
 	// WriteDnsRecords writes records/extra-records.json atomically from typed records (sorted, [] when empty).
 	WriteDnsRecords(context.Context, *WriteDnsRecordsRequest) (*WriteDnsRecordsResponse, error)
 	// BootstrapPolicy sets the baseline deny-all policy through the CLI inside the container (§11.3 step 12), reads it
@@ -454,6 +500,12 @@ func (UnimplementedAgentServiceServer) RemoveInstance(context.Context, *RemoveIn
 }
 func (UnimplementedAgentServiceServer) UpgradeInstance(context.Context, *UpgradeInstanceRequest) (*UpgradeInstanceResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method UpgradeInstance not implemented")
+}
+func (UnimplementedAgentServiceServer) InspectImage(context.Context, *InspectImageRequest) (*InspectImageResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method InspectImage not implemented")
+}
+func (UnimplementedAgentServiceServer) PreflightUpgrade(context.Context, *PreflightUpgradeRequest) (*PreflightUpgradeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method PreflightUpgrade not implemented")
 }
 func (UnimplementedAgentServiceServer) WriteDnsRecords(context.Context, *WriteDnsRecordsRequest) (*WriteDnsRecordsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method WriteDnsRecords not implemented")
@@ -704,6 +756,42 @@ func _AgentService_UpgradeInstance_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AgentService_InspectImage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(InspectImageRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).InspectImage(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_InspectImage_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).InspectImage(ctx, req.(*InspectImageRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_PreflightUpgrade_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PreflightUpgradeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).PreflightUpgrade(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_PreflightUpgrade_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).PreflightUpgrade(ctx, req.(*PreflightUpgradeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _AgentService_WriteDnsRecords_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(WriteDnsRecordsRequest)
 	if err := dec(in); err != nil {
@@ -934,6 +1022,14 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UpgradeInstance",
 			Handler:    _AgentService_UpgradeInstance_Handler,
+		},
+		{
+			MethodName: "InspectImage",
+			Handler:    _AgentService_InspectImage_Handler,
+		},
+		{
+			MethodName: "PreflightUpgrade",
+			Handler:    _AgentService_PreflightUpgrade_Handler,
 		},
 		{
 			MethodName: "WriteDnsRecords",

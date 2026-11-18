@@ -201,7 +201,7 @@ func (d *Driver) Backup(ctx context.Context, b agentspec.Backup) (*agentv1.Backu
 	if image == "" {
 		return nil, state("instance", "the instance has no rendered configuration yet (meta/instance.json image)")
 	}
-	version := d.headscaleVersion(ctx, image)
+	version := d.headscaleVersion(ctx, b.Ref, image)
 	method := backupfmt.MethodColdCopy
 	pmethod := agentv1.BackupMethod_BACKUP_METHOD_COLD_COPY
 	if c, err := d.cfg.Engine.Container(ctx, n.Container); err != nil {
@@ -488,15 +488,27 @@ func (d *Driver) checkFinalBackup(r agentspec.Remove) error {
 	return nil
 }
 
-// headscaleVersion is the Headscale version of an image (label org.opencontainers.image.version), "unknown" when the
-// image carries none.
-func (d *Driver) headscaleVersion(ctx context.Context, image string) string {
+// headscaleVersion is the Headscale version of an image: the label org.opencontainers.image.version (the MeshGuard
+// build carries it — P2-T10a), else what the binary reports (`headscale version -o json` in a one-shot container — the
+// official image has no such label; P3-T13a), "unknown" when neither answers.
+func (d *Driver) headscaleVersion(ctx context.Context, ref agentspec.Ref, image string) string {
 	v, err := d.cfg.Engine.ImageVersion(ctx, image)
 	if err != nil {
 		d.cfg.Log.Warn("image_version_unavailable", "image", image, "error", err)
 	}
 	if pv, ok := backupfmt.ParseVersion(v); ok {
 		return pv.String()
+	}
+	if _, digest, ok := strings.Cut(image, "@"); ok {
+		if img, allowed := d.cfg.Host.Images.Lookup(digest); allowed && img.Reference() == image {
+			iv, err := d.imageVersion(ctx, ref, img)
+			if err == nil {
+				if pv, ok := backupfmt.ParseVersion(iv.Version); ok {
+					return pv.String()
+				}
+			}
+			d.cfg.Log.Warn("image_version_unavailable", "image", image, "error", err)
+		}
 	}
 	return "unknown"
 }
@@ -640,7 +652,24 @@ func mustLstat(t *tree, rel string) fs.FileInfo {
 // sequence; the archive's digest and size are the signed ones (and the ones the worker recorded); its Noise key is the
 // instance's; its Headscale version is restorable on the running image.
 func (d *Driver) checkArchive(ctx context.Context, bt *tree, dir string, r agentspec.Restore, cfg *BackupConfig, st instanceState, recorded string) (*backupfmt.Manifest, error) {
-	raw, err := bt.readFile(filepath.Join(dir, backupfmt.ManifestName(r.Sequence)), backupfmt.MaxManifestBytes)
+	m, err := d.checkArtifact(bt, dir, r.Ref, r.Sequence, r.ManifestSHA256, r.ArchiveSHA256, cfg, recorded)
+	if err != nil {
+		return nil, err
+	}
+	image, _ := st.meta["image"].(string)
+	if err := backupfmt.Restorable(m.HeadscaleVersion, m.Image, d.headscaleVersion(ctx, r.Ref, image), image); err != nil {
+		return nil, &agentspec.Refusal{Reason: agentv1.RefusalReason_REFUSAL_REASON_STATE, Field: "artifact", Msg: err.Error()}
+	}
+	return m, nil
+}
+
+// checkArtifact is the part of §17.2 step 2 shared by Restore and PreflightUpgrade (P3-T13a), before anything is
+// decrypted: the manifest file's digest is the one the worker recorded; its signature verifies with a trusted key; it
+// describes exactly this tenant, instance, slug and sequence; the archive's digest and size are the signed ones (and
+// the ones the worker recorded); its Noise key is the instance's.
+func (d *Driver) checkArtifact(bt *tree, dir string, ref agentspec.Ref, seq uint64, manifestSHA, archiveSHA string, cfg *BackupConfig,
+	recorded string) (*backupfmt.Manifest, error) {
+	raw, err := bt.readFile(filepath.Join(dir, backupfmt.ManifestName(seq)), backupfmt.MaxManifestBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -648,25 +677,21 @@ func (d *Driver) checkArchive(ctx context.Context, bt *tree, dir string, r agent
 		return nil, &agentspec.Refusal{Reason: agentv1.RefusalReason_REFUSAL_REASON_NOT_FOUND, Field: "artifact.sequence",
 			Msg: "no backup with this sequence for this instance"}
 	}
-	if s := sha256.Sum256(raw); hex.EncodeToString(s[:]) != r.ManifestSHA256 {
+	if s := sha256.Sum256(raw); hex.EncodeToString(s[:]) != manifestSHA {
 		return nil, integrity("artifact.manifest_sha256", "the manifest is not the one recorded for this backup")
 	}
-	m, _, err := d.verifiedManifest(bt, dir, r.Sequence, raw, cfg)
+	m, _, err := d.verifiedManifest(bt, dir, seq, raw, cfg)
 	if err != nil {
 		return nil, err
 	}
-	if err := m.Check(backupfmt.Identity{TenantID: r.Ref.TenantID, InstanceID: r.Ref.InstanceID, Slug: r.Ref.Slug, Sequence: r.Sequence}); err != nil {
+	if err := m.Check(backupfmt.Identity{TenantID: ref.TenantID, InstanceID: ref.InstanceID, Slug: ref.Slug, Sequence: seq}); err != nil {
 		return nil, &agentspec.Refusal{Reason: agentv1.RefusalReason_REFUSAL_REASON_IDENTITY_MISMATCH, Field: "artifact", Msg: err.Error()}
 	}
-	if m.Archive.SHA256 != r.ArchiveSHA256 {
+	if m.Archive.SHA256 != archiveSHA {
 		return nil, integrity("artifact.archive_sha256", "the archive is not the one recorded for this backup")
 	}
 	if m.NoiseFingerprint != recorded {
 		return nil, integrity("artifact", "the archive holds another Noise key than the instance's (start guard, §11.4)")
-	}
-	image, _ := st.meta["image"].(string)
-	if err := backupfmt.Restorable(m.HeadscaleVersion, m.Image, d.headscaleVersion(ctx, image), image); err != nil {
-		return nil, &agentspec.Refusal{Reason: agentv1.RefusalReason_REFUSAL_REASON_STATE, Field: "artifact", Msg: err.Error()}
 	}
 	return m, nil
 }

@@ -71,6 +71,20 @@ func SupportedVersions() string {
 	return b.String()
 }
 
+// CheckSupported parses a version as GET /version reports it and checks that the adapter has an implementation for it
+// — the "contract test of the adapter green for the target version" precondition of an upgrade (§11.4, P3-T13a): a
+// version outside SupportedVersions is never upgraded to.
+func CheckSupported(raw string) (Version, error) {
+	v, err := ParseVersion(raw)
+	if err != nil {
+		return Version{}, err
+	}
+	if _, ok := implFor(v); !ok {
+		return v, fmt.Errorf("%s is outside the adapter's supported versions (%s)", v.Raw, SupportedVersions())
+	}
+	return v, nil
+}
+
 func implFor(v Version) (apiImpl, bool) {
 	for _, impl := range apiImpls {
 		if !v.less(impl.min) && v.less(impl.below) {

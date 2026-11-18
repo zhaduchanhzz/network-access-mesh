@@ -179,11 +179,11 @@ func (s *server) audit(ctx context.Context, method string, req any, pi peerInfo,
 }
 
 func instanceOf(req any) string {
-	switch r := req.(type) {
-	case interface{ GetSpec() *agentv1.InstanceSpec }:
-		return r.GetSpec().GetInstance().GetInstanceId()
-	case interface{ GetInstance() *agentv1.InstanceRef }:
+	if r, ok := req.(interface{ GetInstance() *agentv1.InstanceRef }); ok && r.GetInstance() != nil {
 		return r.GetInstance().GetInstanceId()
+	}
+	if r, ok := req.(interface{ GetSpec() *agentv1.InstanceSpec }); ok {
+		return r.GetSpec().GetInstance().GetInstanceId()
 	}
 	return ""
 }
@@ -452,11 +452,42 @@ func (s *server) UpgradeInstance(ctx context.Context, r *agentv1.UpgradeInstance
 	if err != nil {
 		return nil, err
 	}
-	st, err := onActive(ctx, s, u.Call, func() (*agentv1.InstanceStatus, error) { return s.drv.UpgradeInstance(ctx, u) })
+	st, err := onActive(ctx, s, u.Call, func() (*agentv1.InstanceStatus, error) {
+		if err := s.guard.CheckSpec(ctx, u.Spec); err != nil {
+			return nil, err
+		}
+		return s.drv.UpgradeInstance(ctx, u)
+	})
 	if err != nil {
 		return nil, err
 	}
 	return &agentv1.UpgradeInstanceResponse{Status: st}, nil
+}
+
+// InspectImage is read-only for the instance (no lock): the guard checks the instance exists and is its own.
+func (s *server) InspectImage(ctx context.Context, r *agentv1.InspectImageRequest) (*agentv1.InspectImageResponse, error) {
+	i, err := s.v.InspectImage(r)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.guard.CheckRef(ctx, i.Ref, true); err != nil {
+		return nil, err
+	}
+	return s.drv.InspectImage(ctx, i)
+}
+
+// PreflightUpgrade runs under the instance's lock (it reads the instance's state and writes its staging directory).
+func (s *server) PreflightUpgrade(ctx context.Context, r *agentv1.PreflightUpgradeRequest) (*agentv1.PreflightUpgradeResponse, error) {
+	p, err := s.v.PreflightUpgrade(r)
+	if err != nil {
+		return nil, err
+	}
+	return onActive(ctx, s, p.Call, func() (*agentv1.PreflightUpgradeResponse, error) {
+		if err := s.guard.CheckSpec(ctx, p.Spec); err != nil {
+			return nil, err
+		}
+		return s.drv.PreflightUpgrade(ctx, p)
+	})
 }
 
 func (s *server) WriteDnsRecords(ctx context.Context, r *agentv1.WriteDnsRecordsRequest) (*agentv1.WriteDnsRecordsResponse, error) {

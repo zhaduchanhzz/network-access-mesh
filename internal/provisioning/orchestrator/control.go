@@ -187,6 +187,12 @@ func (c *Control) Cancel(ctx context.Context, actor, jobID uuid.UUID, idem *Idem
 				return out, err
 			}
 		}
+		if r.Event == jobs.EventCancelQueued && (rec.Kind == RestartKind || rec.Kind == UpgradeKind) {
+			// P3-T13a: a restart or upgrade that never ran — the same.
+			if err := failCancelledOps(ctx, tx, rec); err != nil {
+				return out, err
+			}
+		}
 		if !out.Changed {
 			return out, nil
 		}

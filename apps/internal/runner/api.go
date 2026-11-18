@@ -23,6 +23,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/hostsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/identityapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/idpconsoleapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/instanceopsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/invitationsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/jobsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/lifecycleapi"
@@ -77,6 +78,8 @@ import (
 //	                 (lifecycleapi over lifecycle.Requester — suspend/resume, P3-T08), Relay (relayapi over relay —
 //	                 the tenant's relays and the platform's regions with the last probe, reads only, P3-T05c),
 //	                 Reconfigure (reconfigureapi over orchestrator.ReconfigureService — instance.reconfigure, P3-T13),
+//	                 InstanceOps (instanceopsapi over orchestrator.InstanceOpsService — instance.restart and
+//	                 instance.upgrade, P3-T13a)
 //	                 Quarantine (quarantineapi over quarantine.Requester + approvals — quarantine at once, release 2P,
 //	                 P3-T18)
 //	maintenance      the gate of P3-T17 (MG_MAINTENANCE OR system_settings maintenance, polled): 503 maintenance to
@@ -176,6 +179,7 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 			Lifecycle:     lifecycleapi.New(lifecycle.NewRequester(d.st)),
 			Relay:         relayapi.New(relays),
 			Reconfigure:   reconfigureapi.New(orchestrator.NewReconfigureService(d.st)),
+			InstanceOps:   instanceopsapi.New(orchestrator.NewInstanceOpsService(d.st)),
 			Deprovision:   deprovisionapi.New(deprov, appr),
 			Quarantine:    quarantineapi.New(quarantine.NewRequester(d.st), appr),
 		},
