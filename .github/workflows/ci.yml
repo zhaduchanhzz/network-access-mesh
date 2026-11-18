@@ -35,6 +35,8 @@ jobs:
           python3 tools/test_render_agent.py
           python3 tools/test_render_monitoring.py
           python3 tools/test_host_migrate.py
+      - name: Tự kiểm công cụ G3 (P3-T14 — thống kê p50/p95/max từng bước, parse job, baseline mồ côi, file credential, đích; không Docker)
+        run: python3 tests/g3/test_g3.py
       - name: Spec-lint api/openapi.yaml (x-permission hai chiều với §8.5/§8.6, x-task, tenant chỉ từ path, action path, problem+json; seed RBAC + bảng authz đã sinh khớp master/spec — P2-T07) + test
         run: |
           python3 tools/openapi_lint.py
