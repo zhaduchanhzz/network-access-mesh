@@ -350,3 +350,22 @@ func TestSMTPRelay(t *testing.T) {
 		t.Fatalf("ci test sink: %+v %v", cfg.SMTP, err)
 	}
 }
+
+// TestMaintenanceSwitch: MG_MAINTENANCE (P3-T17) is off by default, on for 1/true/on (any case), off for 0/false/off,
+// and any other value is refused (a typo never silently leaves the API open after a restore).
+func TestMaintenanceSwitch(t *testing.T) {
+	for v, want := range map[string]bool{"": false, "0": false, "false": false, "OFF": false, "1": true, "true": true,
+		" On ": true, "TRUE": true} {
+		get, list := env(map[string]string{"MG_MAINTENANCE": v})
+		cfg, err := Load("worker", get, list)
+		if err != nil || cfg.Maintenance != want {
+			t.Errorf("MG_MAINTENANCE=%q: Maintenance = %v (%v), want %v", v, cfg.Maintenance, err, want)
+		}
+	}
+	for _, v := range []string{"yes", "2", "enabled"} {
+		get, list := env(map[string]string{"MG_MAINTENANCE": v})
+		if _, err := Load("api", get, list); err == nil || !strings.Contains(err.Error(), "MG_MAINTENANCE") {
+			t.Errorf("MG_MAINTENANCE=%q: %v, want a refusal", v, err)
+		}
+	}
+}

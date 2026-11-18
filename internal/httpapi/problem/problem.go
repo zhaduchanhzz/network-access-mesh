@@ -50,6 +50,7 @@ var catalog = map[gen.ProblemCode]entry{
 	gen.ProblemCodeNotImplemented:       {http.StatusNotImplemented, "Not implemented"},
 	gen.ProblemCodeUpstreamRejected:     {http.StatusBadGateway, "Upstream service error"},
 	gen.ProblemCodeInstanceUnavailable:  {http.StatusServiceUnavailable, "Tenant instance unavailable"},
+	gen.ProblemCodeMaintenance:          {http.StatusServiceUnavailable, "Maintenance"},
 }
 
 // Status returns the HTTP status §13.1 assigns to code (500 for an unknown code).

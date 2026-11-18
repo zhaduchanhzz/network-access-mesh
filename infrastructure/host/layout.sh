@@ -33,6 +33,12 @@ sudo install -d -o root -g root -m 0700 "$R/secrets" "$R/backups"
 sudo install -d -o 10007 -g mg-sec-backup -m 0750 "$R/backups/postgres" "$R/backups/idp"
 sudo install -d -o 10001 -g mg-sec-backup -m 0750 "$R/backups/edge"
 sudo install -d -o root -g root -m 0700 "$R/backups/tenants"
+# Project mg-obs (P3-T16): cấu hình render (không secret, root 0755/0644 — prometheus/alertmanager 65534 chỉ đọc), danh
+# sách instance của obs-targets.sh (prometheus/targets) và thư mục diễn tập cảnh báo (drill — chỉ root ghi; node-exporter
+# đọc qua textfile collector). Thư mục backups/* của mg-backup được node-exporter (65534 + mg-sec-backup) đọc status.prom.
+sudo install -d -o root -g root -m 0755 "$R/core/monitoring" "$R/core/monitoring/prometheus" \
+                                         "$R/core/monitoring/prometheus/rules" "$R/core/monitoring/prometheus/targets" \
+                                         "$R/core/monitoring/alertmanager" "$R/core/monitoring/drill"
 for d in postgres crowdsec edge app obs backup; do sudo install -d -o root -g root -m 0700 "$R/secrets/$d"; done
 
 new_secret() {   # <file>: 40 ký tự [A-Za-z0-9] ngẫu nhiên; giữ nguyên nếu đã có

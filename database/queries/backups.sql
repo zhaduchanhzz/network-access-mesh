@@ -29,6 +29,22 @@ JOIN tenants t ON t.id = ti.tenant_id
 WHERE ti.status IN ('running', 'stopped') AND t.status IN ('provisioning', 'active', 'suspended')
 ORDER BY ti.id;
 
+-- name: ListBackupFreshness :many
+-- Độ tươi backup theo instance (P3-T16 — cảnh báo §16.3 "quá hạn lịch backup của tenant"): đúng tập instance của
+-- ListBackupSchedule, kèm finished_at của bản backup thành công gần nhất (succeeded hoặc purged; epoch = chưa từng có —
+-- khi đó mốc là created_at của instance) và chu kỳ theo plan (0 = không có ⇒ MG_BACKUP_INTERVAL).
+SELECT ti.id, ti.tenant_id, ti.created_at,
+       COALESCE((SELECT max(b.finished_at) FROM backups b
+                 WHERE b.instance_id = ti.id AND b.status IN ('succeeded', 'purged')), '1970-01-01T00:00:00Z'::timestamptz)::timestamptz AS last_success_at,
+       COALESCE((SELECT COALESCE((s.overrides->>'backup_interval_minutes')::integer, (p.limits->>'backup_interval_minutes')::integer)
+                 FROM subscriptions s JOIN subscription_plans p ON p.id = s.plan_id
+                 WHERE s.tenant_id = ti.tenant_id AND s.status IN ('trialing', 'active', 'past_due')
+                 LIMIT 1), 0)::integer AS interval_minutes
+FROM tenant_instances ti
+JOIN tenants t ON t.id = ti.tenant_id
+WHERE ti.status IN ('running', 'stopped') AND t.status IN ('provisioning', 'active', 'suspended')
+ORDER BY ti.id;
+
 -- name: ListPlatformBackupsPage :many
 -- GET /platform/backups (P3-T11): mới nhất trước, thứ tự ổn định (started_at, id) giảm dần cho phân trang (§13.1).
 SELECT b.id, b.tenant_id, b.instance_id, b.kind, b.status, b.storage_uri, b.size_bytes, b.sha256, b.headscale_version,

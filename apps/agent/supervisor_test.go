@@ -122,6 +122,21 @@ func TestSupervisorLoop(t *testing.T) {
 	if !strings.Contains(h.logs.String(), `"msg":"edge_started"`) {
 		t.Fatalf("no edge_started line:\n%s", h.logs.String())
 	}
+	// a cycle falls while the edge is absent (old container removed, new one not yet created): the recreation that
+	// follows is still logged, against the last edge seen
+	for _, id := range []string{"", strings.Repeat("c", 64)} {
+		f.mu.Lock()
+		f.edgeID = id
+		f.mu.Unlock()
+		f.starts <- struct{}{}
+		waitCycle(t, f)
+	}
+	want := `"previous_id":"` + strings.Repeat("b", 12) + `","id":"` + strings.Repeat("c", 12) + `"`
+	for deadline := time.Now().Add(5 * time.Second); !strings.Contains(h.logs.String(), want); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("no edge_recreated b → c across an absent cycle:\n%s", h.logs.String())
+		}
+	}
 	cancel()
 	select {
 	case <-done:

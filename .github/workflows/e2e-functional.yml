@@ -3,7 +3,7 @@
 # api, worker — E2E-17…E2E-25: edge app./admin./auth., đăng nhập OIDC có TOTP, adopt, đồng bộ thiết bị, audit),
 # Keycloak với 3 realm, edge render từ Caddyfile thật (TLS từ CA nội bộ sinh mới mỗi lượt — CHỈ cho CI), 2 Headscale
 # (render bằng tools/render_instance.py), stund, prober (P3-T03a — image build từ cây), 4 client Tailscale chính thức
-# pin digest; chạy E2E-01…E2E-60 (E2E-32: helper enrollment P3-T14a; E2E-33…35: prober; E2E-36: lõi policy P3-T08a; E2E-37…39: lời mời + dual control P3-T05a/P3-T04a; E2E-40…43: kiểm soát quản trị IdP P3-T15; E2E-46/47: orchestrator P3-T05; E2E-52: xoay API key P3-T10; E2E-59/60: V-11 restore bản chụp cũ / Noise key bị thay P3-T11). Mọi kết
+# pin digest; chạy E2E-01…E2E-60 (E2E-32: helper enrollment P3-T14a; E2E-33…35: prober; E2E-36: lõi policy P3-T08a; E2E-37…39: lời mời + dual control P3-T05a/P3-T04a; E2E-40…43: kiểm soát quản trị IdP P3-T15; E2E-46/47: orchestrator P3-T05; E2E-52: xoay API key P3-T10; E2E-59/60: V-11 restore bản chụp cũ / Noise key bị thay P3-T11; E2E-76…78: bộ cảnh báo mg-obs, MG_PROBER_URL, diễn tập mọi rule P3-T16). Mọi kết
 # quả chỉ là "functional" (client và Headscale cùng một host — HS-24, §22.1), không bao giờ "network E2E verified".
 # Image pin theo digest trong versions.lock, action pin theo commit SHA; không dùng secret nào của repo (D-12; repo
 # private từ 2026-11-17 nhưng workflow vẫn không cần secret): mọi credential (mật khẩu DB, admin Keycloak, token edge, pre-auth key, API key, khóa CA) sinh trong lượt chạy,
@@ -20,7 +20,9 @@ on:
             "tools/mgenv.py", "tools/render_instance.py", "tools/render_edge.py", "tools/render_idp.py", "database/**",
             "internal/store/**", "versions.lock", "Makefile", ".github/workflows/e2e-functional.yml",
             "apps/**", "internal/**", "go.mod", "go.sum", "infrastructure/docker/app/**", "infrastructure/docker/probe/**",
-            "infrastructure/compose/compose.app.yaml.tmpl", "tools/render_app.py"]
+            "infrastructure/compose/compose.app.yaml.tmpl", "tools/render_app.py",
+            "infrastructure/docker/node-exporter/**", "infrastructure/monitoring/**",
+            "infrastructure/compose/compose.monitoring.yaml.tmpl", "tools/render_monitoring.py"]
   pull_request:
     paths: ["compose.yaml", "tests/e2e/**", "tests/security/edge/conformance.py", "infrastructure/environments/ci/**",
             "infrastructure/caddy/**", "infrastructure/headscale/templates/**", "infrastructure/idp/**",
@@ -28,7 +30,9 @@ on:
             "tools/mgenv.py", "tools/render_instance.py", "tools/render_edge.py", "tools/render_idp.py", "database/**",
             "internal/store/**", "versions.lock", "Makefile", ".github/workflows/e2e-functional.yml",
             "apps/**", "internal/**", "go.mod", "go.sum", "infrastructure/docker/app/**", "infrastructure/docker/probe/**",
-            "infrastructure/compose/compose.app.yaml.tmpl", "tools/render_app.py"]
+            "infrastructure/compose/compose.app.yaml.tmpl", "tools/render_app.py",
+            "infrastructure/docker/node-exporter/**", "infrastructure/monitoring/**",
+            "infrastructure/compose/compose.monitoring.yaml.tmpl", "tools/render_monitoring.py"]
   workflow_dispatch:
 
 permissions:
