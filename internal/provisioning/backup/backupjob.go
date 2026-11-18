@@ -53,7 +53,7 @@ func (s *Service) runBackup(ctx context.Context, run *jobs.Run) error {
 	if err := run.DecodeInput(&in); err != nil {
 		return jobs.Permanent("invalid_input", err)
 	}
-	res, err := s.backup(ctx, run.ID, *run.TenantID, *run.InstanceID)
+	res, err := s.backup(ctx, run.ID, *run.TenantID, *run.InstanceID, s.cfg.Retention)
 	s.closeOperation(ctx, in.Operation, res, err)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -94,8 +94,19 @@ func (s *Service) closeOperation(ctx context.Context, op *audit.Operation, res B
 	}
 }
 
-// backup — §17.1, one attempt.
-func (s *Service) backup(ctx context.Context, jobID, tenantID, instanceID uuid.UUID) (BackupResult, error) {
+// FinalBackup is the final backup of a deprovision (§11.4 "backup cuối", P3-T09 step backup.final): one attempt of the
+// same §17.1 path as instance.backup — the tenant's backup key, a fresh data key, the book row, Agent.Backup, the signed
+// manifest checked — recorded with the deprovision job's id (backups.job_id) and kept for at least keep (the DEK grace
+// period of the deprovision; never less than MG_BACKUP_RETENTION). The deprovision job holds the tenant's lifecycle
+// lock, so it calls this in-process: an instance.backup job would wait for that very lock. Errors are classified like
+// instance.backup's (transient: retried by the caller; permanent: refusal, invalid manifest, not configured). A
+// Skipped result means the instance cannot be backed up in its state (quarantined, removed…).
+func (s *Service) FinalBackup(ctx context.Context, jobID, tenantID, instanceID uuid.UUID, keep time.Duration) (BackupResult, error) {
+	return s.backup(ctx, jobID, tenantID, instanceID, max(keep, s.cfg.Retention))
+}
+
+// backup — §17.1, one attempt; the backup is kept for keep (book row expires_at).
+func (s *Service) backup(ctx context.Context, jobID, tenantID, instanceID uuid.UUID, keep time.Duration) (BackupResult, error) {
 	if err := s.enabled(); err != nil {
 		return BackupResult{}, err
 	}
@@ -197,7 +208,7 @@ func (s *Service) backup(ctx context.Context, jobID, tenantID, instanceID uuid.U
 		ManifestSHA256: a.GetManifestSha256(), CreatedAt: m.Time(), RemovedArchives: a.GetRemovedArchives()}
 	err = s.st.WithTenantTx(ctx, tenantID, func(q *sqlcdb.Queries) error {
 		size, sum, msha, method := int64(m.Archive.Size), m.Archive.SHA256, a.GetManifestSha256(), m.Method
-		exp := s.cfg.Now().Add(s.cfg.Retention).UTC()
+		exp := s.cfg.Now().Add(keep).UTC()
 		if _, err := q.FinishInstanceBackup(ctx, sqlcdb.FinishInstanceBackupParams{ID: rowID, SizeBytes: &size, Sha256: &sum,
 			Manifest: a.GetManifest(), ManifestSignature: a.GetManifestSignature(), ManifestSha256: &msha, Method: &method, ExpiresAt: &exp}); err != nil {
 			return err

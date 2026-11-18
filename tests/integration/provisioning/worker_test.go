@@ -4,8 +4,9 @@ package provisioning
 
 // One worker process of the harness (PIT_ROLE=worker): the production wiring of tenant.provision
 // (apps/internal/runner/provision.go — DBStore, platform.Placer, the SecretStore, the Headscale registry through the
-// edge locator, the Host Agent client over its socket, jobs.Worker with River) with every collaborator wrapped by
-// faultinject per the plan in PIT_FAULTS. It runs as the worker's identity (UID 65532, group 20003) so the agent
+// edge locator, the Host Agent client over its socket, jobs.Worker with River) and of tenant.deprovision
+// (apps/internal/runner/deprovision.go — the backup service for the final backup, a registry reaching deprovisioning
+// tenants, the policy core over it; P3-T09) with every collaborator wrapped by faultinject per the plan in PIT_FAULTS. It runs as the worker's identity (UID 65532, group 20003) so the agent
 // accepts it (SO_PEERCRED). SIGTERM: graceful stop. A kill fault: SIGKILL to itself, after the real call returned.
 
 import (
@@ -29,6 +30,9 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/idp"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/jobs"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/platform"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/policies"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/backup"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/deprovision"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/orchestrator"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/secrets"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
@@ -118,12 +122,13 @@ func TestWorkerProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 	reg := headscale.NewRegistry(loc, headscale.Options{Logger: log})
+	kc := &keycloakDriver{sec: sec, realms: map[string]string{}} // one in-memory IdP for both jobs of the process
 	p, err := orchestrator.New(orchestrator.Config{
 		Store:     &faultinject.Store{Store: orchestrator.NewDBStore(st, nil), In: in},
 		Agent:     &faultinject.Agent{Next: agent, In: in},
 		Placer:    &faultinject.Placer{Next: placer, In: in},
 		Secrets:   &faultinject.Secrets{SecretStore: sec, In: in},
-		IdP:       &faultinject.IdP{Next: drivers{idp.DriverKeycloak: &keycloakDriver{sec: sec, realms: map[string]string{}}}, In: in},
+		IdP:       &faultinject.IdP{Next: drivers{idp.DriverKeycloak: kc}, In: in},
 		Headscale: &faultinject.Headscale{Next: reg, In: in},
 		Prober:    &faultinject.Prober{Next: newEdgeProber(), In: in},
 		Security:  securityRecorder{st: st},
@@ -142,6 +147,31 @@ func TestWorkerProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := p.Register(w); err != nil {
+		t.Fatal(err)
+	}
+	// tenant.deprovision (P3-T09): the final backup through the real backup service and agent, a registry that reaches a
+	// deprovisioning tenant (deprovision.ReachableStatuses — like apps/internal/runner/deprovision.go), the policy core
+	// over it, the shortened key grace of the run
+	bk := backup.New(st, backup.Config{Agent: &faultinject.BackupAgent{Next: agent, In: in}, Secrets: sec, Registry: reg,
+		ManifestKeys: e.manifestKeys, Logger: log})
+	dloc, err := locator.New(tenants.New(st, tenants.Options{BaseDomain: e.baseDomain}), sec,
+		locator.Options{AdminURL: e.edgeAdmin, EdgeTokenFile: e.edgeTokenFile(), TenantStatuses: deprovision.ReachableStatuses, Logger: log})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dreg := headscale.NewRegistry(dloc, headscale.Options{Logger: log})
+	core, err := policies.New(st, policies.Config{Registry: dreg, Logger: log})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dep, err := deprovision.New(deprovision.Config{Store: st, Agent: &faultinject.Agent{Next: agent, In: in}, Backups: bk,
+		Secrets: sec, IdP: &faultinject.IdP{Next: drivers{idp.DriverKeycloak: kc}, In: in}, Policies: core,
+		Headscale: &faultinject.Headscale{Next: dreg, In: in}, Security: securityRecorder{st: st}, Logger: log,
+		KeyGrace: e.keyGrace, RetryBase: 100 * time.Millisecond, RetryMax: 500 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := dep.Register(w); err != nil {
 		t.Fatal(err)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)

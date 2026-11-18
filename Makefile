@@ -18,8 +18,8 @@ secret-scan: ## Quét secret trong repo (cần gitleaks; cấu hình .gitleaks.t
 	@command -v gitleaks >/dev/null || { echo "gitleaks chưa cài — xem README"; exit 1; }
 	gitleaks git --config .gitleaks.toml --redact --no-banner .
 
-render-test: ## Test tham số môi trường (mgenv) + golden test của tool render (instance Headscale, edge, IdP, backup, mg-app, mg-agent, mg-obs) + migrate.sh
-	$(PYTHON) tools/test_mgenv.py && $(PYTHON) tools/test_render_instance.py && $(PYTHON) tools/test_render_edge.py && $(PYTHON) tools/test_render_idp.py && $(PYTHON) tools/test_render_backup.py && $(PYTHON) tools/test_render_app.py && $(PYTHON) tools/test_render_agent.py && $(PYTHON) tools/test_render_monitoring.py && $(PYTHON) tools/test_host_migrate.py
+render-test: ## Test tham số môi trường (mgenv) + golden test của tool render (instance Headscale, edge, IdP, backup, mg-app, mg-agent, relay thư, mg-obs) + migrate.sh
+	$(PYTHON) tools/test_mgenv.py && $(PYTHON) tools/test_render_instance.py && $(PYTHON) tools/test_render_edge.py && $(PYTHON) tools/test_render_idp.py && $(PYTHON) tools/test_render_backup.py && $(PYTHON) tools/test_render_app.py && $(PYTHON) tools/test_render_agent.py && $(PYTHON) tools/test_render_mail.py && $(PYTHON) tools/test_render_monitoring.py && $(PYTHON) tools/test_host_migrate.py
 
 PROMETHEUS_IMAGE ?= docker.io/prom/prometheus@sha256:fa3302279710be2f21a8301ec17a8b4f2301fd829bd113839b3b6b02b6f191a2
 DOCKER ?= docker
@@ -61,7 +61,7 @@ isolation-headscale: ## IT-06, IT-10 (API key), IT-20 (gồm Locator thật + Po
 agent-it: ## Test tích hợp Host Agent trên Docker thật (P3-T02 compose driver, P3-T03 thao tác/edge supervisor/start guard, P3-T12 reconcile, P3-T13 reconfigure + tự lùi, P3-T18 quarantine/release với edge Caddy thật): tenant dùng-một-lần trong image agent đã hardening, snapshot trước/sau (cần Docker, python3 ≥ 3.11; DOCKER="sudo docker" nếu cần)
 	bash tests/integration/agent/run.sh
 
-provisioning-it: ## Harness tiêm lỗi provisioning (P3-T07): orchestrator thật + Host Agent thật + Headscale thật trên Docker, lỗi tại từng bước 3–19, worker bị kill giữa bước 13, /retry, bộ phát hiện tài nguyên mồ côi; đối soát sau restore PostgreSQL P3-T17 (E2E-72) (cần Docker, python3 ≥ 3.11; DOCKER="sudo docker" nếu cần)
+provisioning-it: ## Harness tiêm lỗi provisioning (P3-T07): orchestrator thật + Host Agent thật + Headscale thật trên Docker, lỗi tại từng bước 3–19, worker bị kill giữa bước 13, /retry, bộ phát hiện tài nguyên mồ côi; đối soát sau restore PostgreSQL P3-T17 (E2E-72); deprovision qua 2P với backup cuối thật + hủy DEK (P3-T09, E2E-73…E2E-75) (cần Docker, python3 ≥ 3.11; DOCKER="sudo docker" nếu cần)
 	bash tests/integration/provisioning/run.sh
 
 sqlc: ## Sinh lại internal/store/sqlcdb từ database/migrations + database/queries (sqlc pin trong versions.lock; cần CGO)

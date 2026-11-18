@@ -164,6 +164,7 @@ func TestDecideTenant(t *testing.T) {
 		{"own grant on a shared operation", with(func(a *access) { a.grantScope = GrantOwn }), read, ErrForbidden, "own_scope_on_shared_operation"},
 		{"suspended tenant, write", with(func(a *access) { a.tenantStatus = TenantSuspended }), write, ErrTenantSuspended, "tenant_suspended"},
 		{"suspended tenant, write without grant", with(func(a *access) { a.tenantStatus = TenantSuspended; a.grantScope = "" }), write, ErrForbidden, "no_grant"},
+		{"deprovisioning tenant, write (P3-T09)", with(func(a *access) { a.tenantStatus = TenantDeprovisioning }), write, ErrTenantSuspended, "tenant_deprovisioning"},
 	}
 	for _, c := range cases {
 		_, err := decideTenant(tenantPrincipal(), tenantA, c.req, c.acc)

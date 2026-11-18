@@ -32,9 +32,12 @@ import (
 	agentv1 "github.com/zhaduchanhzz/network-access-mesh/api/agent/v1"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/agentclient"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/audit"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/authz"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/authz/approvals"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/headscale"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/headscale/locator"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/jobs"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/deprovision"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/orchestrator"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/secrets"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
@@ -56,6 +59,10 @@ type harness struct {
 	keyring string
 	creator *orchestrator.Creator
 	control *orchestrator.Control
+	// the 2P path of the deprovision (P3-T09): the api's requester, the approvals service, two Super Admins
+	deprov  *deprovision.Requester
+	appr    *approvals.Service
+	staff   [2]approvals.Actor
 	agent   *agentclient.Client
 	docker  *client.Client
 	actor   uuid.UUID
@@ -107,7 +114,29 @@ func newHarness(t *testing.T) *harness {
 		Quota: usage.NewChecker(h.api), QuotaTx: usage.TenantCreationTx, BaseDomain: e.baseDomain}); err != nil {
 		t.Fatal(err)
 	}
-	h.control = orchestrator.NewControl(h.api)
+	h.control = orchestrator.NewControl(h.api).WithQuota(usage.TenantCreationTx)
+	h.deprov = deprovision.NewRequester(h.api)
+	reg, err := approvals.NewRegistry(approvals.Typed(approvals.Spec{Name: deprovision.Action, Scope: authz.ScopePlatform,
+		ResourceType: "tenant", Permission: deprovision.Permission},
+		func(ctx context.Context, tx *store.Tx, ex approvals.Execution, p deprovision.Payload) (*uuid.UUID, error) {
+			return h.deprov.EnqueueApproved(ctx, tx, ex.Request.RequestedBy.IdentityID, ex.Request.ID, p)
+		}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.appr, err = approvals.New(h.api, approvals.Config{Approvers: authz.New(h.api), Registry: reg}); err != nil {
+		t.Fatal(err)
+	}
+	pidp := uuid.New()
+	h.exec(t, `INSERT INTO identity_providers (id, scope, issuer, client_id, driver, status)
+		VALUES ($1, 'platform', 'https://auth.pit.test/realms/platform', 'mg-console', 'keycloak', 'active')`, pidp)
+	for i := range h.staff {
+		id := uuid.New()
+		h.exec(t, `INSERT INTO identities (id, idp_id, scope, subject, display_name) VALUES ($1, $2, 'platform', $3, 'Super Admin')`,
+			id, pidp, "sa-"+id.String())
+		h.exec(t, `INSERT INTO platform_users (identity_id, role_id) SELECT $1, id FROM roles WHERE scope = 'platform' AND key = 'super_admin'`, id)
+		h.staff[i] = approvals.Actor{IdentityID: id, Scope: authz.ScopePlatform}
+	}
 	if h.agent, err = agentclient.New(agentclient.Config{Socket: e.socket(), TokenFile: e.agentTokenFile()}); err != nil {
 		t.Fatal(err)
 	}
@@ -197,6 +226,34 @@ func (h *harness) create(t *testing.T, slug string) orchestrator.Created {
 		t.Fatalf("create %s: %v", slug, err)
 	}
 	return c
+}
+
+// deprovision is DELETE /platform/tenants/{id} by one Super Admin (step-up) and its approval by the second one (§8.5
+// 2P, P3-T09): the checks of the request, the approval request, the approval that enqueues tenant.deprovision.
+func (h *harness) deprovision(t *testing.T, tenant uuid.UUID, slug string, skip bool) uuid.UUID {
+	t.Helper()
+	a, b := h.staff[0], h.staff[1]
+	a.AuthTime, b.AuthTime = time.Now(), time.Now()
+	p, err := h.deprov.Check(h.reqCtxAs(t, a.IdentityID, "platform.tenant.delete.request"), tenant, slug, skip)
+	if err != nil {
+		t.Fatalf("deprovision %s: %v", slug, err)
+	}
+	r, err := h.appr.Request(h.reqCtxAs(t, a.IdentityID, "platform.tenant.delete.request"), a, approvals.NewRequest{
+		Action: deprovision.Action, ResourceID: tenant.String(), Payload: p, Reason: "provisioning harness"})
+	if err != nil {
+		t.Fatalf("deprovision %s: approval request: %v", slug, err)
+	}
+	done, err := h.appr.Approve(h.reqCtxAs(t, b.IdentityID, "platform.approval.approve"), b,
+		approvals.Ref{Scope: authz.ScopePlatform, ID: r.ID}, r.PayloadSHA256)
+	if err != nil || done.JobID == nil {
+		t.Fatalf("deprovision %s: approval: %+v %v", slug, done, err)
+	}
+	return *done.JobID
+}
+
+func (h *harness) reqCtxAs(t *testing.T, actor uuid.UUID, action string) context.Context {
+	return audit.WithRequest(t.Context(), &audit.Request{Action: action, ActorType: audit.ActorIdentity, ActorIdentityID: &actor,
+		ActorDisplay: "super admin", RequestID: "pit-" + uuid.NewString()[:8]})
 }
 
 func (h *harness) retry(t *testing.T, job uuid.UUID) orchestrator.ControlResult {
@@ -442,7 +499,7 @@ func (h *harness) leaks(t *testing.T) []string {
 // scope is the run's scope for the orphan detector.
 func (h *harness) scope(settled bool) orphans.Scope {
 	return orphans.Scope{SlugPrefix: h.e.prefix + "-", TenantsDir: h.e.tenantsDir(), Edge: h.e.edge,
-		EdgeNetwork: h.e.edgeNetwork, Settled: settled}
+		EdgeNetwork: h.e.edgeNetwork, Settled: settled, AllowSecrets: []string{"backup-key"}}
 }
 
 // sources are the real sources of the detector; Headscale is a fresh registry (no cached target) on the worker's roles.

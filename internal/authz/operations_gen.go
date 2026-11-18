@@ -16,6 +16,7 @@ var specOperations = []Operation{
 	{ID: "createPlatformTenant", Method: "POST", Path: "/platform/tenants", Permission: "platform.tenant:create", AuditAction: "platform.tenant.create"},
 	{ID: "createTenantInvitation", Method: "POST", Path: "/tenants/{tenantId}/invitations", Permission: "tenant.invitation:manage", AuditAction: "invitation.create"},
 	{ID: "deleteDevice", Method: "DELETE", Path: "/tenants/{tenantId}/devices/{deviceId}", Permission: "tenant.device:delete", AuditAction: "device.delete", OwnResource: true},
+	{ID: "deletePlatformTenant", Method: "DELETE", Path: "/platform/tenants/{tenantId}", Permission: "platform.tenant:delete", AuditAction: "platform.tenant.delete.request", DualControl: true},
 	{ID: "expireDevice", Method: "POST", Path: "/tenants/{tenantId}/devices/{deviceId}/expire", Permission: "tenant.device:expire", AuditAction: "device.expire", OwnResource: true},
 	{ID: "getAuthSession", Method: "GET", Path: "/auth/session", Permission: "authenticated", AuditAction: "auth.session.read"},
 	{ID: "getDevice", Method: "GET", Path: "/tenants/{tenantId}/devices/{deviceId}", Permission: "tenant.device:read", AuditAction: "device.read", OwnResource: true},

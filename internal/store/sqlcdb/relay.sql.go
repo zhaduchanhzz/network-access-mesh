@@ -110,6 +110,7 @@ SELECT DISTINCT ON (r.id) r.id, a.tenant_id, a.instance_id, r.last_probe_at
 FROM relay_regions r
 JOIN relay_assignments a ON a.relay_region_id = r.id AND a.status = 'active'
 JOIN tenant_instances i ON i.id = a.instance_id AND i.tenant_id = a.tenant_id AND i.status = 'running'
+JOIN tenants t ON t.id = a.tenant_id AND t.status IN ('provisioning', 'active', 'suspended')
 WHERE r.kind = 'embedded' AND r.status = 'active'
 ORDER BY r.id, a.priority, a.instance_id
 `
@@ -124,10 +125,12 @@ type ListRelayProbeTargetsRow struct {
 // Module relay (P3-T05c, §10, §10.6): RelayService — đọc relay_regions / relay_assignments (0010) + kết quả probe
 // (relay_regions.last_probe / last_probe_at, 0016) cho GET /tenants/{t}/relay (pool tenant, RLS) và
 // GET /platform/relay-regions (pool platform); job relay.probe (pool platform của worker) ghi kết quả probe. Bước 17 của
-// provisioning (relay.assign — queries/provisioning.sql) là nơi DUY NHẤT tạo/xóa hàng relay. Cột tường minh, không SELECT *.
+// provisioning (relay.assign — queries/provisioning.sql) là nơi DUY NHẤT tạo hàng relay; xóa: compensation của bước đó và
+// bước relay.remove của deprovision (queries/deprovision.sql — P3-T09). Cột tường minh, không SELECT *.
 // Pool platform: region cần relay.probe theo lịch — region embedded đang active có ít nhất một assignment active tới một
 // instance đang chạy (DERP nhúng sống trong chính instance; instance không chạy thì không có gì để probe). Một hàng mỗi
-// region (instance phục vụ: assignment ưu tiên cao nhất). region embedded luôn có tenant (CHECK của 0010).
+// region (instance phục vụ: assignment ưu tiên cao nhất). region embedded luôn có tenant (CHECK của 0010). Tenant đang
+// deprovision (hoặc đã xóa) không còn là target (P3-T09).
 func (q *Queries) ListRelayProbeTargets(ctx context.Context) ([]ListRelayProbeTargetsRow, error) {
 	rows, err := q.db.Query(ctx, listRelayProbeTargets)
 	if err != nil {

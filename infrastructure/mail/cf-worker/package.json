@@ -1,0 +1,14 @@
+{
+  "name": "meshguard-mailrelay-worker",
+  "private": true,
+  "type": "module",
+  "description": "MeshGuard outbound mail relay: Cloudflare Worker behind the SMTP bridge (P3-T05b-mail). No runtime dependency.",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "node --test test/worker.test.mjs",
+    "devserver": "node test/devserver.mjs"
+  },
+  "engines": {
+    "node": ">=22.15"
+  }
+}

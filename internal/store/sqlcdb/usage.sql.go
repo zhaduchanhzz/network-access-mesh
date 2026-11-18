@@ -13,10 +13,12 @@ import (
 
 const countLiveTenants = `-- name: CountLiveTenants :one
 SELECT count(*) FROM tenants
-WHERE status <> 'deleted'
+WHERE status NOT IN ('deleted', 'failed')
 `
 
-// quota.max_tenants = số tenant chưa `deleted` tối đa (0012).
+// quota.max_tenants = số tenant tối đa đang chiếm chỗ (0012): không tính tenant `deleted` (đã deprovision) và `failed`
+// (provisioning đã rollback — không còn instance; P3-T09, ghi chú P3-T07 mục 7). Tenant `failed` quay lại `provisioning`
+// chỉ qua /retry (orchestrator.Control), lần đó kiểm lại trần dưới cùng khóa hàng (TenantCreationTx).
 func (q *Queries) CountLiveTenants(ctx context.Context) (int64, error) {
 	row := q.db.QueryRow(ctx, countLiveTenants)
 	var count int64

@@ -408,6 +408,25 @@ sudo bash infrastructure/host/migrate.sh                          # mỗi lần 
 $APP up -d --wait api worker                                      # /readyz: postgres, secretstore, edge_admin
 ```
 
+## Relay thư ra — `mailrelay` + Worker Cloudflare (P3-T05b-mail)
+
+Email của nền tảng (thông báo của worker, thư của Keycloak, cảnh báo của Alertmanager) đi `mailrelay:587` (network
+`mail`, STARTTLS, CA nội bộ) → Worker Cloudflare (HTTPS, HMAC) → Cloudflare Email Service. Thủ tục đầy đủ, lệnh kiểm
+và hoàn tác: **[docs/planning/evidence/P3-T05b-mail.md](../../docs/planning/evidence/P3-T05b-mail.md)**, mục 6. Tóm tắt:
+
+```bash
+sudo bash infrastructure/host/layout.sh && sudo bash infrastructure/host/networks.sh   # nhóm mg-sec-mail 20009, network mail
+sudo bash infrastructure/host/mail-secrets.sh && sudo bash infrastructure/host/check-secrets.sh   # khóa HMAC, CA + cert (không in)
+# máy vận hành: render wrangler.toml, deploy, đặt RELAY_HMAC_KEY từ file của host (qua ống, không in), điền MG_MAILRELAY_URL
+python3 tools/render_mail.py infrastructure/environments/staging/staging.env infrastructure/mail/cf-worker
+python3 tools/render_app.py infrastructure/environments/staging/staging.env /tmp/mg-app   # → /opt/meshguard/core/
+APP="sudo docker compose -p mg-app -f /opt/meshguard/core/compose.app.yaml"
+$APP up -d --wait mail-bridge worker                              # /readyz của cầu: smtp_listener, hmac_key, tls_certificate
+```
+
+Xoay: `mail-secrets.sh --rotate-hmac` (ghi tại chỗ — mailrelay dùng ngay; đặt lại `RELAY_HMAC_KEY` của Worker ngay sau đó),
+`mail-secrets.sh --rotate-tls` (CA + chứng chỉ mới; khởi động lại mailrelay, worker, idp, alertmanager).
+
 ## Điểm vào công khai, capacity, trạng thái của host — `meshguard admin host-set` (P3-T04)
 
 Placement (bước 3 của provisioning) chỉ chọn host `active`, có `public_entry.ipv4` và còn chỗ theo `capacity.max_instances`. Host `mg-staging` do `adopt-instance` đăng ký có `public_entry = {}` ⇒ **trước lần cấp phát đầu** phải khai báo điểm vào công khai (IP của VPS gateway — `MG_PUBLIC_IPV4` của `staging.env`, chế độ `vps_gateway`). Lệnh là cùng thay đổi với `PATCH /api/v1/platform/hosts/{hostId}` (cùng service): kiểm đúng các CHECK của migration 0014, khóa hàng host như placement, đọc `ETag` trước (có thay đổi song song ⇒ lệnh thất bại, không ghi đè), ghi audit `platform.host.update` (giá trị trước/sau, `actor_type=system`, `actor_display = meshguard admin host-set`, request id `admin-<uuid>`). **IP không bao giờ là tham số:** `--public-ipv4-env` nhận **tên** biến môi trường chứa IP (lệnh từ chối một địa chỉ ở vị trí đó); lệnh không in IP. Thiết kế và phép thử: [P3-T04](../../docs/planning/evidence/P3-T04.md) mục 7.

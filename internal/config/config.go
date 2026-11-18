@@ -76,6 +76,9 @@ type Config struct {
 	// Backup (MG_BACKUP_MANIFEST_PUBKEY, MG_BACKUP_INTERVAL, MG_BACKUP_RETENTION, worker): per-tenant backups — LoadBackup
 	// (P3-T11).
 	Backup Backup
+	// Deprovision (MG_DEPROVISION_KEY_GRACE, worker): the grace period before a deleted tenant's keys are destroyed —
+	// LoadDeprovision (P3-T09).
+	Deprovision Deprovision
 	// Maintenance (MG_MAINTENANCE: 1/true/on, default off — P3-T17, §17.2): the process starts in maintenance mode
 	// whatever the database says — the api answers 503 except the platform sign-in on admin.<domain>, the worker runs no
 	// job and no schedule. It is the startup switch of a PostgreSQL restore (the restored database does not hold the
@@ -132,13 +135,7 @@ func Load(service string, getenv func(string) string, environ []string) (Config,
 	if !services[service] {
 		errs = append(errs, fmt.Errorf("unknown service %q", service))
 	}
-	for _, kv := range environ {
-		name, _, _ := strings.Cut(kv, "=")
-		if strings.HasPrefix(name, "MG_") && secretName.MatchString(name) &&
-			!strings.HasSuffix(name, "_FILE") && !strings.HasSuffix(name, "_DIR") {
-			errs = append(errs, fmt.Errorf("%s: secret values must be passed as a file (%s_FILE) or a directory of files (%s_DIR), not in the environment", name, name, name))
-		}
-	}
+	errs = append(errs, secretEnvErrors(environ)...)
 	cfg := Config{
 		Service:      service,
 		Env:          withDefault(getenv("MG_ENV"), "dev"),
@@ -229,6 +226,9 @@ func Load(service string, getenv func(string) string, environ []string) (Config,
 	var backupErrs []error
 	cfg.Backup, backupErrs = LoadBackup(service, getenv)
 	errs = append(errs, backupErrs...)
+	var deprovErrs []error
+	cfg.Deprovision, deprovErrs = LoadDeprovision(service, getenv)
+	errs = append(errs, deprovErrs...)
 	switch strings.ToLower(strings.TrimSpace(getenv("MG_MAINTENANCE"))) {
 	case "", "0", "false", "off":
 	case "1", "true", "on":
@@ -241,6 +241,19 @@ func Load(service string, getenv func(string) string, environ []string) (Config,
 		errs = append(errs, cfg.loadDependencies(getenv)...)
 	}
 	return cfg, errors.Join(errs...)
+}
+
+// secretEnvErrors refuses every MG_* variable whose name looks like a secret unless it is a *_FILE or *_DIR reference.
+func secretEnvErrors(environ []string) []error {
+	var errs []error
+	for _, kv := range environ {
+		name, _, _ := strings.Cut(kv, "=")
+		if strings.HasPrefix(name, "MG_") && secretName.MatchString(name) &&
+			!strings.HasSuffix(name, "_FILE") && !strings.HasSuffix(name, "_DIR") {
+			errs = append(errs, fmt.Errorf("%s: secret values must be passed as a file (%s_FILE) or a directory of files (%s_DIR), not in the environment", name, name, name))
+		}
+	}
+	return errs
 }
 
 // loadDependencies reads and checks what a wired process needs (Config.Wired): the database roles of the service, the

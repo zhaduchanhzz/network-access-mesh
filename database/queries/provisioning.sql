@@ -11,14 +11,17 @@ WHERE key = sqlc.arg(key) AND is_active;
 
 -- name: SlugHeldByDeletedTenant :one
 -- §11.3 bước 1: slug của tenant đã `deleted` bị từ chối khi còn object của instance cũ trong registry — instance chưa
--- removed (thư mục, network, container), backup chưa purge, IdP chưa vô hiệu (issuer). Hostname của instance chưa
--- removed còn được placement kiểm lại dưới khóa (ErrHostnameInUse).
+-- removed (thư mục, network, container), backup chưa purge, IdP chưa vô hiệu (issuer), hoặc DEK chưa hủy (P3-T09: trong
+-- grace period trước crypto-shredding, đường restore bản backup cuối và realm IdP mang tên slug còn tồn tại — job
+-- tenant.keys_destroy purge realm trước khi hủy DEK). Hostname của instance chưa removed còn được placement kiểm lại
+-- dưới khóa (ErrHostnameInUse).
 SELECT EXISTS (
     SELECT 1 FROM tenants t
     WHERE t.slug = sqlc.arg(slug) AND t.status = 'deleted'
       AND (EXISTS (SELECT 1 FROM tenant_instances ti WHERE ti.tenant_id = t.id AND ti.status <> 'removed')
            OR EXISTS (SELECT 1 FROM backups b WHERE b.tenant_id = t.id AND b.status <> 'purged')
-           OR EXISTS (SELECT 1 FROM identity_providers i WHERE i.tenant_id = t.id AND i.status <> 'disabled'))
+           OR EXISTS (SELECT 1 FROM identity_providers i WHERE i.tenant_id = t.id AND i.status <> 'disabled')
+           OR EXISTS (SELECT 1 FROM tenant_keys k WHERE k.tenant_id = t.id AND k.state <> 'destroyed'))
 )::boolean AS held;
 
 -- name: InsertSubscription :one

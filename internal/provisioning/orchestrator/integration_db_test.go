@@ -423,11 +423,24 @@ func TestProvisionRollbackAndRetryDB(t *testing.T) {
 		t.Fatalf("host left behind: %+v", m)
 	}
 
+	// P3-T09: a failed tenant takes no place under quota.max_tenants, so /retry (failed → provisioning) takes one under
+	// the cap's lock: with the cap reached it is refused (403 quota_exceeded) and nothing changes.
+	used := dbScalar[int64](t, g, `SELECT count(*) FROM tenants WHERE status NOT IN ('deleted', 'failed')`)
+	g.exec(t, `UPDATE system_settings SET value = to_jsonb($1::bigint) WHERE key = 'quota.max_tenants'`, used)
+	capped := NewControl(g.api).WithQuota(usage.TenantCreationTx)
+	if _, err := capped.Retry(g.reqCtx(t, ActionJobRetry), g.actor, c.Job.ID, nil); !errors.Is(err, tenants.ErrQuotaExceeded) {
+		t.Fatalf("/retry with the cap reached: %v, want a quota refusal", err)
+	}
+	if got := dbScalar[string](t, g, `SELECT status FROM tenants WHERE id = $1`, tid); got != "failed" {
+		t.Fatalf("tenant %s after a refused retry", got)
+	}
+	g.exec(t, `UPDATE system_settings SET value = '100' WHERE key = 'quota.max_tenants'`)
+
 	// /retry of the rolled_back job: a NEW job from step 3, the tenant provisioning again — and it succeeds.
 	g.prober.mu.Lock()
 	g.prober.edge = ProbeResult{OK: true}
 	g.prober.mu.Unlock()
-	r, err := g.control.Retry(g.reqCtx(t, ActionJobRetry), g.actor, c.Job.ID, nil)
+	r, err := capped.Retry(g.reqCtx(t, ActionJobRetry), g.actor, c.Job.ID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

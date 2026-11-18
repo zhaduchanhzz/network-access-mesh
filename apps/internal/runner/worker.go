@@ -55,6 +55,9 @@ const partitionRole = "mg_partition_maint"
 //	                 the same agent client as reconcile); instance.reconfigure (P3-T13: MG_AGENT_* — prober optional)
 //	lifecycle        tenant.suspend + tenant.resume (P3-T08, §11.4) over a Headscale registry of their own that reaches a
 //	                 suspended tenant's instance (lifecycle.go), always wired — no Host Agent needed
+//	deprovision      tenant.deprovision (P3-T09, §11.4: the final backup in-process, 15 steps, 2P upstream) over a
+//	                 registry that reaches a deprovisioning tenant (deprovision.go); tenant.keys_destroy every hour after
+//	                 MG_DEPROVISION_KEY_GRACE (crypto-shredding — §6.1)
 //	quarantine       instance.quarantine + instance.release (P3-T18, §11.4): the Host Agent (without it the isolation
 //	                 fails Critical — the registry stays quarantined), the reachable registry for the post-start gate;
 //	                 jobs.Options.StepGate = quarantine.Gate stops every multi-step job of a quarantined instance
@@ -151,6 +154,16 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 	}
 	drivers, kc, provisioned, err := idpDrivers(ctx, cfg, d)
 	if err != nil {
+		return nil, err
+	}
+	dep, shred, err := newDeprovision(cfg, d, agent, bk, drivers) // P3-T09: tenant.deprovision + tenant.keys_destroy
+	if err != nil {
+		return nil, err
+	}
+	if err := dep.Register(w); err != nil {
+		return nil, err
+	}
+	if err := shred.Register(w); err != nil {
 		return nil, err
 	}
 	audits, err := auditsync.New(d.st, auditsync.Config{Source: kc, Logger: log, Registerer: reg})
@@ -353,20 +366,7 @@ func newNotificationSender(cfg config.Config, st *store.Store, log *slog.Logger)
 		sc.ConsoleURL = "https://" + h
 	}
 	if cfg.SMTP.Addr != "" {
-		mc := notifications.SMTPConfig{Addr: cfg.SMTP.Addr, TLS: cfg.SMTP.TLS, ServerName: cfg.SMTP.ServerName,
-			Username: cfg.SMTP.Username, PasswordFile: cfg.SMTP.PasswordFile, From: cfg.SMTP.From}
-		if cfg.SMTP.CAFile != "" {
-			pool, err := x509.SystemCertPool()
-			if err != nil {
-				pool = x509.NewCertPool()
-			}
-			pem, err := os.ReadFile(cfg.SMTP.CAFile) //nolint:gosec // G304: deployment configuration (MG_SMTP_CA_FILE)
-			if err != nil || !pool.AppendCertsFromPEM(pem) {
-				return nil, fmt.Errorf("MG_SMTP_CA_FILE: no PEM certificate could be read from %s", cfg.SMTP.CAFile)
-			}
-			mc.RootCAs = pool
-		}
-		m, err := notifications.NewSMTPMailer(mc)
+		m, err := NewSMTPMailer(cfg.SMTP)
 		if err != nil {
 			return nil, err
 		}
@@ -378,4 +378,23 @@ func newNotificationSender(cfg config.Config, st *store.Store, log *slog.Logger)
 			"auth", cfg.SMTP.Username != "")
 	}
 	return notifications.NewSender(st, sc)
+}
+
+// NewSMTPMailer is the worker's SMTP client of MG_SMTP_* (notification.send, `admin mail-test`): the relay's address and
+// TLS mode, the system roots plus MG_SMTP_CA_FILE (the internal CA of the mail relay — P3-T05b-mail).
+func NewSMTPMailer(c config.SMTP) (*notifications.SMTPMailer, error) {
+	mc := notifications.SMTPConfig{Addr: c.Addr, TLS: c.TLS, ServerName: c.ServerName, Username: c.Username,
+		PasswordFile: c.PasswordFile, From: c.From}
+	if c.CAFile != "" {
+		pool, err := x509.SystemCertPool()
+		if err != nil {
+			pool = x509.NewCertPool()
+		}
+		pem, err := os.ReadFile(c.CAFile) //nolint:gosec // G304: deployment configuration (MG_SMTP_CA_FILE)
+		if err != nil || !pool.AppendCertsFromPEM(pem) {
+			return nil, fmt.Errorf("MG_SMTP_CA_FILE: no PEM certificate could be read from %s", c.CAFile)
+		}
+		mc.RootCAs = pool
+	}
+	return notifications.NewSMTPMailer(mc)
 }

@@ -2,7 +2,10 @@
 # Harness tiêm lỗi của máy trạng thái provisioning (P3-T07; master §11.3, §20) — orchestrator THẬT (River, PostgreSQL,
 # SecretStore, placer, adapter Headscale qua edge) điều khiển Host Agent THẬT trên Docker THẬT với image Headscale THẬT
 # ([images.mg-headscale]); tiêm lỗi tại từng bước (package faultinject — decorator quanh collaborator của orchestrator,
-# không có hook nào trong mã production) và sau mỗi ca chạy bộ phát hiện tài nguyên mồ côi (package orphans).
+# không có hook nào trong mã production) và sau mỗi ca chạy bộ phát hiện tài nguyên mồ côi (package orphans). P3-T09:
+# deprovision (§11.4) qua đường 2P — backup cuối THẬT (container trợ giúp của agent, manifest ký bằng khóa của nghi thức
+# thử do vai trò keygen của binary test sinh), RemoveInstance(DELETE_ARCHIVED), hủy DEK sau grace period rút ngắn
+# (PIT_KEY_GRACE, mặc định 20s) — ca E2E-73…E2E-75, và cuối lần chạy deprovision MỌI tenant của lần chạy.
 # Chạy trên máy có Docker (VM build, runner GitHub). Không chạy trong `go test ./...` (build tag dockerintegration).
 #
 #   bash tests/integration/provisioning/run.sh                       # docker không cần sudo (runner GitHub)
@@ -153,7 +156,15 @@ d run --rm --network bridge -v "$ROOT:/src:ro" -v "$P-gomod:/go/pkg/mod" -v "$P-
   sh -c "go vet -tags dockerintegration ./tests/integration/provisioning/... && go test -c -tags dockerintegration -o /out/pit.test ./tests/integration/provisioning && chown $(id -u):$(id -g) /out/pit.test"
 chmod 0755 "$WORK/bin" "$WORK/bin/pit.test"
 
-log "gốc tạm $IT_ROOT: tenants/ (root 0755), backups/tenants/ (0700), run/ (root:$WORKER_GID 0750), token agent/edge (root:$WORKER_GID 0440), allowlist"
+log "nghi thức khóa thử (P3-T09): khóa ký manifest + khóa công khai + recipient khôi phục (vai trò keygen của binary test)"
+mkdir -m 0700 "$WORK/keys"
+d run --rm --network none --user "$(id -u):$(id -g)" -v "$WORK/bin/pit.test:/pit/pit.test:ro" -v "$WORK/keys:/keys" \
+  -e PIT_ROLE=keygen -e PIT_KEYGEN_OUT=/keys --entrypoint /pit/pit.test "$ALPINE_IMAGE" >/dev/null
+MANIFEST_PUBKEY=$(cat "$WORK/keys/manifest_pubkey"); RECOVERY_RECIPIENT=$(cat "$WORK/keys/recovery_recipient")
+cp "$WORK/keys/manifest_signing_key" "$WORK/secrets/manifest_signing_key"
+KEY_GRACE=${PIT_KEY_GRACE:-20s}
+
+log "gốc tạm $IT_ROOT: tenants/ (root 0755), backups/tenants/ (0700), run/ (root:$WORKER_GID 0750), token agent/edge (root:$WORKER_GID 0440), allowlist, khóa ký manifest (root 0400)"
 ( umask 077
   token() { python3 -c 'import secrets, string; print("".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(40)), end="")'; }
   token > "$WORK/secrets/agent_token"
@@ -170,7 +181,8 @@ d run --rm --network none -v "$IT_ROOT:$IT_ROOT" -v "$WORK/secrets:/s:ro" "$ALPI
   install -d -o 0 -g $WORKER_GID -m 0750 run
   install -o 0 -g $WORKER_GID -m 0440 /s/agent_token cfg/agent_token
   install -o 0 -g $WORKER_GID -m 0440 /s/edge_token cfg/edge_token
-  install -o 0 -g 0 -m 0644 /s/allowlist cfg/allowlist"
+  install -o 0 -g 0 -m 0644 /s/allowlist cfg/allowlist
+  install -o 0 -g 0 -m 0400 /s/manifest_signing_key cfg/manifest_signing_key"
 mkdir -p "$OUT/workers" && chmod 0777 "$OUT/workers"   # logs of the worker processes (UID 65532; no secret — checked)
 
 log "network $P-net ($CTL), PostgreSQL $PG_IMAGE"
@@ -193,6 +205,8 @@ d run -d --name "$P-agent" --label "pit.run=$P" --network none --read-only --tmp
   -e "MG_AGENT_RUN_UID_RANGE=$RUN_UIDS" -e "MG_AGENT_TENANT_NET_POOL=$POOL" -e "MG_AGENT_PUBLIC_ENTRY_IPV4=$PUBLIC_IPV4" \
   -e "MG_AGENT_EDGE_CONTAINER=$P-edge" -e "MG_AGENT_EDGE_NETWORK=$P-net" -e MG_AGENT_EDGE_SUPERVISOR_INTERVAL=5s \
   -e "MG_AGENT_HELPER_IMAGE=$HELPER_IMAGE" -e MG_AGENT_COMPOSE_BIN=/usr/local/bin/docker-compose \
+  -e "MG_AGENT_MANIFEST_SIGNING_KEY_FILE=$IT_ROOT/cfg/manifest_signing_key" -e "MG_AGENT_BACKUP_RECOVERY_RECIPIENT=$RECOVERY_RECIPIENT" \
+  -e "MG_BACKUP_MANIFEST_PUBKEY=$MANIFEST_PUBKEY" \
   -e DOCKER_HOST=unix:///var/run/docker.sock -e DOCKER_CONFIG=/tmp/docker "$IMAGE" >/dev/null
 for _ in $(seq 1 60); do
   d exec "$P-agent" /usr/local/bin/meshguard-agent healthcheck >/dev/null 2>&1 && break
@@ -217,9 +231,10 @@ d create --name "$P-run" --label "pit.run=$P" --network "$P-net" --user "$WORKER
   -e "PIT_POOL=$POOL" -e "PIT_RUN_UIDS=$RUN_UIDS" -e "PIT_PUBLIC_IPV4=$PUBLIC_IPV4" -e "PIT_BASE_DOMAIN=$BASE_DOMAIN" \
   -e "PIT_HS_DIGEST=$HS_DIGEST" -e "PIT_HS_VERSION=$HS_VERSION" -e "PIT_EDGE=$P-edge" -e "PIT_EDGE_NETWORK=$P-net" \
   -e "PIT_EDGE_ADMIN=http://$P-edge:8081" -e "PIT_EDGE_PUBLIC=$P-edge:8080" -e "PIT_PG_CONTAINER=$P-pg" \
+  -e "PIT_MANIFEST_PUBKEY=$MANIFEST_PUBKEY" -e "PIT_KEY_GRACE=$KEY_GRACE" \
   --entrypoint /pit/pit.test "$ALPINE_IMAGE" -test.v -test.count=1 -test.timeout=70m \
   -test.run "${PIT_RUN:-^(TestProvisioningFaultInjection|TestPostRestoreReconcile)\$}" >/dev/null
-log "chạy các ca E2E-48…E2E-51 (P3-T07) và E2E-72 (P3-T17)…"
+log "chạy các ca E2E-48…E2E-51 (P3-T07), E2E-73…E2E-75 + deprovision cuối lần chạy (P3-T09) và E2E-72 (P3-T17)…"
 rc=0
 d start -a "$P-run" > "$OUT/pit.log" 2>&1 || rc=$?
 d logs "$P-agent" > "$OUT/agent.log" 2>&1 || true
@@ -231,6 +246,9 @@ d logs "$P-edge" > "$OUT/edge.log" 2>&1 || true
   d inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$P-edge" | tr ' ' '\n' | grep -E "^mg-t-$P-" | sed 's/^/edge→/' || true
 } > "$OUT/leftovers.txt"
 dirs=$(d run --rm --network none -v "$IT_ROOT/tenants:/t:ro" "$ALPINE_IMAGE" ls -A /t | wc -l)
+# backup cuối của các tenant đã deprovision: archive (+ manifest ký) giữ lại theo retention
+archives=$(d run --rm --network none -v "$IT_ROOT/backups:/b:ro" "$ALPINE_IMAGE" sh -c 'find /b/tenants -name "*.tar.age" | wc -l')
+manifests=$(d run --rm --network none -v "$IT_ROOT/backups:/b:ro" "$ALPINE_IMAGE" sh -c 'find /b/tenants -name "*.manifest.sig" | wc -l')
 keys_in_agent_log=$(grep -c 'hskey-api-' "$OUT/agent.log" || true)
 for c in "$P-run" "$P-edge" "$P-agent" "$P-pg"; do d rm -f "$c" >/dev/null 2>&1 || true; done
 d network rm "$P-net" >/dev/null 2>&1 || true
@@ -240,7 +258,7 @@ snapshot > "$OUT/after.txt"
 
 grep -E '^(=== RUN|--- (PASS|FAIL|SKIP)|PASS|FAIL|ok)|cases_test.go:|postrestore_test.go:|summary of the cases|^ +E2E-' "$OUT/pit.log" | grep -v '=== RUN' || true
 grep -A 7 'E2E-72 summary:' "$OUT/pit.log" || true
-log "còn lại sau các ca (trước khi gỡ hạ tầng của harness): $(grep -c . "$OUT/leftovers.txt" || true) đối tượng Docker; $dirs thư mục instance (đã kích hoạt — run.sh xóa); $keys_in_agent_log dòng log agent có API key"
+log "còn lại sau các ca (trước khi gỡ hạ tầng của harness): $(grep -c . "$OUT/leftovers.txt" || true) đối tượng Docker; $dirs thư mục instance (của TestPostRestoreReconcile, gỡ với KEEP — run.sh xóa; TestProvisioningFaultInjection tự kiểm 0 thư mục sau deprovision cuối lần chạy); $archives archive backup cuối ($manifests manifest ký) giữ theo retention; $keys_in_agent_log dòng log agent có API key"
 [ -s "$OUT/leftovers.txt" ] && { log "TÀI NGUYÊN CÒN LẠI:"; cat "$OUT/leftovers.txt"; rc=1; }
 [ "$keys_in_agent_log" = 0 ] || { log "API key trong log agent"; rc=1; }
 if ! diff -u "$OUT/before.txt" "$OUT/after.txt" > "$OUT/snapshot.diff"; then

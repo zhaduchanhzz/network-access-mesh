@@ -31,6 +31,7 @@ import checks  # noqa: E402
 import dualcontrol  # noqa: E402 — E2E-37 … E2E-39 (P3-T05a, P3-T04a)
 import idpadmin  # noqa: E402 — E2E-40 … E2E-43 (P3-T15)
 import lifecycle  # noqa: E402 — E2E-56 … E2E-58 (P3-T08)
+import mailrelay  # noqa: E402 — E2E-82, E2E-83 (P3-T05b-mail: relay thư ra, Worker giả)
 import monitoring  # noqa: E402 — E2E-76 … E2E-78 (P3-T16)
 import phase3  # noqa: E402 — E2E-32 … E2E-36 (P3-T14a, P3-T03a, P3-T08a)
 import postrestore  # noqa: E402 — E2E-70, E2E-71 (P3-T17)
@@ -86,8 +87,9 @@ def up(st: Stack) -> None:
         st.create_networks()
         st.own_files()
         log(f"Headscale: [images.{st.headscale_lock_key}] {st.images['headscale']}")
-    with timed("image (pull nếu thiếu)"):
+    with timed("image (pull nếu thiếu) + file của relay thư (infrastructure/host/mail-secrets.sh — P3-T05b-mail)"):
         ensure_images(st)
+        st.make_mail_secrets()
     with timed("IdP (khởi động nền) + build dbinit, helper enrollment (P3-T14a)"):
         st.compose("up", "-d", "idp-db", "idp")
         st.build_dbinit()
@@ -120,8 +122,9 @@ def up(st: Stack) -> None:
             state[profile] = json.loads(line)
             log(f"{job}: {line[:300]}")
         (st.work / "state" / "backend.json").write_text(json.dumps(state), encoding="utf-8")
-        st.compose("up", "-d", "--wait", "--wait-timeout", "240", "api", "worker", timeout=300)
-        log("api, worker healthy (/readyz: postgres, secretstore, edge_admin)")
+        st.compose("up", "-d", "--wait", "--wait-timeout", "240", "api", "worker", "mail-bridge", "fakeworker", timeout=300)
+        log("api, worker, mailrelay healthy (/readyz: postgres, secretstore, edge_admin; smtp_listener, hmac_key, "
+            "tls_certificate) + Worker giả (devserver của infrastructure/mail/cf-worker)")
     with timed("monitoring mg-obs (P3-T16): prometheus, alertmanager, node-exporter, alertsink"):
         st.compose("up", "-d", "--wait", "--wait-timeout", "120", "prometheus", "alertmanager", "node-exporter", "alertsink",
                    timeout=180)
@@ -198,6 +201,9 @@ def test(st: Stack, r: checks.Results) -> None:
         dualcontrol.run_all(r, st, guarded)
     with timed("ca E2E-40 … E2E-43 (Phase 3: quản trị IdP P3-T15 — idp.audit_sync, console Keycloak sau 2P)"):
         idpadmin.run_all(r, st, guarded)
+    with timed("ca E2E-82, E2E-83 (P3-T05b-mail: relay thư ra — thông báo + thư Keycloak qua mailrelay STARTTLS tới Worker "
+               "giả, HMAC đúng/sai, Worker từ chối timestamp cũ/chữ ký sai, không gửi lại)"):
+        mailrelay.run_all(r, st, guarded)
     with timed("ca E2E-59, E2E-60 (P3-T11: V-11 — restore bản chụp cũ, Noise key bị thay; restart Headscale của tenant-a)"):
         restore.run_all(r, st, guarded)
     with timed("ca E2E-56 … E2E-58 (Phase 3: suspend/resume P3-T08 — policy suspension, TCP thật, 403 tenant_suspended)"):

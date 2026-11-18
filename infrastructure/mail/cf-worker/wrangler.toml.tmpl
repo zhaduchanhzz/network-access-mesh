@@ -1,0 +1,26 @@
+# Sinh bởi tools/render_mail.py từ infrastructure/mail/cf-worker/wrangler.toml.tmpl (template_version ${template_version}).
+# KHÔNG sửa tay, KHÔNG commit (.gitignore): domain gửi lấy từ file tham số của môi trường (${env}), không nằm trong repo.
+# Worker relay thư ra của MeshGuard (P3-T05b-mail): nhận POST /v1/send có chữ ký HMAC từ cầu SMTP `mailrelay` và gửi qua
+# Cloudflare Email Service. Không secret trong file này — RELAY_HMAC_KEY đặt bằng `wrangler secret put RELAY_HMAC_KEY`
+# (giá trị qua stdin, từ /opt/meshguard/secrets/mail/relay_hmac_key của host — docs/planning/evidence/P3-T05b-mail.md).
+name = "${worker_name}"
+main = "src/index.js"
+compatibility_date = "2026-11-01"
+workers_dev = true
+preview_urls = false
+
+[vars]
+RELAY_ALLOWED_FROM = "${senders_csv}"
+
+# Chỉ các địa chỉ gửi này (Email Service từ chối địa chỉ khác: E_SENDER_NOT_VERIFIED); domain đã onboard Email Sending.
+[[send_email]]
+name = "EMAIL"
+allowed_sender_addresses = [${senders_toml}]
+
+# Log của Worker: chỉ dòng JSON đếm/mã do src/index.js in; tắt invocation log (URL, metadata của request).
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[observability.logs]
+invocation_logs = false

@@ -19,11 +19,21 @@ import (
 // tenant.provision adds — /retry of a rolled_back job creates a NEW job from step 3 (§11.3), /cancel of a job that
 // never started ends the tenant `failed`.
 type Control struct {
-	st *store.Store
+	st    *store.Store
+	quota func(ctx context.Context, q *sqlcdb.Queries) (tenants.QuotaStatus, error)
 }
 
 // NewControl returns the job controls on the api's store.
 func NewControl(st *store.Store) *Control { return &Control{st: st} }
+
+// WithQuota sets the tenant cap checked when /retry of a rolled_back tenant.provision brings a `failed` tenant back to
+// `provisioning` (usage.TenantCreationTx — in the transaction of the retry, under the row lock of the cap): a failed
+// tenant does not count against quota.max_tenants (P3-T09), so coming back must fit under it like a creation.
+// apps/* always sets it; without it (tests of the controls) the retry checks no cap.
+func (c *Control) WithQuota(fn func(ctx context.Context, q *sqlcdb.Queries) (tenants.QuotaStatus, error)) *Control {
+	c.quota = fn
+	return c
+}
 
 // ControlResult is the outcome of a control action.
 type ControlResult struct {
@@ -101,6 +111,12 @@ func (c *Control) retryProvision(ctx context.Context, tx *store.Tx, actor uuid.U
 	var in Input
 	if err := json.Unmarshal(rec.Input, &in); err != nil || in.validate() != nil {
 		return ControlResult{}, &jobs.StateError{Action: jobs.ActionRetry, Kind: rec.Kind, Status: rec.Status, Reason: "input_unreadable"}
+	}
+	if c.quota != nil {
+		// a failed tenant holds no place under quota.max_tenants: provisioning it again takes one (403 quota_exceeded)
+		if _, err := c.quota(ctx, tx.Q); err != nil {
+			return ControlResult{}, err
+		}
 	}
 	if _, err := tx.Q.TransitionTenantStatus(ctx, sqlcdb.TransitionTenantStatusParams{Status: tenants.StatusProvisioning,
 		ID: in.TenantID, FromStatus: tenants.StatusFailed}); err != nil {

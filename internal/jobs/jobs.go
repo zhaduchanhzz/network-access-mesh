@@ -111,6 +111,10 @@ type Kind struct {
 	WorkerTimeout time.Duration
 	// Compensable: the handler of the kind undoes its completed steps (a Compensator) — /rollback is allowed on it.
 	Compensable bool
+	// PointOfNoReturn names the step after which the kind can no longer be undone (tenant.deprovision: nodes.expire —
+	// P3-T09): once that step recorded its created_resources (it does so just before its first irreversible action),
+	// /rollback is refused (StateError point_of_no_return); before it, a Compensable kind rolls back as usual.
+	PointOfNoReturn string
 }
 
 // LifecycleTimeout is the whole-job timeout of the lifecycle group and LifecycleWorkerTimeout the worker timeout of
@@ -168,6 +172,8 @@ func DefaultKinds() map[string]Kind {
 		other("grant.expire", "grant.expire:{slot}", ScopePlatform, QueueMaintenance, 3, 2*time.Minute),
 		other("session.gc", "session.gc:{slot}", ScopePlatform, QueueMaintenance, 3, 2*time.Minute),
 		other("retention.sweep", "retention.sweep:{slot}", ScopePlatform, QueueMaintenance, 3, 10*time.Minute),
+		// P3-T09: crypto-shredding of deleted tenants whose grace period has passed (internal/provisioning/deprovision)
+		other("tenant.keys_destroy", "tenant.keys_destroy:{slot}", ScopePlatform, QueueMaintenance, 3, 10*time.Minute),
 	}
 	// instance.backup: holds the lifecycle lock while it runs, releases it on failure (§13.5 (d)).
 	backup := other("instance.backup", "instance:{instance}:backup:{slot}", ScopeInstance, QueueDefault, 3, LifecycleTimeout)
@@ -180,15 +186,19 @@ func DefaultKinds() map[string]Kind {
 	// tenant.provision undoes its 19 steps in reverse order (§11.3, P3-T05); tenant.suspend and tenant.resume undo theirs
 	// (P3-T08: back to the desired policy and `active` / back to the suspension policy and `suspended`);
 	// instance.reconfigure writes the previous configuration version back and restarts on it (§11.4, P3-T13);
+	// tenant.deprovision returns the tenant to its status and desired policy — only before its point of no return (P3-T09);
 	// instance.upgrade restores its cold backup on the previous image (§11.4: rollback = restore) and instance.restart
 	// has nothing to undo — its compensation closes the operation and releases the lock (P3-T13a); the other lifecycle
 	// kinds gain /rollback with the task that builds their compensation.
 	for _, name := range []string{"tenant.provision", "tenant.suspend", "tenant.resume", "instance.reconfigure",
-		"instance.restart", "instance.upgrade"} {
+		"tenant.deprovision", "instance.restart", "instance.upgrade"} {
 		k := out[name]
 		k.Compensable = true
 		out[name] = k
 	}
+	dep := out["tenant.deprovision"]
+	dep.PointOfNoReturn = "nodes.expire"
+	out["tenant.deprovision"] = dep
 	return out
 }
 

@@ -14,9 +14,11 @@ WHERE key = 'quota.max_tenants'
 FOR UPDATE;
 
 -- name: CountLiveTenants :one
--- quota.max_tenants = số tenant chưa `deleted` tối đa (0012).
+-- quota.max_tenants = số tenant tối đa đang chiếm chỗ (0012): không tính tenant `deleted` (đã deprovision) và `failed`
+-- (provisioning đã rollback — không còn instance; P3-T09, ghi chú P3-T07 mục 7). Tenant `failed` quay lại `provisioning`
+-- chỉ qua /retry (orchestrator.Control), lần đó kiểm lại trần dưới cùng khóa hàng (TenantCreationTx).
 SELECT count(*) FROM tenants
-WHERE status <> 'deleted';
+WHERE status NOT IN ('deleted', 'failed');
 
 -- name: GetTenantSubscriptionLimits :one
 -- Subscription còn hiệu lực (trialing/active/past_due — tối đa một, partial UNIQUE của 0012) + limits của plan.

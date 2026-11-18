@@ -97,6 +97,8 @@ var operations = []struct {
 	// suspend / resume (P3-T08)
 	{http.MethodPost, "/api/v1/platform/tenants/" + tenantID + "/suspend", "", "SuspendPlatformTenant", []func(*http.Request){idempotency}},
 	{http.MethodPost, "/api/v1/platform/tenants/" + tenantID + "/resume", "", "ResumePlatformTenant", []func(*http.Request){idempotency}},
+	// deprovision (P3-T09)
+	{http.MethodDelete, "/api/v1/platform/tenants/" + tenantID, `{"confirm_slug":"acme","reason":"ticket 1"}`, "DeletePlatformTenant", []func(*http.Request){idempotency}},
 }
 
 // TestEveryOperationAnswers501: with no handler set mounted, every operation of the spec is routed under /api/v1

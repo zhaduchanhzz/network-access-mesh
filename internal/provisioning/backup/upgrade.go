@@ -30,7 +30,7 @@ func (s *Service) Ready() error { return s.enabled() }
 // backup trước upgrade"); the backups row carries the upgrade's job id. A backup that would be skipped (instance or
 // tenant not served) or that is not a cold copy is refused — nothing of an upgrade proceeds without it.
 func (s *Service) ColdBackup(ctx context.Context, jobID, tenantID, instanceID uuid.UUID) (BackupResult, error) {
-	res, err := s.backup(ctx, jobID, tenantID, instanceID)
+	res, err := s.backup(ctx, jobID, tenantID, instanceID, s.cfg.Retention)
 	if err != nil {
 		return res, err
 	}

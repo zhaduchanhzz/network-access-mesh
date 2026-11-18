@@ -36,6 +36,7 @@ import ssl
 import struct
 import subprocess
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -223,13 +224,29 @@ class KeycloakAdmin:
         ip = st.docker("inspect", "-f", f'{{{{(index .NetworkSettings.Networks "{st.name("idp")}").IPAddress}}}}',
                        cid).stdout.strip()
         self.base = f"http://{ip}:8080"
-        pw = (st.work / "secrets" / "harness" / "kc_admin_password").read_text(encoding="utf-8")
+        self.st = st
+        self._login()
+
+    def _login(self) -> None:
+        self.token = None
+        pw = (self.st.work / "secrets" / "harness" / "kc_admin_password").read_text(encoding="utf-8")
         tok = self._call("POST", "/realms/master/protocol/openid-connect/token", form={
             "grant_type": "password", "client_id": "admin-cli", "username": "mg-bootstrap-admin", "password": pw})
         self.token = tok["access_token"]
-        st.secret_values.add(self.token)
+        self.st.secret_values.add(self.token)
 
     def _call(self, method: str, path: str, body=None, form=None, headers=None):
+        """One Admin API call; an expired token (master's access tokens live 60 s — a slow host outlives them between
+        two cases) is renewed once."""
+        try:
+            return self._call_once(method, path, body, form, headers)
+        except urllib.error.HTTPError as e:
+            if e.code != 401 or not getattr(self, "token", None) or path.startswith("/realms/master/protocol/"):
+                raise
+        self._login()
+        return self._call_once(method, path, body, form, headers)
+
+    def _call_once(self, method: str, path: str, body=None, form=None, headers=None):
         data, hdr = None, dict(headers or {})
         if form is not None:
             data, hdr["Content-Type"] = urllib.parse.urlencode(form).encode(), "application/x-www-form-urlencoded"

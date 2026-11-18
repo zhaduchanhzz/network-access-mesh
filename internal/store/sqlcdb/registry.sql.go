@@ -58,7 +58,7 @@ func (q *Queries) CreateHost(ctx context.Context, arg CreateHostParams) (Host, e
 const createTenant = `-- name: CreateTenant :one
 INSERT INTO tenants (slug, name, status, deployment_region, settings)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, slug, name, status, deployment_region, settings, desired_policy_version_id, created_at, updated_at, deleted_at, version
+RETURNING id, slug, name, status, deployment_region, settings, desired_policy_version_id, created_at, updated_at, deleted_at, version, keys_destroy_after
 `
 
 type CreateTenantParams struct {
@@ -91,6 +91,7 @@ func (q *Queries) CreateTenant(ctx context.Context, arg CreateTenantParams) (Ten
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.Version,
+		&i.KeysDestroyAfter,
 	)
 	return i, err
 }
@@ -260,7 +261,7 @@ func (q *Queries) GetSystemSetting(ctx context.Context, key string) (SystemSetti
 }
 
 const getTenant = `-- name: GetTenant :one
-SELECT id, slug, name, status, deployment_region, settings, desired_policy_version_id, created_at, updated_at, deleted_at, version FROM tenants
+SELECT id, slug, name, status, deployment_region, settings, desired_policy_version_id, created_at, updated_at, deleted_at, version, keys_destroy_after FROM tenants
 WHERE id = $1
 `
 
@@ -279,6 +280,7 @@ func (q *Queries) GetTenant(ctx context.Context, id uuid.UUID) (Tenant, error) {
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.Version,
+		&i.KeysDestroyAfter,
 	)
 	return i, err
 }
@@ -322,7 +324,7 @@ func (q *Queries) GetTenantInstance(ctx context.Context, id uuid.UUID) (TenantIn
 }
 
 const listTenants = `-- name: ListTenants :many
-SELECT id, slug, name, status, deployment_region, settings, desired_policy_version_id, created_at, updated_at, deleted_at, version FROM tenants
+SELECT id, slug, name, status, deployment_region, settings, desired_policy_version_id, created_at, updated_at, deleted_at, version, keys_destroy_after FROM tenants
 ORDER BY created_at, id
 LIMIT $1
 `
@@ -349,6 +351,7 @@ func (q *Queries) ListTenants(ctx context.Context, rowLimit int32) ([]Tenant, er
 			&i.UpdatedAt,
 			&i.DeletedAt,
 			&i.Version,
+			&i.KeysDestroyAfter,
 		); err != nil {
 			return nil, err
 		}
@@ -364,7 +367,7 @@ const updateTenantStatus = `-- name: UpdateTenantStatus :one
 UPDATE tenants
 SET status = $1, updated_at = now(), version = version + 1
 WHERE id = $2 AND version = $3
-RETURNING id, slug, name, status, deployment_region, settings, desired_policy_version_id, created_at, updated_at, deleted_at, version
+RETURNING id, slug, name, status, deployment_region, settings, desired_policy_version_id, created_at, updated_at, deleted_at, version, keys_destroy_after
 `
 
 type UpdateTenantStatusParams struct {
@@ -389,6 +392,7 @@ func (q *Queries) UpdateTenantStatus(ctx context.Context, arg UpdateTenantStatus
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.Version,
+		&i.KeysDestroyAfter,
 	)
 	return i, err
 }

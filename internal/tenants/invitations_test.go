@@ -12,6 +12,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,16 +21,16 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/authz"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/identity"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/jobs"
-	"github.com/zhaduchanhzz/network-access-mesh/internal/store/sqlcdb"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/tenants"
 )
 
 // tokenNotifier records the notices (and their tokens) besides writing the outbox like the default notifier.
 type tokenNotifier struct{ notices []tenants.InvitationNotice }
 
-func (n *tokenNotifier) InvitationIssued(ctx context.Context, q *sqlcdb.Queries, in tenants.InvitationNotice) error {
+func (n *tokenNotifier) InvitationIssued(ctx context.Context, tx *store.Tx, in tenants.InvitationNotice) error {
 	n.notices = append(n.notices, in)
-	return tenants.OutboxNotifier{}.InvitationIssued(ctx, q, in)
+	return tenants.OutboxNotifier{}.InvitationIssued(ctx, tx, in)
 }
 
 func (f *fixture) scalar(sql string, args ...any) string {
@@ -100,6 +101,18 @@ func testInvitationLifecycle(t *testing.T, f *fixture) {
 		AND recipient_email = 'new.user@example.test'`, a, tenants.OutboxKindInvitation)
 	if bytes.Contains([]byte(payload), []byte(notes.notices[0].Token)) || !bytes.Contains([]byte(payload), []byte(inv.ID.String())) {
 		t.Fatalf("outbox payload %s", payload)
+	}
+	// the outbox row is delivered: it is pending with its notification.send job enqueued in the same transaction
+	// (a row without a job stayed pending forever — found by E2E-37 on the mail relay stack)
+	row := f.scalar(`SELECT id::text || ' ' || status FROM notification_outbox WHERE tenant_id = $1 AND kind = $2
+		AND recipient_email = 'new.user@example.test'`, a, tenants.OutboxKindInvitation)
+	id, status, _ := strings.Cut(row, " ")
+	if status != "pending" {
+		t.Fatalf("outbox row %s", row)
+	}
+	if n := f.scalar(`SELECT count(*)::text FROM provisioning_jobs WHERE kind = 'notification.send'
+		AND input::text LIKE '%' || $1 || '%'`, id); n != "1" {
+		t.Fatalf("%s notification.send jobs for the invitation e-mail %s, want 1", n, id)
 	}
 
 	// role rule 3a: an Admin cannot invite an Admin; the Owner can; nobody invites an Owner through the API

@@ -1857,6 +1857,18 @@ type TenantDashboard struct {
 	Unavailable []UnavailableSection `json:"unavailable"`
 }
 
+// TenantDeletion Xin xóa một tenant (luôn cần người thứ hai duyệt — §8.5)
+type TenantDeletion struct {
+	// ConfirmSlug Slug của tenant, người yêu cầu gõ lại để xác nhận đúng tenant (khác slug ⇒ `422`)
+	ConfirmSlug string `json:"confirm_slug"`
+
+	// Reason Lý do (yêu cầu của khách hàng, ticket) — người duyệt đọc trước khi duyệt
+	Reason string `json:"reason"`
+
+	// SkipFinalBackup Người vận hành bỏ qua bản backup cuối (chỉ khi không lấy được — ví dụ instance quarantined hoặc dữ liệu hỏng): người duyệt thấy cờ này; job ghi audit + `security_event` High `tenant.deprovision_without_backup` và giữ nguyên thư mục dữ liệu (bản duy nhất) thay vì xóa
+	SkipFinalBackup *bool `json:"skip_final_backup,omitempty"`
+}
+
 // TenantIdentityProviderCreate defines model for TenantIdentityProviderCreate.
 type TenantIdentityProviderCreate struct {
 	AllowedEmailDomains *[]string `json:"allowed_email_domains,omitempty"`
@@ -2275,6 +2287,12 @@ type CreatePlatformTenantParams struct {
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
 
+// DeletePlatformTenantParams defines parameters for DeletePlatformTenant.
+type DeletePlatformTenantParams struct {
+	// IdempotencyKey Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
 // ResumePlatformTenantParams defines parameters for ResumePlatformTenant.
 type ResumePlatformTenantParams struct {
 	// IdempotencyKey Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ
@@ -2452,6 +2470,9 @@ type UpgradePlatformInstanceJSONRequestBody = InstanceUpgrade
 // CreatePlatformTenantJSONRequestBody defines body for CreatePlatformTenant for application/json ContentType.
 type CreatePlatformTenantJSONRequestBody = TenantCreate
 
+// DeletePlatformTenantJSONRequestBody defines body for DeletePlatformTenant for application/json ContentType.
+type DeletePlatformTenantJSONRequestBody = TenantDeletion
+
 // ApproveTenantApprovalJSONRequestBody defines body for ApproveTenantApproval for application/json ContentType.
 type ApproveTenantApprovalJSONRequestBody = ApprovalDecision
 
@@ -2574,6 +2595,9 @@ type ServerInterface interface {
 	// CreatePlatformTenant Tạo tenant — bước 1–2 của tenant.provision rồi trả job (19 bước, §11.3)
 	// (POST /platform/tenants)
 	CreatePlatformTenant(w http.ResponseWriter, r *http.Request, params CreatePlatformTenantParams)
+	// DeletePlatformTenant Xin xóa (deprovision) một tenant — luôn 2P; 202 + Location của yêu cầu phê duyệt
+	// (DELETE /platform/tenants/{tenantId})
+	DeletePlatformTenant(w http.ResponseWriter, r *http.Request, tenantId TenantId, params DeletePlatformTenantParams)
 	// GetPlatformTenant Metadata registry của một tenant
 	// (GET /platform/tenants/{tenantId})
 	GetPlatformTenant(w http.ResponseWriter, r *http.Request, tenantId TenantId)
@@ -4477,6 +4501,60 @@ func (siw *ServerInterfaceWrapper) CreatePlatformTenant(w http.ResponseWriter, r
 	handler.ServeHTTP(w, r)
 }
 
+// DeletePlatformTenant operation middleware
+func (siw *ServerInterfaceWrapper) DeletePlatformTenant(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DeletePlatformTenantParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeletePlatformTenant(w, r, tenantId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetPlatformTenant operation middleware
 func (siw *ServerInterfaceWrapper) GetPlatformTenant(w http.ResponseWriter, r *http.Request) {
 
@@ -6033,6 +6111,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/platform/relay-regions", wrapper.ListPlatformRelayRegions)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/platform/tenants", wrapper.ListPlatformTenants)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/platform/tenants", wrapper.CreatePlatformTenant)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/platform/tenants/{tenantId}", wrapper.DeletePlatformTenant)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/platform/tenants/{tenantId}", wrapper.GetPlatformTenant)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/platform/tenants/{tenantId}/suspend", wrapper.SuspendPlatformTenant)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/platform/tenants/{tenantId}/resume", wrapper.ResumePlatformTenant)
@@ -11622,6 +11701,188 @@ func (response CreatePlatformTenantdefaultApplicationProblemPlusJSONResponse) Vi
 	return err
 }
 
+type DeletePlatformTenantRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	Params   DeletePlatformTenantParams
+	Body     *DeletePlatformTenantJSONRequestBody
+}
+
+type DeletePlatformTenantResponseObject interface {
+	VisitDeletePlatformTenantResponse(w http.ResponseWriter) error
+}
+
+type DeletePlatformTenant202ResponseHeaders struct {
+	Location string
+}
+
+type DeletePlatformTenant202JSONResponse struct {
+	Body    ApprovalRequest
+	Headers DeletePlatformTenant202ResponseHeaders
+}
+
+func (response DeletePlatformTenant202JSONResponse) VisitDeletePlatformTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Location", fmt.Sprint(response.Headers.Location))
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeletePlatformTenant401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response DeletePlatformTenant401ApplicationProblemPlusJSONResponse) VisitDeletePlatformTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeletePlatformTenant403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response DeletePlatformTenant403ApplicationProblemPlusJSONResponse) VisitDeletePlatformTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeletePlatformTenant404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response DeletePlatformTenant404ApplicationProblemPlusJSONResponse) VisitDeletePlatformTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeletePlatformTenant409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response DeletePlatformTenant409ApplicationProblemPlusJSONResponse) VisitDeletePlatformTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeletePlatformTenant422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response DeletePlatformTenant422ApplicationProblemPlusJSONResponse) VisitDeletePlatformTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeletePlatformTenant429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response DeletePlatformTenant429ApplicationProblemPlusJSONResponse) VisitDeletePlatformTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeletePlatformTenantdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response DeletePlatformTenantdefaultApplicationProblemPlusJSONResponse) VisitDeletePlatformTenantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetPlatformTenantRequestObject struct {
 	TenantId TenantId `json:"tenantId"`
 }
@@ -15922,6 +16183,9 @@ type StrictServerInterface interface {
 	// CreatePlatformTenant Tạo tenant — bước 1–2 của tenant.provision rồi trả job (19 bước, §11.3)
 	// (POST /platform/tenants)
 	CreatePlatformTenant(ctx context.Context, request CreatePlatformTenantRequestObject) (CreatePlatformTenantResponseObject, error)
+	// DeletePlatformTenant Xin xóa (deprovision) một tenant — luôn 2P; 202 + Location của yêu cầu phê duyệt
+	// (DELETE /platform/tenants/{tenantId})
+	DeletePlatformTenant(ctx context.Context, request DeletePlatformTenantRequestObject) (DeletePlatformTenantResponseObject, error)
 	// GetPlatformTenant Metadata registry của một tenant
 	// (GET /platform/tenants/{tenantId})
 	GetPlatformTenant(ctx context.Context, request GetPlatformTenantRequestObject) (GetPlatformTenantResponseObject, error)
@@ -17049,6 +17313,40 @@ func (sh *strictHandler) CreatePlatformTenant(w http.ResponseWriter, r *http.Req
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CreatePlatformTenantResponseObject); ok {
 		if err := validResponse.VisitCreatePlatformTenantResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeletePlatformTenant operation middleware
+func (sh *strictHandler) DeletePlatformTenant(w http.ResponseWriter, r *http.Request, tenantId TenantId, params DeletePlatformTenantParams) {
+	var request DeletePlatformTenantRequestObject
+
+	request.TenantId = tenantId
+	request.Params = params
+
+	var body DeletePlatformTenantJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeletePlatformTenant(ctx, request.(DeletePlatformTenantRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeletePlatformTenant")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeletePlatformTenantResponseObject); ok {
+		if err := validResponse.VisitDeletePlatformTenantResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
