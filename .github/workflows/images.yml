@@ -11,7 +11,9 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ["infrastructure/docker/**", "apps/**", "internal/**", "api/agent/**", "infrastructure/headscale/templates/**", "go.mod", "go.sum", ".github/workflows/images.yml"]
+    # age-build/: module bọc của age (versions.lock [sources.age]) — stage age của image backup và agent (P3-T11a)
+    paths: ["infrastructure/docker/**", "apps/**", "internal/**", "api/agent/**", "infrastructure/headscale/templates/**", "go.mod", "go.sum",
+            "infrastructure/host/key-ceremony/age-build/**", ".github/workflows/images.yml"]
 
 permissions:
   contents: read
