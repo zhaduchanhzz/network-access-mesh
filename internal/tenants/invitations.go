@@ -278,6 +278,10 @@ func (s *Service) CreateInvitation(ctx context.Context, tenantID uuid.UUID, acto
 				}
 				inv.Status = s.effectiveStatus(inv.Status, inv.ExpiresAt)
 				replay = &inv
+				// the replay changes nothing (no new invitation, no new e-mail), but it is a request of the actor like
+				// any other — and a write without an event reads as an audit gap (same rule as platform hosts)
+				return audit.Record(ctx, q, actorEvent(actor, audit.Event{Action: ActionInvitationCreate, TenantID: &tenantID,
+					ResourceID: inv.ID.String(), Details: audit.Details{"invitation_id": inv.ID, "replay": true}}))
 			case jobs.IdempotencyInProgress:
 				return &InvitationError{Kind: ErrIdempotencyInProgress, Reason: "idempotency_in_progress", RetryAfter: d.RetryAfter}
 			case jobs.IdempotencyKeyReuse:
