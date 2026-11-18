@@ -170,6 +170,7 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 	if err != nil {
 		t.Fatal(err)
 	}
+	inbox := notificationsapi.New(notifications.NewReader(w.Store))
 	return httpapi.Handlers{
 		Tenants:     tenantsapi.New(dir, platform.New(w.Store)),
 		Devices:     devicesapi.New(dev),
@@ -182,8 +183,10 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 		// Backup/restore (P3-T11): the api side — enqueue a backup, a 2P restore request, the backup book
 		Backups: backupapi.New(backup.New(w.Store, backup.Config{Logger: log}), appr),
 
-		// Notifications (P3-T05b, notificationsapi over notifications.Reader — reads the caller's own rows only).
-		Notifications: notificationsapi.New(notifications.NewReader(w.Store)),
+		// Notifications (P3-T05b, notificationsapi over notifications.Reader — reads the caller's own rows only) and
+		// the read state of the caller's own notifications (P4-T04 — the same handlers as PortalHandlers).
+		Notifications: inbox,
+		Portal:        inbox,
 		Hosts:         hostsapi.New(platform.New(w.Store)),
 		Provisioning:  provisioningapi.New(creator, orchestrator.NewControl(w.Store)),
 		// Lifecycle (P3-T08): suspend/resume requests of the api (no worker here: a job would stay queued)
@@ -280,14 +283,16 @@ func (r *recorder) get(id string) (decisionRecord, bool) {
 // objects are the fixture rows the object parameters of the paths designate, per tenant ("A", "B").
 type objects struct {
 	instance                     map[string]uuid.UUID
-	devEU, devEUTagged, devOther map[string]uuid.UUID // EU's untagged device, EU's tagged device, TA's device
-	job                          map[string]uuid.UUID // a job of the tenant
-	platformJob                  uuid.UUID            // a job of scope platform
-	approval, invitation         map[string]uuid.UUID // a pending approval request and invitation of the tenant
-	tag                          map[string]uuid.UUID // the tenant's catalog tag tag:server (carried by devEUTagged)
-	platformApproval             uuid.UUID            // a pending approval request of scope platform
-	host                         uuid.UUID            // the host of the instances (P3-T04: /platform/hosts/{hostId})
-	canaries                     []string             // secret values planted in the SecretStore (never in a response)
+	devEU, devEUTagged, devOther map[string]uuid.UUID    // EU's untagged device, EU's tagged device, TA's device
+	job                          map[string]uuid.UUID    // a job of the tenant
+	platformJob                  uuid.UUID               // a job of scope platform
+	approval, invitation         map[string]uuid.UUID    // a pending approval request and invitation of the tenant
+	tag                          map[string]uuid.UUID    // the tenant's catalog tag tag:server (carried by devEUTagged)
+	platformApproval             uuid.UUID               // a pending approval request of scope platform
+	host                         uuid.UUID               // the host of the instances (P3-T04: /platform/hosts/{hostId})
+	notifOwn                     map[uuid.UUID]uuid.UUID // P4-T04: membership of a tenant actor → a notification addressed to it
+	notifOther                   map[string]uuid.UUID    // P4-T04: a notification of the tenant addressed to a non-actor member
+	canaries                     []string                // secret values planted in the SecretStore (never in a response)
 }
 
 // matrixWorld is the world of the matrix: the fixture world with the real audit trail, the recorder, the objects.
@@ -381,6 +386,7 @@ func (m *matrixWorld) createObjects(t *testing.T) objects {
 		devOther: map[string]uuid.UUID{}, job: map[string]uuid.UUID{}, platformJob: uuid.Must(uuid.NewV7()),
 		approval: map[string]uuid.UUID{}, invitation: map[string]uuid.UUID{}, platformApproval: uuid.Must(uuid.NewV7()),
 		tag:      map[string]uuid.UUID{},
+		notifOwn: map[uuid.UUID]uuid.UUID{}, notifOther: map[string]uuid.UUID{},
 		canaries: []string{m.edgeToken},
 	}
 	sec := m.sec
@@ -446,6 +452,21 @@ func (m *matrixWorld) createObjects(t *testing.T) objects {
 		m.Exec(t, `INSERT INTO tenant_invitations (id, tenant_id, idp_id, email, role_id, token_hash, expires_at)
 			SELECT $1::uuid, $2, $3, $4, id, sha256(uuid_send($1::uuid)), now() + interval '1 day'
 			FROM roles WHERE scope = 'tenant' AND key = 'tenant_viewer'`, inv, ten.ID, ten.IdP, "matrix-object-"+ten.Name+"@example.test")
+		// Portal notifications (P4-T04): one per tenant actor, addressed to it, and one addressed to a member that is not
+		// an actor of the matrix (another member's for every caller)
+		notify := func(member uuid.UUID) uuid.UUID {
+			id := uuid.Must(uuid.NewV7())
+			m.Exec(t, `INSERT INTO notification_outbox (id, tenant_id, recipient_membership_id, kind, payload, status, sent_at)
+				VALUES ($1, $2, $3, 'tenant.resumed', '{"job_id":"0190a000-0000-7000-8000-000000000004"}', 'sent', now())`,
+				id, ten.ID, member)
+			return id
+		}
+		for _, role := range []string{authz.RoleTenantOwner, authz.RoleTenantAdmin, authz.RoleTenantOperator,
+			authz.RoleTenantViewer, authz.RoleEndUser} {
+			a := m.Actor(t, role, ten)
+			o.notifOwn[a.MembershipID] = notify(a.MembershipID)
+		}
+		o.notifOther[ten.Name] = notify(m.NewActor(t, authz.RoleTenantViewer, ten).MembershipID)
 	}
 	m.Exec(t, `INSERT INTO approval_requests (id, scope, action, resource_type, resource_id, payload, payload_sha256,
 			requested_by_identity_id, expires_at)

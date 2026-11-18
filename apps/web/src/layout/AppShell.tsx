@@ -17,10 +17,18 @@ export interface AppShellProps {
   /** tên ngữ cảnh hiển thị ở header (tên tenant, hoặc nhãn Platform Console) */
   context: string;
   banner?: ReactNode;
+  /** số đếm cạnh mục điều hướng, theo `path` của mục (P4-T04: thông báo chưa đọc); 0 ⇒ không hiện */
+  badges?: Readonly<Record<string, NavCount>>;
   children: ReactNode;
 }
 
-export function AppShell({ base, nav, context, banner, children }: AppShellProps) {
+/** Số đếm của một mục: `more` ⇒ còn nhiều hơn `count` (hiện "99+"). */
+export interface NavCount {
+  count: number;
+  more: boolean;
+}
+
+export function AppShell({ base, nav, context, banner, badges, children }: AppShellProps) {
   const { t } = useTranslation();
   const kind = useConsole();
   const session = useSession().data;
@@ -76,7 +84,7 @@ export function AppShell({ base, nav, context, banner, children }: AppShellProps
       ) : null}
       {banner}
       <div className="flex flex-1 flex-col md:flex-row">
-        {base !== null && nav.length > 0 ? <SideNav base={base} items={nav} /> : null}
+        {base !== null && nav.length > 0 ? <SideNav base={base} items={nav} badges={badges} /> : null}
         <main id="main" tabIndex={-1} className="flex-1 p-4 md:p-8">
           {children}
         </main>
@@ -85,7 +93,7 @@ export function AppShell({ base, nav, context, banner, children }: AppShellProps
   );
 }
 
-function SideNav({ base, items }: { base: string; items: readonly NavItem[] }) {
+function SideNav({ base, items, badges }: { base: string; items: readonly NavItem[]; badges?: AppShellProps["badges"] }) {
   const { t } = useTranslation();
   return (
     <nav
@@ -110,6 +118,7 @@ function SideNav({ base, items }: { base: string; items: readonly NavItem[] }) {
                     >
                       <span>{t(i.labelKey)}</span>
                       {!i.available ? <span className="nav-badge">{t("nav.soon")}</span> : null}
+                      <NavCountBadge value={badges?.[i.path]} />
                     </NavLink>
                   </li>
                 ))}
@@ -119,5 +128,17 @@ function SideNav({ base, items }: { base: string; items: readonly NavItem[] }) {
         })}
       </div>
     </nav>
+  );
+}
+
+function NavCountBadge({ value }: { value: NavCount | undefined }) {
+  const { t } = useTranslation();
+  if (!value || value.count <= 0) return null;
+  const text = value.more ? `${value.count}+` : `${value.count}`;
+  return (
+    <span className="nav-count" data-testid="nav-count">
+      <span aria-hidden="true">{text}</span>
+      <span className="sr-only">{t("ui.navCount", { count: value.count, more: value.more ? "+" : "" })}</span>
+    </span>
   );
 }

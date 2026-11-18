@@ -342,3 +342,85 @@ func TestListMinePaging(t *testing.T) {
 		t.Fatalf("unread %d read %d", len(u.Items), len(rd.Items))
 	}
 }
+
+// TestMarkRead — POST /tenants/{t}/notifications/{id}/read (P4-T04) through the api's tenant pool: the caller's own
+// notification gets read_at once (a second call keeps it — idempotent) and one audit event notification.mark_read per
+// call (repeated: true the second time); another member's notification of the same tenant is ErrNotOwnNotification
+// and stays unread; the caller's own notification asked under tenant B, a notification of tenant B and a missing id are
+// ErrNotificationNotFound (RLS + explicit tenant — §8.4 invariant 6); the e-mail-only row of an invitation (no member)
+// is never markable; the list reflects the change.
+func TestMarkRead(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	job := uuid.New()
+	if _, err := f.enqueue(t, f.wrk, TenantResumed(f.a.id, job)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.enqueue(t, f.wrk, TenantResumed(f.b.id, job)); err != nil {
+		t.Fatal(err)
+	}
+	r := NewReader(f.api)
+	mine := func(ten *tenantFx, m uuid.UUID) Notification {
+		t.Helper()
+		p, err := r.ListMine(ctx, ten.id, m, ListQuery{})
+		if err != nil || len(p.Items) != 1 {
+			t.Fatalf("list of %s: %+v %v", m, p.Items, err)
+		}
+		return p.Items[0]
+	}
+	own, admins, other := mine(f.a, f.a.owner), mine(f.a, f.a.admin), mine(f.b, f.b.owner)
+	if own.ReadAt != nil {
+		t.Fatal("a new notification is already read")
+	}
+	first, err := r.MarkRead(ctx, f.a.id, f.a.owner, own.ID)
+	if err != nil || first.ReadAt == nil || first.ID != own.ID || first.Kind != string(KindTenantResumed) ||
+		first.Payload["job_id"] != job.String() || first.Payload["ref"] != nil {
+		t.Fatalf("first mark: %+v %v", first, err)
+	}
+	time.Sleep(5 * time.Millisecond)
+	again, err := r.MarkRead(ctx, f.a.id, f.a.owner, own.ID)
+	if err != nil || again.ReadAt == nil || !again.ReadAt.Equal(*first.ReadAt) {
+		t.Fatalf("second mark changed read_at: %v → %v (%v)", first.ReadAt, again.ReadAt, err)
+	}
+	if _, err := r.MarkRead(ctx, f.a.id, f.a.owner, admins.ID); !errors.Is(err, ErrNotOwnNotification) {
+		t.Errorf("another member's notification: %v", err)
+	}
+	if _, err := r.MarkRead(ctx, f.b.id, f.a.owner, own.ID); !errors.Is(err, ErrNotificationNotFound) {
+		t.Errorf("own notification under tenant B: %v", err)
+	}
+	if _, err := r.MarkRead(ctx, f.a.id, f.a.owner, other.ID); !errors.Is(err, ErrNotificationNotFound) {
+		t.Errorf("tenant B's notification under tenant A: %v", err)
+	}
+	if _, err := r.MarkRead(ctx, f.a.id, f.a.owner, uuid.New()); !errors.Is(err, ErrNotificationNotFound) {
+		t.Errorf("missing notification: %v", err)
+	}
+	inv := uuid.New()
+	f.exec(t, `INSERT INTO notification_outbox (id, tenant_id, recipient_email, kind, payload)
+		VALUES ($1, $2, 'invitee@example.test', 'tenant.invitation', '{}')`, inv, f.a.id)
+	if _, err := r.MarkRead(ctx, f.a.id, f.a.owner, inv); !errors.Is(err, ErrNotOwnNotification) {
+		t.Errorf("e-mail-only row: %v", err)
+	}
+	if n := f.count(t, `SELECT count(*) FROM notification_outbox WHERE read_at IS NOT NULL AND tenant_id IN ($1, $2)`,
+		f.a.id, f.b.id); n != 1 {
+		t.Errorf("%d rows read, want only the caller's", n)
+	}
+	if n := f.count(t, `SELECT count(*) FROM audit_events WHERE tenant_id = $1 AND action = 'notification.mark_read'
+		AND resource_type = 'notification' AND resource_id = $2 AND outcome = 'success'`, f.a.id, own.ID.String()); n != 2 {
+		t.Errorf("%d audit events, want one per call", n)
+	}
+	if n := f.count(t, `SELECT count(*) FROM audit_events WHERE tenant_id = $1 AND action = 'notification.mark_read'
+		AND resource_id = $2 AND details ->> 'repeated' = 'true' AND details ->> 'kind' = 'tenant.resumed'`,
+		f.a.id, own.ID.String()); n != 1 {
+		t.Errorf("%d repeated audit events, want 1", n)
+	}
+	unread := true
+	if p, _ := r.ListMine(ctx, f.a.id, f.a.owner, ListQuery{Unread: &unread}); len(p.Items) != 0 {
+		t.Errorf("unread after marking: %d", len(p.Items))
+	}
+	if p, _ := r.ListMine(ctx, f.a.id, f.a.admin, ListQuery{Unread: &unread}); len(p.Items) != 1 {
+		t.Errorf("the admin's notification must stay unread: %d", len(p.Items))
+	}
+	if _, err := r.MarkRead(ctx, f.a.id, uuid.Nil, own.ID); err == nil {
+		t.Error("no membership accepted")
+	}
+}

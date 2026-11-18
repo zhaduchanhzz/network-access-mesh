@@ -84,7 +84,8 @@ import (
 //	                 instance.upgrade, P3-T13a)
 //	                 Quarantine (quarantineapi over quarantine.Requester + approvals — quarantine at once, release 2P,
 //	                 P3-T18), Tags (tagsapi over policies.TagService — the tag catalog, P4-T15; the same catalog checks
-//	                 PUT /devices/{id}/tags in devices)
+//	                 PUT /devices/{id}/tags in devices), Portal (the same notificationsapi handlers — the read state of
+//	                 the caller's own Portal notifications, P4-T04)
 //	maintenance      the gate of P3-T17 (MG_MAINTENANCE OR system_settings maintenance, polled): 503 maintenance to
 //	                 everything but the platform sign-in on admin.<domain> (httpapi.Options.Maintenance)
 //	readiness        postgres, secretstore, edge_admin (§16.2)
@@ -163,6 +164,7 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 	hooks.Audit = auditapi.Middleware(auditLog)
 	consoleGate := idpconsoleapi.NewGate(idpconsoleapi.GateConfig{Grants: console.NewStore(d.st), Authz: authorizer,
 		Audit: auditLog, Logger: log})
+	inbox := notificationsapi.New(notifications.NewReader(d.st)) // P3-T05b list + P4-T04 read state
 	public, err := httpapi.New(httpapi.Options{
 		Logger:         log,
 		TrustedProxies: cfg.TrustedProxies,
@@ -177,7 +179,7 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 			Audit:         auditapi.New(audit.NewReader(d.st)),
 			Jobs:          jobsapi.New(jobs.NewService(d.st)),
 			Monitoring:    monitoringapi.New(mon),
-			Notifications: notificationsapi.New(notifications.NewReader(d.st)),
+			Notifications: inbox,
 			Approvals:     approvalsapi.New(appr),
 			Backups:       backupapi.New(backups, appr),
 			Invitations:   invitationsapi.New(d.tenants, authz.GuardInvitationRole),
@@ -190,6 +192,7 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 			InstanceOps:   instanceopsapi.New(orchestrator.NewInstanceOpsService(d.st)),
 			Deprovision:   deprovisionapi.New(deprov, appr),
 			Quarantine:    quarantineapi.New(quarantine.NewRequester(d.st), appr),
+			Portal:        inbox, // P4-T04: POST …/notifications/{id}/read
 		},
 	})
 	if err != nil {

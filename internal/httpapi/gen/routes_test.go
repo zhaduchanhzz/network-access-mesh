@@ -39,7 +39,7 @@ var routes = []struct {
 	{http.MethodGet, "/api/v1/tenants", "", "ListMyTenants", nil},
 	{http.MethodGet, "/api/v1/tenants/" + tenantID, "", "GetTenant", nil},
 	{http.MethodGet, "/api/v1/tenants/" + tenantID + "/dashboard", "", "GetTenantDashboard", nil},
-	{http.MethodGet, "/api/v1/tenants/" + tenantID + "/devices?online=true&tag=tag:server&limit=50", "", "ListDevices", nil},
+	{http.MethodGet, "/api/v1/tenants/" + tenantID + "/devices?online=true&tag=tag:server&tagged=true&has_expiry=false&limit=50", "", "ListDevices", nil},
 	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/devices/sync", "", "SyncDevices", idempotency},
 	{http.MethodGet, "/api/v1/tenants/" + tenantID + "/devices/" + itemID, "", "GetDevice", nil},
 	{http.MethodPatch, "/api/v1/tenants/" + tenantID + "/devices/" + itemID, `{"given_name":"laptop-1"}`, "RenameDevice", nil},
@@ -51,6 +51,7 @@ var routes = []struct {
 	{http.MethodGet, "/api/v1/tenants/" + tenantID + "/jobs?status=running", "", "ListTenantJobs", nil},
 	{http.MethodGet, "/api/v1/tenants/" + tenantID + "/jobs/" + itemID, "", "GetTenantJob", nil},
 	{http.MethodGet, "/api/v1/tenants/" + tenantID + "/notifications?unread=true&limit=20", "", "ListNotifications", nil},
+	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/notifications/" + itemID + "/read", "", "MarkNotificationRead", nil}, // P4-T04
 	// relay (P3-T05c)
 	{http.MethodGet, "/api/v1/tenants/" + tenantID + "/relay", "", "GetTenantRelay", nil},
 	{http.MethodGet, "/api/v1/platform/relay-regions?limit=10", "", "ListPlatformRelayRegions", nil},

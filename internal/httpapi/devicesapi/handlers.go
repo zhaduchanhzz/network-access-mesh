@@ -78,7 +78,7 @@ func (h *Handlers) ListDevices(ctx context.Context, req gen.ListDevicesRequestOb
 		return nil, err
 	}
 	p := req.Params
-	q := devices.ListQuery{Online: p.Online, Owner: p.Owner}
+	q := devices.ListQuery{Online: p.Online, Owner: p.Owner, Tagged: p.Tagged, HasExpiry: p.HasExpiry}
 	if p.Limit != nil {
 		q.Limit = *p.Limit
 		if q.Limit == 0 { // 0 is not "the default": the spec's minimum is 1

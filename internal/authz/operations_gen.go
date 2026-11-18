@@ -53,6 +53,7 @@ var specOperations = []Operation{
 	{ID: "listTenantJobs", Method: "GET", Path: "/tenants/{tenantId}/jobs", Permission: "tenant.job:read", AuditAction: "job.list"},
 	{ID: "listTenantTags", Method: "GET", Path: "/tenants/{tenantId}/tags", Permission: "tenant.tag:read", AuditAction: "tag.list"},
 	{ID: "listTenantUsers", Method: "GET", Path: "/tenants/{tenantId}/users", Permission: "tenant.user:read", AuditAction: "user.list"},
+	{ID: "markNotificationRead", Method: "POST", Path: "/tenants/{tenantId}/notifications/{notificationId}/read", Permission: "tenant.notification:read", AuditAction: "notification.mark_read", OwnResource: true},
 	{ID: "quarantinePlatformInstance", Method: "POST", Path: "/platform/instances/{instanceId}/quarantine", Permission: "platform.instance:quarantine", AuditAction: "platform.instance.quarantine"},
 	{ID: "reconfigurePlatformInstance", Method: "POST", Path: "/platform/instances/{instanceId}/reconfigure", Permission: "platform.instance:operate", AuditAction: "platform.instance.reconfigure"},
 	{ID: "rejectPlatformApproval", Method: "POST", Path: "/platform/approvals/{approvalId}/reject", Permission: "platform.approval:decide", AuditAction: "platform.approval.reject", Conditions: []string{"restore_only"}},

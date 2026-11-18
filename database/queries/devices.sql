@@ -106,7 +106,8 @@ WHERE tenant_id = sqlc.arg(tenant_id) AND id = sqlc.arg(id) AND removed_at IS NU
 
 -- name: ListDevicesPage :many
 -- GET /tenants/{t}/devices: thiết bị còn sống, thứ tự ổn định (first_seen_at, id) (§13.1). own_membership: quyền
--- phạm vi own (End User) — chỉ thiết bị của chính membership đó và không có tag (§8.4 bất biến 3b).
+-- phạm vi own (End User) — chỉ thiết bị của chính membership đó và không có tag (§8.4 bất biến 3b). tagged/has_expiry
+-- (P4-T04): báo cáo rà soát tagged node không hết hạn (§7.4, ADR-23).
 SELECT sqlc.embed(d), COALESCE(i.display_name, i.email::text, '')::text AS owner_display
 FROM device_inventory_cache d
 LEFT JOIN tenant_memberships m ON m.tenant_id = d.tenant_id AND m.id = d.owner_membership_id
@@ -117,6 +118,8 @@ WHERE d.tenant_id = sqlc.arg(tenant_id) AND d.removed_at IS NULL
   AND (sqlc.narg(owner)::uuid IS NULL OR d.owner_membership_id = sqlc.narg(owner)::uuid)
   AND (sqlc.narg(online)::boolean IS NULL OR d.online = sqlc.narg(online)::boolean)
   AND (sqlc.narg(tag)::text IS NULL OR sqlc.narg(tag)::text = ANY (d.tags))
+  AND (sqlc.narg(tagged)::boolean IS NULL OR (cardinality(d.tags) > 0) = sqlc.narg(tagged)::boolean)
+  AND (sqlc.narg(has_expiry)::boolean IS NULL OR (d.expiry IS NOT NULL) = sqlc.narg(has_expiry)::boolean)
   AND (sqlc.narg(search)::text IS NULL
        OR strpos(lower(COALESCE(d.given_name, '') || ' ' || COALESCE(d.name, '')), lower(sqlc.narg(search)::text)) > 0)
   AND (sqlc.narg(after_seen)::timestamptz IS NULL

@@ -21,12 +21,12 @@ export interface NavItem {
 export type NavGroup = "overview" | "devices" | "access" | "network" | "people" | "governance" | "operations";
 
 export const TENANT_NAV: readonly NavItem[] = [
-  { path: "overview", labelKey: "nav.tenant.overview", group: "overview", permission: "tenant.dashboard:read", task: "P4-T04", phase: "mvp", available: false },
-  { path: "devices", labelKey: "nav.tenant.devices", group: "devices", permission: "tenant.device:read", task: "P4-T04", phase: "mvp", available: false },
+  { path: "overview", labelKey: "nav.tenant.overview", group: "overview", permission: "tenant.dashboard:read", task: "P4-T04", phase: "mvp", available: true },
+  { path: "devices", labelKey: "nav.tenant.devices", group: "devices", permission: "tenant.device:read", task: "P4-T04", phase: "mvp", available: true },
   { path: "enroll", labelKey: "nav.tenant.enroll", group: "devices", permission: "tenant.enrollment:read", task: "P4-T08", phase: "mvp", available: false },
   { path: "enrollment-keys", labelKey: "nav.tenant.enrollmentKeys", group: "devices", permission: "tenant.enrollment:issue_privileged", task: "P4-T08", phase: "mvp", available: false },
-  { path: "notifications", labelKey: "nav.tenant.notifications", group: "overview", permission: "tenant.notification:read", task: "P4-T04", phase: "mvp", available: false },
-  { path: "relay", labelKey: "nav.tenant.relay", group: "network", permission: "tenant.relay:read", task: "P4-T04", phase: "mvp", available: false },
+  { path: "notifications", labelKey: "nav.tenant.notifications", group: "overview", permission: "tenant.notification:read", task: "P4-T04", phase: "mvp", available: true },
+  { path: "relay", labelKey: "nav.tenant.relay", group: "network", permission: "tenant.relay:read", task: "P4-T04", phase: "mvp", available: true },
   { path: "policies", labelKey: "nav.tenant.policies", group: "access", permission: "tenant.policy:read", task: "P4-T11", phase: "mvp", available: false },
   { path: "routes", labelKey: "nav.tenant.routes", group: "network", permission: "tenant.route:read", task: "P4-T12", phase: "mvp", available: false },
   { path: "dns", labelKey: "nav.tenant.dns", group: "network", permission: "tenant.dns:read", task: "P4-T12", phase: "mvp", available: false },
