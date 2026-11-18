@@ -280,6 +280,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tenants/{tenantId}/devices/{deviceId}/tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Thay tập tag của thiết bị
+         * @description Danh sách rỗng ⇒ `422` (Headscale không gỡ được hết tag — V-28); mọi tag phải có trong danh mục của tenant
+         *     (`GET /tenants/{tenantId}/tags`) — tag chưa khai báo ⇒ `422` trước khi ghi hay gọi gì. `If-Match` = `tags_etag`
+         *     của thiết bị (thiếu ⇒ `428`); server đọc **trực tiếp** tập tag từ Headscale (`GetNode`) ngay trước khi ghi, lệch
+         *     ⇒ `412`. Audit `device.tag.requested` commit trước lời gọi `SetTags` (thay thế toàn bộ), rồi
+         *     `device.tag.succeeded`/`.failed`. Headscale cũng từ chối tag mà policy đang áp chưa khai báo (`tagOwners` render
+         *     từ danh mục bởi job `policy.apply` sau mỗi lần đổi danh mục) ⇒ `422`. Node có tag không còn thuộc user nào (PL-09):
+         *     `owner` bị gỡ.
+         */
+        put: operations["setDeviceTags"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tenants/{tenantId}/users": {
         parameters: {
             query?: never;
@@ -1248,6 +1274,63 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Danh mục tag của tenant
+         * @description Thứ tự ổn định `(created_at, id)`; mỗi tag kèm `etag` — giá trị `If-Match` của `PATCH`/`DELETE`.
+         */
+        get: operations["listTenantTags"];
+        put?: never;
+        /**
+         * Khai báo một tag
+         * @description `name` dạng `tag:<chữ thường, số, gạch nối>` (≤ 54 ký tự), duy nhất trong tenant (trùng ⇒ `409`), bất biến về sau
+         *     (thiết bị ở Headscale mang đúng chuỗi này). `purpose` chỉ `server` hoặc `custom` — `router`/`exit` là tag của nền
+         *     tảng (§7.2 `autoApprovers`) ⇒ `422`. Cùng transaction: audit `tag.create` và job `policy.apply` (trigger
+         *     `tag_change`) render lại `tagOwners` (owner rỗng) lên policy mong muốn — job chưa xong của tenant được dùng lại.
+         */
+        post: operations["createTenantTag"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/tags/{tagId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Xóa một tag khỏi danh mục
+         * @description Tag còn được tham chiếu ⇒ `409` (`detail` nêu số lượng): thiết bị trong sổ mang tag, yêu cầu enrollment còn có thể
+         *     phát/dùng key gắn tag, tài nguyên mạng mang tag, hoặc policy còn có thể được áp (version chưa `superseded`/
+         *     `rejected`, version mong muốn, chuỗi đang áp) tham chiếu tag ngoài `tagOwners`. Tag `platform_managed` ⇒ `409`.
+         *     `If-Match` không bắt buộc (có thì phải khớp — `412`). Cùng transaction: audit `tag.delete` và job `policy.apply`
+         *     (trigger `tag_change`).
+         */
+        delete: operations["deleteTenantTag"];
+        options?: never;
+        head?: never;
+        /**
+         * Sửa mô tả của tag
+         * @description Chỉ `description` (chuỗi rỗng xóa mô tả); `name`/`purpose` bất biến. Cần `If-Match` = `etag` (thiếu ⇒ `428`, lệch
+         *     ⇒ `412`). Tag do nền tảng quản lý (`platform_managed`) chỉ đọc ⇒ `409`. Cùng transaction: audit `tag.update` và
+         *     job `policy.apply` (trigger `tag_change`).
+         */
+        patch: operations["updateTenantTag"];
         trace?: never;
     };
 }
@@ -2310,6 +2393,51 @@ export interface components {
             /** @default 168 */
             expires_in_hours: number;
         };
+        /**
+         * @description Mục đích của tag (`tenant_tags.purpose`, bất biến): `server`, `custom` do tenant khai báo; `router`, `exit` là tag do nền tảng kiểm soát (§7.2 — chỉ chúng được `autoApprovers` nêu)
+         * @enum {string}
+         */
+        TagPurpose: "router" | "exit" | "server" | "custom";
+        /** @description Một tag của danh mục (`tenant_tags`) — render vào `tagOwners` với danh sách owner rỗng (§7.2) */
+        Tag: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            purpose: components["schemas"]["TagPurpose"];
+            /** @description Tag do nền tảng tạo và quản lý — chỉ đọc qua API của tenant */
+            platform_managed: boolean;
+            description?: string;
+            /** Format: int64 */
+            version: number;
+            /** @description Phiên bản hiện tại — giá trị `If-Match` của `PATCH`/`DELETE` */
+            etag: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        TagList: {
+            items: components["schemas"]["Tag"][];
+            next_cursor: string | null;
+        };
+        TagCreate: {
+            /** @description Tên tag — đúng chuỗi thiết bị mang ở Headscale; bất biến */
+            name: string;
+            /**
+             * @default custom
+             * @enum {string}
+             */
+            purpose: "server" | "custom";
+            description?: string;
+        };
+        TagUpdate: {
+            /** @description Mô tả mới; chuỗi rỗng xóa mô tả */
+            description: string;
+        };
+        DeviceTagsUpdate: {
+            /** @description Tập tag mới (thay thế toàn bộ) — mỗi tag phải có trong danh mục của tenant */
+            tags: string[];
+        };
     };
     responses: {
         /** @description Chưa xác thực — `unauthenticated` (thiếu, hết hạn hoặc đã thu hồi session) hoặc `reauth_required` (cần step-up, §8.3 bước 7) */
@@ -2505,6 +2633,8 @@ export interface components {
         ApprovalActionFilter: string;
         /** @description ID lời mời (`tenant_invitations.id`) */
         InvitationId: string;
+        /** @description ID tag (`tenant_tags.id`) */
+        TagId: string;
         /** @description Lọc theo trạng thái hiệu lực */
         InvitationStatusFilter: components["schemas"]["InvitationStatus"];
     };
@@ -3008,6 +3138,48 @@ export interface operations {
             409: components["responses"]["Conflict"];
             422: components["responses"]["ValidationFailed"];
             429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    setDeviceTags: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428` */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+                /** @description ID thiết bị của nền tảng (UUID), ánh xạ `(tenant, headscale_node_id)` — không nhận node id thô của Headscale */
+                deviceId: components["parameters"]["DeviceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceTagsUpdate"];
+            };
+        };
+        responses: {
+            /** @description Thiết bị sau khi gắn tag (tập tag đọc lại từ Headscale) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Device"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["ValidationFailed"];
+            428: components["responses"]["PreconditionRequired"];
+            429: components["responses"]["RateLimited"];
+            502: components["responses"]["UpstreamRejected"];
+            503: components["responses"]["InstanceUnavailable"];
             default: components["responses"]["Unexpected"];
         };
     };
@@ -4644,6 +4816,153 @@ export interface operations {
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    listTenantTags: {
+        parameters: {
+            query?: {
+                /** @description Số phần tử tối đa của trang */
+                limit?: components["parameters"]["Limit"];
+                /** @description Con trỏ mờ lấy từ `next_cursor` của trang trước */
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Một trang của danh mục */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TagList"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    createTenantTag: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TagCreate"];
+            };
+        };
+        responses: {
+            /** @description Tag đã khai báo */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tag"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    deleteTenantTag: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428` */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+                /** @description ID tag (`tenant_tags.id`) */
+                tagId: components["parameters"]["TagId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Đã xóa */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    updateTenantTag: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428` */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+                /** @description ID tag (`tenant_tags.id`) */
+                tagId: components["parameters"]["TagId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TagUpdate"];
+            };
+        };
+        responses: {
+            /** @description Tag sau khi sửa */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tag"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["ValidationFailed"];
+            428: components["responses"]["PreconditionRequired"];
             429: components["responses"]["RateLimited"];
             default: components["responses"]["Unexpected"];
         };
