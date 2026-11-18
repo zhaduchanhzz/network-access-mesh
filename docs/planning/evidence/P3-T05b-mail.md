@@ -14,7 +14,7 @@
 | Môi trường | dev/CI — VM build 110 (tiền tố `mailr`, stack E2E `mailre2e`, mạng `10.238`/`10.250.238.0/28`); **Worker giả** = mã thật của Worker chạy bằng node (`test/devserver.mjs`) với binding `EMAIL` giả. Không gọi Cloudflare |
 | Dependency mới | Không. Go: thư viện chuẩn (`net/textproto`, `crypto/hmac`, `crypto/tls`). Worker: JavaScript thuần, **0 dependency** runtime lẫn dev (test = `node --test` của image node pin trong versions.lock) |
 | Nhãn kết quả | **functional** (dev/CI, §22.1) |
-| Commit | chuỗi kiểm trên `git archive` của **{{COMMIT}}** (mục 4) |
+| Commit | chuỗi kiểm trên `git archive` của **`a43daf2` (nhánh `55645a6` + gộp `main` @ `08b5e09`)** (mục 4) |
 
 ## 1. Đầu ra
 
@@ -32,6 +32,7 @@
 | `infrastructure/idp/realm-update.sh` | Đồng bộ thêm `smtpServer` của realm đang chạy với bản render (Mailpit ⇄ mailrelay; không bao giờ mật khẩu) |
 | `infrastructure/host/` | `mail-secrets.sh` (mới: khóa HMAC, CA nội bộ + chứng chỉ, không in giá trị), `check-secrets.sh` (+2 file), `networks.sh` (`mail` 10.249.8.0/24 internal), `layout.sh` (nhóm `mg-sec-mail` 20009), `RUNBOOK.md` |
 | `versions.lock` | `[ids] mg-sec-mail = 20009` |
+| `internal/platform`, `internal/provisioning/agentspec` | 20009 vào `ReservedIDs`/`reservedIDs`: `run_uid` của tenant không bao giờ là GID này (tiến trình tenant chạy `run_uid:run_uid` sẽ đọc được khóa HMAC và khóa TLS) — `TestReservedIDsCoverVersionsLock` bắt được ở lượt kiểm đầu |
 | `compose.app.yaml.tmpl`, `compose.yaml` (stack dev/CI), `ci.env`, `.env.example`, `.gitignore` | Placeholder của relay; stack ci: relay thật + `fakeworker`; `wrangler.toml` render và `.wrangler/` không commit |
 | E2E | `tests/e2e/harness/mailrelay.py` — **E2E-82, E2E-83**; `stack.py` (network `mail`, image node, file của relay bằng chính `mail-secrets.sh`), `test_stack.py` |
 | CI | `ci.yml`: `test_render_mail.py` + bước `npm test` của Worker trong image node pin (job `api-types`, không thêm job); `Makefile render-test` |
@@ -125,11 +126,11 @@ workers.dev/custom domain đều anycast trên các dải này; nftables không 
 
 | # | Tiêu chí | Test | Kết quả |
 |---|---|---|---|
-| 1 | Worker: chỉ `POST /v1/send` (GET/HEAD/PUT/đường khác ⇒ 404); một `EmailMessage` raw mỗi người nhận (gộp trùng, chữ thường), raw không đổi, trả lời không chứa `@`/Subject/thân/khóa | `worker.test.mjs` (2 test) | {{CFW}} |
+| 1 | Worker: chỉ `POST /v1/send` (GET/HEAD/PUT/đường khác ⇒ 404); một `EmailMessage` raw mỗi người nhận (gộp trùng, chữ thường), raw không đổi, trả lời không chứa `@`/Subject/thân/khóa | `worker.test.mjs` (2 test) | đạt — 8/8 test |
 | 2 | Worker: thiếu/sai dạng header ⇒ `auth_missing`; khóa khác, chữ ký của body khác ⇒ `auth_signature`; lệch ±302 s ⇒ `auth_timestamp`, 295 s ⇒ nhận; body rác + chữ ký sai bị từ chối trước khi parse; thiếu cấu hình ⇒ 500 | `worker.test.mjs` | ″ |
 | 3 | Worker: 16 body sai (JSON, khóa lạ, mảng, `to` không phải mảng, sender lạ ⇒ 403, 0/11 người nhận, CRLF/`<>`/`localhost`/số, base64 sai, rỗng, không UTF-8, raw > 1 MiB, Content-Type), body > giới hạn ⇒ 413; đúng 1 MiB ⇒ nhận | `worker.test.mjs` | ″ |
 | 4 | Worker: lỗi Email Service ⇒ 429/422/503/200 partial đúng bảng 2.2; thông điệp lỗi (có địa chỉ) không bao giờ bị trả lại; body đã gửi ⇒ `duplicate` (cả bản phát lại y hệt), body lỗi ⇒ gửi lại được, body đang gửi ⇒ 409; log chỉ đếm/mã | `worker.test.mjs` | ″ |
-| 5 | Cầu SMTP (plain text, dev): thứ tự lệnh, 550 sender lạ, `<>`, thiếu `<>`, tham số lạ 555, SIZE 552, chữ hoa/khoảng trắng, MAIL lồng, RCPT sai cú pháp/`localhost`/quoted, 10 + trùng + thứ 11 ⇒ 452, dot-unstuffing + LF trần ⇒ CRLF, Message-ID được thêm, header From lạ/hai From ⇒ 550 và không chuyển tiếp, metric theo lý do | `TestConversationPlainText` | {{GO}} |
+| 5 | Cầu SMTP (plain text, dev): thứ tự lệnh, 550 sender lạ, `<>`, thiếu `<>`, tham số lạ 555, SIZE 552, chữ hoa/khoảng trắng, MAIL lồng, RCPT sai cú pháp/`localhost`/quoted, 10 + trùng + thứ 11 ⇒ 452, dot-unstuffing + LF trần ⇒ CRLF, Message-ID được thêm, header From lạ/hai From ⇒ 550 và không chuyển tiếp, metric theo lý do | `TestConversationPlainText` | đạt — 13 test (`internal/mailrelay`), `-race`, cả `-count=20` và `-cpu 1,4` |
 | 6 | STARTTLS: quảng bá, MAIL trước TLS ⇒ 530, EHLO lại sau TLS, STARTTLS lần hai ⇒ 503, client không tin CA ⇒ handshake hỏng; lệnh dồn sau STARTTLS ⇒ 554 + đóng | `TestStartTLSRequired`, `TestStartTLSPipelinedCommandsRefused` | ″ |
 | 7 | Kết quả ⇒ 451/554/250 (partial); thư > 1 MiB ⇒ 552 và phiên dùng tiếp; giới hạn tốc độ ⇒ 451; quá số phiên ⇒ 421; dòng lệnh quá dài ⇒ 500 + đóng; shutdown đóng phiên rảnh, `Serve` trả về | `TestOutcomesAndLimits`, `TestBusyLongLineAndShutdown` | ″ |
 | 8 | `readData` (bộ đệm 16 byte: dòng dài, CR tách khỏi LF, không đọc quá dấu kết thúc, EOF), địa chỉ, `Mask`, `parsePath`, `ListenAddr` (đúng một địa chỉ trong dải), chứng chỉ nạp lại khi đổi và giữ cặp cũ khi file hỏng; log không có địa chỉ đầy đủ, subject, thân | `TestReadData`, `TestAddressesAndMask`, `TestListenAddr`, `TestCertFilesReload`, `TestLogsHoldNoAddressOrContent` | ″ |
@@ -137,13 +138,13 @@ workers.dev/custom domain đều anycast trên các dải này; nftables không 
 | 10 | Hội thoại thật: **client `internal/notifications`** (`starttls` + CA nội bộ, ServerName `mailrelay`) → cầu → Worker giả: thư tới nguyên vẹn (From, Message-ID của client không bị nhân đôi, subject RFC 2047, dấu chấm đầu dòng); Worker 422 ⇒ lỗi **vĩnh viễn** 554; Worker 503 (sau 3 lần) ⇒ **tạm thời** 451; client plain text ⇒ 530; sender lạ ⇒ 550; thư bị từ chối không tới Worker | `TestNotificationsClientThroughTheBridge` | ″ |
 | 11 | Cấu hình: mặc định, 17 giá trị sai (http ngoài dev/ci, credential/query/path của URL, khóa tương đối, thiếu TLS/CIDR ngoài dev/ci, IPv6, display name, rate, timeout, listener trùng, hostname, secret trong env, MG_ENV) — lỗi không lặp lại giá trị; ci cho plain text + http, production thì không | `internal/config` `TestMailRelayConfig` | ″ |
 | 12 | Lệnh `mailrelay`: tham số/cấu hình sai ⇒ 2; chạy thật: lời chào `220 mailrelay ESMTP`, `/readyz` 200, dừng sạch ⇒ 0, log không có khóa; `admin mail-test`: 5 cách dùng sai + không relay ⇒ 2 và không gửi gì; gửi ⇒ 0, địa chỉ che, Message-ID; lỗi tạm thời ⇒ 1 | `apps/worker` `TestMailRelayCommand`, `TestMailTest` | ″ |
-| 13 | Render: `wrangler.toml` (TOML hợp lệ, binding `EMAIL` + `allowed_sender_addresses` = đúng địa chỉ gửi, vars, invocation log tắt, không secret/placeholder, template không có domain); địa chỉ gửi (mặc định, tùy chỉnh, subdomain, ngoài domain/look-alike/display name/non-ASCII/tiêm header bị từ chối); URL; staging.env render được | `tools/test_render_mail.py` | {{PY}} |
+| 13 | Render: `wrangler.toml` (TOML hợp lệ, binding `EMAIL` + `allowed_sender_addresses` = đúng địa chỉ gửi, vars, invocation log tắt, không secret/placeholder, template không có domain); địa chỉ gửi (mặc định, tùy chỉnh, subdomain, ngoài domain/look-alike/display name/non-ASCII/tiêm header bị từ chối); URL; staging.env render được | `tools/test_render_mail.py` | đạt — 36 / 81 / 136 kiểm |
 | 14 | mg-app: không URL ⇒ không gì đổi; có URL ⇒ `mailrelay` hardened, chỉ nhóm 20009, đúng 3 secret, đúng 3 network (alias, egress mặc định), healthcheck; worker → `mailrelay:587` STARTTLS + CA, **không** thấy khóa HMAC/TLS; api không có SMTP; 4 file dưới `secrets/mail`; `mail` = network external `mail`; http chỉ ở ci | `tools/test_render_app.py` | ″ |
 | 15 | mg-idp: 3 realm → `mailrelay:587` STARTTLS, khác bản mặc định đúng `smtpServer`; `check_realm` từ chối STARTTLS tắt/cổng khác/host khác; idp vào `mail` (vẫn không `mg-edge`), `KC_TRUSTSTORE_PATHS` + CA; compose = mặc định + đúng 5 đoạn chèn | `tools/test_render_idp.py` | ″ |
 | 16 | `mail-secrets.sh` (container dùng một lần): quyền `root:mg-sec-mail 0440` / `0444`, khóa 48 ký tự, name constraint `DNS:mailrelay`, chạy lại giữ nguyên, `--rotate-*` đổi giá trị **cùng inode**, tham số lạ ⇒ 2 | chạy tay trên VM + mỗi lượt E2E (`stack.make_mail_secrets`) | đạt |
-| 17 | **E2E-82** — xem mục 3.1 | `tests/e2e/harness/mailrelay.py` | {{E2E82}} |
-| 18 | **E2E-83** — xem mục 3.1 | ″ | {{E2E83}} |
-| 19 | E2E-31 (có sẵn): `realm-update.sh` trên realm vừa import (giờ có `smtpServer` → mailrelay) ⇒ 0 thay đổi, `check_realm` đạt trên bản export của Keycloak | `asvs2.py` | {{E2E31}} |
+| 17 | **E2E-82** — xem mục 3.1 | `tests/e2e/harness/mailrelay.py` | **PASS** |
+| 18 | **E2E-83** — xem mục 3.1 | ″ | **PASS** |
+| 19 | E2E-31 (có sẵn): `realm-update.sh` trên realm vừa import (giờ có `smtpServer` → mailrelay) ⇒ 0 thay đổi, `check_realm` đạt trên bản export của Keycloak | `asvs2.py` | PASS |
 
 ### 3.1 E2E trên stack dev/CI
 
@@ -162,11 +163,31 @@ binding `EMAIL` ghi lại header/kích thước/digest — không thân thư vì
   (không restart) ⇒ Keycloak báo lỗi gửi, Worker ghi `401 auth_signature`, không thư nào, `messages_total{temporary}` tăng;
   ghi lại khóa đúng ⇒ gửi được ngay.
 
-{{E2EDETAIL}}
+Kết quả (lượt của chuỗi kiểm trên `a43daf2`): E2E-82 — listener chỉ trên network `mail` (egress: `ConnectionRefused`), 9 hàng email `policy.applied` của lần áp đều `sent` với `attempts = 1` và tới Worker đúng Message-ID + người gửi, thư Keycloak HTTP 204 → 1 thư (From `MeshGuard <no-reply@meshguard-ci.test>`), `mail-test` exit 0, **114/114** request được Worker nhận mang HMAC hợp lệ, metric STARTTLS ok +11 / delivered +11 / MAIL trước TLS bị từ chối +1. E2E-83 — timestamp cũ ⇒ `401 auth_timestamp`, khóa khác ⇒ `401 auth_signature`, GET ⇒ 404, phát lại ⇒ `duplicate` (1 thư), khóa sai trên cầu ⇒ Keycloak 500, Worker `[(401, auth_signature)]`, 0 thư, `temporary` +1; khóa đúng lại ⇒ 204, 1 thư.
+
+Lỗi do E2E bắt được khi phát triển (đã sửa trước commit): tên service `mailrelay` là alias trên mọi network ⇒ Keycloak/worker phân giải ra địa chỉ `mg-egress` của cầu (`Connection refused`, hàng outbox kẹt `pending`) ⇒ service `mail-bridge` + alias `mailrelay` chỉ trên `mail`; token Admin API của harness hết hạn khi VM tải cao (E2E-24 dây chuyền).
 
 ## 4. Chuỗi kiểm
 
-{{CHAIN}}
+Chuỗi tương đương CI (`scratchpad/mailr-verify.sh`, bản sao của `mainv-verify.sh` + bước `npm test` của Worker và `test_render_mail.py`/`test_render_agent.py`) trên `git archive` của commit, VM build 110, image pin digest:
+
+| Bước | `55645a6` (nhánh trước khi gộp) | `a43daf2` (sau khi gộp `main` @ `08b5e09`) |
+|---|---|---|
+| go-ci: mod verify, tidy, gofmt, generate (api.gen.go không đổi), vet, sqlc diff, `go test -race` | 69 package ok, 828 test cấp cao nhất | **71** package ok, **854** test cấp cao nhất |
+| golangci-lint v2.15.0 / govulncheck v1.9.0 | 0 issue / sạch | **0 issue / sạch** |
+| test có tag `mgtestfixture` | 14 package, 39 test | **15 package, 40 test** |
+| module lồng `tests/integration/headscale` | đạt | **đạt** |
+| contract Headscale thật | 36 PASS / 0 FAIL | **36 / 0** |
+| `make isolation` / isolation-headscale | 11 package / 13 PASS | **11 / 13** |
+| Python (docs-check, docs/ khớp master, mgenv, render instance/edge/idp/backup/app/agent/mail, host migrate, test_stack, openapi lint) | 632 dòng PASS, 0 FAIL | **647** dòng PASS, 0 FAIL |
+| `make e2e-functional` (mạng 10.238) | **58/58** PASS | **63/63** PASS (thêm E2E-76…78 của P3-T16) |
+| api-types (node pin) | đạt | **đạt** |
+| Worker `npm test` (node 26.13.1 pin) | 8/8 | **8/8** |
+| ổn định `go test -race -count=3 ./...` (1 lượt, cụm PostgreSQL mới) | 69 package ok, 0 FAIL | **71** package ok, 0 FAIL |
+
+Sau khi gộp còn chạy cục bộ các test Python mới của `main`: `test_render_monitoring.py` 202 PASS, `tests/g3/test_g3.py` 35 PASS. Hai lượt chuỗi trước đó dừng ở go-ci và được sửa bằng commit riêng: `TestReservedIDsCoverVersionsLock` (GID 20009 phải là ID dành riêng) và một test có thể chập chờn (TCP reset khi đóng kết nối còn dữ liệu chưa đọc).
+
+VM: mọi container/network/volume/image/thư mục tiền tố `mailr`/`mailre2e` đã gỡ bằng `mailr-cleanup.sh` (mục 7).
 
 ## 5. Khác biệt so với yêu cầu và quyết định khi hiện thực
 
@@ -261,6 +282,7 @@ OAuth sẵn có), trong **Git Bash** (ống của PowerShell 5.1 có thể đổ
 | Alertmanager gửi qua `mailrelay:587` (mục 6 bước 7), rule `meshguard_mailrelay_messages_total{result=~"temporary|permanent"}` | P3-T16 / P6-T01 |
 | Allow-list đường ra của `mailrelay` (TCP 443 tới dải Cloudflare) | P6-T07 |
 | `smtpServer` → relay cho realm do driver tạo (khi một luồng cần Keycloak gửi thư) | task dùng `Invite.SendEmail` |
+| **Quan sát (ngoài phạm vi, chưa điều tra):** trên stack E2E (lượt dev thứ hai), 3 hàng `tenant.invitation` do API lời mời của E2E-37 (P3-T05a) tạo vẫn `pending`, `attempts = 0` sau ~1 phút và không thấy hàng `provisioning_jobs` nào mang dedupe `notification:<id>` của chúng — trong khi mọi hàng email khác (`policy.applied`, `idp.admin_change`, `idp.console_login`: 117 hàng) đều `sent` qua relay với `attempts = 1`. Nếu đúng là đường của API không enqueue `notification.send` thì thư mời không bao giờ đi | P3-T05a / người điều phối |
 
 Xung đột gộp dự kiến (các agent song song): `tools/render_app.py` + `compose.app.yaml.tmpl` (TEMPLATE_VERSION 3, các
 placeholder `${worker_mail_*}`, `${mailrelay_service}`, `${mail_*_def}`), `tools/render_idp.py`, `infrastructure/host/
@@ -269,4 +291,4 @@ networks.sh` (dải `10.249.8.0/24`), `versions.lock [ids]` (GID 20009), `compos
 khác thì thống nhất về network `mail` của `networks.sh` (đã khớp ở nhánh `p3-t16` hiện tại: tên `mail`, `ca.crt`,
 `MG_SMTP_FROM`).
 
-Kết luận: {{VERDICT}}
+Kết luận: **đạt** (functional, dev/CI) — cầu SMTP thật + Worker (mã thật, binding giả): thông báo của worker, thư Keycloak và thư thử đi qua `mailrelay:587` (STARTTLS, CA nội bộ) tới Worker với HMAC hợp lệ, đúng người gửi duy nhất; khóa sai, timestamp cũ, phát lại bị từ chối / không gửi lại; chuỗi CI đầy đủ xanh trên commit sau khi gộp `main`. Gửi thật qua Cloudflare Email Service **chờ người điều phối** triển khai Worker và điền `MG_MAILRELAY_URL` (mục 6).
