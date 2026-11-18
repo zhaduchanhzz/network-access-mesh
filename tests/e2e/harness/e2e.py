@@ -26,6 +26,7 @@ except ImportError:            # Windows: only `render` is useful there
     fcntl = None
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import admin  # noqa: E402 — E2E-94, E2E-95 (P4-T03a: IdP của tenant do nền tảng sửa qua 2P, role SA qua 2P, thiết lập bảo mật)
 import backend  # noqa: E402 — E2E-17 … E2E-25 (P2-T16)
 import checks  # noqa: E402
 import dualcontrol  # noqa: E402 — E2E-37 … E2E-39 (P3-T05a, P3-T04a)
@@ -222,6 +223,9 @@ def test(st: Stack, r: checks.Results) -> None:
         monitoring.run_all(r, st, guarded)
     with timed("ca E2E-92, E2E-93 (P4-T09: offboard hai pha + V-23 với Keycloak/Headscale thật, quy tắc 3a, group sensitive)"):
         members.run_all(r, st, guarded)
+    with timed("ca E2E-94, E2E-95 (P4-T03a: IdP của tenant do nền tảng sửa ⇒ 2P + audit tenant, role Super Admin qua 2P, "
+               "thiết lập bảo mật — tắt 4-eyes qua phê duyệt trong tenant, yêu cầu xóa tenant)"):
+        admin.run_all(r, st, guarded)
     # last: E2E-71 replaces the stack's database by an older dump (restore runbook) — nothing may run after it
     with timed("ca E2E-70, E2E-71 (Phase 3: chế độ bảo trì + đối soát sau restore PostgreSQL P3-T17 — pg_dump/pg_restore thật)"):
         postrestore.run_all(r, st, guarded)

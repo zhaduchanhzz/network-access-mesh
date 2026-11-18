@@ -180,7 +180,7 @@ Các task không chạm host (P2-T01…P2-T08, P2-T12, P2-T14, P2-T15a) **đư�
 | P6-T08 | Load/scale test 10 → 100 tenant; baseline tài nguyên/instance; chi phí polling; edge với ~100 network; số realm IdP (V-13, V-15) | G5 | Báo cáo | Có số liệu thật; ngưỡng đạt chốt ở G5 theo A.1 #16 |
 | P6-T09 | Chaos test: kill instance/edge/PostgreSQL/tunnel/VPS gateway; noisy neighbour (CPU; IT-19: stream nhàn rỗi tại edge, cache pending-auth, quota đĩa) | G5 | Báo cáo | Hành vi khớp §17.4; ngưỡng chốt ở G5 |
 | P6-T10 | Diễn tập upgrade/rollback Headscale + job `CheckPolicy` trước upgrade; ca restore bản backup cũ hơn một minor qua image trung gian | G5 | Runbook | Rollback bằng restore đạt |
-| P6-T11 | Thu thập usage + plan/quota + API/UI usage — `GET /tenants/{t}/usage`, `GET /tenants/{t}/billing`, `GET /platform/usage` (migration `0025`); IT-12c | G5 | — | Số liệu khớp inventory |
+| P6-T11 | Thu thập usage + plan/quota + API/UI usage — `GET /tenants/{t}/usage`, `GET /tenants/{t}/billing`, `GET /platform/usage` (migration `0026`); IT-12c | G5 | — | Số liệu khớp inventory |
 | P6-T12 | Pen test bên ngoài + runbook ứng phó sự cố + diễn tập tabletop (T-03) + kiểm lại checklist T-01…T-21 gồm các mitigation chỉ có từ Phase 6 (bảng truy vết ở §18.1) + review go-live | P6-T01…T11 | Báo cáo G6 | Gate G6 |
 
 ### Phase 7

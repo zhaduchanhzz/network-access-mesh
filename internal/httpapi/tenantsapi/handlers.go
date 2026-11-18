@@ -25,6 +25,7 @@ package tenantsapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strconv"
 	"time"
@@ -257,16 +258,26 @@ func (h *Handlers) GetPlatformInstance(ctx context.Context, req gen.GetPlatformI
 	return gen.GetPlatformInstance200JSONResponse(toInstance(i)), nil
 }
 
-// toTenant maps the registry view to schema Tenant. Plans and subscriptions arrive with migration 0010 (P3-T06): until
-// then a tenant has no plan key ("") and no limit (an empty PlanLimits — "a missing key means the plan sets no such
-// limit", §13.3).
-func toTenant(t tenants.Tenant) gen.Tenant {
-	return gen.Tenant{
+// ToTenant maps the registry view to schema Tenant — shared with PATCH /platform/tenants/{id} (P4-T03a, adminapi).
+// Plan and Limits are the live subscription's (the effective limits: the plan's, each key of the overrides replacing
+// it — §13.3), read by the single-tenant reads; a list (and a tenant without a live subscription) carries no plan key
+// ("") and an empty PlanLimits ("a missing key means the plan sets no such limit", §13.3).
+func ToTenant(t tenants.Tenant) gen.Tenant {
+	out := gen.Tenant{
 		Id: t.ID, Slug: t.Slug, Name: t.Name, Status: gen.TenantStatus(t.Status), DeploymentRegion: t.DeploymentRegion,
-		Plan: "", Limits: gen.PlanLimits{}, ControlUrl: t.ControlURL, CreatedAt: t.CreatedAt.UTC(),
+		Plan: t.Plan, Limits: gen.PlanLimits{}, ControlUrl: t.ControlURL, CreatedAt: t.CreatedAt.UTC(),
 		UpdatedAt: t.UpdatedAt.UTC(), Version: t.Version,
 	}
+	if len(t.Limits) > 0 {
+		_ = json.Unmarshal(t.Limits, &out.Limits) // keys outside PlanLimits are ignored; the CHECK of 0012 refuses them
+	}
+	return out
 }
+
+func toTenant(t tenants.Tenant) gen.Tenant { return ToTenant(t) }
+
+// ETag is the strong ETag of a resource version (the If-Match of PATCH /platform/tenants/{id}).
+func ETag(version int64) string { return etag(version) }
 
 // ToMembership is schema Membership of a member — shared with the write operations of P4-T09 (membersapi).
 func ToMembership(m tenants.Member) gen.Membership {

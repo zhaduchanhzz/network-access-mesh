@@ -151,6 +151,40 @@ var catalog = map[Kind]map[string]mailTemplate{
 			"An administrative operation was performed directly at the identity provider (Keycloak) of tenant {{.tenant_name}}: {{.action}}{{with .user}}, user: {{.}}{{end}}. Performed by: {{.actor}}, at {{.occurred_at}} (UTC).\n\n" +
 				"This operation did not go through your Portal. See the tenant's audit log for details; if you did not expect this change, contact the platform operator at once.\n\nEvent ID: {{.event_id}}"},
 	},
+	KindIdPConfigChanged: {
+		LocaleVI: {"[MeshGuard] Thay đổi cấu hình nhà cung cấp danh tính của tenant {{.tenant_name}}",
+			"Cấu hình nhà cung cấp danh tính (IdP) của tenant {{.tenant_name}} — trường: {{.changed}} — {{if eq .stage \"requested\"}}đang CHỜ PHÊ DUYỆT, chưa có hiệu lực{{else}}đã có hiệu lực{{end}}. " +
+				"Nguồn: {{if eq .origin \"platform\"}}nhân sự nền tảng (cần hai Super Admin duyệt){{else}}Tenant Owner trong Portal{{end}}{{with .actor}}, người thực hiện: {{.}}{{end}}.\n\n" +
+				"Xem nhật ký audit của tenant; nếu bạn không mong đợi thay đổi này, hãy liên hệ nhà vận hành nền tảng ngay.{{with .approval_id}}\n\nMã yêu cầu: {{.}}{{end}}"},
+		LocaleEN: {"[MeshGuard] Identity provider configuration change for tenant {{.tenant_name}}",
+			"The identity provider (IdP) configuration of tenant {{.tenant_name}} — fields: {{.changed}} — {{if eq .stage \"requested\"}}is AWAITING APPROVAL and not in effect yet{{else}}is now in effect{{end}}. " +
+				"Origin: {{if eq .origin \"platform\"}}platform staff (two Super Admins must approve){{else}}a Tenant Owner in the Portal{{end}}{{with .actor}}, by: {{.}}{{end}}.\n\n" +
+				"See the tenant's audit log; if you did not expect this change, contact the platform operator at once.{{with .approval_id}}\n\nRequest ID: {{.}}{{end}}"},
+	},
+	KindSecuritySettingsChanged: {
+		LocaleVI: {"[MeshGuard] Thiết lập bảo mật của tenant {{.tenant_name}} đã thay đổi",
+			"Thiết lập bảo mật của tenant {{.tenant_name}} vừa được ghi — khóa đổi: {{.changed}}{{with .actor}}, người thực hiện: {{.}}{{end}}{{with .approval_id}} (theo yêu cầu phê duyệt {{.}}){{end}}.\n\n" +
+				"Xem chi tiết trong nhật ký audit của tenant."},
+		LocaleEN: {"[MeshGuard] Security settings of tenant {{.tenant_name}} changed",
+			"The security settings of tenant {{.tenant_name}} were written — keys changed: {{.changed}}{{with .actor}}, by: {{.}}{{end}}{{with .approval_id}} (approval request {{.}}){{end}}.\n\n" +
+				"See the tenant's audit log for details."},
+	},
+	KindTenantDeletionRequested: {
+		LocaleVI: {"[MeshGuard] Đã gửi yêu cầu xóa tenant {{.tenant_name}}",
+			"Một Tenant Owner{{with .requested_by}} ({{.}}){{end}} đã yêu cầu nền tảng xóa tenant {{.tenant_name}} lúc {{.requested_at}} (UTC). " +
+				"Chưa có gì bị xóa: nhân sự nền tảng liên hệ trước khi xóa (thao tác cần hai người duyệt).\n\nNếu bạn không mong đợi yêu cầu này, hãy liên hệ nhà vận hành nền tảng ngay."},
+		LocaleEN: {"[MeshGuard] Deletion of tenant {{.tenant_name}} requested",
+			"A Tenant Owner{{with .requested_by}} ({{.}}){{end}} asked the platform to delete tenant {{.tenant_name}} at {{.requested_at}} (UTC). " +
+				"Nothing has been deleted: platform staff get in touch before deleting it (the deletion needs two approvers).\n\nIf you did not expect this request, contact the platform operator at once."},
+	},
+	KindPlatformTenantDeletionRequest: {
+		LocaleVI: {"[MeshGuard] Tenant {{.tenant_slug}} yêu cầu xóa tenant",
+			"Tenant Owner{{with .requested_by}} {{.}}{{end}} của tenant {{.tenant_slug}} đã yêu cầu xóa tenant lúc {{.requested_at}} (UTC). " +
+				"Xem lý do trong audit nền tảng; xác minh với tenant rồi xóa bằng thao tác xóa tenant (2P) trong Platform Console: {{.console_url}}\n\nMã tenant: {{.tenant_id}}"},
+		LocaleEN: {"[MeshGuard] Tenant {{.tenant_slug}} requested its deletion",
+			"Tenant Owner{{with .requested_by}} {{.}}{{end}} of tenant {{.tenant_slug}} asked for the tenant's deletion at {{.requested_at}} (UTC). " +
+				"See the reason in the platform audit; verify with the tenant, then delete it with the tenant deletion (2P) in the Platform Console: {{.console_url}}\n\nTenant ID: {{.tenant_id}}"},
+	},
 	KindIdPConsoleLogin: {
 		LocaleVI: {"[MeshGuard] CẢNH BÁO: đăng nhập quản trị Keycloak ({{.client}})",
 			"Có một lần đăng nhập vào khu quản trị của Keycloak do nền tảng host: client {{.client}}{{with .username}}, tài khoản {{.}}{{end}}{{with .ip}}, từ {{.}}{{end}}, lúc {{.occurred_at}} (UTC).\n\n" +

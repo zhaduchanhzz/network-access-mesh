@@ -132,7 +132,8 @@ Bảng của job queue (River, §4) nằm ở schema riêng `river`, không ch�
 | `0022` | 4 / P4-T05 | `network_resources`, `dns_records` — `0022_network_resources_dns.sql` |
 | `0023` | 4 / P4-T05 | `support_access_grants` (+ trigger `mg_support_grant_guard`), `identity_links` — `0023_support_grants_identity_links.sql` |
 | `0024` | 4 / P4-T09 | không bảng mới: `CHECK tenant_memberships.status IN ('active','locked','offboarded')` + index `provisioning_jobs (tenant_id, resource_type, resource_id, created_at DESC, id DESC)` (trạng thái offboard theo membership) — `0024_membership_status.sql` (số hiệu tạm; coordinator đánh lại khi gộp nếu cần) |
-| `0025` | 6 / P6-T11 | `usage_records` (partition) + bảng tổng hợp |
+| `0025` | 4 / P4-T03a | không bảng mới: `CHECK platform_users.status IN ('active','disabled')` + quyền cột cho `mg_api_tenant`: `UPDATE (settings, updated_at, version) ON tenants` và `UPDATE (client_secret_ref, required_claims, allowed_email_domains, claim_mapping, updated_at, version) ON identity_providers` (thiết lập/IdP của tenant ghi trong transaction tenant, cùng transaction với audit của tenant và với việc thực thi phê duyệt phạm vi tenant) — `0025_admin_settings.sql` (số hiệu tạm) |
+| `0026` | 6 / P6-T11 | `usage_records` (partition) + bảng tổng hợp |
 
 ### 6.4 Data ownership & retention
 

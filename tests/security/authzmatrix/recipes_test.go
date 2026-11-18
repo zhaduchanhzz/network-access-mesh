@@ -172,6 +172,43 @@ var recipes = map[string]recipe{
 		ok: answer{http.StatusUnprocessableEntity, gen.ProblemCodeValidationFailed}},
 	"releasePlatformInstance": {idempotent: true, body: `{"reason":"matrix"}`,
 		ok: answer{http.StatusConflict, gen.ProblemCodeConflict}},
+	// administration (P4-T03a, adminapi — mounted with the actions of P4-T03a, world_test.go). Every write of a
+	// resource with an ETag is sent without If-Match: a granted caller passes the step-up (fresh fixture sessions) and
+	// the object checks and is answered 428 — nothing is written; the 2P requests are made (202, then 409 for the next
+	// granted caller — one open request per action and resource); a POST creates (201, then 409); the deletion request
+	// names another slug ⇒ 422. Writes on platform users target a platform user that is not an actor of the matrix.
+	"updatePlatformTenant": {body: `{"name":"Matrix A"}`, ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
+	"getTenantSettings":    {ok: answer{status: http.StatusOK}},
+	"updateTenantSettings": {body: `{"notifications":{"new_device":true}}`,
+		ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
+	"putTenantSecuritySettings": {body: `{"enrollment":{"identity_mode":"portal","web_auth_enabled":true,"self_enroll":false,"requires_approval":false},"node_expiry":null,"policy":{"four_eyes":true,"sensitive_groups":[]},"routes":{"four_eyes":false}}`,
+		ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
+	"getTenantIdentityProvider": {ok: answer{status: http.StatusOK}},
+	"updateTenantIdentityProvider": {body: `{"allowed_email_domains":["matrix.test"]}`,
+		ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
+	"requestTenantDeletion": {body: `{"confirm_slug":"matrix-mismatch","reason":"matrix"}`,
+		ok: answer{http.StatusUnprocessableEntity, gen.ProblemCodeValidationFailed}},
+	"listPlatformUsers":  {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
+	"getPlatformUser":    {ok: answer{status: http.StatusOK}},
+	"createPlatformUser": {idempotent: true, body: `{"subject":"0190a000-0000-7000-8000-0000000000c1","role":"platform_viewer"}`},
+	"updatePlatformUser": {body: `{"role":"platform_support"}`,
+		ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
+	"deletePlatformUser":            {ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
+	"setPlatformUserSuperAdminRole": {body: `{"super_admin":true,"reason":"matrix"}`},
+	"listPlatformSettings":          {ok: answer{status: http.StatusOK}},
+	"getPlatformSetting":            {ok: answer{status: http.StatusOK}},
+	"putPlatformSetting": {body: `{"value":24}`,
+		ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
+	"listPlatformIdentityProviders": {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
+	"getPlatformIdentityProvider":   {ok: answer{status: http.StatusOK}},
+	"updatePlatformIdentityProvider": {body: `{"allowed_email_domains":["matrix.test"]}`,
+		ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
+	"listPlatformPlans": {ok: answer{status: http.StatusOK}},
+	"getPlatformPlan":   {ok: answer{status: http.StatusOK}},
+	"createPlatformPlan": {idempotent: true, body: `{"key":"matrix","name":"Matrix","limits":{"max_devices":1,"max_users":1,` +
+		`"max_tagged_devices":1,"max_live_enrollment_credentials":1}}`},
+	"updatePlatformPlan": {body: `{"is_active":true}`,
+		ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
 }
 
 // objectKind is what a path parameter (other than the {tenantId} context of a tenant route) designates.
@@ -191,6 +228,10 @@ const (
 	// /tenants/{tenantId}/notifications/{notificationId} (P4-T04): own-only for every role
 	objNotification objectKind = "notification"
 	objGroup        objectKind = "group" // /tenants/{t}/groups/{groupId} (P4-T09)
+	// P4-T03a: /platform/users/{platformUserId}, /platform/settings/{settingKey} (a key, not a UUID), /platform/plans/{planId}
+	objPlatformUser objectKind = "platform-user"
+	objSetting      objectKind = "setting"
+	objPlan         objectKind = "plan"
 )
 
 // paramObjects maps path parameters to object kinds; a new parameter must be added (TestEveryOperationHasAnExpectation).
@@ -198,4 +239,5 @@ var paramObjects = map[string]objectKind{
 	"deviceId": objDevice, "membershipId": objMembership, "jobId": objJob, "instanceId": objInstance,
 	"tenantId": objTenant, "sessionId": objSession, "idpId": objIdP, "approvalId": objApproval, "invitationId": objInvitation,
 	"hostId": objHost, "notificationId": objNotification, "groupId": objGroup,
+	"platformUserId": objPlatformUser, "settingKey": objSetting, "planId": objPlan,
 }

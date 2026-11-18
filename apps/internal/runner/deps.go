@@ -96,7 +96,8 @@ func openDeps(ctx context.Context, cfg config.Config, log *slog.Logger, routePat
 	}
 	// P4-T09: an invitation also enqueues member.idp_invite — the worker creates the person at a platform-hosted IdP
 	d.tenants = tenants.New(d.st, tenants.Options{BaseDomain: cfg.BaseDomain,
-		Notifier: members.IdPInviteNotifier{Next: tenants.OutboxNotifier{}}})
+		Notifier:      members.IdPInviteNotifier{Next: tenants.OutboxNotifier{}},
+		ClientSecrets: idpClientSecrets{d.secrets}}) // P4-T03a: PATCH /identity-provider of an external IdP
 	loc, err := locator.New(d.tenants, d.secrets, locator.Options{AdminURL: cfg.Edge.URL, EdgeTokenFile: cfg.Edge.TokenFile,
 		Logger: log})
 	if err != nil {
