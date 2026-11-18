@@ -47,7 +47,7 @@ const partitionRole = "mg_partition_maint"
 //	reconcile        instance.reconcile + host.reconcile, report only, and their schedule (P3-T12; agent: MG_AGENT_*)
 //	apikey           apikey.rotate (P3-T10): its handler, its daily schedule per instance and the key expiry gauge
 //	orchestrator     tenant.provision — the 19 steps of §11.3 with compensation (P3-T05; MG_PROVISION_*, MG_PROBER_URL,
-//	                 the same agent client as reconcile)
+//	                 the same agent client as reconcile); instance.reconfigure (P3-T13: MG_AGENT_* — prober optional)
 //	idp              driver registry keycloak (narrow route to auth.<domain> incl. /admin/realms, provisioning identity
 //	                 from the SecretStore — platform_ops) + external (hardened client) — P2-T05a; idp.audit_sync every
 //	                 minute over the keycloak driver (admin + login events of every realm → audit_events, security
@@ -134,6 +134,15 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 	}
 	if prov != nil {
 		if err := prov.Register(w); err != nil {
+			return nil, err
+		}
+	}
+	rcfg, err := newReconfigurer(cfg, d, agent) // P3-T13: instance.reconfigure (new version, restart, health gate, rollback)
+	if err != nil {
+		return nil, err
+	}
+	if rcfg != nil {
+		if err := rcfg.Register(w); err != nil {
 			return nil, err
 		}
 	}

@@ -26,6 +26,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/monitoringapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/notificationsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/provisioningapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/reconfigureapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/tenantsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/identity"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/idp"
@@ -62,7 +63,8 @@ import (
 //	                 own Portal notifications, P3-T05b), Approvals (approvalsapi over approvals), Invitations
 //	                 (invitationsapi over tenants + authz.GuardInvitationRole), IdPConsole (idpconsoleapi over
 //	                 approvals — P3-T15), Provisioning (provisioningapi over orchestrator.Creator — steps 1–2 of
-//	                 tenant.provision with usage's quota checks — and orchestrator.Control, P3-T05)
+//	                 tenant.provision with usage's quota checks — and orchestrator.Control, P3-T05), Reconfigure
+//	                 (reconfigureapi over orchestrator.ReconfigureService — instance.reconfigure, P3-T13)
 //	readiness        postgres, secretstore, edge_admin (§16.2)
 func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prometheus.Registerer) (_ *component, err error) {
 	d, err := openDeps(ctx, cfg, log, idp.PlatformOIDCPaths)
@@ -143,6 +145,7 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 			Hosts:         hostsapi.New(platform.New(d.st)),
 			IdPConsole:    idpconsoleapi.New(appr),
 			Provisioning:  provisioningapi.New(creator, orchestrator.NewControl(d.st)),
+			Reconfigure:   reconfigureapi.New(orchestrator.NewReconfigureService(d.st)),
 		},
 	})
 	if err != nil {

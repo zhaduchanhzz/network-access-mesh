@@ -235,6 +235,27 @@ func (e IdpConsoleSessionStatus) Valid() bool {
 	}
 }
 
+// Defines values for InstanceLogLevel.
+const (
+	InstanceLogLevelError InstanceLogLevel = "error"
+	InstanceLogLevelInfo  InstanceLogLevel = "info"
+	InstanceLogLevelWarn  InstanceLogLevel = "warn"
+)
+
+// Valid indicates whether the value is a known member of the InstanceLogLevel enum.
+func (e InstanceLogLevel) Valid() bool {
+	switch e {
+	case InstanceLogLevelError:
+		return true
+	case InstanceLogLevelInfo:
+		return true
+	case InstanceLogLevelWarn:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for InstanceStatus.
 const (
 	InstanceStatusAllocated   InstanceStatus = "allocated"
@@ -1033,6 +1054,24 @@ type InstanceList struct {
 	NextCursor *string    `json:"next_cursor"`
 }
 
+// InstanceLogLevel `log.level` của Headscale (§11.3 bước 8: chỉ `info`, `warn`, `error`)
+type InstanceLogLevel string
+
+// InstanceReconfigure Tham số do nền tảng quản lý của cấu hình instance (§11.1 `HeadscaleParams`); trường vắng mặt giữ giá trị của version đang hiệu lực. `derp.server.ipv4` luôn render lại từ điểm vào công khai hiện tại của host (§17.4) — `{}` render lại đúng version hiện hành với giá trị mới nhất của registry (không đổi gì ⇒ job kết thúc không restart). Thiết lập DNS, OIDC, hạn khóa của tenant đi qua API Phase 4 (cùng job)
+type InstanceReconfigure struct {
+	// DerpRegionId `derp.server.region_id` của DERP nhúng (§10.1)
+	DerpRegionId *int `json:"derp_region_id,omitempty"`
+
+	// LogLevel `log.level` của Headscale (§11.3 bước 8: chỉ `info`, `warn`, `error`)
+	LogLevel *InstanceLogLevel `json:"log_level,omitempty"`
+
+	// Nameservers `dns.nameservers.global` (`override_local_dns` — RT-07): địa chỉ IP unicast dùng được (không loopback, link-local, multicast), không trùng; ngoài dải network tenant của host (Agent kiểm)
+	Nameservers *[]string `json:"nameservers,omitempty"`
+
+	// NodeExpiryDays `node.expiry` theo ngày (render thành giờ — Headscale 0.29.7 không có đơn vị ngày)
+	NodeExpiryDays *int `json:"node_expiry_days,omitempty"`
+}
+
 // InstanceStatus TenantInstanceStatus (§13.3)
 type InstanceStatus string
 
@@ -1782,6 +1821,12 @@ type ListPlatformInstancesParams struct {
 	Host *openapi_types.UUID `form:"host,omitempty" json:"host,omitempty"`
 }
 
+// ReconfigurePlatformInstanceParams defines parameters for ReconfigurePlatformInstance.
+type ReconfigurePlatformInstanceParams struct {
+	// IdempotencyKey Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
 // ListPlatformJobsParams defines parameters for ListPlatformJobs.
 type ListPlatformJobsParams struct {
 	// Limit Số phần tử tối đa của trang
@@ -1977,6 +2022,9 @@ type UpdatePlatformHostJSONRequestBody = HostUpdate
 // RequestIdpConsoleSessionJSONRequestBody defines body for RequestIdpConsoleSession for application/json ContentType.
 type RequestIdpConsoleSessionJSONRequestBody = IdpConsoleSessionCreate
 
+// ReconfigurePlatformInstanceJSONRequestBody defines body for ReconfigurePlatformInstance for application/json ContentType.
+type ReconfigurePlatformInstanceJSONRequestBody = InstanceReconfigure
+
 // CreatePlatformTenantJSONRequestBody defines body for CreatePlatformTenant for application/json ContentType.
 type CreatePlatformTenantJSONRequestBody = TenantCreate
 
@@ -2054,6 +2102,9 @@ type ServerInterface interface {
 	// GetPlatformInstance Một Headscale instance
 	// (GET /platform/instances/{instanceId})
 	GetPlatformInstance(w http.ResponseWriter, r *http.Request, instanceId InstanceId)
+	// ReconfigurePlatformInstance Đổi cấu hình instance — job instance.reconfigure (version mới, restart, health gate, tự lùi)
+	// (POST /platform/instances/{instanceId}/reconfigure)
+	ReconfigurePlatformInstance(w http.ResponseWriter, r *http.Request, instanceId InstanceId, params ReconfigurePlatformInstanceParams)
 	// ListPlatformJobs Job của nền tảng và mọi tenant
 	// (GET /platform/jobs)
 	ListPlatformJobs(w http.ResponseWriter, r *http.Request, params ListPlatformJobsParams)
@@ -3087,6 +3138,60 @@ func (siw *ServerInterfaceWrapper) GetPlatformInstance(w http.ResponseWriter, r 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetPlatformInstance(w, r, instanceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReconfigurePlatformInstance operation middleware
+func (siw *ServerInterfaceWrapper) ReconfigurePlatformInstance(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "instanceId" -------------
+	var instanceId InstanceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "instanceId", r.PathValue("instanceId"), &instanceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "instanceId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ReconfigurePlatformInstanceParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReconfigurePlatformInstance(w, r, instanceId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4896,6 +5001,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/platform/tenants/{tenantId}", wrapper.GetPlatformTenant)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/platform/instances", wrapper.ListPlatformInstances)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/platform/instances/{instanceId}", wrapper.GetPlatformInstance)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/platform/instances/{instanceId}/reconfigure", wrapper.ReconfigurePlatformInstance)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/platform/hosts", wrapper.ListPlatformHosts)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/platform/hosts", wrapper.CreatePlatformHost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/platform/hosts/{hostId}", wrapper.GetPlatformHost)
@@ -7826,6 +7932,188 @@ type GetPlatformInstancedefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response GetPlatformInstancedefaultApplicationProblemPlusJSONResponse) VisitGetPlatformInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReconfigurePlatformInstanceRequestObject struct {
+	InstanceId InstanceId `json:"instanceId"`
+	Params     ReconfigurePlatformInstanceParams
+	Body       *ReconfigurePlatformInstanceJSONRequestBody
+}
+
+type ReconfigurePlatformInstanceResponseObject interface {
+	VisitReconfigurePlatformInstanceResponse(w http.ResponseWriter) error
+}
+
+type ReconfigurePlatformInstance202ResponseHeaders struct {
+	Location string
+}
+
+type ReconfigurePlatformInstance202JSONResponse struct {
+	Body    Job
+	Headers ReconfigurePlatformInstance202ResponseHeaders
+}
+
+func (response ReconfigurePlatformInstance202JSONResponse) VisitReconfigurePlatformInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Location", fmt.Sprint(response.Headers.Location))
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReconfigurePlatformInstance401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response ReconfigurePlatformInstance401ApplicationProblemPlusJSONResponse) VisitReconfigurePlatformInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReconfigurePlatformInstance403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response ReconfigurePlatformInstance403ApplicationProblemPlusJSONResponse) VisitReconfigurePlatformInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReconfigurePlatformInstance404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response ReconfigurePlatformInstance404ApplicationProblemPlusJSONResponse) VisitReconfigurePlatformInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReconfigurePlatformInstance409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response ReconfigurePlatformInstance409ApplicationProblemPlusJSONResponse) VisitReconfigurePlatformInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReconfigurePlatformInstance422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response ReconfigurePlatformInstance422ApplicationProblemPlusJSONResponse) VisitReconfigurePlatformInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReconfigurePlatformInstance429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response ReconfigurePlatformInstance429ApplicationProblemPlusJSONResponse) VisitReconfigurePlatformInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReconfigurePlatformInstancedefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response ReconfigurePlatformInstancedefaultApplicationProblemPlusJSONResponse) VisitReconfigurePlatformInstanceResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -12697,6 +12985,9 @@ type StrictServerInterface interface {
 	// GetPlatformInstance Một Headscale instance
 	// (GET /platform/instances/{instanceId})
 	GetPlatformInstance(ctx context.Context, request GetPlatformInstanceRequestObject) (GetPlatformInstanceResponseObject, error)
+	// ReconfigurePlatformInstance Đổi cấu hình instance — job instance.reconfigure (version mới, restart, health gate, tự lùi)
+	// (POST /platform/instances/{instanceId}/reconfigure)
+	ReconfigurePlatformInstance(ctx context.Context, request ReconfigurePlatformInstanceRequestObject) (ReconfigurePlatformInstanceResponseObject, error)
 	// ListPlatformJobs Job của nền tảng và mọi tenant
 	// (GET /platform/jobs)
 	ListPlatformJobs(ctx context.Context, request ListPlatformJobsRequestObject) (ListPlatformJobsResponseObject, error)
@@ -13368,6 +13659,40 @@ func (sh *strictHandler) GetPlatformInstance(w http.ResponseWriter, r *http.Requ
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetPlatformInstanceResponseObject); ok {
 		if err := validResponse.VisitGetPlatformInstanceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReconfigurePlatformInstance operation middleware
+func (sh *strictHandler) ReconfigurePlatformInstance(w http.ResponseWriter, r *http.Request, instanceId InstanceId, params ReconfigurePlatformInstanceParams) {
+	var request ReconfigurePlatformInstanceRequestObject
+
+	request.InstanceId = instanceId
+	request.Params = params
+
+	var body ReconfigurePlatformInstanceJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReconfigurePlatformInstance(ctx, request.(ReconfigurePlatformInstanceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReconfigurePlatformInstance")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReconfigurePlatformInstanceResponseObject); ok {
+		if err := validResponse.VisitReconfigurePlatformInstanceResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

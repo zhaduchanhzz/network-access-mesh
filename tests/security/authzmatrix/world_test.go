@@ -36,6 +36,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/monitoringapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/notificationsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/provisioningapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/reconfigureapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/tenantsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/idp/console"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/jobs"
@@ -147,6 +148,7 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 		Notifications: notificationsapi.New(notifications.NewReader(w.Store)),
 		Hosts:         hostsapi.New(platform.New(w.Store)),
 		Provisioning:  provisioningapi.New(creator, orchestrator.NewControl(w.Store)),
+		Reconfigure:   reconfigureapi.New(orchestrator.NewReconfigureService(w.Store)), // P3-T13
 	}
 }
 
