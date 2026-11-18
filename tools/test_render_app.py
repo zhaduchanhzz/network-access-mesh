@@ -177,6 +177,11 @@ check(worker.get("MG_PROVISION_HEADSCALE_DIGEST") == hs["mg-headscale"]["index"]
 pw = ra.render({**ENV, "MG_PROBER_URL": "http://prober:8080"}, API, WORKER)["compose.app.yaml"]
 check("MG_PROBER_URL: http://prober:8080" in pw, "compose: MG_PROBER_URL rendered when the environment sets it")
 raises(lambda: ra.render({**ENV, "MG_PROBER_URL": "http://u:p@x/y"}, API, WORKER), "a prober URL with credentials or a path is refused")
+# P3-T11: the worker verifies backup manifests with the public key of the key ceremony (never a private key)
+bw = ra.render({**ENV, "MG_BACKUP_MANIFEST_PUBKEY": "MCowBQYDK2VwAyEA7rQo5bebwY3AlnB9ahjZwGGUzVu39POjhZbZwbg7Wlc="}, API, WORKER)["compose.app.yaml"]
+check("MG_BACKUP_MANIFEST_PUBKEY: MCowBQYDK2VwAyEA7rQo5bebwY3AlnB9ahjZwGGUzVu39POjhZbZwbg7Wlc=" in bw, "compose: MG_BACKUP_MANIFEST_PUBKEY rendered for the worker")
+check("MG_BACKUP_MANIFEST_PUBKEY" not in ra.render(ENV, API, WORKER)["compose.app.yaml"], "compose: no manifest key before the ceremony")
+raises(lambda: ra.render({**ENV, "MG_BACKUP_MANIFEST_PUBKEY": "not-a-key"}, API, WORKER), "a malformed manifest key is refused")
 raises(lambda: ra.render({**ENV, "MG_TENANT_NAMESERVERS": "10.0.0.1"}, API, WORKER), "private tenant nameservers are refused")
 
 # refusals

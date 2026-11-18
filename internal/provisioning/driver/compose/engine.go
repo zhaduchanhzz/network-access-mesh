@@ -52,6 +52,9 @@ type Engine interface {
 	// EnsureImage makes an image reference (always pinned by digest — allowlist or the agent's own image) present,
 	// pulling it through the daemon when it is missing (the agent itself has no network).
 	EnsureImage(ctx context.Context, ref string) error
+	// ImageVersion returns the label org.opencontainers.image.version of a local image ("" when it has none) — the
+	// Headscale version a backup records and the restore version rule compares (§17.2 step 2; P3-T11).
+	ImageVersion(ctx context.Context, ref string) (string, error)
 	// RunOnce runs a throw-away helper container to completion and removes it whatever happens (§11.5: configtest,
 	// Noise key fingerprint). The container never has a network, a capability or a writable rootfs.
 	RunOnce(ctx context.Context, s OneShot) (OneShotResult, error)
@@ -103,6 +106,11 @@ type OneShot struct {
 	Timeout time.Duration
 	// MaxOutput bounds what is kept of stdout and of stderr (each).
 	MaxOutput int
+	// Stdin, when not nil, is written to the container's standard input, which is then closed (the backup helpers'
+	// request — P3-T11: the restore identity travels this way, never through a file, an argument or the environment).
+	Stdin []byte
+	// Env is the container's environment (fixed values only, e.g. HEADSCALE_LOG_LEVEL=error).
+	Env []string
 }
 
 // Bind is one bind mount of a helper container.
@@ -393,6 +401,20 @@ func (m *mobyEngine) EnsureImage(ctx context.Context, ref string) error {
 	return wrap("pull image", resp.Wait(ctx))
 }
 
+func (m *mobyEngine) ImageVersion(ctx context.Context, ref string) (string, error) {
+	res, err := m.c.ImageInspect(ctx, ref)
+	if cerrdefs.IsNotFound(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", wrap("inspect image", err)
+	}
+	if res.Config == nil {
+		return "", nil
+	}
+	return res.Config.Labels["org.opencontainers.image.version"], nil
+}
+
 // bounded keeps the first max bytes written to it and notes whether more came.
 type bounded struct {
 	b    bytes.Buffer
@@ -426,10 +448,12 @@ func (m *mobyEngine) RunOnce(ctx context.Context, s OneShot) (OneShotResult, err
 			BindOptions: &mount.BindOptions{CreateMountpoint: false}})
 	}
 	pids := s.PIDs
+	withStdin := s.Stdin != nil
 	created, err := m.c.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Name: s.Name,
-		Config: &container.Config{Image: s.Image, Entrypoint: s.Entrypoint, Cmd: s.Cmd, User: s.User, Labels: s.Labels,
-			AttachStdout: true, AttachStderr: true, NetworkDisabled: true},
+		Config: &container.Config{Image: s.Image, Entrypoint: s.Entrypoint, Cmd: s.Cmd, User: s.User, Labels: s.Labels, Env: s.Env,
+			AttachStdout: true, AttachStderr: true, NetworkDisabled: true,
+			AttachStdin: withStdin, OpenStdin: withStdin, StdinOnce: withStdin},
 		HostConfig: &container.HostConfig{
 			NetworkMode: "none", ReadonlyRootfs: true, CapDrop: []string{"ALL"}, SecurityOpt: []string{"no-new-privileges:true"},
 			LogConfig: container.LogConfig{Type: "none"}, RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyDisabled},
@@ -447,11 +471,13 @@ func (m *mobyEngine) RunOnce(ctx context.Context, s OneShot) (OneShotResult, err
 	}()
 	rctx, cancel := context.WithTimeout(ctx, s.Timeout)
 	defer cancel()
-	att, err := m.c.ContainerAttach(rctx, created.ID, client.ContainerAttachOptions{Stream: true, Stdout: true, Stderr: true})
+	att, err := m.c.ContainerAttach(rctx, created.ID, client.ContainerAttachOptions{Stream: true, Stdin: withStdin, Stdout: true, Stderr: true})
 	if err != nil {
 		return OneShotResult{}, wrap("attach helper container", err)
 	}
 	defer att.Close()
+	stop := context.AfterFunc(rctx, func() { _ = att.Conn.Close() }) // a helper that never reads its stdin cannot block us
+	defer stop()
 	// registered before the start: a fast exit is not missed
 	wait := m.c.ContainerWait(rctx, created.ID, client.ContainerWaitOptions{Condition: container.WaitConditionNextExit})
 	stdout, stderr := &bounded{max: s.MaxOutput}, &bounded{max: s.MaxOutput}
@@ -459,6 +485,15 @@ func (m *mobyEngine) RunOnce(ctx context.Context, s OneShot) (OneShotResult, err
 	go func() { _, err := stdcopy.StdCopy(stdout, stderr, att.Reader); copied <- err }()
 	if _, err := m.c.ContainerStart(rctx, created.ID, client.ContainerStartOptions{}); err != nil {
 		return OneShotResult{}, wrap("start helper container", err)
+	}
+	if withStdin {
+		_, werr := att.Conn.Write(s.Stdin)
+		if cerr := att.CloseWrite(); werr == nil {
+			werr = cerr
+		}
+		if werr != nil {
+			return OneShotResult{}, wrap("helper container stdin", werr)
+		}
 	}
 	var code int64
 	select {

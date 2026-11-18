@@ -10,8 +10,8 @@
 // The compose driver (P3-T02, internal/provisioning/driver/compose) performs EnsureInstance (storage → config →
 // network → container), GetInstanceStatus, ListInstances, Start/Stop/Restart and RemoveInstance; ValidateConfig,
 // BootstrapPolicy, BootstrapApiKey and the edge attachment (P3-T03); a loop inside the agent is the edge supervisor and
-// start guard of §11.4 (supervisor.go). The other operations are validated, guarded and answered UNIMPLEMENTED until
-// their task (P3-T11, P3-T13a). MG_AGENT_DRIVER=none keeps the P3-T01 behaviour (no Docker access).
+// start guard of §11.4 (supervisor.go); Backup, Restore and PostRestoreReconcile (P3-T11). The other operations are
+// validated, guarded and answered UNIMPLEMENTED until their task (P3-T13a). MG_AGENT_DRIVER=none keeps the P3-T01 behaviour (no Docker access).
 //
 // Subcommands (exit status 0 = ok, 1 = failure, 2 = configuration or usage error):
 //
@@ -19,6 +19,9 @@
 //	meshguard-agent healthcheck        container healthcheck: Health over the socket, with the token
 //	meshguard-agent version
 //	meshguard-agent noise-fingerprint  the one-shot helper of the start guard, run by the agent itself (§11.5)
+//	meshguard-agent backup-snapshot    the backup helpers (P3-T11, §17.1–§17.2): one-shot containers run by the agent
+//	meshguard-agent restore-unpack
+//	meshguard-agent data-check
 package main
 
 import (
@@ -59,6 +62,10 @@ func dispatch(ctx context.Context, args []string, getenv func(string) string, en
 		return 0
 	case len(args) == 1 && args[0] == compose.FingerprintCommand:
 		return noiseFingerprint(compose.NoiseKeyPath, stdout, stderr)
+	case len(args) == 1 && (args[0] == compose.BackupSnapshotCommand || args[0] == compose.RestoreUnpackCommand || args[0] == compose.DataCheckCommand):
+		// the backup helpers (P3-T11, §17.1–§17.2): run by the agent in a one-shot container of its own image, as the
+		// tenant's run_uid — request on stdin, result on stdout
+		return compose.RunHelper(args[0], os.Stdin, stdout)
 	}
 	_, _ = fmt.Fprint(stderr, "meshguard-agent: unknown subcommand\nusage: meshguard-agent | meshguard-agent healthcheck | meshguard-agent version\n")
 	return 2
@@ -154,7 +161,7 @@ func buildDriver(ctx context.Context, cfg *Config, log *slog.Logger) (Driver, ag
 	c, err := compose.New(compose.Config{
 		Host: &cfg.Host, Guard: &agentspec.Guard{Host: &cfg.Host, Inventory: inv, Edge: cfg.Edge}, AgentGID: os.Getegid(),
 		Engine: eng, Compose: &compose.CLI{Command: []string{cfg.ComposeBin}, DockerHost: cfg.DockerHost, ConfigDir: cfg.DockerConfig},
-		Edge: cfg.Edge, EdgeNetwork: cfg.EdgeNetwork, HelperImage: cfg.HelperImage, Log: log,
+		Edge: cfg.Edge, EdgeNetwork: cfg.EdgeNetwork, HelperImage: cfg.HelperImage, Backup: cfg.Backup, MaxDBBytes: cfg.MaxDBBytes, Log: log,
 	})
 	if err != nil {
 		return nil, nil, err

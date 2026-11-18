@@ -10,9 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-
 	agentv1 "github.com/zhaduchanhzz/network-access-mesh/api/agent/v1"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/agentspec"
 )
@@ -50,7 +47,12 @@ type Config struct {
 	// (MG_AGENT_HELPER_IMAGE); it runs `meshguard-agent noise-fingerprint` as the tenant's run_uid. Empty: every
 	// fingerprint is indeterminate — the start guard then fails closed.
 	HelperImage string
-	Log         *slog.Logger
+	// Backup enables Backup and Restore (P3-T11); nil: both are refused.
+	Backup *BackupConfig
+	// MaxDBBytes bounds data/db.sqlite for the start guard (0: DefaultMaxDBBytes) — a larger (sparse) file is a
+	// violation (IT-15).
+	MaxDBBytes int64
+	Log        *slog.Logger
 }
 
 // Driver is the compose driver: it implements the infrastructure operations of apps/agent's Driver interface up to
@@ -429,10 +431,14 @@ func (d *Driver) RestartInstance(ctx context.Context, c agentspec.Call) (*agentv
 // any leftover container of the project labelled for this instance), remove the network, and per r.Data the
 // directory. Nothing is touched when the request cannot complete: the edge still attached (RemoveEdgeAttachment
 // first — the order of §11.4), a foreign member on the network, an activated instance with
-// DELETE_IF_NEVER_ACTIVATED. DELETE_ARCHIVED needs the signed final backup (P3-T11): UNIMPLEMENTED until then.
+// DELETE_IF_NEVER_ACTIVATED. DELETE_ARCHIVED removes the directory of an activated instance only when the final backup
+// named by ArchiveSequence exists with a valid signed manifest of this very instance (P3-T11) — checked before anything
+// is touched.
 func (d *Driver) RemoveInstance(ctx context.Context, r agentspec.Remove) (*agentv1.RemoveInstanceResponse, error) {
 	if r.Data == agentv1.DataDisposition_DATA_DISPOSITION_DELETE_ARCHIVED {
-		return nil, status.Error(codes.Unimplemented, "DATA_DISPOSITION_DELETE_ARCHIVED needs the signed final backup (P3-T11)")
+		if err := d.checkFinalBackup(r); err != nil {
+			return nil, err
+		}
 	}
 	n := d.cfg.Host.Names(r.Ref)
 	l := newLayout(r.Ref.InstanceID.String())
@@ -500,7 +506,7 @@ func (d *Driver) RemoveInstance(ctx context.Context, r agentspec.Remove) (*agent
 		}
 		out.NetworkRemoved = true
 	}
-	if r.Data == agentv1.DataDisposition_DATA_DISPOSITION_DELETE_IF_NEVER_ACTIVATED {
+	if r.Data == agentv1.DataDisposition_DATA_DISPOSITION_DELETE_IF_NEVER_ACTIVATED || r.Data == agentv1.DataDisposition_DATA_DISPOSITION_DELETE_ARCHIVED {
 		if out.DirectoryRemoved, err = t.removeInstance(l); err != nil {
 			return nil, err
 		}

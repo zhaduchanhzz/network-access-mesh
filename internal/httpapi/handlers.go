@@ -134,6 +134,14 @@ type ReconfigureHandlers interface {
 	ReconfigurePlatformInstance(ctx context.Context, request gen.ReconfigurePlatformInstanceRequestObject) (gen.ReconfigurePlatformInstanceResponseObject, error)
 }
 
+// BackupHandlers — P3-T11 (backup/restore v1, §17.1–§17.2): an instance backup now, a restore — always dual control —
+// and the backup book.
+type BackupHandlers interface {
+	BackupPlatformInstance(ctx context.Context, request gen.BackupPlatformInstanceRequestObject) (gen.BackupPlatformInstanceResponseObject, error)
+	RestorePlatformInstance(ctx context.Context, request gen.RestorePlatformInstanceRequestObject) (gen.RestorePlatformInstanceResponseObject, error)
+	ListPlatformBackups(ctx context.Context, request gen.ListPlatformBackupsRequestObject) (gen.ListPlatformBackupsResponseObject, error)
+}
+
 // Handlers is the extension point of the API: one handler set per building task. A nil set answers every operation
 // of its interface with 501 not_implemented. A set may also implement only part of its interface by embedding
 // NotImplemented. Handlers return a *problem.Error for an expected failure (not_found, conflict…); any other error
@@ -154,12 +162,13 @@ type Handlers struct {
 	Lifecycle     LifecycleHandlers    // P3-T08
 	Relay         RelayHandlers        // P3-T05c
 	Reconfigure   ReconfigureHandlers  // P3-T13
+	Backups       BackupHandlers       // P3-T11
 }
 
 func (h Handlers) mounted() bool {
 	return h.Auth != nil || h.Tenants != nil || h.Devices != nil || h.Audit != nil || h.Jobs != nil || h.Monitoring != nil ||
 		h.Notifications != nil || h.Approvals != nil || h.Invitations != nil || h.Hosts != nil || h.IdPConsole != nil ||
-		h.Provisioning != nil || h.Lifecycle != nil || h.Relay != nil || h.Reconfigure != nil
+		h.Provisioning != nil || h.Lifecycle != nil || h.Relay != nil || h.Reconfigure != nil || h.Backups != nil
 }
 
 // dispatcher implements gen.StrictServerInterface by promotion from the disjoint interfaces.
@@ -179,13 +188,17 @@ type dispatcher struct {
 	LifecycleHandlers
 	RelayHandlers
 	ReconfigureHandlers
+	BackupHandlers
 }
 
 var _ gen.StrictServerInterface = dispatcher{}
 
 func newDispatcher(h Handlers) dispatcher {
 	d := dispatcher{h.Auth, h.Tenants, h.Devices, h.Audit, h.Jobs, h.Monitoring, h.Notifications, h.Approvals, h.Invitations,
-		h.Hosts, h.IdPConsole, h.Provisioning, h.Lifecycle, h.Relay, h.Reconfigure}
+		h.Hosts, h.IdPConsole, h.Provisioning, h.Lifecycle, h.Relay, h.Reconfigure, h.Backups}
+	if d.BackupHandlers == nil {
+		d.BackupHandlers = NotImplemented{}
+	}
 	if d.RelayHandlers == nil {
 		d.RelayHandlers = NotImplemented{}
 	}
@@ -426,6 +439,18 @@ func (NotImplemented) ListIdpConsoleSessions(context.Context, gen.ListIdpConsole
 
 func (NotImplemented) RequestIdpConsoleSession(context.Context, gen.RequestIdpConsoleSessionRequestObject) (gen.RequestIdpConsoleSessionResponseObject, error) {
 	return nil, problem.NotImplemented("RequestIdpConsoleSession")
+}
+
+func (NotImplemented) BackupPlatformInstance(context.Context, gen.BackupPlatformInstanceRequestObject) (gen.BackupPlatformInstanceResponseObject, error) {
+	return nil, problem.NotImplemented("BackupPlatformInstance")
+}
+
+func (NotImplemented) RestorePlatformInstance(context.Context, gen.RestorePlatformInstanceRequestObject) (gen.RestorePlatformInstanceResponseObject, error) {
+	return nil, problem.NotImplemented("RestorePlatformInstance")
+}
+
+func (NotImplemented) ListPlatformBackups(context.Context, gen.ListPlatformBackupsRequestObject) (gen.ListPlatformBackupsResponseObject, error) {
+	return nil, problem.NotImplemented("ListPlatformBackups")
 }
 
 func (NotImplemented) CreatePlatformTenant(context.Context, gen.CreatePlatformTenantRequestObject) (gen.CreatePlatformTenantResponseObject, error) {

@@ -128,6 +128,10 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 	if err := keys.Register(w); err != nil {
 		return nil, err
 	}
+	bk := newBackups(cfg, d, agent) // P3-T11: instance.backup + instance.restore (§17.1–§17.2)
+	if err := bk.Register(w); err != nil {
+		return nil, err
+	}
 	drivers, kc, provisioned, err := idpDrivers(ctx, cfg, d)
 	if err != nil {
 		return nil, err
@@ -180,13 +184,17 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 			cancel()
 			return err
 		}
-		for name, run := range map[string]func(context.Context) error{
+		schedules := map[string]func(context.Context) error{
 			"inventory.sync": dev.NewScheduler(devices.SchedulerConfig{}).Run,
 			"health.probe":   mon.NewScheduler(monitoring.SchedulerConfig{}).Run,
 			"reconcile":      rec.NewScheduler(reconcile.SchedulerConfig{}).Run,
 			"apikey.rotate":  keys.NewScheduler(apikey.SchedulerConfig{}).Run,
 			"relay.probe":    relaySchedule(relays),
-		} {
+		}
+		if backupsEnabled(cfg, agent) {
+			schedules["instance.backup"] = bk.NewScheduler(0).Run
+		}
+		for name, run := range schedules {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()

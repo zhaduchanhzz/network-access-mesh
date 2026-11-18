@@ -102,15 +102,15 @@ user = "65532"
 run_as = "10007:20007 (image backup — USER trong infrastructure/docker/backup/Dockerfile)"
 note = "Tag di động — chỉ dùng theo digest. Digest kiểm qua Registry API v2 của gcr.io ngày 2026-11-17 (sha256 của index, manifest amd64 và config blob c1c26f75… khớp Docker-Content-Digest). Cùng bản phát hành Debian 13 với images.postgres (libssl3t64 3.5.7-1~deb13u3 ở cả hai) — image backup chép pg_dump/pg_dumpall/pg_restore 18.7 cùng các thư viện base chưa có (libpq5, Kerberos, OpenLDAP, SASL, lz4, xxhash) và dash, kèm bản ghi dpkg để SBOM/grype thấy"
 
-[images.alpine]   # base cho container trợ giúp backup SQLite (§17.1)
+[images.alpine]   # container thử (edge giả của agent-it, helper của e2e); KHÔNG phải container trợ giúp backup (P3-T11 dùng image agent)
 image = "docker.io/library/alpine"
 tag = "3.24.4"
 index = "sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf"
 amd64 = "sha256:0f49f331d9212aff11b932863be4eb01cdf962969aa86dab7d1ee21ac6f5f52b"
 user = "root"
-run_as = "run_uid của instance được backup (§17.1)"
+run_as = "root (container thử)"
 released = "2026-11-05"
-note = "Gói sqlite 3.53.4-r0 (≥ 3.51.3; Debian trixie chỉ có 3.46.1). Trước khi build image trợ giúp (P3-T11) kiểm lại các CVE được báo là sửa ở SQLite 3.54.0 — chưa xác minh"
+note = "Dự kiến ban đầu làm base của container trợ giúp backup SQLite (gói sqlite 3.53.4-r0); P3-T11 chốt dùng chính image agent với sqlite3 3.54.1 build tĩnh ([sources.sqlite] — gồm các bản sửa của 3.54.0) nên alpine chỉ còn dùng cho container thử"
 
 [images.tailscale]   # client chính thức — CHỈ dùng trong test (P2-T10: tests/integration/headscale/run.sh)
 image = "docker.io/tailscale/tailscale"
@@ -322,6 +322,16 @@ build = "infrastructure/docker/agent/Dockerfile stage compose: go mod download m
 build_sha256 = "0580ba643450f8ca8e254b53886639e816de9805113e731b49a3da6efe1a0363"
 release_sha256 = "7758048ad38e580f22559603312874fec8bb638d021a9e64182385fc17cc12a2"   # docker-compose-linux-x86_64 của bản phát hành (đối chiếu; không dùng)
 note = "Bản mới nhất đã ≥ 14 ngày tuổi lúc pin (v5.7.1 ngày 2026-11-11, v5.7.2/v5.8.0 ngày 2026-11-17 — không phải bản vá bảo mật, và cả bốn bản vẫn khai báo klauspost/compress v1.20.0 + x/net v0.60.0 trong go.mod). Binary phát hành v5.7.0 (go1.26.10) bị grype báo 2 High (GO-2026-6865, GO-2026-6860) và govulncheck -mode=binary báo GO-2026-6865 + GO-2026-6859 (net/http) ⇒ build lại từ mã nguồn bằng toolchain đã pin với 2 bản vá: govulncheck -mode=binary không còn lỗ hổng nào. Binary tĩnh ⇒ image agent giữ base distroless static. Host staging chạy plugin v5.7.1 ([host] docker_compose) — cùng định dạng compose. Không cần CLI `docker`: trạng thái, inventory và network của driver đi qua Docker Engine API (github.com/moby/moby/client, [go])"
+
+[sources.sqlite]   # P3-T11: sqlite3 của image agent — công cụ của container trợ giúp backup/restore (§17.1: VACUUM INTO, integrity_check)
+version = "3.54.1"
+date = "2026-10-16"
+url = "https://www.sqlite.org/2026/sqlite-autoconf-3540100.tar.gz"
+sha256 = "926ef8d3eab93fbf6e06011901273eec076b25594a4e1cdadd50c987f4f6d64e"
+sha3_256 = "b6ced585c750916b1052667239a12c25a7ff34e7f06e1e6e01ecb0427657d9c4"   # công bố trên sqlite.org/download.html (khớp)
+build = "infrastructure/docker/agent/Dockerfile stage sqlite: gcc -Os -static -DSQLITE_OMIT_LOAD_EXTENSION -DSQLITE_THREADSAFE=0 -DSQLITE_DQS=0 -DSQLITE_DEFAULT_MEMSTATUS=0 -DSQLITE_OMIT_DEPRECATED -DHAVE_READLINE=0 shell.c sqlite3.c -lm, strip — trong images.golang (glibc tĩnh); tái lập: hai lần build cùng sha256 trên VM build (2026-11-18); kiểm build_sha256 ngay trong build"
+build_sha256 = "37b9e2b6256885d3896badda51797a460306f263614fb5c6f3b681eb9be9571d"
+note = "≥ 3.51.3 (bản sửa WAL-reset khi hai kết nối cùng ghi/checkpoint — §17.1) và gồm các bản sửa của 3.54.0 (lý do của ghi chú [images.alpine]); Debian trixie chỉ có 3.46.1. Bản mới nhất lúc pin (33 ngày tuổi). Chỉ chạy trong container trợ giúp (run_uid của tenant, không network, rootfs chỉ-đọc): VACUUM INTO từ kết nối -readonly + nofollow trên mount data/ chỉ-đọc, quick_check / integrity_check / foreign_key_check trên bản sao; không extension, không nạp ~/.sqliterc (-init /dev/null)"
 
 [sources.password-blocklist]   # G2 vòng 2, A-3 (ASVS 6.2.4, 6.2.11, 6.2.12): passwordBlacklist(mg-passwords-v1.txt) của mọi realm
 repo = "github.com/danielmiessler/SecLists"

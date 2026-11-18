@@ -69,11 +69,12 @@ var fixtureSteps = map[int64]func(f *fixture, t *testing.T, c *pgx.Conn){
 	7: (*fixture).step7, 8: (*fixture).step8, 9: (*fixture).step9, 10: (*fixture).step10, 11: (*fixture).step11,
 	12: (*fixture).step12, 13: (*fixture).step13, 14: (*fixture).step14, 15: (*fixture).step15,
 	16: (*fixture).step16,
+	17: (*fixture).step17,
 }
 
 // latestMigration is the number of the last migration of database/migrations (TestMigrationsUpWithData,
 // TestMigrationsShareClusterRoles).
-const latestMigration = 16
+const latestMigration = 17
 
 // migrationVersions are the versions that have a migration, ascending. Tasks written in parallel use provisional
 // numbers; the coordinator renumbers at merge so that the numbers stay contiguous (goose refuses a migration numbered
@@ -290,7 +291,21 @@ func (f *fixture) step10(t *testing.T, c *pgx.Conn) {
 // 0011: backups (a finished instance archive per tenant, keyed by the tenant's own backup key and linked to the
 // tenant's job; a PostgreSQL dump of the platform scope).
 func (f *fixture) step11(t *testing.T, c *pgx.Conn) {
-	for _, tr := range f.tenants() {
+	// on a schema with P3-T11's backup columns (insertAll), an instance backup carries its sequence, wrapped data key
+	// and signed manifest (CHECK backups_instance_key / _manifest); before them (the migration test) step17 adds them
+	full := hasColumn(t, c, "backups", "sequence")
+	for i, tr := range f.tenants() {
+		if full {
+			exec(t, c, `INSERT INTO backups (id, tenant_id, instance_id, kind, status, storage_uri, size_bytes, sha256, key_ref,
+					headscale_version, finished_at, expires_at, job_id, sequence, wrapped_data_key, manifest, manifest_signature,
+					manifest_sha256, method)
+				VALUES ($1, $2, $3, 'instance', 'succeeded', $4, 4096, repeat('c', 64), $5, '0.29.7', now(), now() + interval '30 days', $6,
+					$7, decode(repeat('ab', 60), 'hex'), convert_to('{"fixture":true}', 'UTF8'), decode(repeat('cd', 64), 'hex'),
+					repeat('e', 64), 'vacuum_into')`,
+				tr.backup, tr.id, tr.instance, "file:///opt/meshguard/backups/tenants/"+tr.instance.String()+"/fixture.age",
+				"mgsec://"+tr.id.String()+"/backup-key#1", tr.job, 1000+i)
+			continue
+		}
 		exec(t, c, `INSERT INTO backups (id, tenant_id, instance_id, kind, status, storage_uri, size_bytes, sha256, key_ref,
 				headscale_version, finished_at, expires_at, job_id)
 			VALUES ($1, $2, $3, 'instance', 'succeeded', $4, 4096, repeat('c', 64), $5, '0.29.7', now(), now() + interval '30 days', $6)`,
@@ -345,4 +360,26 @@ func (f *fixture) step15(t *testing.T, c *pgx.Conn) {
 func (f *fixture) step16(t *testing.T, c *pgx.Conn) {
 	exec(t, c, `UPDATE relay_regions SET last_probe = '{"schema":1,"status":"healthy","derp":{"ok":true,"status":200,"duration_ms":12},
 			"stun":{"ok":true,"duration_ms":3}}', last_probe_at = now() WHERE id = $1`, f.a.region)
+}
+
+// step17 (P3-T11, backup_manifest — provisional number): the instance backups inserted before the migration get their
+// sequence, wrapped data key and signed manifest (a row inserted after it has them from its insertion — step11).
+func (f *fixture) step17(t *testing.T, c *pgx.Conn) {
+	for i, tr := range f.tenants() {
+		exec(t, c, `UPDATE backups SET sequence = $2, wrapped_data_key = decode(repeat('ab', 60), 'hex'),
+				manifest = convert_to('{"fixture":true}', 'UTF8'), manifest_signature = decode(repeat('cd', 64), 'hex'),
+				manifest_sha256 = repeat('e', 64), method = 'vacuum_into'
+			WHERE id = $1 AND sequence IS NULL`, tr.backup, 1000+i)
+	}
+}
+
+// hasColumn reports whether the fixture's database has table.column (the fixture runs on every schema version).
+func hasColumn(t *testing.T, c *pgx.Conn, table, column string) bool {
+	t.Helper()
+	var ok bool
+	if err := c.QueryRow(ctxT(t), `SELECT EXISTS (SELECT 1 FROM information_schema.columns
+		WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2)`, table, column).Scan(&ok); err != nil {
+		t.Fatalf("fixture: %v", err)
+	}
+	return ok
 }

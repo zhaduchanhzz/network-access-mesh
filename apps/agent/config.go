@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -16,6 +17,8 @@ import (
 
 	"github.com/zhaduchanhzz/network-access-mesh/internal/agentclient"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/agentspec"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/backupfmt"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/driver/compose"
 )
 
 // Config is the agent's configuration: environment variables for values, files for secrets and for the image
@@ -61,6 +64,17 @@ type Config struct {
 	// DockerConfig (DOCKER_CONFIG) is the config/home directory of compose: a tmpfs (the rootfs is read-only).
 	DockerConfig string
 	Host         agentspec.Host
+	// Backups (P3-T11, §17.1): SigningKeyFile (MG_AGENT_MANIFEST_SIGNING_KEY_FILE — the Ed25519 key of the key ceremony,
+	// root-only) and Recovery (MG_AGENT_BACKUP_RECOVERY_RECIPIENT — the age X25519 recovery recipient) enable Backup and
+	// Restore; both or neither. ManifestPubKeys (MG_BACKUP_MANIFEST_PUBKEY, optional) must list the signing key's public
+	// key and may add older ones (archives signed before a rotation). MaxDBBytes (MG_AGENT_BACKUP_MAX_DB_BYTES) bounds
+	// db.sqlite for the backup and the start guard; BackupTimeout (MG_AGENT_BACKUP_TIMEOUT) one helper run;
+	// RestoreKeep (MG_AGENT_RESTORE_KEEP) how long the data/ replaced by a restore is kept.
+	SigningKeyFile, Recovery, ManifestPubKeys string
+	MaxDBBytes                                int64
+	BackupTimeout, RestoreKeep                time.Duration
+	// Backup is the prepared backup configuration (Prepare; nil: backups disabled).
+	Backup *compose.BackupConfig
 	// selfUID is the agent's effective UID (set by Prepare): accepted as a peer for Health only.
 	selfUID uint32
 }
@@ -185,6 +199,35 @@ func LoadConfig(getenv func(string) string, environ []string) (*Config, error) {
 		errs = append(errs, errors.New("MG_AGENT_PUBLIC_ENTRY_IPV4: the IPv4 address of the public entry is required (hosts.public_entry)"))
 	}
 	h.BaseDomain = strings.ToLower(get("MG_BASE_DOMAIN", ""))
+	c.SigningKeyFile = get("MG_AGENT_MANIFEST_SIGNING_KEY_FILE", "")
+	c.Recovery = get("MG_AGENT_BACKUP_RECOVERY_RECIPIENT", "")
+	c.ManifestPubKeys = get("MG_BACKUP_MANIFEST_PUBKEY", "")
+	if (c.SigningKeyFile == "") != (c.Recovery == "") {
+		errs = append(errs, errors.New("MG_AGENT_MANIFEST_SIGNING_KEY_FILE and MG_AGENT_BACKUP_RECOVERY_RECIPIENT enable backups together: set both or neither"))
+	}
+	if c.SigningKeyFile != "" && (!filepath.IsAbs(c.SigningKeyFile) || filepath.Clean(c.SigningKeyFile) != c.SigningKeyFile) {
+		errs = append(errs, errors.New("MG_AGENT_MANIFEST_SIGNING_KEY_FILE: a clean absolute path is required"))
+	}
+	if c.Recovery != "" {
+		if _, err := backupfmt.ParseRecipient(c.Recovery); err != nil {
+			errs = append(errs, errors.New("MG_AGENT_BACKUP_RECOVERY_RECIPIENT: an age X25519 recipient (age1 + 58 bech32 characters) is required — never a private key"))
+		}
+	}
+	if c.ManifestPubKeys != "" {
+		if _, err := backupfmt.ParsePublicKeys(c.ManifestPubKeys); err != nil {
+			errs = append(errs, errors.New("MG_BACKUP_MANIFEST_PUBKEY: Ed25519 public keys (SubjectPublicKeyInfo, base64), comma-separated"))
+		}
+	}
+	if c.MaxDBBytes, err = strconv.ParseInt(get("MG_AGENT_BACKUP_MAX_DB_BYTES", strconv.FormatInt(compose.DefaultMaxDBBytes, 10)), 10, 64); err != nil ||
+		c.MaxDBBytes < 1<<20 || c.MaxDBBytes > 64<<30 {
+		errs = append(errs, errors.New("MG_AGENT_BACKUP_MAX_DB_BYTES: a number of bytes in [1 MiB, 64 GiB]"))
+	}
+	if c.BackupTimeout, err = time.ParseDuration(get("MG_AGENT_BACKUP_TIMEOUT", "15m")); err != nil || c.BackupTimeout < 30*time.Second || c.BackupTimeout > 2*time.Hour {
+		errs = append(errs, errors.New("MG_AGENT_BACKUP_TIMEOUT: a duration in [30s, 2h]"))
+	}
+	if c.RestoreKeep, err = time.ParseDuration(get("MG_AGENT_RESTORE_KEEP", "168h")); err != nil || c.RestoreKeep < time.Hour || c.RestoreKeep > 90*24*time.Hour {
+		errs = append(errs, errors.New("MG_AGENT_RESTORE_KEEP: a duration in [1h, 2160h]"))
+	}
 	for _, uid := range c.PeerUIDs {
 		if h.RunUIDs.Contains(uid) {
 			errs = append(errs, errors.New("MG_AGENT_PEER_UIDS must not overlap MG_AGENT_RUN_UID_RANGE (tenant processes)"))
@@ -244,7 +287,53 @@ func (c *Config) Prepare() ([]byte, error) {
 	if err != nil || !fi.IsDir() || !ownedBy(fi, euid) || fi.Mode().Perm()&0o022 != 0 {
 		return nil, errors.New("MG_AGENT_TENANTS_DIR must be an existing directory owned by the agent, not writable by group or others")
 	}
+	if err := c.prepareBackup(euid); err != nil {
+		return nil, err
+	}
 	return []byte(tok), nil
+}
+
+// prepareBackup reads the manifest signing key (a regular file of the agent, no group/other access — §14.2
+// secrets/agent/ root:root 0400) and checks the backups directory. The error never contains key material.
+func (c *Config) prepareBackup(euid int) error {
+	if c.SigningKeyFile == "" {
+		return nil
+	}
+	if err := checkFile(c.SigningKeyFile, euid, 0o077, true); err != nil {
+		return fmt.Errorf("MG_AGENT_MANIFEST_SIGNING_KEY_FILE: %w", err)
+	}
+	raw, err := os.ReadFile(c.SigningKeyFile)
+	if err != nil {
+		return fmt.Errorf("MG_AGENT_MANIFEST_SIGNING_KEY_FILE: %w", err)
+	}
+	key, err := backupfmt.ParseSigningKey(raw)
+	clear(raw)
+	if err != nil {
+		return fmt.Errorf("MG_AGENT_MANIFEST_SIGNING_KEY_FILE: %w", err)
+	}
+	own := key.Public().(ed25519.PublicKey)
+	verify := []ed25519.PublicKey{own}
+	if c.ManifestPubKeys != "" {
+		keys, err := backupfmt.ParsePublicKeys(c.ManifestPubKeys)
+		if err != nil {
+			return fmt.Errorf("MG_BACKUP_MANIFEST_PUBKEY: %w", err)
+		}
+		if !slices.ContainsFunc(keys, func(k ed25519.PublicKey) bool { return k.Equal(own) }) {
+			return errors.New("MG_BACKUP_MANIFEST_PUBKEY does not list the public key of MG_AGENT_MANIFEST_SIGNING_KEY_FILE (render or ceremony mismatch)")
+		}
+		for _, k := range keys {
+			if !k.Equal(own) {
+				verify = append(verify, k)
+			}
+		}
+	}
+	fi, err := os.Lstat(c.Host.BackupsDir)
+	if err != nil || !fi.IsDir() || !ownedBy(fi, euid) || fi.Mode().Perm()&0o022 != 0 {
+		return errors.New("MG_AGENT_BACKUPS_DIR must be an existing directory owned by the agent, not writable by group or others")
+	}
+	c.Backup = &compose.BackupConfig{Signer: key, Verify: verify, Recovery: c.Recovery, MaxDBBytes: c.MaxDBBytes,
+		Timeout: c.BackupTimeout, KeepPrevious: c.RestoreKeep}
+	return nil
 }
 
 // checkFile: a regular file (no symlink), owned by the agent when ownerOnly, none of the forbidden permission bits.
