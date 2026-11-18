@@ -41,6 +41,10 @@ type Store interface {
 	// invitation (uuid.Nil when the Owner is already a member).
 	Configure(ctx context.Context, r ConfigureRequest) (uuid.UUID, error)
 	RevokeInvitation(ctx context.Context, tenantID, invitationID uuid.UUID) error
+	// RevokePendingInvitation revokes the tenant's pending invitation of email, if any: the compensation of step 16
+	// when the invitation id was never recorded (the step failed, or the worker died, between Configure and recording
+	// it — P3-T07). Nobody else invites into a tenant that is still provisioning.
+	RevokePendingInvitation(ctx context.Context, tenantID uuid.UUID, email string) error
 	AssignRelay(ctx context.Context, r RelayRequest) error
 	RemoveRelay(ctx context.Context, tenantID, instanceID uuid.UUID, code string) error
 	// Activate is step 19: instance running, tenant active, audit "<op>.succeeded", notification tenant.activated.

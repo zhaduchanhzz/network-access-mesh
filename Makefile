@@ -3,7 +3,7 @@ PYTHON ?= python3
 
 SQLC_VERSION ?= v1.31.1
 
-.PHONY: help docs docs-check render-test lint secret-scan api-lint api-gen agent-gen authz-gen go-test go-lint go-build sqlc sqlc-diff e2e-functional isolation isolation-headscale agent-it
+.PHONY: help docs docs-check render-test lint secret-scan api-lint api-gen agent-gen authz-gen go-test go-lint go-build sqlc sqlc-diff e2e-functional isolation isolation-headscale agent-it provisioning-it
 
 help: ## Liệt kê các target
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-14s %s\n", $$1, $$2}'
@@ -53,6 +53,9 @@ isolation-headscale: ## IT-06, IT-10 (API key), IT-20 (gồm Locator thật + Po
 
 agent-it: ## Test tích hợp Host Agent trên Docker thật (P3-T02 compose driver, P3-T03 thao tác/edge supervisor/start guard): tenant dùng-một-lần trong image agent đã hardening, snapshot trước/sau (cần Docker, python3 ≥ 3.11; DOCKER="sudo docker" nếu cần)
 	bash tests/integration/agent/run.sh
+
+provisioning-it: ## Harness tiêm lỗi provisioning (P3-T07): orchestrator thật + Host Agent thật + Headscale thật trên Docker, lỗi tại từng bước 3–19, worker bị kill giữa bước 13, /retry, bộ phát hiện tài nguyên mồ côi (cần Docker, python3 ≥ 3.11; DOCKER="sudo docker" nếu cần)
+	bash tests/integration/provisioning/run.sh
 
 sqlc: ## Sinh lại internal/store/sqlcdb từ database/migrations + database/queries (sqlc pin trong versions.lock; cần CGO)
 	go run github.com/sqlc-dev/sqlc/cmd/sqlc@$(SQLC_VERSION) generate -f database/sqlc.yaml

@@ -337,6 +337,18 @@ func (m *memStore) RevokeInvitation(_ context.Context, _, id uuid.UUID) error {
 	return nil
 }
 
+// RevokePendingInvitation revokes every pending invitation (the rig has one tenant and one Owner).
+func (m *memStore) RevokePendingInvitation(context.Context, uuid.UUID, string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for id, st := range m.invitations {
+		if st == "pending" {
+			m.invitations[id] = "revoked"
+		}
+	}
+	return nil
+}
+
 func (m *memStore) AssignRelay(_ context.Context, r RelayRequest) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

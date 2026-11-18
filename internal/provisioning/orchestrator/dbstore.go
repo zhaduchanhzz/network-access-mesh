@@ -446,6 +446,24 @@ func (d *DBStore) RevokeInvitation(ctx context.Context, tenantID, invitationID u
 	})
 }
 
+// RevokePendingInvitation implements Store.
+func (d *DBStore) RevokePendingInvitation(ctx context.Context, tenantID uuid.UUID, email string) error {
+	return d.st.WithTenantTx(ctx, tenantID, func(q *sqlcdb.Queries) error {
+		inv, err := q.LockPendingInvitationByEmail(ctx, sqlcdb.LockPendingInvitationByEmailParams{TenantID: tenantID, Email: email})
+		if errors.Is(err, store.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		_, err = q.RevokeInvitation(ctx, sqlcdb.RevokeInvitationParams{Now: d.now(), TenantID: tenantID, ID: inv.ID})
+		if errors.Is(err, store.ErrNoRows) {
+			return nil
+		}
+		return err
+	})
+}
+
 // AssignRelay implements Store.
 func (d *DBStore) AssignRelay(ctx context.Context, r RelayRequest) error {
 	return d.st.WithPlatformTx(ctx, func(q *sqlcdb.Queries) error {
