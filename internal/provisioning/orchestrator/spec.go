@@ -52,7 +52,12 @@ func (p *Provisioner) derpRegion(inst InstanceRecord) int32 {
 
 // limits are the plan's instance limits (PlanLimits.instance) or the defaults, within the agent's bounds.
 func (p *Provisioner) limits(l InstanceLimits) *agentv1.ResourceLimits {
-	mem, cpu, pids := p.cfg.MemoryMiB, p.cfg.CPUMillis, p.cfg.PIDs
+	return specLimits(p.cfg.MemoryMiB, p.cfg.CPUMillis, p.cfg.PIDs, l)
+}
+
+// specLimits are the plan's instance limits over the defaults mem/cpu/pids, within the agent's bounds (tenant.provision
+// and the backfill of an adopted instance — P3-T14b).
+func specLimits(mem, cpu, pids uint32, l InstanceLimits) *agentv1.ResourceLimits {
 	if l.MemoryMB > 0 {
 		mem = clamp(uint32(min(l.MemoryMB, math.MaxUint32)), minMemoryMiB, maxMemoryMiB) //nolint:gosec // bounded
 	}

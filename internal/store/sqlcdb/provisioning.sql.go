@@ -12,6 +12,25 @@ import (
 	"github.com/google/uuid"
 )
 
+const countRelayAssignmentsOfInstance = `-- name: CountRelayAssignmentsOfInstance :one
+SELECT count(*)::bigint FROM relay_assignments
+WHERE tenant_id = $1 AND instance_id = $2 AND relay_region_id = $3
+`
+
+type CountRelayAssignmentsOfInstanceParams struct {
+	TenantID      uuid.UUID
+	InstanceID    uuid.UUID
+	RelayRegionID uuid.UUID
+}
+
+// Backfill instance đã adopt (P3-T14b): instance đã có assignment tới region nhúng của tenant chưa (bước 17).
+func (q *Queries) CountRelayAssignmentsOfInstance(ctx context.Context, arg CountRelayAssignmentsOfInstanceParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countRelayAssignmentsOfInstance, arg.TenantID, arg.InstanceID, arg.RelayRegionID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const deleteRelayAssignment = `-- name: DeleteRelayAssignment :execrows
 DELETE FROM relay_assignments
 WHERE tenant_id = $1 AND instance_id = $2 AND relay_region_id = $3
