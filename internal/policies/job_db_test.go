@@ -14,8 +14,8 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store/sqlcdb"
 )
 
-// enqueueApply enqueues policy.apply of a tenant with input and returns the jobs.Run a worker hands to the handler.
-func enqueueApply(t *testing.T, f *fixture, ten *tenantFx, input any) *jobs.Run {
+// enqueueApplyRun enqueues policy.apply of a tenant with input and returns the jobs.Run a worker hands to the handler.
+func enqueueApplyRun(t *testing.T, f *fixture, ten *tenantFx, input any) *jobs.Run {
 	t.Helper()
 	var job jobs.Job
 	err := f.st.WithTenantJobTx(context.Background(), ten.id, func(tx *store.Tx) error {
@@ -49,7 +49,7 @@ func output(t *testing.T, r *jobs.Run) map[string]any {
 func TestApplyJobGroupChange(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
-	r := enqueueApply(t, f, f.a, map[string]string{"trigger": TriggerGroupChange})
+	r := enqueueApplyRun(t, f, f.a, map[string]string{"trigger": TriggerGroupChange})
 	if err := f.svc.runApplyJob(ctx, r); err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestApplyJobGroupChange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r = enqueueApply(t, f, f.a, map[string]string{"trigger": TriggerGroupChange})
+	r = enqueueApplyRun(t, f, f.a, map[string]string{"trigger": TriggerGroupChange})
 	if err := f.svc.runApplyJob(ctx, r); err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestApplyJobGroupChange(t *testing.T) {
 	// a suspended tenant keeps its suspension policy
 	f.exec(t, `UPDATE tenants SET status = 'suspended' WHERE id = $1`, f.a.id)
 	before := f.count(t, `SELECT count(*) FROM policy_applications WHERE tenant_id = $1`, f.a.id)
-	r = enqueueApply(t, f, f.a, map[string]string{"trigger": TriggerGroupChange})
+	r = enqueueApplyRun(t, f, f.a, map[string]string{"trigger": TriggerGroupChange})
 	if err := f.svc.runApplyJob(ctx, r); err != nil || output(t, r)["skipped"] != "tenant_not_active" {
 		t.Fatalf("suspended tenant: %v %v", err, output(t, r))
 	}
@@ -99,7 +99,7 @@ func TestApplyJobGroupChange(t *testing.T) {
 	f.exec(t, `UPDATE provisioning_jobs SET status = 'succeeded', finished_at = now() WHERE id = $1`, r.ID)
 	f.exec(t, `UPDATE tenants SET status = 'active' WHERE id = $1`, f.a.id)
 
-	r = enqueueApply(t, f, f.a, map[string]string{"trigger": "membership_change"})
+	r = enqueueApplyRun(t, f, f.a, map[string]string{"trigger": "membership_change"})
 	var je *jobs.Error
 	if err := f.svc.runApplyJob(ctx, r); !errors.As(err, &je) || !je.Permanent || je.Code != codeInvalidInput {
 		t.Fatalf("unknown trigger: %v", err)

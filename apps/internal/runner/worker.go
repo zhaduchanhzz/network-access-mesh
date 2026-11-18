@@ -57,6 +57,9 @@ const partitionRole = "mg_partition_maint"
 //	                 the same agent client as reconcile); instance.reconfigure (P3-T13: MG_AGENT_* — prober optional)
 //	lifecycle        tenant.suspend + tenant.resume (P3-T08, §11.4) over a Headscale registry of their own that reaches a
 //	                 suspended tenant's instance (lifecycle.go), always wired — no Host Agent needed
+//	policies         policy.apply (P4-T15 first form: the desired version again with the tag catalog rendered — trigger
+//	                 tag_change from the catalog API, group_change from members, P4-T09) over the shared registry; full
+//	                 pipeline P4-T10
 //	deprovision      tenant.deprovision (P3-T09, §11.4: the final backup in-process, 15 steps, 2P upstream) over a
 //	                 registry that reaches a deprovisioning tenant (deprovision.go); tenant.keys_destroy every hour after
 //	                 MG_DEPROVISION_KEY_GRACE (crypto-shredding — §6.1)
@@ -90,7 +93,7 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 		return nil, err
 	}
 	d.closers = append(d.closers, part.Close)
-	dev, err := d.newDevices(reg)
+	dev, err := d.newDevices(reg, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -129,6 +132,16 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 	if err := life.Register(w); err != nil {
 		return nil, err
 	}
+	// P4-T15 + P4-T09: policy.apply, ONE handler (level-triggered — the desired policy with the tag catalog rendered;
+	// trigger tag_change from the catalog API, group_change from members) over the shared registry: a tenant that is
+	// not active is skipped (the suspension policy stays; resume renders it)
+	pol, err := policies.New(d.st, policies.Config{Registry: d.headscale, Logger: log})
+	if err != nil {
+		return nil, err
+	}
+	if err := pol.Register(w); err != nil {
+		return nil, err
+	}
 	agent, err := newAgent(cfg, d) // one client of the Host Agent: reconcile + orchestrator
 	if err != nil {
 		return nil, err
@@ -159,8 +172,8 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 	if err != nil {
 		return nil, err
 	}
-	// P4-T09: member.offboard + member.idp_invite (the Headscale adapter and the IdP drivers), and the policy.apply job
-	// (trigger group_change — the level-triggered re-application of the desired version, §7.3)
+	// P4-T09: member.offboard + member.idp_invite (the Headscale adapter and the IdP drivers); its group changes enqueue
+	// policy.apply (trigger group_change), whose one handler is the policies one registered above
 	mem, err := members.New(d.st, members.Config{Tenants: d.tenants, Headscale: d.headscale, IdP: drivers, Logger: log})
 	if err != nil {
 		return nil, err
@@ -169,13 +182,6 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 		return nil, err
 	}
 	alerts.add(mem)
-	pol, err := policies.New(d.st, policies.Config{Registry: d.headscale, Logger: log})
-	if err != nil {
-		return nil, err
-	}
-	if err := pol.Register(w); err != nil {
-		return nil, err
-	}
 	dep, shred, err := newDeprovision(cfg, d, agent, bk, drivers) // P3-T09: tenant.deprovision + tenant.keys_destroy
 	if err != nil {
 		return nil, err

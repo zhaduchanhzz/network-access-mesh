@@ -1,5 +1,5 @@
 // Package devicesapi serves the device operations of api/openapi.yaml (tag devices, P2-T13): listDevices, getDevice,
-// renameDevice, expireDevice, deleteDevice and syncDevices. It only translates between the generated types and
+// renameDevice, expireDevice, deleteDevice and syncDevices; setDeviceTags (P4-T15 — catalog tags only). It only translates between the generated types and
 // internal/devices, which takes every decision; it never imports internal/store nor internal/headscale (§13.6,
 // internal/archtest).
 //
@@ -44,6 +44,7 @@ type Service interface {
 	Rename(ctx context.Context, tenantID, deviceID uuid.UUID, a devices.Access, givenName string) (devices.Device, error)
 	Revoke(ctx context.Context, tenantID, deviceID uuid.UUID, a devices.Access, kind, requestKey string) (devices.RevokeResult, error)
 	RequestSync(ctx context.Context, tenantID uuid.UUID, a devices.Access, requestKey string) (jobs.Job, error)
+	SetTags(ctx context.Context, tenantID, deviceID uuid.UUID, a devices.Access, ifMatch string, tags []string) (devices.Device, error)
 }
 
 var _ Service = (*devices.Service)(nil)
@@ -141,6 +142,27 @@ func (h *Handlers) RenameDevice(ctx context.Context, req gen.RenameDeviceRequest
 		return nil, problemOf(err)
 	}
 	return gen.RenameDevice200JSONResponse(device(d)), nil
+}
+
+// SetDeviceTags implements PUT /tenants/{tenantId}/devices/{deviceId}/tags (P4-T15: catalog tags only, If-Match =
+// tags_etag read again from Headscale). It belongs to httpapi.TagHandlers (x-task P4-T15): tagsapi delegates to it.
+func (h *Handlers) SetDeviceTags(ctx context.Context, req gen.SetDeviceTagsRequestObject) (gen.SetDeviceTagsResponseObject, error) {
+	a, err := access(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if req.Body == nil {
+		return nil, problem.Validation("The request body is invalid.", problem.Field("body", "required", "a JSON body is required"))
+	}
+	ifMatch := ""
+	if req.Params.IfMatch != nil {
+		ifMatch = *req.Params.IfMatch
+	}
+	d, err := h.svc.SetTags(ctx, req.TenantId, req.DeviceId, a, ifMatch, req.Body.Tags)
+	if err != nil {
+		return nil, problemOf(err)
+	}
+	return gen.SetDeviceTags200JSONResponse(device(d)), nil
 }
 
 // ExpireDevice implements POST /tenants/{tenantId}/devices/{deviceId}/expire (202, two-phase revocation).

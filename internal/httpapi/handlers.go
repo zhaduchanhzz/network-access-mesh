@@ -161,6 +161,16 @@ type InstanceOpsHandlers interface {
 	UpgradePlatformInstance(ctx context.Context, request gen.UpgradePlatformInstanceRequestObject) (gen.UpgradePlatformInstanceResponseObject, error)
 }
 
+// TagHandlers — P4-T15 (`policies` tags): the tenant's tag catalog (§6.3 tenant_tags, §7.2 tagOwners) and the tags of a
+// device, which only come from that catalog (PUT /devices/{id}/tags — served by devicesapi, delegated by tagsapi).
+type TagHandlers interface {
+	SetDeviceTags(ctx context.Context, request gen.SetDeviceTagsRequestObject) (gen.SetDeviceTagsResponseObject, error)
+	ListTenantTags(ctx context.Context, request gen.ListTenantTagsRequestObject) (gen.ListTenantTagsResponseObject, error)
+	CreateTenantTag(ctx context.Context, request gen.CreateTenantTagRequestObject) (gen.CreateTenantTagResponseObject, error)
+	UpdateTenantTag(ctx context.Context, request gen.UpdateTenantTagRequestObject) (gen.UpdateTenantTagResponseObject, error)
+	DeleteTenantTag(ctx context.Context, request gen.DeleteTenantTagRequestObject) (gen.DeleteTenantTagResponseObject, error)
+}
+
 // QuarantineHandlers — P3-T18 (`provisioning` quarantine): the quarantine of an instance (job instance.quarantine,
 // immediate) and its release (always dual control, job instance.release after the approval — §11.4).
 type QuarantineHandlers interface {
@@ -239,6 +249,7 @@ type Handlers struct {
 	InstanceOps   InstanceOpsHandlers  // P3-T13a
 	Deprovision   DeprovisionHandlers  // P3-T09
 	Quarantine    QuarantineHandlers   // P3-T18
+	Tags          TagHandlers          // P4-T15
 	Members       MemberHandlers       // P4-T09
 	Portal        PortalHandlers       // P4-T04
 	Admin         AdminHandlers        // P4-T03a
@@ -248,8 +259,8 @@ func (h Handlers) mounted() bool {
 	return h.Auth != nil || h.Tenants != nil || h.Devices != nil || h.Audit != nil || h.Jobs != nil || h.Monitoring != nil ||
 		h.Notifications != nil || h.Approvals != nil || h.Invitations != nil || h.Hosts != nil || h.IdPConsole != nil ||
 		h.Provisioning != nil || h.Lifecycle != nil || h.Relay != nil || h.Reconfigure != nil || h.Backups != nil ||
-		h.InstanceOps != nil || h.Quarantine != nil || h.Deprovision != nil || h.Members != nil || h.Portal != nil ||
-		h.Admin != nil
+		h.InstanceOps != nil || h.Quarantine != nil || h.Deprovision != nil || h.Tags != nil || h.Members != nil ||
+		h.Portal != nil || h.Admin != nil
 }
 
 // dispatcher implements gen.StrictServerInterface by promotion from the disjoint interfaces.
@@ -273,6 +284,7 @@ type dispatcher struct {
 	InstanceOpsHandlers
 	QuarantineHandlers
 	DeprovisionHandlers
+	TagHandlers
 	MemberHandlers
 	PortalHandlers
 	AdminHandlers
@@ -283,9 +295,12 @@ var _ gen.StrictServerInterface = dispatcher{}
 func newDispatcher(h Handlers) dispatcher {
 	d := dispatcher{h.Auth, h.Tenants, h.Devices, h.Audit, h.Jobs, h.Monitoring, h.Notifications, h.Approvals, h.Invitations,
 		h.Hosts, h.IdPConsole, h.Provisioning, h.Lifecycle, h.Relay, h.Reconfigure, h.Backups, h.InstanceOps,
-		h.Quarantine, h.Deprovision, h.Members, h.Portal, h.Admin}
+		h.Quarantine, h.Deprovision, h.Tags, h.Members, h.Portal, h.Admin}
 	if d.AdminHandlers == nil {
 		d.AdminHandlers = NotImplemented{}
+	}
+	if d.TagHandlers == nil {
+		d.TagHandlers = NotImplemented{}
 	}
 	if d.MemberHandlers == nil {
 		d.MemberHandlers = NotImplemented{}
@@ -425,6 +440,26 @@ func (NotImplemented) GetDevice(context.Context, gen.GetDeviceRequestObject) (ge
 
 func (NotImplemented) RenameDevice(context.Context, gen.RenameDeviceRequestObject) (gen.RenameDeviceResponseObject, error) {
 	return nil, problem.NotImplemented("RenameDevice")
+}
+
+func (NotImplemented) SetDeviceTags(context.Context, gen.SetDeviceTagsRequestObject) (gen.SetDeviceTagsResponseObject, error) {
+	return nil, problem.NotImplemented("SetDeviceTags")
+}
+
+func (NotImplemented) ListTenantTags(context.Context, gen.ListTenantTagsRequestObject) (gen.ListTenantTagsResponseObject, error) {
+	return nil, problem.NotImplemented("ListTenantTags")
+}
+
+func (NotImplemented) CreateTenantTag(context.Context, gen.CreateTenantTagRequestObject) (gen.CreateTenantTagResponseObject, error) {
+	return nil, problem.NotImplemented("CreateTenantTag")
+}
+
+func (NotImplemented) UpdateTenantTag(context.Context, gen.UpdateTenantTagRequestObject) (gen.UpdateTenantTagResponseObject, error) {
+	return nil, problem.NotImplemented("UpdateTenantTag")
+}
+
+func (NotImplemented) DeleteTenantTag(context.Context, gen.DeleteTenantTagRequestObject) (gen.DeleteTenantTagResponseObject, error) {
+	return nil, problem.NotImplemented("DeleteTenantTag")
 }
 
 func (NotImplemented) DeleteDevice(context.Context, gen.DeleteDeviceRequestObject) (gen.DeleteDeviceResponseObject, error) {
