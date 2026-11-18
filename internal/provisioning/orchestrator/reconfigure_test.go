@@ -55,9 +55,11 @@ type rcAgent struct {
 	started    time.Time
 	restarts   int
 	writes     int
-	invalid    func(configParams) bool // configtest refuses it
-	crash      func(configParams) bool // passes configtest, fails at runtime (never healthy)
-	guard      bool                    // the start guard refuses every start
+	invalid    func(configParams) bool   // configtest refuses it
+	crash      func(configParams) bool   // passes configtest, fails at runtime (never healthy)
+	guard      bool                      // the start guard refuses every start
+	noop       func(configParams) bool   // RestartInstance answers OK without restarting (the old container keeps running)
+	diskSHA    func(configParams) string // the sha256 the status reports for the file (default: of the parameters)
 	fp         string
 	tmpl       uint32
 	detached   bool
@@ -129,8 +131,12 @@ func (a *rcAgent) EnsureInstance(_ context.Context, in *agentv1.EnsureInstanceRe
 }
 
 func (a *rcAgent) statusLocked() *agentv1.InstanceStatus {
+	sha := paramSHA(a.fileParams)
+	if a.diskSHA != nil {
+		sha = a.diskSHA(a.fileParams)
+	}
 	st := &agentv1.InstanceStatus{ContainerState: agentv1.ContainerState_CONTAINER_STATE_RUNNING,
-		Health: agentv1.HealthState_HEALTH_STATE_HEALTHY, ConfigSha256: paramSHA(a.fileParams),
+		Health: agentv1.HealthState_HEALTH_STATE_HEALTHY, ConfigSha256: sha,
 		StartedAt: timestamppb.New(a.started), NoiseKeyFingerprint: a.fp}
 	switch {
 	case a.stopped:
@@ -159,6 +165,9 @@ func (a *rcAgent) RestartInstance(context.Context, *agentv1.RestartInstanceReque
 	if a.guard {
 		a.stopped = true // the agent contains the instance: stopped, edge detached, Critical event (P3-T03)
 		return nil, refused(codes.FailedPrecondition, agentv1.RefusalReason_REFUSAL_REASON_STATE, "start guard: noise key fingerprint differs")
+	}
+	if a.noop != nil && a.noop(a.fileParams) {
+		return &agentv1.RestartInstanceResponse{Status: a.statusLocked()}, nil
 	}
 	a.runParams, a.stopped = a.fileParams, false
 	a.started = a.started.Add(time.Second)
@@ -711,6 +720,17 @@ func TestReconfigureRollbackAtEveryFailurePoint(t *testing.T) {
 		{name: "runtime failure: never healthy", setup: func(g *rcRig) {
 			g.agent.crash = func(p configParams) bool { return p.LogLevel == "LOG_LEVEL_WARN" }
 		}, code: "instance_unhealthy", recorded: true, written: true, writes: 2, restarts: 2},
+		{name: "configuration on disk differs from the validated one", setup: func(g *rcRig) {
+			g.agent.diskSHA = func(p configParams) string {
+				if p.LogLevel == "LOG_LEVEL_WARN" {
+					return strings.Repeat("f", 64) // changed behind the agent's back after the write
+				}
+				return paramSHA(p)
+			}
+		}, code: "instance_unhealthy", recorded: true, written: true, writes: 2, restarts: 2},
+		{name: "restart answered but the container never restarted", setup: func(g *rcRig) {
+			g.agent.noop = func(p configParams) bool { return p.LogLevel == "LOG_LEVEL_WARN" }
+		}, code: "instance_unhealthy", recorded: true, written: true, writes: 2, restarts: 1},
 		{name: "API health: no database with the new version", setup: func(g *rcRig) {
 			g.hs.healthFn = func() bool { _, run, _, _ := g.agent.snapshot(); return run == paramSHA(g.base) }
 		}, code: "instance_unhealthy", recorded: true, written: true, writes: 2, restarts: 2},
