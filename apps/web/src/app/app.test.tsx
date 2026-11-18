@@ -65,16 +65,22 @@ describe("đăng nhập", () => {
 });
 
 describe("tenant context", () => {
-  it("nhiều membership ⇒ trang chọn tenant; chọn ⇒ /t/<id>/overview (chưa khả dụng, task P4-T04)", async () => {
+  it("nhiều membership ⇒ trang chọn tenant; chọn ⇒ /t/<id>/overview (Tổng quan của P4-T04)", async () => {
     mockApi({
       "GET /auth/session": json(200, twoTenants),
       [`GET /tenants/${TENANT_A}`]: json(200, tenantBody(TENANT_A, "tenant-a")),
+      [`GET /tenants/${TENANT_A}/dashboard`]: json(200, {
+        devices: { total: 3, online: 1, synced_at: "2026-11-19T01:00:00Z" },
+        instance: { status: "healthy", checked_at: "2026-11-19T01:00:00Z" },
+        unavailable: [],
+      }),
     });
     const { router } = renderApp({ path: "/" });
     await userEvent.click(await screen.findByRole("link", { name: /Tenant A/ }));
     await screen.findByRole("heading", { name: "Tổng quan", level: 1 });
     expect(router.state.location.pathname).toBe(`/t/${TENANT_A}/overview`);
-    expect(screen.getByTestId("unavailable")).toHaveTextContent("P4-T04");
+    expect(await screen.findByTestId("dash-total")).toHaveTextContent("3");
+    expect(screen.queryByTestId("unavailable")).toBeNull();
     expect(screen.getByTestId("shell-context")).toHaveTextContent("Tenant A");
   });
 

@@ -424,6 +424,72 @@ func (q *Queries) LockNotificationRef(ctx context.Context, lockKey string) error
 	return err
 }
 
+const lockTenantNotification = `-- name: LockTenantNotification :one
+SELECT id, tenant_id, recipient_membership_id, recipient_email, kind, payload, status, attempts, sent_at, read_at, created_at FROM notification_outbox
+WHERE tenant_id = $1::uuid AND id = $2
+FOR UPDATE
+`
+
+type LockTenantNotificationParams struct {
+	TenantID uuid.UUID
+	ID       uuid.UUID
+}
+
+// POST /tenants/{t}/notifications/{id}/read (P4-T04): khóa hàng của một thông báo của tenant (RLS + điều kiện tenant
+// tường minh); service kiểm người nhận là membership của chính người gọi trước khi ghi.
+func (q *Queries) LockTenantNotification(ctx context.Context, arg LockTenantNotificationParams) (NotificationOutbox, error) {
+	row := q.db.QueryRow(ctx, lockTenantNotification, arg.TenantID, arg.ID)
+	var i NotificationOutbox
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.RecipientMembershipID,
+		&i.RecipientEmail,
+		&i.Kind,
+		&i.Payload,
+		&i.Status,
+		&i.Attempts,
+		&i.SentAt,
+		&i.ReadAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const markNotificationRead = `-- name: MarkNotificationRead :one
+UPDATE notification_outbox SET read_at = COALESCE(read_at, now())
+WHERE tenant_id = $1::uuid AND id = $2
+  AND recipient_membership_id = $3::uuid
+RETURNING id, tenant_id, recipient_membership_id, recipient_email, kind, payload, status, attempts, sent_at, read_at, created_at
+`
+
+type MarkNotificationReadParams struct {
+	TenantID     uuid.UUID
+	ID           uuid.UUID
+	MembershipID uuid.UUID
+}
+
+// Đặt read_at một lần (lũy đẳng: hàng đã đọc giữ read_at cũ) — chỉ hàng gửi cho đúng membership đó (mg_api_tenant chỉ
+// có UPDATE (read_at), 0009).
+func (q *Queries) MarkNotificationRead(ctx context.Context, arg MarkNotificationReadParams) (NotificationOutbox, error) {
+	row := q.db.QueryRow(ctx, markNotificationRead, arg.TenantID, arg.ID, arg.MembershipID)
+	var i NotificationOutbox
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.RecipientMembershipID,
+		&i.RecipientEmail,
+		&i.Kind,
+		&i.Payload,
+		&i.Status,
+		&i.Attempts,
+		&i.SentAt,
+		&i.ReadAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const notificationRefExists = `-- name: NotificationRefExists :one
 SELECT EXISTS (
     SELECT 1 FROM notification_outbox

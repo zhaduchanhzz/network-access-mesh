@@ -391,6 +391,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tenants/{tenantId}/notifications/{notificationId}/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Đánh dấu một thông báo của chính người gọi là đã đọc
+         * @description Chỉ thông báo gửi cho membership của chính người gọi trong tenant này (§8.6 — ô ○ của mọi role); thông báo của thành viên khác hoặc của tenant khác ⇒ `404` thống nhất. Lũy đẳng: thông báo đã đọc giữ nguyên `read_at` cũ (không cần `Idempotency-Key` — không tạo tài nguyên hay job). Tenant bị suspend ⇒ `403 tenant_suspended` như mọi thao tác ghi (§8.4 bất biến 5).
+         */
+        post: operations["markNotificationRead"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tenants/{tenantId}/relay": {
         parameters: {
             query?: never;
@@ -2467,6 +2487,8 @@ export interface components {
         TenantId: string;
         /** @description ID thiết bị của nền tảng (UUID), ánh xạ `(tenant, headscale_node_id)` — không nhận node id thô của Headscale */
         DeviceId: string;
+        /** @description ID thông báo (`notification_outbox.id`) gửi cho chính người gọi */
+        NotificationId: string;
         MembershipId: string;
         JobId: string;
         InstanceId: string;
@@ -2813,6 +2835,10 @@ export interface operations {
                 tag?: string;
                 /** @description Tìm theo tên thiết bị */
                 q?: string;
+                /** @description `true`: chỉ node gắn tag (thuộc tag, không còn chủ sở hữu — PL-09); `false`: chỉ node của một user (P4-T04) */
+                tagged?: boolean;
+                /** @description `false`: chỉ node không hết hạn (`expiry` null — tagged node luôn miễn hết hạn, HS-19); `true`: chỉ node có hạn. `tagged=true&has_expiry=false` là báo cáo rà soát định kỳ tagged node (§7.4, ADR-23 — P4-T04) */
+                has_expiry?: boolean;
                 fresh?: boolean;
             };
             header?: never;
@@ -3221,6 +3247,36 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    markNotificationRead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+                /** @description ID thông báo (`notification_outbox.id`) gửi cho chính người gọi */
+                notificationId: components["parameters"]["NotificationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Thông báo sau khi đánh dấu (`read_at` khác `null`) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Notification"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             429: components["responses"]["RateLimited"];
             default: components["responses"]["Unexpected"];
         };

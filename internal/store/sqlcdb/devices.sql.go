@@ -391,12 +391,14 @@ WHERE d.tenant_id = $1 AND d.removed_at IS NULL
   AND ($3::uuid IS NULL OR d.owner_membership_id = $3::uuid)
   AND ($4::boolean IS NULL OR d.online = $4::boolean)
   AND ($5::text IS NULL OR $5::text = ANY (d.tags))
-  AND ($6::text IS NULL
-       OR strpos(lower(COALESCE(d.given_name, '') || ' ' || COALESCE(d.name, '')), lower($6::text)) > 0)
-  AND ($7::timestamptz IS NULL
-       OR (d.first_seen_at, d.id) > ($7::timestamptz, $8::uuid))
+  AND ($6::boolean IS NULL OR (cardinality(d.tags) > 0) = $6::boolean)
+  AND ($7::boolean IS NULL OR (d.expiry IS NOT NULL) = $7::boolean)
+  AND ($8::text IS NULL
+       OR strpos(lower(COALESCE(d.given_name, '') || ' ' || COALESCE(d.name, '')), lower($8::text)) > 0)
+  AND ($9::timestamptz IS NULL
+       OR (d.first_seen_at, d.id) > ($9::timestamptz, $10::uuid))
 ORDER BY d.first_seen_at, d.id
-LIMIT $9
+LIMIT $11
 `
 
 type ListDevicesPageParams struct {
@@ -405,6 +407,8 @@ type ListDevicesPageParams struct {
 	Owner         *uuid.UUID
 	Online        *bool
 	Tag           *string
+	Tagged        *bool
+	HasExpiry     *bool
 	Search        *string
 	AfterSeen     *time.Time
 	AfterID       *uuid.UUID
@@ -417,7 +421,8 @@ type ListDevicesPageRow struct {
 }
 
 // GET /tenants/{t}/devices: thiết bị còn sống, thứ tự ổn định (first_seen_at, id) (§13.1). own_membership: quyền
-// phạm vi own (End User) — chỉ thiết bị của chính membership đó và không có tag (§8.4 bất biến 3b).
+// phạm vi own (End User) — chỉ thiết bị của chính membership đó và không có tag (§8.4 bất biến 3b). tagged/has_expiry
+// (P4-T04): báo cáo rà soát tagged node không hết hạn (§7.4, ADR-23).
 func (q *Queries) ListDevicesPage(ctx context.Context, arg ListDevicesPageParams) ([]ListDevicesPageRow, error) {
 	rows, err := q.db.Query(ctx, listDevicesPage,
 		arg.TenantID,
@@ -425,6 +430,8 @@ func (q *Queries) ListDevicesPage(ctx context.Context, arg ListDevicesPageParams
 		arg.Owner,
 		arg.Online,
 		arg.Tag,
+		arg.Tagged,
+		arg.HasExpiry,
 		arg.Search,
 		arg.AfterSeen,
 		arg.AfterID,

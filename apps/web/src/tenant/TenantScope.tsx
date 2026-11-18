@@ -3,7 +3,7 @@
 // nhất (không lộ tenant có tồn tại hay không). Ngoài ra đọc GET /tenants/{tenantId} để biết trạng thái
 // (suspended/deprovisioning ⇒ banner chỉ-đọc; §8.4 bất biến 5).
 import { useQuery } from "@tanstack/react-query";
-import { createContext, useContext } from "react";
+import { createContext, useContext, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Navigate, Outlet, useParams } from "react-router";
 import { api, call } from "../api/client";
@@ -17,6 +17,8 @@ import { AppShell } from "../layout/AppShell";
 import { TENANT_NAV, visibleItems, type NavItem } from "../nav/navModel";
 import { ProblemAlert } from "../components/ProblemAlert";
 import { ForbiddenPage, NotFoundPage, UnavailablePage } from "../pages/StatusPages";
+import { TENANT_PAGES } from "./pages";
+import { useUnreadCount } from "./notifications/useUnreadCount";
 
 export interface TenantContextValue {
   tenantId: string;
@@ -24,6 +26,10 @@ export interface TenantContextValue {
   /** slug + tên từ membership (app.) — trên admin. lấy từ GET /tenants/{tenantId} */
   slug: string | null;
   name: string | null;
+  /** membership của người gọi trong tenant (app.); null với support grant (admin.) — P4-T04 lọc "thiết bị của tôi" */
+  membershipId: string | null;
+  /** tenant suspended/deprovisioning (hoặc vừa nhận 403 tenant_suspended): mọi thao tác ghi bị khóa ở UI (P4-T04) */
+  readOnly: boolean;
 }
 
 const TenantContext = createContext<TenantContextValue | null>(null);
@@ -58,15 +64,17 @@ export function TenantScope() {
   }
   if (raw !== tenantId) return <Navigate to={`/t/${tenantId}`} replace />;
 
-  const membership = session.memberships.find((m) => m.tenant_id === tenantId);
+  const membership = kind === "tenant" ? session.memberships.find((m) => m.tenant_id === tenantId) : undefined;
+  const status = tenant.data?.status;
+  const readOnly = status === "suspended" || status === "deprovisioning" || notices.suspendedTenants.has(tenantId);
   const value: TenantContextValue = {
     tenantId,
     role,
     slug: membership?.tenant_slug ?? tenant.data?.slug ?? null,
     name: membership?.tenant_name ?? tenant.data?.name ?? null,
+    membershipId: membership?.membership_id ?? null,
+    readOnly,
   };
-  const status = tenant.data?.status;
-  const readOnly = status === "suspended" || status === "deprovisioning" || notices.suspendedTenants.has(tenantId);
   const banner = (
     <>
       {readOnly ? (
@@ -83,15 +91,24 @@ export function TenantScope() {
   );
   return (
     <TenantContext value={value}>
-      <AppShell
-        base={`/t/${tenantId}`}
-        nav={visibleItems(TENANT_NAV, role)}
-        context={value.name ?? value.slug ?? tenantId}
-        banner={banner}
-      >
-        <Outlet />
-      </AppShell>
+      <TenantShell value={value} banner={banner} />
     </TenantContext>
+  );
+}
+
+/** Vỏ của tenant: nav theo role + badge số thông báo chưa đọc (P4-T04). */
+function TenantShell({ value, banner }: { value: TenantContextValue; banner: ReactNode }) {
+  const unread = useUnreadCount(value.tenantId, can(value.role, "tenant.notification:read"));
+  return (
+    <AppShell
+      base={`/t/${value.tenantId}`}
+      nav={visibleItems(TENANT_NAV, value.role)}
+      context={value.name ?? value.slug ?? value.tenantId}
+      banner={banner}
+      badges={unread.data ? { notifications: unread.data } : undefined}
+    >
+      <Outlet />
+    </AppShell>
   );
 }
 
@@ -105,5 +122,6 @@ export function TenantHome() {
 export function TenantNavRoute({ item }: { item: NavItem }) {
   const { role } = useTenant();
   if (!can(role, item.permission)) return <ForbiddenPage />;
-  return <UnavailablePage item={item} />;
+  const Screen = item.available ? TENANT_PAGES[item.path] : undefined;
+  return Screen ? <Screen /> : <UnavailablePage item={item} />;
 }

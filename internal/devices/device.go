@@ -143,6 +143,11 @@ type ListQuery struct {
 	Tag    string     // tag:<name>
 	Search string     // part of the given name or hostname (1–64 characters)
 	Fresh  bool       // run a bounded sync first and answer page 1 (§13.1)
+	// Tagged: true ⇒ tagged nodes only, false ⇒ user-owned nodes only. HasExpiry: false ⇒ nodes that never expire
+	// (expiry null) only, true ⇒ nodes with an expiry only. Tagged=true + HasExpiry=false is the periodic review of the
+	// tagged nodes that never expire (§7.4, ADR-23 — P4-T04).
+	Tagged    *bool
+	HasExpiry *bool
 }
 
 // Page is one page of devices.
@@ -181,6 +186,12 @@ func binding(tenant uuid.UUID, a Access, q ListQuery) []byte {
 	}
 	if q.Online != nil {
 		h.Write([]byte{'o', boolByte(*q.Online)})
+	}
+	if q.Tagged != nil {
+		h.Write([]byte{'t', boolByte(*q.Tagged)})
+	}
+	if q.HasExpiry != nil {
+		h.Write([]byte{'e', boolByte(*q.HasExpiry)})
 	}
 	h.Write([]byte("tag\x00" + q.Tag + "\x00q\x00" + q.Search))
 	return h.Sum(nil)[:8]
