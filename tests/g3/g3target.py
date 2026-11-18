@@ -159,7 +159,9 @@ class Target:
         a.stdout.close()
         try:
             _, err_b = b.communicate(timeout=timeout)
-            _, err_a = a.communicate(timeout=timeout)
+            a.wait(timeout=timeout)  # not communicate(): its stdout was handed to b and closed here
+            err_a = a.stderr.read()
+            a.stderr.close()
         except subprocess.TimeoutExpired as e:
             a.kill()
             b.kill()
