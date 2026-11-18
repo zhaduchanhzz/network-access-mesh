@@ -157,6 +157,9 @@ type world struct {
 	sessionsLive     int       // … and not expired
 	restorePoint     time.Time
 	pendingApprovals int
+	// support access grants of the dump (0023): approved into B (revoked by the run), pending into A (expired by the
+	// run), already revoked into A (left alone)
+	grantApproved, grantPending, grantRevoked uuid.UUID
 }
 
 func (w *world) exec(sql string, args ...any) {
@@ -238,6 +241,29 @@ func (w *world) approval(tenant *tenantFx, action, status string, decidedAgo tim
 	return id
 }
 
+// supportGrants inserts the support access grants of the dump (0023, P4-T05): sa1 is a Super Admin requesting for
+// itself; B's owner approved the grant into B (the trigger checks the decider), A's request is still pending, an older
+// grant into A was already revoked.
+func (w *world) supportGrants() {
+	staff, owner := uuid.New(), uuid.New()
+	w.exec(`INSERT INTO platform_users (id, identity_id, role_id) VALUES ($1, $2, (SELECT id FROM roles WHERE scope = 'platform'
+		AND key = 'super_admin'))`, staff, w.sa1)
+	w.exec(`INSERT INTO tenant_memberships (id, tenant_id, identity_id, role_id) VALUES ($1, $2, $3, (SELECT id FROM roles
+		WHERE scope = 'tenant' AND key = 'tenant_owner'))`, owner, w.b.id, w.b.identity)
+	grant := func(tenant uuid.UUID) uuid.UUID {
+		id := uuid.New()
+		w.exec(`INSERT INTO support_access_grants (id, tenant_id, grantee_platform_user_id, requested_by_platform_user_id,
+				effective_role_key, reason, ticket_ref, expires_at, created_at)
+			VALUES ($1, $2, $3, $3, 'support_operator', 'ticket work', 'T-9', now() + interval '6 hours', now() - interval '3 hours')`,
+			id, tenant, staff)
+		return id
+	}
+	w.grantApproved, w.grantPending, w.grantRevoked = grant(w.b.id), grant(w.a.id), grant(w.a.id)
+	w.exec(`UPDATE support_access_grants SET status = 'approved', approval_kind = 'tenant', approved_by_membership_id = $1,
+		decided_at = now() - interval '3 hours' WHERE id = $2`, owner, w.grantApproved)
+	w.exec(`UPDATE support_access_grants SET status = 'revoked', revoked_at = now() - interval '2 hours' WHERE id = $1`, w.grantRevoked)
+}
+
 func newWorld(t *testing.T, withAgent bool) *world {
 	t.Helper()
 	pg := storetest.Require(t)
@@ -291,6 +317,7 @@ func newWorld(t *testing.T, withAgent bool) *world {
 	w.queuedJob = uuid.New()
 	w.exec(`INSERT INTO provisioning_jobs (id, tenant_id, kind, status) VALUES ($1, $2, 'notification.send', 'queued')`,
 		w.queuedJob, w.a.id)
+	w.supportGrants()
 
 	// the outside world after the dump: B's stored key was rotated away (refused), B runs a newer policy
 	w.reg.errs[w.b.id] = &headscale.Error{Op: headscale.OpListAPIKeys, Kind: headscale.KindAPIKeyRejected}
@@ -334,13 +361,14 @@ func dump(v any) string {
 // state is a digest of everything the run may change (equal before and after a dry run).
 func (w *world) state() string {
 	return fmt.Sprintf("sessions open %d · auth %d · approvals open %d · console executed %d · invitations pending %d · "+
-		"instances failed %d · jobs %d · audit %d · settings %d",
+		"instances failed %d · jobs %d · audit %d · settings %d · support grants open %d",
 		w.count(`SELECT count(*) FROM sessions WHERE revoked_at IS NULL`), w.count(`SELECT count(*) FROM auth_requests`),
 		w.count(`SELECT count(*) FROM approval_requests WHERE status IN ('pending', 'approved')`),
 		w.count(`SELECT count(*) FROM approval_requests WHERE status = 'executed'`),
 		w.count(`SELECT count(*) FROM tenant_invitations WHERE status = 'pending'`),
 		w.count(`SELECT count(*) FROM tenant_instances WHERE status = 'failed'`), w.count(`SELECT count(*) FROM provisioning_jobs`),
-		w.count(`SELECT count(*) FROM audit_events`), w.count(`SELECT count(*) FROM system_settings WHERE key = 'maintenance'`))
+		w.count(`SELECT count(*) FROM audit_events`), w.count(`SELECT count(*) FROM system_settings WHERE key = 'maintenance'`),
+		w.count(`SELECT count(*) FROM support_access_grants WHERE status IN ('pending', 'approved')`))
 }
 
 // ---------------------------------------------------------------------------------------------------- tests
@@ -349,7 +377,8 @@ func (w *world) state() string {
 // nothing (no write, no rotation, no security event, the policy step asked in dry-run mode, the key probe read-only);
 // the run puts maintenance ON with the post_restore record, revokes every session of the dump (expired ones included)
 // and deletes its auth requests, expires every open approval request and the console session still in its window (the
-// one long over is left alone), revokes every pending invitation, reports the orphan instance on the host (not deleted,
+// one long over is left alone), revokes the approved support access grant and expires the pending one (the revoked one
+// is left alone), revokes every pending invitation, reports the orphan instance on the host (not deleted,
 // not adopted: no registry row appears) and marks the lost one failed, asks the rotation for the running instances only
 // with AllowBootstrap and trigger post_restore (B re-issued), reviews the policies (B flagged), enqueues inventory.sync
 // for the running instances, lists the queued job of the dump, writes audit.gap for the platform and every tenant,
@@ -378,7 +407,8 @@ func TestPostRestoreReconcile(t *testing.T) {
 		dry.Sessions.LiveAtCutoff != int64(w.sessionsLive) || dry.Approvals.Expired != int64(w.pendingApprovals) ||
 		dry.Approvals.ConsoleGrantsExpired != 1 || dry.Invitations.Revoked != 2 || len(dry.Instances.Orphans) != 1 ||
 		len(dry.Instances.Lost) != 1 || dry.Instances.Lost[0].MarkedFailed || keyOutcome(dry, "pr-a") != "ok/" ||
-		keyOutcome(dry, "pr-b") != "would_reissue/key_rejected" || dry.InventorySync.Enqueued != 2 || dry.AuditGap.Written != 0 {
+		keyOutcome(dry, "pr-b") != "would_reissue/key_rejected" || dry.InventorySync.Enqueued != 2 || dry.AuditGap.Written != 0 ||
+		dry.SupportGrants.Status != postrestore.SupportGrantsChecked || dry.SupportGrants.Revoked != 1 || dry.SupportGrants.Expired != 1 {
 		t.Fatalf("dry-run report:\n%s", dump(dry))
 	}
 
@@ -411,8 +441,19 @@ func TestPostRestoreReconcile(t *testing.T) {
 		t.Fatalf("approvals: %d open; report %+v", n, rep.Approvals)
 	}
 	if n := w.count(`SELECT count(*) FROM tenant_invitations WHERE status = 'pending'`); n != 0 || rep.Invitations.Revoked != 2 ||
-		rep.Invitations.ByTenant["pr-a"] != 1 || rep.Invitations.ByTenant["pr-b"] != 1 || rep.SupportGrants.Status != "not_in_schema" {
+		rep.Invitations.ByTenant["pr-a"] != 1 || rep.Invitations.ByTenant["pr-b"] != 1 {
 		t.Fatalf("invitations: %d pending; report %+v", n, rep.Invitations)
+	}
+	sg := rep.SupportGrants
+	if n := w.count(`SELECT count(*) FROM support_access_grants WHERE status IN ('pending', 'approved')`); n != 0 ||
+		sg.Status != postrestore.SupportGrantsChecked || sg.Revoked != 1 || sg.Expired != 1 || sg.ByStatus["approved"] != 1 ||
+		sg.ByStatus["pending"] != 1 ||
+		w.count(`SELECT count(*) FROM support_access_grants WHERE id = $1 AND status = 'revoked' AND revoked_at IS NOT NULL
+			AND approval_kind = 'tenant'`, w.grantApproved) != 1 ||
+		w.count(`SELECT count(*) FROM support_access_grants WHERE id = $1 AND status = 'expired' AND approval_kind IS NULL`, w.grantPending) != 1 ||
+		w.count(`SELECT count(*) FROM support_access_grants WHERE id = $1 AND status = 'revoked' AND revoked_at < now() - interval '1 hour'`,
+			w.grantRevoked) != 1 {
+		t.Fatalf("support grants: %d open; report %+v", n, sg)
 	}
 	// 3. instances: the orphan reported only, the lost one failed
 	if len(rep.Instances.Orphans) != 1 || rep.Instances.Orphans[0].InstanceID != w.orphan.String() ||
@@ -491,6 +532,7 @@ func TestPostRestoreReconcile(t *testing.T) {
 	w.session(w.sa1, w.platformIdP, "admin", time.Second, false, false)
 	again := w.run(false)
 	if again.Sessions.Revoked != 1 || again.Approvals.Expired != 0 || again.Invitations.Revoked != 0 || again.AuditGap.Written != 0 ||
+		again.SupportGrants.Revoked != 0 || again.SupportGrants.Expired != 0 ||
 		again.InventorySync.Enqueued != 0 || again.InventorySync.Existing != 2 || again.Maintenance.SetByRun || again.Maintenance.Run != 2 ||
 		len(again.Instances.Lost) != 0 || w.count(`SELECT count(*) FROM audit_events WHERE action = 'audit.gap'`) != 4 {
 		t.Fatalf("second run:\n%s", dump(again))
@@ -523,7 +565,7 @@ func TestPostRestoreWithoutAgent(t *testing.T) {
 }
 
 // TestPostRestoreRefusals — refused before anything is written: no restore point, a restore point after the database
-// clock, and a schema that already holds support_access_grants (P4-T05) which this version cannot revoke.
+// clock.
 func TestPostRestoreRefusals(t *testing.T) {
 	w := newWorld(t, true)
 	before := w.state()
@@ -537,12 +579,20 @@ func TestPostRestoreRefusals(t *testing.T) {
 			t.Errorf("%s: %v %s", name, err, rep.Status)
 		}
 	}
-	w.exec(`CREATE TABLE support_access_grants (id uuid PRIMARY KEY)`)
-	if _, err := w.svc.Run(ctx, postrestore.Request{RestorePoint: w.restorePoint}); !errors.Is(err, postrestore.ErrUnsupportedSchema) {
-		t.Fatalf("support_access_grants present: %v", err)
-	}
 	if got := w.state(); got != before || len(w.keys.requests) != 0 || w.agent.calls != 0 {
 		t.Fatalf("a refused run changed something:\nbefore %s\nafter  %s", before, got)
+	}
+}
+
+// TestPostRestoreSchemaWithoutSupportGrants — a dump of a schema before migration 0023 (P4-T05) has no
+// support_access_grants table: the step reports not_in_schema and the run completes.
+func TestPostRestoreSchemaWithoutSupportGrants(t *testing.T) {
+	w := newWorld(t, true)
+	w.exec(`DROP TABLE support_access_grants`)
+	rep := w.run(false)
+	if rep.Status != postrestore.StatusCompleted || rep.SupportGrants.Status != postrestore.SupportGrantsNotInSchema ||
+		rep.SupportGrants.Revoked != 0 || rep.SupportGrants.Expired != 0 || rep.Sessions.Revoked != int64(w.sessionsTotal) {
+		t.Fatalf("report:\n%s", dump(rep))
 	}
 }
 

@@ -256,15 +256,15 @@ Mã thoát của `post-restore-reconcile`: `0` hoàn tất (báo cáo vẫn có 
 bước và đối tượng không làm được (Agent không cấu hình/không tới được, instance không tới được, key không cấp lại được) —
 sửa rồi chạy lại; `1` lỗi (cờ ghi `post_restore.status = failed` ⇒ `maintenance off` bị chặn); `2` sai cú pháp hoặc
 điểm khôi phục ở tương lai. Lệnh dùng quyền của worker (Host Agent — `MG_AGENT_*`, kek-app, policy, lời mời; migration
-0018 cho nó quyền thu hồi session) và **từ chối chạy** nếu schema đã có bảng `support_access_grants` (P4-T05) mà bản này
-chưa biết thu hồi.
+0018 cho nó quyền thu hồi session, migration 0023 quyền `UPDATE (status, revoked_at, …)` trên `support_access_grants`).
+Từ P4-T05 lệnh thu hồi cả Support Access Grant của bản dump (trước đó nó từ chối chạy khi schema có bảng này).
 
 Các bước của lệnh (`cutoff` = đồng hồ DB lúc lệnh bắt đầu; mọi bước idempotent; `--dry-run` chỉ đọc và đếm):
 
 | # | Bước | Ghi gì | Báo cáo (khóa JSON) |
 |---|---|---|---|
 | 1 | Cờ bảo trì ON + bản ghi `post_restore` (`running`) trong DB vừa restore | `system_settings`, audit `platform.restore.reconcile.requested` (+ `platform.maintenance.enable` nếu cờ chưa bật) | `maintenance` |
-| 2 | Thu hồi mọi session tạo trước `cutoff` (kể cả đã hết hạn), xóa `auth_requests` của bản dump; yêu cầu phê duyệt `pending`/`approved` ⇒ `expired`; phiên console Keycloak đã thực thi còn trong cửa sổ ⇒ `expired`; lời mời `pending` ⇒ `revoked` | `sessions.revoked_at`, `approval_requests.status`, `tenant_invitations.status` | `sessions`, `approvals`, `invitations`, `support_grants` (`not_in_schema`) |
+| 2 | Thu hồi mọi session tạo trước `cutoff` (kể cả đã hết hạn), xóa `auth_requests` của bản dump; yêu cầu phê duyệt `pending`/`approved` ⇒ `expired`; phiên console Keycloak đã thực thi còn trong cửa sổ ⇒ `expired`; lời mời `pending` ⇒ `revoked`; Support Access Grant `approved` ⇒ `revoked`, `pending` ⇒ `expired` (P4-T05) | `sessions.revoked_at`, `approval_requests.status`, `tenant_invitations.status`, `support_access_grants.status`/`revoked_at` | `sessions`, `approvals`, `invitations`, `support_grants` (`checked` + `revoked`/`expired`/`by_status`; `not_in_schema` với bản dump của schema trước `0023`) |
 | 3 | Inventory của Host Agent so với registry: instance trên host không có trong registry ⇒ **mồ côi** — chỉ báo cáo (không xóa, không adopt; `security_event` `reconcile.unknown_instance`); instance trong registry không còn gì trên host ⇒ **mất** — `failed` (audit `platform.instance.lost`), không provision lại | `tenant_instances.status` | `instances.orphans`, `instances.lost` |
 | 4 | API key mỗi instance đang chạy: phép xoay của P3-T10 dưới khóa `instance.apikey`, `AllowBootstrap`, trigger `post_restore` — key đang lưu dùng được và chưa tới hạn ⇒ không đổi; bị từ chối (đã xoay trong khoảng mất dữ liệu) hoặc mất ⇒ Agent `BootstrapApiKey` cấp key mới, expire mọi key khác | SecretStore, `tenant_instances.api_key_*`, audit `instance.apikey.rotate.*` | `api_keys` |
 | 5 | `GetPolicy` so với lần áp dụng hiện hành: khác ⇒ **không bao giờ áp bản cũ**: ghi chuỗi đang chạy thành lần áp dụng hiện hành (`trigger=restore`), nhập thành version `user` trạng thái `validated` (lint lỗi ⇒ `draft`) làm desired, cờ rà soát `policy.restore_review_required` (tenant thấy được); user `mg-<uuid>` không còn membership được liệt kê | `policy_versions`, `policy_applications`, `tenants.desired_policy_version_id`, audit `policy.restore_adopted` | `policies` |

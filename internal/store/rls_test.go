@@ -11,7 +11,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store/sqlcdb"
 )
 
-// rlsTables classifies every RLS table of migrations 0001–0013 by its §6.3 symbol: T (app.tenant_id only),
+// rlsTables classifies every RLS table of migrations 0001–0023 by its §6.3 symbol: T (app.tenant_id only),
 // T+P (tenant or platform scope), P (platform scope only), T/P (audit: tenant events / platform events).
 // col is the column compared with app_tenant_id(). A new table must be added here (TestCatalogRLSOnEveryTable).
 var rlsTables = []struct{ name, kind, col string }{
@@ -43,6 +43,15 @@ var rlsTables = []struct{ name, kind, col string }{
 	{"subscriptions", "T+P", "tenant_id"},
 	{"policy_versions", "T", "tenant_id"},
 	{"policy_applications", "T", "tenant_id"},
+	// 0020–0023 (P4-T05)
+	{"enrollment_requests", "T", "tenant_id"},
+	{"groups", "T", "tenant_id"},
+	{"group_members", "T", "tenant_id"},
+	{"tenant_tags", "T", "tenant_id"},
+	{"network_resources", "T", "tenant_id"},
+	{"dns_records", "T", "tenant_id"},
+	{"support_access_grants", "T+P", "tenant_id"},
+	{"identity_links", "T", "tenant_id"},
 }
 
 // noRLSTables are the tables §6.3 marks "—": global reference data (RBAC, subscription_plans), or identity-module

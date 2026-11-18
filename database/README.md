@@ -7,8 +7,8 @@ PostgreSQL của Management Plane (§6 của [bản master](../docs/planning/imp
 | Đường dẫn | Nội dung |
 |---|---|
 | `bootstrap/superuser.sql` | Chạy **một lần** bằng superuser của cụm, trong database `meshguard`, trước migration đầu tiên (chạy lại được): tạo `mg_migrator` (CREATEROLE, owner database) và `mg_backup` (BYPASSRLS + `pg_read_all_data`) — hai role chỉ superuser tạo được |
-| `migrations/0001…0019_*.sql` | Migration goose, forward-only (không có phần Down), nhúng vào binary qua `embed.go`; bản đồ bảng ở §6.3. `0007` (G2 vòng 1, F3) chỉ thêm CHECK: owner segment của `identity_providers.client_secret_ref` = `tenant_id` (hoặc `platform`); `0008` (G2 vòng 2, A-1) chỉ thêm cột `sessions.id_token_hint_enc`; `0009`–`0013` (P3-T06) `0014` (P3-T04, chỉ CHECK/DEFAULT cho placement) `0015` (P3-T05, chỉ cột `provisioning_jobs.cancel_requested_at`) `0017` (P3-T11, chỉ cột manifest/data key của `backups`), `0018` (P3-T17, chỉ quyền thu hồi session của worker) và `0019` (P3-T09; chỉ cột `tenants.keys_destroy_after`) — xem mục "Bảng của Phase 3" |
-| `queries/*.sql` + `sqlc.yaml` | Truy vấn sqlc → mã sinh ở `internal/store/sqlcdb` (không sửa tay); `jobs.sql` = khung job + idempotency (P2-T12); `devices.sql` = sổ thiết bị + trạng thái sync + thu hồi hai pha (P2-T13); `placement.sql` = khóa host + trạng thái cấp phát (P3-T04); `hosts.sql` = API `/platform/hosts` và lệnh `host-set` (P3-T04); `usage.sql` = QuotaChecker (P3-T06a); `backups.sql` = backup/restore v1 (P3-T11); `postrestore.sql` = đối soát sau restore PostgreSQL (P3-T17) |
+| `migrations/0001…0023_*.sql` | Migration goose, forward-only (không có phần Down), nhúng vào binary qua `embed.go`; bản đồ bảng ở §6.3. `0007` (G2 vòng 1, F3) chỉ thêm CHECK: owner segment của `identity_providers.client_secret_ref` = `tenant_id` (hoặc `platform`); `0008` (G2 vòng 2, A-1) chỉ thêm cột `sessions.id_token_hint_enc`; `0009`–`0013` (P3-T06) `0014` (P3-T04, chỉ CHECK/DEFAULT cho placement) `0015` (P3-T05, chỉ cột `provisioning_jobs.cancel_requested_at`) `0017` (P3-T11, chỉ cột manifest/data key của `backups`), `0018` (P3-T17, chỉ quyền thu hồi session của worker) và `0019` (P3-T09; chỉ cột `tenants.keys_destroy_after`) — xem mục "Bảng của Phase 3"; `0020`–`0023` (P4-T05) — mục "Bảng của Phase 4" |
+| `queries/*.sql` + `sqlc.yaml` | Truy vấn sqlc → mã sinh ở `internal/store/sqlcdb` (không sửa tay); `jobs.sql` = khung job + idempotency (P2-T12); `devices.sql` = sổ thiết bị + trạng thái sync + thu hồi hai pha (P2-T13); `placement.sql` = khóa host + trạng thái cấp phát (P3-T04); `hosts.sql` = API `/platform/hosts` và lệnh `host-set` (P3-T04); `usage.sql` = QuotaChecker (P3-T06a); `backups.sql` = backup/restore v1 (P3-T11); `postrestore.sql` = đối soát sau restore PostgreSQL (P3-T17; từ P4-T05 thu hồi cả Support Access Grant của bản dump) |
 | `river/grants.sql` | Quyền trên schema `river` của job queue (P2-T12), chạy lại sau mỗi lần migrate River — xem mục "Job queue (River)" |
 | `checks/partition_grants.sql` | Truy vấn CI: mỗi hàng là một vi phạm (quyền trên partition, partition chưa bật RLS, default privileges) |
 | `embed.go` | Package Go `database`: `Migrations`, `Seeds`, `Bootstrap`, `Checks`, `River` (embed.FS) |
@@ -218,6 +218,21 @@ khởi đầu chủ dự án chỉnh được (lý do từng số: chú thích t
 `subscription_plans.limits || subscriptions.overrides` của subscription còn hiệu lực, và trần số tenant ở
 `system_settings` `quota.max_tenants` (pool platform).
 
+## Bảng của Phase 4 (P4-T05, migration 0020–0023)
+
+Bằng chứng: [`P4-T05.md`](../docs/planning/evidence/P4-T05.md). Cùng nguyên tắc với Phase 3: `tenant_id` + `UNIQUE (tenant_id,
+id)`, FK ghép theo tenant (IT-03 duyệt mọi FK giữa bảng tenant), `ENABLE` + `FORCE` RLS theo ký hiệu §6.3, quyền cấp
+tường minh theo tiến trình (ma trận đầy đủ: `TestP4GrantMatrix` trong `internal/store/schema_p4_test.go`), không role nào
+có `TRUNCATE`, không secret (chỉ SHA-256 32 byte). Chưa có truy vấn sqlc cho các bảng này (chỉ `models.go` sinh lại) —
+module tiêu thụ (P4-T06, P4-T09, P4-T10, P4-T12, P4-T13, P4-T15) tự viết truy vấn của mình.
+
+| Migration | Bảng (RLS) | Ghi | Điểm cần biết |
+|---|---|---|---|
+| `0020` | `enrollment_requests` (T) + FK `device_inventory_cache (tenant_id, enrollment_request_id)` | api tenant: tạo, duyệt/từ chối, phát, claim, thu hồi; worker tenant: reconcile (trạng thái, node đã đăng ký, lỗi) + xóa theo retention | Nội dung được duyệt (người yêu cầu, chủ thiết bị, phương thức, nhãn, `requested_tags`, `ephemeral`, `reusable`) **bất biến**; người quyết định ≠ người yêu cầu; credential chỉ sau `issued_at`, hạn ≤ 15 phút (T-06); CHECK bất biến của từng trạng thái/phương thức (§6.3). FK thiết bị → yêu cầu không `ON DELETE` (liên kết authoritative — §6.4): retention chỉ xóa yêu cầu không còn thiết bị trỏ tới |
+| `0021` | `groups`, `group_members`, `tenant_tags` (T) | api tenant: CRUD; worker tenant: đọc (renderer `policy.apply`) | Tên group `^[a-z][a-z0-9-]{0,49}$`, tên tag `^tag:[a-z][a-z0-9-]{0,49}$` (bất biến, như `purpose`); xóa group xóa thành viên, xóa membership còn trong group bị từ chối; tag `platform_managed`: ba policy `RESTRICTIVE` của `mg_api_tenant` — đọc được, không tạo/sửa/xóa được |
+| `0022` | `network_resources`, `dns_records` (T) | api tenant: CRUD catalog, tạo/xóa bản ghi DNS; worker tenant: đọc | `address cidr` (`host`/`service` một địa chỉ, `subnet` prefix ngắn hơn, không `/0`); `ports`/`tags` kiểm trên dạng văn bản của mảng (phần tử NULL, có dấu phẩy, nhiều chiều đều bị từ chối); FQDN chữ thường, `A` ⇔ IPv4 đơn, `AAAA` ⇔ IPv6 đơn; bản ghi DNS không sửa được |
+| `0023` | `support_access_grants` (T+P), `identity_links` (T) | grants: api platform tạo + duyệt break-glass + thu hồi, api tenant duyệt/từ chối/thu hồi, worker platform `status`/`revoked_at` (`grant.expire`, `post-restore-reconcile`), mọi pool đọc; links: chưa role ứng dụng nào (P7-T06) | Người quyết định là `approved_by_membership_id` (kiểu `tenant`) **hoặc** `approved_by_platform_user_id` (`breakglass`) — mỗi pool chỉ có quyền cột của loại mình. Trigger `mg_support_grant_guard` (SECURITY INVOKER — tra dưới RLS của người gọi, ngữ cảnh sai ⇒ từ chối): grant mới luôn `pending`; lúc quyết định, người duyệt phải còn hoạt động và có `tenant.support_grant:decide` (kiểu tenant) hoặc là Super Admin thứ hai đang hoạt động (break-glass, người yêu cầu cũng phải là Super Admin) ⇒ `42501`; quyết định + cửa sổ bất biến sau đó, trạng thái cuối giữ nguyên ⇒ `23514`. Trigger không chạy trong `pg_restore` (trigger nằm ở phần post-data, sau khi `COPY` dữ liệu) |
+
 ## Triển khai (P2-T16 nối vào job `migrate` của `mg-core`)
 
 1. Superuser: `psql -U postgres -d meshguard -v ON_ERROR_STOP=1 < database/bootstrap/superuser.sql` (hoặc `store.Bootstrap`).
@@ -240,7 +255,10 @@ khởi đầu chủ dự án chỉnh được (lý do từng số: chú thích t
 
 Migration sau này: forward-only, expand → migrate → contract. Do `FORCE ROW LEVEL SECURITY`, chính owner
 (`mg_migrator`) cũng bị RLS lọc (không có policy cho nó ⇒ 0 hàng): migration dữ liệu phải tạm `NO FORCE` trong cùng
-transaction rồi `FORCE` lại. Bảng mới phải được xếp loại trong `internal/store/rls_test.go` (`rlsTables` /
+transaction rồi `FORCE` lại. Điều này áp dụng cả cho **`ADD FOREIGN KEY` trên bảng đã có dữ liệu**: PostgreSQL kiểm các
+hàng có sẵn bằng một truy vấn chạy dưới quyền owner, nên trên bảng `FORCE` phép kiểm thấy 0 hàng và một giá trị mồ côi
+lọt qua (đã thử ở P4-T05 — `TestMigrations0020To0023OnSchema19Data`); `0020` tạm `NO FORCE` bảng tham chiếu quanh lệnh
+thêm FK (`CHECK` không bị ảnh hưởng — nó đọc thẳng heap). Bảng mới phải được xếp loại trong `internal/store/rls_test.go` (`rlsTables` /
 `noRLSTables`), nếu không test catalog sẽ fail.
 
 ## Test

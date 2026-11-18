@@ -13,7 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// fixture holds one row per scope (tenant A, tenant B, platform) in every table of migrations 0001–0014, inserted
+// fixture holds one row per scope (tenant A, tenant B, platform) in every table of migrations 0001–0023, inserted
 // by the superuser (bypassing RLS) so the tests can check what each role and scope sees. Every identifier is random,
 // so fixtures of parallel tests share a database without colliding.
 type fixture struct {
@@ -30,13 +30,19 @@ type fixture struct {
 	setting      string
 	// 0009–0013 (P3-T06): rows of the platform scope and the plan of this fixture
 	platformApproval, platformNotification, sharedRegion, platformBackup, plan uuid.UUID
+	// 0023 (P4-T05): platform_users.id of platformUser (grantee and requester of the support grants) and the key of the
+	// support-scope role of this fixture (effective role of the grants)
+	platformUserRow uuid.UUID
+	supportRole     string
 }
 
 type tenantRows struct {
 	id, instance, config, idp, identity, membership, dek, secret, device, job uuid.UUID
 	// 0009–0013 (P3-T06)
 	approval, invitation, notification, region, assignment, backup, subscription, policy, application uuid.UUID
-	slug                                                                                              string
+	// 0020–0023 (P4-T05); oldIdP/oldIdentity: a retiring IdP of the tenant and its identity, linked to identity
+	enrollment, group, tag, resource, record, grant, oldIdP, oldIdentity uuid.UUID
+	slug                                                                 string
 }
 
 func newID() uuid.UUID { return uuid.Must(uuid.NewV7()) }
@@ -49,14 +55,16 @@ func randInt(n int64) int64 {
 func newFixture() *fixture {
 	f := &fixture{sfx: randomHex(4), host: newID(), tenantRole: newID(), platformRole: newID(), platformIdP: newID(),
 		platformUser: newID(), platformDEK: newID(), opsDEK: newID(), platformApproval: newID(), platformNotification: newID(),
-		sharedRegion: newID(), platformBackup: newID(), plan: newID()}
+		sharedRegion: newID(), platformBackup: newID(), plan: newID(), platformUserRow: newID()}
 	f.permission = "tenant.fixture_" + f.sfx + ":read" // permissions.key: <scope>.<resource>:<action>, prefix = scope
 	f.setting = "test.setting_" + f.sfx
+	f.supportRole = "support_" + f.sfx
 	for _, tr := range []*tenantRows{&f.a, &f.b} {
 		*tr = tenantRows{id: newID(), instance: newID(), config: newID(), idp: newID(), identity: newID(),
 			membership: newID(), dek: newID(), secret: newID(), device: newID(), job: newID(), approval: newID(), invitation: newID(),
 			notification: newID(), region: newID(), assignment: newID(), backup: newID(), subscription: newID(), policy: newID(),
-			application: newID()}
+			application: newID(), enrollment: newID(), group: newID(), tag: newID(), resource: newID(), record: newID(), grant: newID(),
+			oldIdP: newID(), oldIdentity: newID()}
 		tr.slug = "t" + randomHex(5)
 	}
 	return f
@@ -72,11 +80,15 @@ var fixtureSteps = map[int64]func(f *fixture, t *testing.T, c *pgx.Conn){
 	17: (*fixture).step17,
 	18: (*fixture).step18,
 	19: (*fixture).step19,
+	20: (*fixture).step20,
+	21: (*fixture).step21,
+	22: (*fixture).step22,
+	23: (*fixture).step23,
 }
 
 // latestMigration is the number of the last migration of database/migrations (TestMigrationsUpWithData,
 // TestMigrationsShareClusterRoles).
-const latestMigration = 19
+const latestMigration = 23
 
 // migrationVersions are the versions that have a migration, ascending. Tasks written in parallel use provisional
 // numbers; the coordinator renumbers at merge so that the numbers stay contiguous (goose refuses a migration numbered
@@ -141,7 +153,7 @@ func (f *fixture) step2(t *testing.T, c *pgx.Conn) {
 		f.platformIdP, f.sfx, "mgsec://platform/idp-client-secret."+f.platformIdP.String()+"#1")
 	exec(t, c, `INSERT INTO identities (id, idp_id, scope, subject, email) VALUES ($1, $2, 'platform', 'sa-'||$3, 'sa@example.test')`,
 		f.platformUser, f.platformIdP, f.sfx)
-	exec(t, c, `INSERT INTO platform_users (identity_id, role_id) VALUES ($1, $2)`, f.platformUser, f.platformRole)
+	exec(t, c, `INSERT INTO platform_users (id, identity_id, role_id) VALUES ($1, $2, $3)`, f.platformUserRow, f.platformUser, f.platformRole)
 	for i, tr := range f.tenants() {
 		var ref *string
 		if i == 0 {
@@ -397,3 +409,58 @@ func hasColumn(t *testing.T, c *pgx.Conn, table, column string) bool {
 // step18 (0018, P3-T17 — renumbered from the provisional 0020 at merge): no table, no column — a grant (UPDATE
 // (revoked_at, id_token_hint_enc) ON sessions TO mg_worker_platform), exercised by TestMigration0018WorkerRevokesSessions.
 func (f *fixture) step18(*testing.T, *pgx.Conn) {}
+
+// step20 (0020, P4-T05): enrollment_requests — tenant A: a pre-auth key request consumed by A's device, which links
+// to it (device_inventory_cache.enrollment_request_id, FK added by 0020); tenant B: a web-auth request waiting for the
+// device (code issued in a Portal session, 10-minute window).
+func (f *fixture) step20(t *testing.T, c *pgx.Conn) {
+	exec(t, c, `INSERT INTO enrollment_requests (id, tenant_id, instance_id, requested_by_membership_id, method, target_membership_id,
+			device_label, status, issued_at, credential_expires_at, headscale_preauthkey_id, consumed_node_id)
+		VALUES ($1, $2, $3, $4, 'preauth_key', $4, 'laptop', 'consumed', now() - interval '1 hour', now() - interval '50 minutes', 7, 1)`,
+		f.a.enrollment, f.a.id, f.a.instance, f.a.membership)
+	exec(t, c, `UPDATE device_inventory_cache SET enrollment_request_id = $1 WHERE id = $2`, f.a.enrollment, f.a.device)
+	exec(t, c, `INSERT INTO enrollment_requests (id, tenant_id, instance_id, requested_by_membership_id, method, target_membership_id,
+			device_label, status, issued_at, credential_expires_at, enroll_code_hash, session_id_hash)
+		VALUES ($1, $2, $3, $4, 'web_auth', $4, 'phone', 'awaiting_device', now(), now() + interval '10 minutes',
+			sha256(convert_to($5, 'UTF8')), sha256(convert_to($6, 'UTF8')))`,
+		f.b.enrollment, f.b.id, f.b.instance, f.b.membership, "code-"+randomHex(8), "session-"+randomHex(8))
+}
+
+// step21 (0021, P4-T05): groups (one per tenant, the tenant's membership in it — group_members), tenant_tags (a server
+// tag per tenant).
+func (f *fixture) step21(t *testing.T, c *pgx.Conn) {
+	for _, tr := range f.tenants() {
+		exec(t, c, `INSERT INTO groups (id, tenant_id, name, description) VALUES ($1, $2, 'eng', 'Engineering')`, tr.group, tr.id)
+		exec(t, c, `INSERT INTO group_members (tenant_id, group_id, membership_id) VALUES ($1, $2, $3)`, tr.id, tr.group, tr.membership)
+		exec(t, c, `INSERT INTO tenant_tags (id, tenant_id, name, purpose) VALUES ($1, $2, 'tag:server', 'server')`, tr.tag, tr.id)
+	}
+}
+
+// step22 (0022, P4-T05): network_resources (a PostgreSQL host per tenant, owned by the tenant's group), dns_records (an A
+// record per tenant).
+func (f *fixture) step22(t *testing.T, c *pgx.Conn) {
+	for _, tr := range f.tenants() {
+		exec(t, c, `INSERT INTO network_resources (id, tenant_id, name, kind, address, ports, protocol, tags, owner_group_id)
+			VALUES ($1, $2, 'db', 'host', '10.0.0.5/32', '{5432}', 'tcp', '{tag:server}', $3)`, tr.resource, tr.id, tr.group)
+		exec(t, c, `INSERT INTO dns_records (id, tenant_id, name, type, value) VALUES ($1, $2, 'db.'||$3||'.ts.test', 'A', '100.64.0.5')`,
+			tr.record, tr.id, tr.slug)
+	}
+}
+
+// step23 (0023, P4-T05): support_access_grants (a pending request of the fixture's platform user into each tenant, with a
+// support-scope role of this fixture), identity_links (per tenant: the identity of a retiring IdP of the tenant linked to
+// the tenant's identity on its active IdP).
+func (f *fixture) step23(t *testing.T, c *pgx.Conn) {
+	exec(t, c, `INSERT INTO roles (scope, key, name) VALUES ('support', $1, 'Support (fixture)')`, f.supportRole)
+	for _, tr := range f.tenants() {
+		exec(t, c, `INSERT INTO support_access_grants (id, tenant_id, grantee_platform_user_id, requested_by_platform_user_id,
+				effective_role_key, reason, ticket_ref, expires_at)
+			VALUES ($1, $2, $3, $3, $4, 'fixture', 'TICKET-1', now() + interval '4 hours')`, tr.grant, tr.id, f.platformUserRow, f.supportRole)
+		exec(t, c, `INSERT INTO identity_providers (id, scope, tenant_id, issuer, client_id, driver, status)
+			VALUES ($1, 'tenant', $2, 'https://idp.test/realms/previous-'||$3, 'portal', 'external', 'retiring')`, tr.oldIdP, tr.id, tr.slug)
+		exec(t, c, `INSERT INTO identities (id, idp_id, tenant_id, scope, subject, email)
+			VALUES ($1, $2, $3, 'tenant', 'old-user-'||$4, 'user@'||$4||'.test')`, tr.oldIdentity, tr.oldIdP, tr.id, tr.slug)
+		exec(t, c, `INSERT INTO identity_links (tenant_id, old_identity_id, old_idp_id, new_identity_id, new_idp_id)
+			VALUES ($1, $2, $3, $4, $5)`, tr.id, tr.oldIdentity, tr.oldIdP, tr.identity, tr.idp)
+	}
+}

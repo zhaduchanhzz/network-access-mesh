@@ -44,8 +44,6 @@ const (
 var (
 	// ErrInvalidRequest: no restore point, or one in the future of the database clock.
 	ErrInvalidRequest = errors.New("postrestore: invalid request")
-	// ErrUnsupportedSchema: the schema holds support_access_grants (P4-T05) and this version cannot revoke them.
-	ErrUnsupportedSchema = errors.New("postrestore: the schema has support_access_grants, which this version cannot revoke — update the command (P4-T05)")
 )
 
 // KeyRotator is the API key rotation of P3-T10 (*apikey.Service).
@@ -121,6 +119,7 @@ type run struct {
 	op      audit.Operation
 	marker  platform.PostRestore
 	tenants []sqlcdb.ListTenantsForPostRestoreRow
+	grants  bool // support_access_grants exists (migration 0023)
 	lost    map[uuid.UUID]bool
 	review  map[string]*ReviewItem // tenant id (or "instance:<id>") → item
 	order   []string
@@ -133,7 +132,7 @@ func (s *Service) Run(ctx context.Context, req Request) (Report, error) {
 		ReviewRequired: []ReviewItem{}, APIKeys: []APIKeyResult{}, Policies: []policies.RunningResult{}, OpenJobs: []OpenJob{},
 		Approvals: ApprovalsStep{ByScopeStatus: map[string]int64{}}, Invitations: InvitationsStep{ByTenant: map[string]int64{}},
 		Instances:     InstancesStep{Orphans: []OrphanInstance{}, Lost: []LostInstance{}, Other: []Finding{}},
-		InventorySync: InventorySyncStep{Skipped: []string{}}, SupportGrants: SupportGrantsStep{Status: "not_in_schema"}}
+		InventorySync: InventorySyncStep{Skipped: []string{}}, SupportGrants: SupportGrantsStep{Status: SupportGrantsNotInSchema, ByStatus: map[string]int64{}}}
 	id, err := uuid.NewV7()
 	if err != nil {
 		return rep, err
@@ -182,12 +181,8 @@ func (s *Service) preflight(ctx context.Context, r *run) error {
 			return fmt.Errorf("%w: the restore point %s is after the database clock %s", ErrInvalidRequest,
 				r.req.RestorePoint.UTC().Format(time.RFC3339), now.UTC().Format(time.RFC3339))
 		}
-		present, err := q.SupportGrantsTablePresent(ctx)
-		if err != nil {
+		if r.grants, err = q.SupportGrantsTablePresent(ctx); err != nil {
 			return err
-		}
-		if present {
-			return ErrUnsupportedSchema
 		}
 		r.cutoff = now
 		r.rep.StartedAt = now.UTC()
@@ -250,7 +245,8 @@ func (s *Service) begin(ctx context.Context, r *run) error {
 
 // steps runs steps 2–8; the first database error stops the run (a step that cannot reach a subject is incomplete).
 func (s *Service) steps(ctx context.Context, r *run) error {
-	for _, step := range []func(context.Context, *run) error{s.sessions, s.approvals, s.invitations, s.instances, s.apiKeys,
+	for _, step := range []func(context.Context, *run) error{s.sessions, s.approvals, s.supportGrants, s.invitations, s.instances,
+		s.apiKeys,
 		s.policies, s.inventorySync, s.openJobs, s.auditGap} {
 		if err := step(ctx, r); err != nil {
 			return err
@@ -304,6 +300,36 @@ func (s *Service) approvals(ctx context.Context, r *run) error {
 		}
 		r.rep.Approvals.ConsoleGrantsExpired, err = q.ExpireConsoleGrants(ctx, sqlcdb.ExpireConsoleGrantsParams(grants))
 		return err
+	})
+}
+
+// supportGrants: the support access grants of the dump closed (platform pool — T+P): approved ⇒ revoked, pending ⇒
+// expired. A grant revoked, refused or expired in the lost window must not come back (§8.7, §17.2).
+func (s *Service) supportGrants(ctx context.Context, r *run) error {
+	if !r.grants {
+		return nil
+	}
+	r.rep.SupportGrants.Status = SupportGrantsChecked
+	return s.st.WithPlatformTx(ctx, func(q *sqlcdb.Queries) error {
+		rows, err := q.CountOpenSupportGrants(ctx, r.cutoff)
+		if err != nil {
+			return err
+		}
+		for _, row := range rows {
+			r.rep.SupportGrants.ByStatus[row.Status] = row.Grants
+		}
+		if r.req.DryRun {
+			r.rep.SupportGrants.Revoked = r.rep.SupportGrants.ByStatus["approved"]
+			r.rep.SupportGrants.Expired = r.rep.SupportGrants.ByStatus["pending"]
+			return nil
+		}
+		if r.rep.SupportGrants.Revoked, err = q.RevokeApprovedSupportGrants(ctx, r.cutoff); err != nil {
+			return fmt.Errorf("revoke support grants: %w", err)
+		}
+		if r.rep.SupportGrants.Expired, err = q.ExpirePendingSupportGrants(ctx, r.cutoff); err != nil {
+			return fmt.Errorf("expire support grant requests: %w", err)
+		}
+		return nil
 	})
 }
 
