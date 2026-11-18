@@ -488,6 +488,7 @@ const (
 	ProblemCodeIdempotencyKeyReuse  ProblemCode = "idempotency_key_reuse"
 	ProblemCodeInstanceUnavailable  ProblemCode = "instance_unavailable"
 	ProblemCodeInternalError        ProblemCode = "internal_error"
+	ProblemCodeMaintenance          ProblemCode = "maintenance"
 	ProblemCodeNotFound             ProblemCode = "not_found"
 	ProblemCodeNotImplemented       ProblemCode = "not_implemented"
 	ProblemCodePreconditionFailed   ProblemCode = "precondition_failed"
@@ -513,6 +514,8 @@ func (e ProblemCode) Valid() bool {
 	case ProblemCodeInstanceUnavailable:
 		return true
 	case ProblemCodeInternalError:
+		return true
+	case ProblemCodeMaintenance:
 		return true
 	case ProblemCodeNotFound:
 		return true
@@ -1558,7 +1561,9 @@ type Problem struct {
 	// `not_found` (404, kể cả ID chéo tenant) · `conflict` (409) · `precondition_failed` (412) ·
 	// `precondition_required` (428, thiếu `If-Match`) · `validation_failed`, `idempotency_key_reuse` (422) ·
 	// `rate_limited` (429) · `upstream_rejected` (502, upstream từ chối, không tới được hoặc trả lời bất thường —
-	// Headscale của tenant, IdP ở luồng đăng nhập) · `instance_unavailable` (503) · `internal_error` (500) ·
+	// Headscale của tenant, IdP ở luồng đăng nhập) · `instance_unavailable` (503) · `maintenance` (503, nền tảng ở
+	// chế độ bảo trì — sau khi restore PostgreSQL, tới khi đối soát xong và người vận hành tắt bảo trì; chỉ đăng nhập
+	// platform trên admin. còn được phục vụ — P3-T17, §17.2; kèm `Retry-After`) · `internal_error` (500) ·
 	// `not_implemented` (501, operation chưa có handler).
 	Code ProblemCode `json:"code"`
 
@@ -1589,7 +1594,9 @@ type Problem struct {
 // `not_found` (404, kể cả ID chéo tenant) · `conflict` (409) · `precondition_failed` (412) ·
 // `precondition_required` (428, thiếu `If-Match`) · `validation_failed`, `idempotency_key_reuse` (422) ·
 // `rate_limited` (429) · `upstream_rejected` (502, upstream từ chối, không tới được hoặc trả lời bất thường —
-// Headscale của tenant, IdP ở luồng đăng nhập) · `instance_unavailable` (503) · `internal_error` (500) ·
+// Headscale của tenant, IdP ở luồng đăng nhập) · `instance_unavailable` (503) · `maintenance` (503, nền tảng ở
+// chế độ bảo trì — sau khi restore PostgreSQL, tới khi đối soát xong và người vận hành tắt bảo trì; chỉ đăng nhập
+// platform trên admin. còn được phục vụ — P3-T17, §17.2; kèm `Retry-After`) · `internal_error` (500) ·
 // `not_implemented` (501, operation chưa có handler).
 type ProblemCode string
 

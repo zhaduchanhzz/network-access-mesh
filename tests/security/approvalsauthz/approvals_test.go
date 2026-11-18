@@ -375,11 +375,16 @@ func testInvitationsThroughTheAPI(t *testing.T, e *env) {
 	}
 	want(t, "resend without body", e.do(t, ta, http.MethodPost, base+"/"+inv.Id.String()+"/resend", ""), http.StatusOK, "")
 	want(t, "missing invitation", e.do(t, ta, http.MethodDelete, base+"/"+uuid.NewString(), ""), http.StatusNotFound, gen.ProblemCodeNotFound)
-	for action, n := range map[string]int{"invitation.create": 2, "invitation.revoke": 1, "invitation.resend": 2} {
+	// invitation.create: 2 invitations + 1 event of the Idempotency-Key replay (details.replay — no audit gap)
+	for action, n := range map[string]int{"invitation.create": 3, "invitation.revoke": 1, "invitation.resend": 2} {
 		if got := e.count(t, `SELECT count(*) FROM audit_events WHERE tenant_id = $1 AND action = $2 AND outcome = 'success'`,
 			w.A.ID, action); got != n {
 			t.Errorf("%s success events: %d, want %d", action, got, n)
 		}
+	}
+	if n := e.count(t, `SELECT count(*) FROM audit_events WHERE tenant_id = $1 AND action = 'invitation.create'
+		AND outcome = 'success' AND details->>'replay' = 'true' AND resource_id = $2`, w.A.ID, inv.Id.String()); n != 1 {
+		t.Errorf("replayed invitation.create events: %d, want 1", n)
 	}
 	if n := e.count(t, `SELECT count(*) FROM audit_events WHERE tenant_id = $1 AND action = 'invitation.create'
 		AND outcome = 'denied'`, w.A.ID); n != 1 {

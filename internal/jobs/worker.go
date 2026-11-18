@@ -139,12 +139,13 @@ func (w *Worker) Register(kind string, h Handler) error {
 }
 
 // Start creates the River client (its own pool, mg_worker_platform) and starts working the queues. Cancelling ctx
-// starts a graceful stop.
+// starts a graceful stop. A worker stopped by Stop can be started again (a new River client): the worker process stops
+// its job worker in maintenance mode and starts it when maintenance ends (P3-T17).
 func (w *Worker) Start(ctx context.Context) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if w.started {
-		return errorf("the worker has already started")
+	if w.client != nil {
+		return errorf("the worker is already running")
 	}
 	client, err := w.st.NewQueueClient(ctx, w.riverConfig(), w.cfg.QueuePoolConns)
 	if err != nil {

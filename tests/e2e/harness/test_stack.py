@@ -117,8 +117,32 @@ with tempfile.TemporaryDirectory() as d:
         out.update(re.findall(r"^  ([a-z0-9_]+): \{file: (\S+)\}", top.group(1), re.M))   # one-line form (mg-app)
         return out
     rendered: dict[str, str] = {}
+    # ---- monitoring mg-obs (P3-T16): rendered for ci on the stack's subnets; every bind re-pointed into <work>
+    obs = (r / "obs" / "compose.monitoring.yaml").read_text(encoding="utf-8")
+    check(f"ipv4_address: {st.prober_admin_ip}" in obs and st.prober_admin_ip == st.networks["admin"][0].rsplit(".", 2)[0] + ".2.3"
+          and f"MG_PROBE_ALLOW_CALLERS: {st.networks['admin'][0]} " in obs
+          and re.search(rf"MG_PROBE_ALLOW_TARGETS: {re.escape(st.edge_ip)} ", obs) is not None
+          and f"MG_PROBE_ALLOW_SCRAPERS: {st.obs_ips['prometheus_ip']}" in obs,
+          "obs: prober static on the stack's admin network, callers = admin subnet, target = the edge, scraper = Prometheus")
+    prom = (r / "obs" / "monitoring" / "prometheus" / "prometheus.yml").read_text(encoding="utf-8")
+    check(f"replacement: {st.obs_ip}:9091" in prom and f"replacement: {st.edge_ip}:443" in prom
+          and "probe-key-public" not in prom and f'"app.{st.domain}"' in prom,
+          "obs: headscale through the stack edge's metrics listener, key/tls probes at the edge (no separate public entry)")
+    targets = json.loads((r / "obs" / "monitoring" / "prometheus" / "targets" / "instances.json").read_text(encoding="utf-8"))
+    check([t["labels"]["slug"] for t in targets] == ["tenant-a", "tenant-b"], "obs: instance targets of tenant-a/b")
+    binds = set(re.findall(r"source: (/opt/meshguard/\S+)", obs))
+    cy = (ROOT / "compose.yaml").read_text(encoding="utf-8")
+    remapped = {"/opt/meshguard/core/monitoring/prometheus": "render/obs/monitoring/prometheus",
+                "/opt/meshguard/core/monitoring/alertmanager": "render/obs/monitoring/alertmanager",
+                "/opt/meshguard/backups/postgres": "obs/backups/postgres", "/opt/meshguard/backups/idp": "obs/backups/idp",
+                "/opt/meshguard/backups/edge": "obs/backups/edge", "/opt/meshguard/core/monitoring/drill": "render/obs/monitoring/drill"}
+    check(binds == set(remapped) and all(f'"${{MGE_WORK}}/{v}"' in cy for v in remapped.values()),
+          "compose.yaml re-points every /opt/meshguard bind of mg-obs into <work>", str(sorted(binds ^ set(remapped))))
+    check((st.work / "obs" / "backups" / "postgres" / "status.prom").is_file() and
+          not (st.work / "obs" / "backups" / "idp" / "status.prom").exists(),
+          "obs: status.prom of postgres (overdue) and edge written, idp absent (E2E-78)")
     for f in (r / "tenant-a" / "compose.yaml", r / "tenant-b" / "compose.yaml", r / "edge" / "compose.edge.yaml",
-              r / "idp" / "compose.idp.yaml", r / "app" / "compose.app.yaml"):
+              r / "idp" / "compose.idp.yaml", r / "app" / "compose.app.yaml", r / "obs" / "compose.monitoring.yaml"):
         rendered.update(file_secrets(f.read_text(encoding="utf-8")))
     overrides = dict(re.findall(r'^  ([a-z0-9_]+): \{file: "\$\{MGE_WORK\}/secrets/([^"]+)"\}',
                                 (ROOT / "compose.yaml").read_text(encoding="utf-8"), re.M))
@@ -175,11 +199,16 @@ check("@sha256:" not in compose, "compose.yaml: no literal digest (images come f
 env_values = re.findall(r"^\s+(TS_AUTHKEY|POSTGRES_PASSWORD\w*|KC_\w*PASSWORD\w*):\s*(\S+)", compose, re.M)
 check(all(v.startswith(("file:", "/run/secrets/")) for _, v in env_values) and env_values,
       "compose.yaml: credential variables hold file paths only", str(env_values))
-# ---- prober (P3-T03a): hardened, no published port, only the edge + admin networks, callers only from admin
+# ---- prober (P3-T03a) is the rendered service of mg-obs (P3-T16 — hardening, networks and allow-lists checked by
+# tools/test_render_monitoring.py): compose.yaml only adds the run's CA and a container name, never a port or a network
 prober = re.search(r"^  prober:\n((?:    .*\n|\n)*)", compose, re.M)
 block = prober.group(1) if prober else ""
-check(bool(prober) and "<<: *hardening" in block and 'user: "65532:65532"' in block and "read_only: true" in block
-      and "ports:" not in block and "networks: [mg-edge, mg-admin]" in block
-      and "MG_PROBE_ALLOW_CALLERS: ${MGE_ADMIN_SUBNET:?}" in block and "image: ${MGE_IMG_PROBE:?}" in block,
-      "compose.yaml: prober hardened, no port, edge + admin only, RPC callers from the admin subnet")
+check(bool(prober) and "ports:" not in block and "networks:" not in block and "image:" not in block
+      and "MG_PROBE_ALLOW_" not in block and "MG_PROBE_CA_FILE: /etc/mg-ci-ca/ca.crt" in block,
+      "compose.yaml: prober override = the run's CA only (no port, network, image or allow-list change)")
+for svc in ("prometheus", "alertmanager", "node-exporter", "alertsink"):
+    m = re.search(rf"^  {svc}:\n((?:    .*\n)*)", compose, re.M)
+    body = m.group(1) if m else ""
+    check(bool(m) and not re.search(r"^    (ports|networks|image|user|cap_add|privileged|environment):", body, re.M),
+          f"compose.yaml: {svc} override only re-points binds / names the container")
 sys.exit(1 if failures else 0)

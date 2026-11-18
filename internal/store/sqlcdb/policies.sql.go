@@ -152,6 +152,69 @@ func (q *Queries) GetTenantPolicyState(ctx context.Context, tenantID uuid.UUID) 
 	return desired_policy_version_id, err
 }
 
+const insertAdoptedPolicyVersion = `-- name: InsertAdoptedPolicyVersion :one
+INSERT INTO policy_versions (tenant_id, version, kind, source_hujson, content_sha256, state, validation_report,
+                             parent_version_id)
+VALUES ($1, $2, 'user', $3, $4,
+        $5, $6, $7)
+RETURNING id, tenant_id, version, revision, kind, source, source_hujson, content_sha256, state, validation_report, parent_version_id, rollback_of, created_by, submitted_by, submitted_at, approved_by, approved_at, approved_content_sha256, review_mode, rejected_by, rejected_at, rejected_reason, created_at, updated_at
+`
+
+type InsertAdoptedPolicyVersionParams struct {
+	TenantID         uuid.UUID
+	Version          int32
+	SourceHujson     *string
+	ContentSha256    string
+	State            string
+	ValidationReport []byte
+	ParentVersionID  *uuid.UUID
+}
+
+// P3-T17 (§17.2, đối soát sau restore PostgreSQL — khác InsertImportedPolicyVersion của restore một instance, P3-T11):
+// chuỗi policy ĐANG CHẠY trên Headscale, mới hơn bản DB vừa restore biết, nhập lại thành version kind user ở trạng thái
+// validated (lint đạt) hoặc draft (lint không đạt) — không bao giờ approved: chỉ Owner/Admin duyệt được nó (§7.3), nên
+// không job nào áp nó thay người. content_sha256 = sha256 của đúng chuỗi source_hujson (DB kiểm); parent = version
+// mong muốn trước đó.
+func (q *Queries) InsertAdoptedPolicyVersion(ctx context.Context, arg InsertAdoptedPolicyVersionParams) (PolicyVersion, error) {
+	row := q.db.QueryRow(ctx, insertAdoptedPolicyVersion,
+		arg.TenantID,
+		arg.Version,
+		arg.SourceHujson,
+		arg.ContentSha256,
+		arg.State,
+		arg.ValidationReport,
+		arg.ParentVersionID,
+	)
+	var i PolicyVersion
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.Version,
+		&i.Revision,
+		&i.Kind,
+		&i.Source,
+		&i.SourceHujson,
+		&i.ContentSha256,
+		&i.State,
+		&i.ValidationReport,
+		&i.ParentVersionID,
+		&i.RollbackOf,
+		&i.CreatedBy,
+		&i.SubmittedBy,
+		&i.SubmittedAt,
+		&i.ApprovedBy,
+		&i.ApprovedAt,
+		&i.ApprovedContentSha256,
+		&i.ReviewMode,
+		&i.RejectedBy,
+		&i.RejectedAt,
+		&i.RejectedReason,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const insertHuJSONPolicyVersion = `-- name: InsertHuJSONPolicyVersion :one
 INSERT INTO policy_versions (tenant_id, version, kind, source_hujson, content_sha256, state, validation_report,
                              parent_version_id, approved_at, approved_content_sha256)
@@ -310,6 +373,39 @@ func (q *Queries) LatestHuJSONPolicyVersion(ctx context.Context, arg LatestHuJSO
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const listActiveHeadscaleUsernames = `-- name: ListActiveHeadscaleUsernames :many
+SELECT headscale_username FROM tenant_memberships
+WHERE tenant_id = $1 AND status = 'active' AND headscale_username = ANY($2::text[])
+ORDER BY headscale_username
+`
+
+type ListActiveHeadscaleUsernamesParams struct {
+	TenantID  uuid.UUID
+	Usernames []string
+}
+
+// P3-T17: những tên Headscale user `mg-<membership_uuid>` nêu trong policy đang chạy còn ánh xạ được về membership đang
+// hoạt động của tenant (tên không có ở đây ⇒ liệt kê trong báo cáo).
+func (q *Queries) ListActiveHeadscaleUsernames(ctx context.Context, arg ListActiveHeadscaleUsernamesParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, listActiveHeadscaleUsernames, arg.TenantID, arg.Usernames)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var headscale_username string
+		if err := rows.Scan(&headscale_username); err != nil {
+			return nil, err
+		}
+		items = append(items, headscale_username)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listPolicyApplications = `-- name: ListPolicyApplications :many

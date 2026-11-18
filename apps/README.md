@@ -6,4 +6,6 @@
 
 `backup/` (P2-T03a, P2-T05b): `meshguard-backup` — tiến trình của image `backup` (project compose `mg-backup`: `pg-backup`, `idp-backup`, `edge-backup`), không phải chế độ chạy của Management Plane: lịch riêng, mã hóa tới recovery key bằng `age` trong lúc dump, file trạng thái cho cảnh báo quá hạn. Chỉ dùng thư viện chuẩn + `internal/kit`. Runbook: [`docs/operations/backup-restore.md`](../docs/operations/backup-restore.md).
 
+`probe/` (P3-T03a, P3-T16): `meshguard-probe` — Prober (STUN, HTTPS với SNI/Host chỉ định, kiểm edge/relay của bước 17–18; RPC cho worker) và, từ P3-T16, `GET /probe` theo hợp đồng blackbox cho Prometheus (`prober/scrape.go`) và lệnh `alertsink` (kênh cảnh báo nội bộ — `alertsink/`, nhận webhook của Alertmanager). Chạy trong project compose `mg-obs` (`tools/render_monitoring.py`). Bằng chứng: [`P3-T03a.md`](../docs/planning/evidence/P3-T03a.md), [`P3-T16.md`](../docs/planning/evidence/P3-T16.md).
+
 `web/` hiện chỉ chứa công cụ sinh type (pin trong `package-lock.json`) và `src/api/schema.d.ts` sinh từ `api/openapi.yaml` bằng `make api-gen` (P2-T02); SPA được dựng ở P4-T01.

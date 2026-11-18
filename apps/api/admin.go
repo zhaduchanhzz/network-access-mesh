@@ -12,6 +12,8 @@ package main
 //	enable-identity        G2 round 2 (A-2): undo of revoke-sessions
 //	host-set               P3-T04: public entry (IPv4 from an environment variable), capacity or status of a registered
 //	                       host — the change of PATCH /api/v1/platform/hosts/{hostId}, audited as actor_type system
+//	maintenance            P3-T17: the persisted maintenance flag (on/off/status — admin_maintenance.go); the restore of
+//	                       PostgreSQL to an older point and its reconcile (`meshguard-worker admin post-restore-reconcile`)
 //
 // They run on the host beside the api service (`docker compose -p mg-app run --rm --no-deps -T api admin …` — compose
 // project mg-app, P2-T16), with the api's configuration (database roles mg_api_*, kek-app keyring, edge admin
@@ -102,6 +104,9 @@ func init() {
 			"      revoke every session of that identity and disable it (offboarding); --keep-enabled: sessions only"},
 		"enable-identity": {run: runEnableIdentity, usage: "enable-identity --idp <idp id> --subject <sub>\n" +
 			"      undo of revoke-sessions: the identity may sign in again"},
+		"maintenance": {run: runMaintenance, usage: "maintenance on [--reason <code>] | off [--force] | status\n" +
+			"      persisted maintenance flag (system_settings): ON ⇒ api 503 except the platform sign-in, worker idle; " +
+			"off refused while the post-restore reconcile is running or failed (--force overrides)"},
 		"host-set": {run: runHostSet, usage: "host-set --name <host> [--public-ipv4-env <NAME>] [--mode direct|vps_gateway] " +
 			"[--max-instances <n>] [--status active|draining|disabled]\n" +
 			"      <NAME> = environment variable holding public_entry.ipv4 (MG_PUBLIC_IPV4) — the address is never an argument"},
