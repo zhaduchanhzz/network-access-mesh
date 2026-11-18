@@ -70,6 +70,23 @@ describe("dashboard", () => {
     expect(screen.queryByTestId("dash-total")).toBeNull();
     expect(screen.getByTestId("dash-instance")).toHaveTextContent("chưa từng");
   });
+
+  it("API mâu thuẫn (synced_at null nhưng không có mục devices trong unavailable) ⇒ vẫn không hiện số đếm", async () => {
+    mockApi(
+      routes("tenant_admin", {
+        [`GET ${base}/dashboard`]: json(200, {
+          devices: { total: 5, online: 5, synced_at: null },
+          instance: { status: "healthy", checked_at: SYNCED },
+          unavailable: [],
+        }),
+        [`GET ${base}/devices`]: list([]),
+      }),
+    );
+    renderApp({ path: `/t/${TENANT_A}/overview` });
+    const box = await screen.findByTestId("dash-devices");
+    expect(within(box).getByTestId("unavailable-section")).toHaveTextContent("never_synced");
+    expect(screen.queryByTestId("dash-total")).toBeNull();
+  });
 });
 
 describe("devices", () => {
