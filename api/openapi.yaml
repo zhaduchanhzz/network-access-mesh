@@ -61,7 +61,9 @@ tags:
   - name: devices
     description: Sổ thiết bị, đổi tên, thu hồi hai pha, đồng bộ (§13.2, §13.5) — P2-T13
   - name: users
-    description: Thành viên của tenant, chỉ đọc ở Phase 2 (§13.2) — P2-T11
+    description: Thành viên của tenant — đọc (P2-T11); khóa, đổi role, chuyển Owner, offboard hai pha (§13.2, §8.2) — P4-T09
+  - name: groups
+    description: Group người dùng, biên dịch vào policy; group sensitive qua phê duyệt trong tenant (§7.2–7.3) — P4-T09
   - name: audit
     description: Nhật ký hành động quản trị (§6.1, §16.5) — P2-T08
   - name: jobs
@@ -790,6 +792,558 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+    patch:
+      tags: [users]
+      operationId: updateTenantUser
+      summary: Khóa hoặc mở khóa một thành viên (trạng thái membership)
+      description: |-
+        Chỉ đổi `status`: `locked` (khóa truy cập Portal — mọi session của người đó bị thu hồi; node không bị đụng tới, cắt
+        mạng là offboard) hoặc `active` (mở khóa). Hồ sơ (tên, email) đến từ IdP ở mỗi lần đăng nhập, không sửa ở đây. Cần
+        `If-Match` = `ETag` của `GET /users/{id}` (thiếu ⇒ `428`, lệch ⇒ `412`). Quy tắc role đích 3a (§8.4): role của đích
+        phải thấp hơn hẳn role của người gọi trừ khi người gọi là Owner (Tenant Admin không khóa được Owner hay Admin
+        khác ⇒ `403`); không khóa Owner hoạt động cuối cùng (`403`). Membership đã offboard ⇒ `409`.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.user:manage
+      x-task: P4-T09
+      x-audit-action: user.update
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/MembershipId'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MembershipUpdate'
+      responses:
+        '200':
+          description: Thành viên sau khi đổi
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Membership'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+    delete:
+      tags: [users]
+      operationId: offboardTenantUser
+      summary: Offboard một thành viên (hai pha) — khóa membership, thu hồi session, expire node và pre-auth key
+      description: |-
+        §8.2 vòng đời danh tính. Pha 1 (đồng bộ): membership chuyển `offboarded` (trạng thái cuối), rời mọi group (đổi
+        thành viên ⇒ `policy.apply` trigger `group_change`), audit `user.offboard.requested`, enqueue job
+        `member.offboard`; identity chuyển `disabled` (đăng nhập lại bị từ chối ở callback, bất kể IdP) và mọi session
+        Portal bị thu hồi. Pha 2 (job): expire mọi node của Headscale user `mg-<membership_uuid>` và mọi node sổ thiết bị
+        còn ghi cho membership này (gồm node đã bị gắn tag sau khi đăng ký), đọc lại; expire mọi pre-auth key còn hiệu
+        lực của user đó; với IdP do nền tảng host (driver `keycloak`) vô hiệu user ở IdP và kết thúc phiên IdP (V-23).
+        `Membership.offboarding.state` là `pending` tới khi job xác minh xong (`applied`) hoặc kết thúc lỗi (`failed`).
+        Idempotent: gọi lại khi đang `pending`/`applied` trả lại đúng job đó; khi `failed` tạo job mới. Quy tắc 3a: Tenant
+        Admin không offboard được Owner hay Admin khác (`403`); không offboard Owner hoạt động cuối cùng (`403`).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.user:manage
+      x-task: P4-T09
+      x-audit-action: user.offboard
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/MembershipId'
+      responses:
+        '202':
+          description: Đã nhận; thành viên kèm trạng thái offboard hiện tại
+          headers:
+            Location:
+              $ref: '#/components/headers/JobLocation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Membership'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/users/{membershipId}/role:
+    put:
+      tags: [users]
+      operationId: setTenantUserRole
+      summary: Đổi role của một thành viên giữa các role dưới Tenant Admin
+      description: |-
+        Role hiện tại và role mới đều phải là `tenant_operator`, `tenant_viewer` hoặc `end_user`; thay đổi chạm Tenant
+        Admin (gán, gỡ) hoặc hạ một Owner là `PUT /users/{id}/admin-role` ⇒ `422`; role Owner chỉ qua
+        `POST /ownership-transfer` (`422`). Quy tắc 3a (§8.4): role hiện tại và role mới thấp hơn hẳn role của người gọi,
+        role mới không có grant nào người gọi không có. Cần `If-Match`. Mọi session của người đó bị thu hồi (đổi quyền —
+        §8.3 bước 8).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.membership:assign
+      x-task: P4-T09
+      x-audit-action: user.role.set
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/MembershipId'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MembershipRoleUpdate'
+      responses:
+        '200':
+          description: Thành viên sau khi đổi role
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Membership'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/users/{membershipId}/admin-role:
+    put:
+      tags: [users]
+      operationId: setTenantUserAdminRole
+      summary: Gán hoặc gỡ role Tenant Admin, hạ một Owner (chỉ Owner; step-up)
+      description: |-
+        Thay đổi mà role hiện tại hoặc role mới là Tenant Admin, hoặc role hiện tại là Owner (hạ một Owner khác — không
+        bao giờ Owner hoạt động cuối cùng). Role mới ∈ `tenant_admin`, `tenant_operator`, `tenant_viewer`, `end_user`;
+        thay đổi chỉ giữa các role dưới Admin ⇒ `422` (dùng `PUT /users/{id}/role`). Người gọi phải step-up
+        (`auth_time` ≤ 15 phút, nếu không ⇒ `401 reauth_required` — §8.3 bước 7). Cần `If-Match`. Mọi session của người
+        đó bị thu hồi.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.membership:assign_admin
+      x-task: P4-T09
+      x-audit-action: user.admin_role.set
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/MembershipId'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MembershipAdminRoleUpdate'
+      responses:
+        '200':
+          description: Thành viên sau khi đổi role
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Membership'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/users/{membershipId}/sessions:
+    delete:
+      tags: [users]
+      operationId: revokeTenantUserSessions
+      summary: Thu hồi mọi session Portal của một thành viên
+      description: >-
+        Mọi session của identity của thành viên kết thúc ngay (§8.3 bước 8); người đó đăng nhập lại được nếu membership và
+        IdP còn cho phép. Quy tắc 3a (§8.4) như khóa.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.user:manage
+      x-task: P4-T09
+      x-audit-action: user.sessions.revoke
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/MembershipId'
+      responses:
+        '204':
+          description: Đã thu hồi
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/ownership-transfer:
+    post:
+      tags: [users]
+      operationId: transferTenantOwnership
+      summary: Cấp/chuyển role Tenant Owner cho một thành viên đang hoạt động (chỉ Owner; step-up)
+      description: |-
+        Cách duy nhất để có role Owner ngoài lời mời Owner đầu tiên của orchestrator (§8.4 quy tắc 3a). Người gọi là Owner
+        đang hoạt động, step-up (`401 reauth_required` nếu không); đích là thành viên `active` chưa là Owner (`422`). Trong
+        cùng transaction người gọi nhận `previous_owner_role` (mặc định `tenant_admin`; `tenant_owner` = giữ Owner — hai
+        Owner). Session của cả hai người bị thu hồi.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.membership:assign_admin
+      x-task: P4-T09
+      x-audit-action: tenant.ownership.transfer
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OwnershipTransfer'
+      responses:
+        '200':
+          description: Owner mới
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Membership'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  # ---------------------------------------------------------------- groups (P4-T09, §7.2–7.3)
+  /tenants/{tenantId}/groups:
+    get:
+      tags: [groups]
+      operationId: listTenantGroups
+      summary: Group người dùng của tenant
+      x-permission: tenant.group:read
+      x-task: P4-T09
+      x-audit-action: group.list
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - name: q
+          in: query
+          required: false
+          description: Tìm theo tên group
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 64
+      responses:
+        '200':
+          description: Một trang group (không kèm danh sách thành viên)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+    post:
+      tags: [groups]
+      operationId: createTenantGroup
+      summary: Tạo group (chưa có thành viên)
+      description: >-
+        Tên render thành `group:<name>` của policy (§7.2): chữ thường, số, gạch nối; trùng tên ⇒ `409`. Group mới chưa có
+        thành viên nên không áp lại policy.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.group:manage
+      x-task: P4-T09
+      x-audit-action: group.create
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GroupCreate'
+      responses:
+        '201':
+          description: Group đã tạo
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Group'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/groups/{groupId}:
+    get:
+      tags: [groups]
+      operationId: getTenantGroup
+      summary: Một group kèm thành viên
+      x-permission: tenant.group:read
+      x-task: P4-T09
+      x-audit-action: group.read
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/GroupId'
+      responses:
+        '200':
+          description: Group
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Group'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+    patch:
+      tags: [groups]
+      operationId: updateTenantGroup
+      summary: Đổi tên hoặc mô tả group
+      description: >-
+        Cần `If-Match`. Đổi tên đổi khóa render của policy ⇒ `policy.apply` (trigger `group_change`) trên version đang là
+        desired (§7.3). Trùng tên ⇒ `409`.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.group:manage
+      x-task: P4-T09
+      x-audit-action: group.update
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/GroupId'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GroupUpdate'
+      responses:
+        '200':
+          description: Group sau khi sửa
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Group'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+    delete:
+      tags: [groups]
+      operationId: deleteTenantGroup
+      summary: Xóa group
+      description: >-
+        Cần `If-Match`. Group còn là owner của network resource ⇒ `409`; group *sensitive* còn thành viên ⇒ `409` (bỏ
+        thành viên phải qua phê duyệt — §7.3). Group có thành viên ⇒ `policy.apply` (trigger `group_change`).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.group:manage
+      x-task: P4-T09
+      x-audit-action: group.delete
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/GroupId'
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204':
+          description: Đã xóa
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/groups/{groupId}/members:
+    put:
+      tags: [groups]
+      operationId: setTenantGroupMembers
+      summary: Đặt thành viên của group (group sensitive ⇒ 202 + yêu cầu phê duyệt trong tenant)
+      description: |-
+        Thành viên của group trở thành đúng `membership_ids` — thành viên `active` của chính tenant (membership của tenant
+        khác, bị khóa hoặc đã offboard ⇒ `422`). Cần `If-Match` = `ETag` của group. Tập thay đổi ⇒ một lần
+        `policy.apply` (trigger `group_change`) trên version đang là desired — **không** tạo version mới; job đang chờ
+        gộp các thay đổi tiếp theo (§7.2–7.3). Group nằm trong `TenantSettings.policy.sensitive_groups`: không đổi gì,
+        trả `202` + yêu cầu phê duyệt phạm vi tenant `tenant.group.set_members` (payload = `group_id` + tập thành viên
+        đã sắp xếp, tối đa 200; người gọi phải step-up) — người thứ hai có `tenant.approval:decide` và
+        `tenant.group:manage` duyệt ở `Location` (§8.6), tập thành viên được áp đúng như đã duyệt.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.group:manage
+      x-task: P4-T09
+      x-audit-action: group.members.set
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/GroupId'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GroupMembersUpdate'
+      responses:
+        '200':
+          description: Group sau khi đổi thành viên
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Group'
+        '202':
+          description: Group sensitive — yêu cầu phê duyệt đã tạo, người thứ hai duyệt ở `Location`
+          headers:
+            Location:
+              $ref: '#/components/headers/TenantApprovalLocation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
         '429':
           $ref: '#/components/responses/RateLimited'
         default:
@@ -2783,6 +3337,13 @@ components:
       schema:
         type: string
         format: uuid
+    GroupId:
+      name: groupId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     JobId:
       name: jobId
       in: path
@@ -2975,6 +3536,12 @@ components:
         format: uri-reference
     ApprovalLocation:
       description: Yêu cầu phê duyệt của thao tác 2P — `/api/v1/platform/approvals/{approvalId}` (§8.6)
+      required: true
+      schema:
+        type: string
+        format: uri-reference
+    TenantApprovalLocation:
+      description: Yêu cầu phê duyệt phạm vi tenant — `/api/v1/tenants/{tenantId}/approvals/{approvalId}` (§8.6)
       required: true
       schema:
         type: string
@@ -3810,7 +4377,9 @@ components:
           description: Khóa role phạm vi tenant (`roles.key`, seed ở P2-T07)
         status:
           type: string
-          description: Trạng thái membership (đang hoạt động, bị khóa, đã offboard)
+          description: >-
+            Trạng thái membership (CHECK của 0024 — P4-T09): `active`; `locked` (khóa Portal, mở lại được); `offboarded`
+            (cuối — node và pre-auth key bị expire, identity bị vô hiệu)
         headscale_username:
           type: string
           description: Headscale user tương ứng — `mg-<membership_uuid>`
@@ -3819,6 +4388,8 @@ components:
           type: integer
           format: int64
           minimum: 0
+        offboarding:
+          $ref: '#/components/schemas/MembershipOffboarding'
     MembershipList:
       type: object
       required: [items, next_cursor]
@@ -3829,6 +4400,158 @@ components:
             $ref: '#/components/schemas/Membership'
         next_cursor:
           type: [string, 'null']
+    # ------------------------------------------------------------ users / groups (P4-T09)
+    MembershipOffboarding:
+      type: object
+      description: >-
+        Trạng thái hai pha của offboard (T-17): job `member.offboard` mới nhất của membership — `pending` tới khi job đọc
+        lại node/key/IdP, `applied` khi xong, `failed` khi kết thúc lỗi (`DELETE` lại ⇒ job mới)
+      required: [state, job_id]
+      properties:
+        state:
+          type: string
+          enum: [pending, applied, failed]
+        job_id:
+          type: string
+          format: uuid
+    MembershipUpdate:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          description: '`locked` khóa (thu hồi mọi session), `active` mở khóa'
+          enum: [active, locked]
+    MembershipRoleUpdate:
+      type: object
+      additionalProperties: false
+      required: [role]
+      properties:
+        role:
+          type: string
+          description: Role mới — chỉ các role dưới Tenant Admin
+          enum: [tenant_operator, tenant_viewer, end_user]
+    MembershipAdminRoleUpdate:
+      type: object
+      additionalProperties: false
+      required: [role]
+      properties:
+        role:
+          type: string
+          description: Role mới (gán `tenant_admin`, hoặc gỡ Admin / hạ Owner xuống role thấp hơn)
+          enum: [tenant_admin, tenant_operator, tenant_viewer, end_user]
+    OwnershipTransfer:
+      type: object
+      additionalProperties: false
+      required: [membership_id]
+      properties:
+        membership_id:
+          type: string
+          format: uuid
+          description: Thành viên `active` nhận role Owner
+        previous_owner_role:
+          type: string
+          description: Role người gọi giữ sau khi chuyển (mặc định `tenant_admin`; `tenant_owner` = giữ Owner)
+          enum: [tenant_owner, tenant_admin]
+    GroupMember:
+      type: object
+      required: [membership_id, display_name, role, status]
+      properties:
+        membership_id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+        status:
+          type: string
+    Group:
+      type: object
+      description: >-
+        Group người dùng (`groups`, render thành `group:<name>` của policy — §7.2); `sensitive` đọc từ
+        `TenantSettings.policy.sensitive_groups` (§13.3): đổi thành viên cần phê duyệt trong tenant
+      required: [id, name, source, sensitive, member_count, version, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          pattern: '^[a-z][a-z0-9-]{0,49}$'
+        description:
+          type: string
+        source:
+          type: string
+          enum: [portal, idp]
+        sensitive:
+          type: boolean
+        member_count:
+          type: integer
+          minimum: 0
+        members:
+          type: array
+          description: Chỉ ở `GET /groups/{id}` và response của thao tác ghi
+          items:
+            $ref: '#/components/schemas/GroupMember'
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    GroupList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Group'
+        next_cursor:
+          type: [string, 'null']
+    GroupCreate:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          pattern: '^[a-z][a-z0-9-]{0,49}$'
+        description:
+          type: string
+          maxLength: 1000
+    GroupUpdate:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          pattern: '^[a-z][a-z0-9-]{0,49}$'
+        description:
+          type: string
+          maxLength: 1000
+          description: Chuỗi rỗng xóa mô tả
+    GroupMembersUpdate:
+      type: object
+      additionalProperties: false
+      required: [membership_ids]
+      properties:
+        membership_ids:
+          type: array
+          description: Tập thành viên mới (rỗng = bỏ mọi thành viên)
+          maxItems: 1000
+          items:
+            type: string
+            format: uuid
     # ------------------------------------------------------------ audit (§13.3)
     AuditOutcome:
       type: string

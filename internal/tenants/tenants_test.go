@@ -113,7 +113,7 @@ func TestTenantScopeReads(t *testing.T) {
 	p, _ := f.tenant("tenant-p", "Pending", "pending", false) // no instance yet
 	alice, mAlice := f.member(a, idpA, "Alice Nguyen", "alice@a.test", "tenant_owner", "active")
 	_, mBob := f.member(a, idpA, "", "bob_x@a.test", "tenant_viewer", "active") // no display name: falls back to e-mail
-	_, mCarl := f.member(a, idpA, "Carl 100%", "", "end_user", "disabled")
+	_, mCarl := f.member(a, idpA, "Carl 100%", "", "end_user", "locked")
 	bert, mBert := f.member(b, idpB, "Bert", "bert@b.test", "tenant_owner", "active")
 	_, mAnon := f.member(b, idpB, "", "", "tenant_viewer", "active") // neither name nor e-mail: the subject
 	ctx := t.Context()
@@ -159,7 +159,7 @@ func TestTenantScopeReads(t *testing.T) {
 		want []uuid.UUID
 	}{
 		"role":                {tenants.MemberFilter{Role: "tenant_owner"}, []uuid.UUID{mAlice}},
-		"status":              {tenants.MemberFilter{Status: "disabled"}, []uuid.UUID{mCarl}},
+		"status":              {tenants.MemberFilter{Status: "locked"}, []uuid.UUID{mCarl}},
 		"q display name":      {tenants.MemberFilter{Query: "nguyen"}, []uuid.UUID{mAlice}},
 		"q e-mail":            {tenants.MemberFilter{Query: "BOB_X@"}, []uuid.UUID{mBob}},
 		"q % is literal":      {tenants.MemberFilter{Query: "100%"}, []uuid.UUID{mCarl}},
@@ -212,9 +212,9 @@ func TestTenantScopeReads(t *testing.T) {
 	if l, err := f.svc.ListMemberTenants(ctx, bert, b, tenants.Page{}); err != nil || len(l.Items) != 1 || l.Items[0].ID != b {
 		t.Fatalf("ListMemberTenants(bert) = %+v, %v", l, err)
 	}
-	f.exec(`UPDATE tenant_memberships SET status = 'disabled' WHERE id = $1`, mBert)
+	f.exec(`UPDATE tenant_memberships SET status = 'locked' WHERE id = $1`, mBert)
 	if l, _ := f.svc.ListMemberTenants(ctx, bert, b, tenants.Page{}); len(l.Items) != 0 {
-		t.Errorf("disabled membership listed: %+v", l)
+		t.Errorf("locked membership listed: %+v", l)
 	}
 	f.exec(`UPDATE tenants SET status = 'deleted' WHERE id = $1`, a)
 	if l, _ := f.svc.ListMemberTenants(ctx, alice, a, tenants.Page{}); len(l.Items) != 0 {

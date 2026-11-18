@@ -37,6 +37,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/invitationsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/jobsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/lifecycleapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/membersapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/monitoringapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/notificationsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/provisioningapi"
@@ -48,6 +49,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/jobs"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/kit/logx"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/kit/requestid"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/members"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/monitoring"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/notifications"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/platform"
@@ -59,6 +61,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/relay"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/secrets"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/store/sqlcdb"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store/storetest"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/tenants"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/usage"
@@ -150,6 +153,14 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 	if err != nil {
 		t.Fatal(err)
 	}
+	mem, err := members.New(w.Store, members.Config{Tenants: dir, Logger: log,
+		Guard: func(ctx context.Context, q *sqlcdb.Queries, tenantID uuid.UUID, c members.Change) error {
+			return authz.GuardMembershipChange(ctx, q, tenantID, authz.MembershipChange{Actor: c.Actor, Target: c.Target,
+				NewRole: c.NewRole, Deactivate: c.Deactivate, OwnershipTransfer: c.OwnershipTransfer})
+		}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	// Provisioning (P3-T05): the api side of the Tenant Orchestrator — tenant creation (steps 1–2, no worker here: the
 	// job stays queued) and the job controls, with the api's quota checks as apps/* wires them.
 	// Relay (P3-T05c): the api side of the RelayService — reads only (no Prober), as apps/* wires it.
@@ -193,6 +204,8 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 		Deprovision: deprovisionapi.New(deprovision.NewRequester(w.Store), appr),
 		// Quarantine (P3-T18): quarantine requests of the api; a release becomes an approval request
 		Quarantine: quarantineapi.New(quarantine.NewRequester(w.Store), appr),
+		// Members (P4-T09): membership writes under authz.GuardMembershipChange, groups (no worker: jobs stay queued)
+		Members: membersapi.New(mem, appr),
 	}
 }
 
@@ -277,6 +290,7 @@ type objects struct {
 	job                          map[string]uuid.UUID    // a job of the tenant
 	platformJob                  uuid.UUID               // a job of scope platform
 	approval, invitation         map[string]uuid.UUID    // a pending approval request and invitation of the tenant
+	target, group                map[string]uuid.UUID    // P4-T09: an end-user member no actor is (membership writes), a group
 	platformApproval             uuid.UUID               // a pending approval request of scope platform
 	host                         uuid.UUID               // the host of the instances (P3-T04: /platform/hosts/{hostId})
 	notifOwn                     map[uuid.UUID]uuid.UUID // P4-T04: membership of a tenant actor → a notification addressed to it
@@ -374,6 +388,7 @@ func (m *matrixWorld) createObjects(t *testing.T) objects {
 		instance: map[string]uuid.UUID{}, devEU: map[string]uuid.UUID{}, devEUTagged: map[string]uuid.UUID{},
 		devOther: map[string]uuid.UUID{}, job: map[string]uuid.UUID{}, platformJob: uuid.Must(uuid.NewV7()),
 		approval: map[string]uuid.UUID{}, invitation: map[string]uuid.UUID{}, platformApproval: uuid.Must(uuid.NewV7()),
+		target: map[string]uuid.UUID{}, group: map[string]uuid.UUID{},
 		notifOwn: map[uuid.UUID]uuid.UUID{}, notifOther: map[string]uuid.UUID{},
 		canaries: []string{m.edgeToken},
 	}
@@ -432,6 +447,15 @@ func (m *matrixWorld) createObjects(t *testing.T) objects {
 				payload_sha256, requested_by_identity_id, expires_at)
 			VALUES ($1, 'tenant', $2, $3, 'device', 'matrix', $4::jsonb, $5, $6, now() + interval '1 day')`,
 			appr, ten.ID, matrixTenantAction, matrixTenantPayload, matrixTenantHash, m.NewActor(t, authz.RoleTenantOwner, ten).IdentityID)
+		target, ident := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+		o.target[ten.Name] = target
+		m.Exec(t, `INSERT INTO identities (id, idp_id, tenant_id, scope, subject, email) VALUES ($1, $2, $3, 'tenant', $4, $5)`,
+			ident, ten.IdP, ten.ID, "matrix-target-"+ten.Name, "matrix-target-"+ten.Name+"@example.test")
+		m.Exec(t, `INSERT INTO tenant_memberships (id, tenant_id, identity_id, role_id)
+			SELECT $1, $2, $3, id FROM roles WHERE scope = 'tenant' AND key = 'end_user'`, target, ten.ID, ident)
+		group := uuid.Must(uuid.NewV7())
+		o.group[ten.Name] = group
+		m.Exec(t, `INSERT INTO groups (id, tenant_id, name) VALUES ($1, $2, 'matrix-group')`, group, ten.ID)
 		inv := uuid.Must(uuid.NewV7())
 		o.invitation[ten.Name] = inv
 		m.Exec(t, `INSERT INTO tenant_invitations (id, tenant_id, idp_id, email, role_id, token_hash, expires_at)

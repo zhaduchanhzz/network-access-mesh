@@ -42,10 +42,18 @@ LIMIT sqlc.arg(row_limit);
 -- name: ListTenantMembersPage :many
 -- GET /tenants/{t}/users (pool tenant): membership + danh tính + khóa role; tenant_id lọc ở truy vấn ngoài RLS (§8.8).
 SELECT m.id, m.tenant_id, m.identity_id, m.status, m.headscale_username, m.version, m.created_at,
-       r.key AS role_key, i.display_name, i.email, i.subject
+       r.key AS role_key, i.display_name, i.email, i.subject,
+       COALESCE(o.id::text, '')::text AS offboard_job_id, COALESCE(o.status, '')::text AS offboard_job_status
 FROM tenant_memberships m
 JOIN identities i ON i.tenant_id = m.tenant_id AND i.id = m.identity_id
 JOIN roles r ON r.id = m.role_id AND r.scope = m.role_scope
+LEFT JOIN LATERAL (
+    -- P4-T09: trạng thái hai pha của offboard = job member.offboard mới nhất của membership (index của 0024)
+    SELECT j.id, j.status FROM provisioning_jobs j
+    WHERE j.tenant_id = m.tenant_id AND j.resource_type = 'membership' AND j.resource_id = m.id::text
+      AND j.kind = 'member.offboard'
+    ORDER BY j.created_at DESC, j.id DESC LIMIT 1
+) o ON true
 WHERE m.tenant_id = sqlc.arg(tenant_id)
   AND (sqlc.narg(role_key)::text IS NULL OR r.key = sqlc.narg(role_key)::text)
   AND (sqlc.narg(status)::text IS NULL OR m.status = sqlc.narg(status)::text)
@@ -59,10 +67,18 @@ LIMIT sqlc.arg(row_limit);
 -- name: GetTenantMember :one
 -- GET /tenants/{t}/users/{membershipId} (pool tenant): membership của tenant khác ⇒ không có hàng (404 — §8.4 bất biến 6).
 SELECT m.id, m.tenant_id, m.identity_id, m.status, m.headscale_username, m.version, m.created_at,
-       r.key AS role_key, i.display_name, i.email, i.subject
+       r.key AS role_key, i.display_name, i.email, i.subject,
+       COALESCE(o.id::text, '')::text AS offboard_job_id, COALESCE(o.status, '')::text AS offboard_job_status
 FROM tenant_memberships m
 JOIN identities i ON i.tenant_id = m.tenant_id AND i.id = m.identity_id
 JOIN roles r ON r.id = m.role_id AND r.scope = m.role_scope
+LEFT JOIN LATERAL (
+    -- P4-T09: trạng thái hai pha của offboard = job member.offboard mới nhất của membership (index của 0024)
+    SELECT j.id, j.status FROM provisioning_jobs j
+    WHERE j.tenant_id = m.tenant_id AND j.resource_type = 'membership' AND j.resource_id = m.id::text
+      AND j.kind = 'member.offboard'
+    ORDER BY j.created_at DESC, j.id DESC LIMIT 1
+) o ON true
 WHERE m.tenant_id = sqlc.arg(tenant_id) AND m.id = sqlc.arg(id);
 
 -- name: ListInstancesPage :many

@@ -93,6 +93,45 @@ type Member struct {
 	HeadscaleUsername string // mg-<membership_uuid>
 	Version           int64
 	CreatedAt         time.Time
+	// Offboarding is the two-phase state of the offboarding (P4-T09, T-17): the latest member.offboard job of the
+	// membership; nil when it was never offboarded.
+	Offboarding *Offboarding
+}
+
+// Membership statuses (CHECK of 0024 — P4-T09).
+const (
+	MemberActive     = "active"
+	MemberLocked     = "locked"
+	MemberOffboarded = "offboarded"
+)
+
+// MemberStatuses is the set of tenant_memberships.status (enum MembershipStatus of api/openapi.yaml).
+var MemberStatuses = []string{MemberActive, MemberLocked, MemberOffboarded}
+
+// Offboarding states (schema MembershipOffboarding): pending until the member.offboard job verified the nodes, the
+// pre-auth keys and the IdP account; applied when it did; failed when the job ended without doing so (DELETE again
+// retries it).
+const (
+	OffboardPending = "pending"
+	OffboardApplied = "applied"
+	OffboardFailed  = "failed"
+)
+
+// Offboarding is the state of the offboarding of a membership and its job.
+type Offboarding struct {
+	State string
+	JobID uuid.UUID
+}
+
+// OffboardState maps the status of a member.offboard job to the offboarding state.
+func OffboardState(jobStatus string) string {
+	switch jobStatus {
+	case "succeeded":
+		return OffboardApplied
+	case "failed", "cancelled", "rolled_back":
+		return OffboardFailed
+	}
+	return OffboardPending
 }
 
 // MemberPage is one page of members.
@@ -385,6 +424,9 @@ func MagicDNSDomain(slug, baseDomain string) string { return slug + ".tail." + b
 func member(r sqlcdb.GetTenantMemberRow) Member {
 	m := Member{ID: r.ID, TenantID: r.TenantID, IdentityID: r.IdentityID, Role: r.RoleKey, Status: r.Status,
 		HeadscaleUsername: r.HeadscaleUsername, Version: r.Version, CreatedAt: r.CreatedAt.UTC()}
+	if id, err := uuid.Parse(r.OffboardJobID); err == nil {
+		m.Offboarding = &Offboarding{State: OffboardState(r.OffboardJobStatus), JobID: id}
+	}
 	if r.Email != nil {
 		m.Email = *r.Email
 	}

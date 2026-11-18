@@ -98,10 +98,18 @@ func (q *Queries) GetLiveTenantBySlug(ctx context.Context, slug string) (Tenant,
 
 const getTenantMember = `-- name: GetTenantMember :one
 SELECT m.id, m.tenant_id, m.identity_id, m.status, m.headscale_username, m.version, m.created_at,
-       r.key AS role_key, i.display_name, i.email, i.subject
+       r.key AS role_key, i.display_name, i.email, i.subject,
+       COALESCE(o.id::text, '')::text AS offboard_job_id, COALESCE(o.status, '')::text AS offboard_job_status
 FROM tenant_memberships m
 JOIN identities i ON i.tenant_id = m.tenant_id AND i.id = m.identity_id
 JOIN roles r ON r.id = m.role_id AND r.scope = m.role_scope
+LEFT JOIN LATERAL (
+    -- P4-T09: trạng thái hai pha của offboard = job member.offboard mới nhất của membership (index của 0024)
+    SELECT j.id, j.status FROM provisioning_jobs j
+    WHERE j.tenant_id = m.tenant_id AND j.resource_type = 'membership' AND j.resource_id = m.id::text
+      AND j.kind = 'member.offboard'
+    ORDER BY j.created_at DESC, j.id DESC LIMIT 1
+) o ON true
 WHERE m.tenant_id = $1 AND m.id = $2
 `
 
@@ -122,6 +130,8 @@ type GetTenantMemberRow struct {
 	DisplayName       *string
 	Email             *string
 	Subject           string
+	OffboardJobID     string
+	OffboardJobStatus string
 }
 
 // GET /tenants/{t}/users/{membershipId} (pool tenant): membership của tenant khác ⇒ không có hàng (404 — §8.4 bất biến 6).
@@ -140,6 +150,8 @@ func (q *Queries) GetTenantMember(ctx context.Context, arg GetTenantMemberParams
 		&i.DisplayName,
 		&i.Email,
 		&i.Subject,
+		&i.OffboardJobID,
+		&i.OffboardJobStatus,
 	)
 	return i, err
 }
@@ -484,10 +496,18 @@ func (q *Queries) ListRegistryTenantsPage(ctx context.Context, arg ListRegistryT
 
 const listTenantMembersPage = `-- name: ListTenantMembersPage :many
 SELECT m.id, m.tenant_id, m.identity_id, m.status, m.headscale_username, m.version, m.created_at,
-       r.key AS role_key, i.display_name, i.email, i.subject
+       r.key AS role_key, i.display_name, i.email, i.subject,
+       COALESCE(o.id::text, '')::text AS offboard_job_id, COALESCE(o.status, '')::text AS offboard_job_status
 FROM tenant_memberships m
 JOIN identities i ON i.tenant_id = m.tenant_id AND i.id = m.identity_id
 JOIN roles r ON r.id = m.role_id AND r.scope = m.role_scope
+LEFT JOIN LATERAL (
+    -- P4-T09: trạng thái hai pha của offboard = job member.offboard mới nhất của membership (index của 0024)
+    SELECT j.id, j.status FROM provisioning_jobs j
+    WHERE j.tenant_id = m.tenant_id AND j.resource_type = 'membership' AND j.resource_id = m.id::text
+      AND j.kind = 'member.offboard'
+    ORDER BY j.created_at DESC, j.id DESC LIMIT 1
+) o ON true
 WHERE m.tenant_id = $1
   AND ($2::text IS NULL OR r.key = $2::text)
   AND ($3::text IS NULL OR m.status = $3::text)
@@ -521,6 +541,8 @@ type ListTenantMembersPageRow struct {
 	DisplayName       *string
 	Email             *string
 	Subject           string
+	OffboardJobID     string
+	OffboardJobStatus string
 }
 
 // GET /tenants/{t}/users (pool tenant): membership + danh tính + khóa role; tenant_id lọc ở truy vấn ngoài RLS (§8.8).
@@ -553,6 +575,8 @@ func (q *Queries) ListTenantMembersPage(ctx context.Context, arg ListTenantMembe
 			&i.DisplayName,
 			&i.Email,
 			&i.Subject,
+			&i.OffboardJobID,
+			&i.OffboardJobStatus,
 		); err != nil {
 			return nil, err
 		}
