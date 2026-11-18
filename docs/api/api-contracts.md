@@ -185,7 +185,7 @@ Hành vi upstream phải được mã hóa trong adapter và ghim bằng contrac
 
 | Job kind | Kích hoạt | Khóa chống trùng (`dedupe_key`, chỉ áp dụng khi job đang chờ/đang chạy) | Ghi chú |
 |---|---|---|---|
-| `tenant.provision` / `tenant.suspend` / `tenant.resume` / `tenant.deprovision` | API | `tenant:<id>:lifecycle` | State machine §11; một lifecycle job tại một thời điểm cho mỗi tenant |
+| `tenant.provision` / `tenant.suspend` / `tenant.resume` / `tenant.deprovision` | API | `tenant:<id>:lifecycle` | State machine §11; một lifecycle job tại một thời điểm cho mỗi tenant. `tenant.suspend`/`tenant.resume` (P3-T08): có compensation (`/rollback`), bước ở §11.4 |
 | `instance.reconfigure` / `instance.restart` / `instance.upgrade` | API / lịch | `instance:<id>:<kind>` | Có health gate + rollback; hai yêu cầu restart nối tiếp tạo hai lần restart |
 | `instance.quarantine` / `instance.release` | API | `instance:<id>:quarantine` | §11.4; `release` chỉ chạy sau phê duyệt 2P |
 | `instance.backup` | Lịch | `instance:<id>:backup:<slot>` | §17.1 |

@@ -303,6 +303,30 @@ func TestWiringKeepsDefaults(t *testing.T) {
 	if strings.Contains(string(src), "KEKOps") || strings.Contains(string(src), "kek-ops") {
 		t.Error("api.go mentions the kek-ops keyring")
 	}
+	// the one exception (P3-T08): the registry of tenant.suspend / tenant.resume reaches a suspended tenant's instance —
+	// lifecycle.go sets TenantStatuses exactly once, to lifecycle.ReachableStatuses
+	file, err := parser.ParseFile(fset, "lifecycle.go", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var statuses []string
+	ast.Inspect(file, func(n ast.Node) bool {
+		if kv, ok := n.(*ast.KeyValueExpr); ok {
+			if id, ok := kv.Key.(*ast.Ident); ok && id.Name == "TenantStatuses" {
+				value := "?"
+				if sel, ok := kv.Value.(*ast.SelectorExpr); ok {
+					if pkg, ok := sel.X.(*ast.Ident); ok {
+						value = pkg.Name + "." + sel.Sel.Name
+					}
+				}
+				statuses = append(statuses, value)
+			}
+		}
+		return true
+	})
+	if len(statuses) != 1 || statuses[0] != "lifecycle.ReachableStatuses" {
+		t.Errorf("lifecycle.go sets TenantStatuses %v, want exactly [lifecycle.ReachableStatuses]", statuses)
+	}
 }
 
 // wiredEnv is the environment of a wired process on the test database (the shape compose.app.yaml renders).

@@ -169,11 +169,14 @@ func DefaultKinds() map[string]Kind {
 	for _, k := range ks {
 		out[k.Name] = k
 	}
-	// tenant.provision undoes its 19 steps in reverse order (§11.3, P3-T05); the other lifecycle kinds gain /rollback
-	// with the task that builds their compensation.
-	prov := out["tenant.provision"]
-	prov.Compensable = true
-	out["tenant.provision"] = prov
+	// tenant.provision undoes its 19 steps in reverse order (§11.3, P3-T05); tenant.suspend and tenant.resume undo theirs
+	// (P3-T08: back to the desired policy and `active` / back to the suspension policy and `suspended`); the other
+	// lifecycle kinds gain /rollback with the task that builds their compensation.
+	for _, name := range []string{"tenant.provision", "tenant.suspend", "tenant.resume"} {
+		k := out[name]
+		k.Compensable = true
+		out[name] = k
+	}
 	return out
 }
 

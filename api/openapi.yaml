@@ -1047,6 +1047,97 @@ paths:
           $ref: '#/components/responses/RateLimited'
         default:
           $ref: '#/components/responses/Unexpected'
+  # ---------------------------------------------------------------- suspend / resume (P3-T08, §11.4)
+  /platform/tenants/{tenantId}/suspend:
+    post:
+      tags: [platform]
+      operationId: suspendPlatformTenant
+      summary: Suspend tenant — job tenant.suspend (policy deny-all, chặn thao tác ghi, expire pre-auth key)
+      description: |-
+        §11.4: tenant phải `active` (`suspended` ⇒ `409`, trạng thái khác ⇒ `409`) và có version policy mong muốn — version
+        mà resume áp lại (không có ⇒ `409`); job vòng đời khác của tenant chưa xong ⇒ `409`; cùng job `tenant.suspend`
+        đang chạy ⇒ `202` trả lại đúng job đó. Job: áp policy `suspension` (deny-all, `desired_policy_version_id` giữ
+        nguyên) → `status=suspended` (từ đây mọi thao tác ghi của role tenant ⇒ `403 tenant_suspended`, §8.4 bất biến
+        5) → expire mọi pre-auth key còn hiệu lực → thông báo Owner/Admin; audit `platform.tenant.suspend.requested` →
+        `.succeeded`. Instance vẫn chạy để phân phối policy deny-all. Lỗi vĩnh viễn ⇒ `failed_resumable` (không tự
+        hoàn tác — `/rollback` của job đưa tenant về `active`).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: platform.tenant:suspend
+      x-task: P3-T08
+      x-audit-action: platform.tenant.suspend
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '202':
+          description: Job tenant.suspend đã xếp hàng (bước 1 validate xong); theo dõi ở job
+          headers:
+            Location:
+              $ref: '#/components/headers/JobLocation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /platform/tenants/{tenantId}/resume:
+    post:
+      tags: [platform]
+      operationId: resumePlatformTenant
+      summary: Resume tenant — job tenant.resume (áp lại version policy mong muốn, mở lại thao tác ghi)
+      description: |-
+        §11.4: tenant phải `suspended` (`active` ⇒ `409`, trạng thái khác ⇒ `409`); job vòng đời khác của tenant chưa
+        xong ⇒ `409`; cùng job `tenant.resume` đang chạy ⇒ `202` trả lại đúng job đó. Job: áp lại version mong muốn
+        hiện hành (`desired_policy_version_id`, trigger `resume`) → `status=active` → thông báo Owner/Admin; audit
+        `platform.tenant.resume.requested` → `.succeeded`. Lỗi vĩnh viễn ⇒ compensation: policy `suspension` áp lại,
+        tenant vẫn `suspended`, job `rolled_back`. Pre-auth key đã expire khi suspend không được khôi phục.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: platform.tenant:suspend
+      x-task: P3-T08
+      x-audit-action: platform.tenant.resume
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '202':
+          description: Job tenant.resume đã xếp hàng (bước 1 validate xong); theo dõi ở job
+          headers:
+            Location:
+              $ref: '#/components/headers/JobLocation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
   /platform/instances:
     get:
       tags: [platform]

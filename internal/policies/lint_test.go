@@ -91,10 +91,10 @@ func TestLintCanonicalRendering(t *testing.T) {
 	}
 }
 
-// TestLintRepositoryFixtures: the two policies the platform ships (deny-all baseline, allow fixture of §22.1) pass, and
-// the allow fixture keeps its single grant.
+// TestLintRepositoryFixtures: the policies the platform ships (deny-all baseline, suspension — P3-T08 —, allow fixture
+// of §22.1) pass, and the allow fixture keeps its single grant.
 func TestLintRepositoryFixtures(t *testing.T) {
-	for _, name := range []string{"bootstrap-policy.hujson", "test-allow-intra.hujson"} {
+	for _, name := range []string{"bootstrap-policy.hujson", "suspension-policy.hujson", "test-allow-intra.hujson"} {
 		b, err := os.ReadFile(filepath.Join("..", "..", "infrastructure", "headscale", "templates", name)) //nolint:gosec // G304: fixture of the repository
 		if err != nil {
 			t.Fatal(err)

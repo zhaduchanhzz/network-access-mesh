@@ -1,0 +1,8 @@
+// Policy suspension (§11.4, P3-T08): deny-all áp khi tenant bị suspend — client vẫn nối control plane (nhận policy
+// này qua netmap) nhưng không còn peer nào. Khóa "grants" luôn có mặt (thiếu khóa này Headscale coi là allow-all —
+// PL-02, lint L1). Lưu thành version kind=suspension; tenants.desired_policy_version_id giữ nguyên — resume áp lại
+// đúng version đó (§7.3).
+{
+  "grants": [],
+  "ssh": []
+}

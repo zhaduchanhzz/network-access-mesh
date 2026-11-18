@@ -438,6 +438,56 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/platform/tenants/{tenantId}/suspend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Suspend tenant — job tenant.suspend (policy deny-all, chặn thao tác ghi, expire pre-auth key)
+         * @description §11.4: tenant phải `active` (`suspended` ⇒ `409`, trạng thái khác ⇒ `409`) và có version policy mong muốn — version
+         *     mà resume áp lại (không có ⇒ `409`); job vòng đời khác của tenant chưa xong ⇒ `409`; cùng job `tenant.suspend`
+         *     đang chạy ⇒ `202` trả lại đúng job đó. Job: áp policy `suspension` (deny-all, `desired_policy_version_id` giữ
+         *     nguyên) → `status=suspended` (từ đây mọi thao tác ghi của role tenant ⇒ `403 tenant_suspended`, §8.4 bất biến
+         *     5) → expire mọi pre-auth key còn hiệu lực → thông báo Owner/Admin; audit `platform.tenant.suspend.requested` →
+         *     `.succeeded`. Instance vẫn chạy để phân phối policy deny-all. Lỗi vĩnh viễn ⇒ `failed_resumable` (không tự
+         *     hoàn tác — `/rollback` của job đưa tenant về `active`).
+         */
+        post: operations["suspendPlatformTenant"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/tenants/{tenantId}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resume tenant — job tenant.resume (áp lại version policy mong muốn, mở lại thao tác ghi)
+         * @description §11.4: tenant phải `suspended` (`active` ⇒ `409`, trạng thái khác ⇒ `409`); job vòng đời khác của tenant chưa
+         *     xong ⇒ `409`; cùng job `tenant.resume` đang chạy ⇒ `202` trả lại đúng job đó. Job: áp lại version mong muốn
+         *     hiện hành (`desired_policy_version_id`, trigger `resume`) → `status=active` → thông báo Owner/Admin; audit
+         *     `platform.tenant.resume.requested` → `.succeeded`. Lỗi vĩnh viễn ⇒ compensation: policy `suspension` áp lại,
+         *     tenant vẫn `suspended`, job `rolled_back`. Pre-auth key đã expire khi suspend không được khôi phục.
+         */
+        post: operations["resumePlatformTenant"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/platform/instances": {
         parameters: {
             query?: never;
@@ -2762,6 +2812,74 @@ export interface operations {
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    suspendPlatformTenant: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Job tenant.suspend đã xếp hàng (bước 1 validate xong); theo dõi ở job */
+            202: {
+                headers: {
+                    Location: components["headers"]["JobLocation"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    resumePlatformTenant: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Job tenant.resume đã xếp hàng (bước 1 validate xong); theo dõi ở job */
+            202: {
+                headers: {
+                    Location: components["headers"]["JobLocation"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
             429: components["responses"]["RateLimited"];
             default: components["responses"]["Unexpected"];
         };

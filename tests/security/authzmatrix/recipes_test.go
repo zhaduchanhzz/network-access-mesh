@@ -115,6 +115,11 @@ var recipes = map[string]recipe{
 	"retryPlatformJob":    {idempotent: true},
 	"cancelPlatformJob":   {idempotent: true},
 	"rollbackPlatformJob": {idempotent: true},
+	// suspend / resume (P3-T08, lifecycleapi — mounted): the matrix's tenants have no desired policy version, so a
+	// granted request is answered 409 (no_policy_to_restore, already_suspended, not_suspended) — any answer that is not
+	// a refusal; the flows themselves are internal/provisioning/lifecycle's DB tests and E2E-56…E2E-58
+	"suspendPlatformTenant": {idempotent: true},
+	"resumePlatformTenant":  {idempotent: true},
 }
 
 // objectKind is what a path parameter (other than the {tenantId} context of a tenant route) designates.

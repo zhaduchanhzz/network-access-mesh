@@ -23,3 +23,9 @@ var ComposeTenant string
 //
 //go:embed bootstrap-policy.hujson
 var BootstrapPolicy string
+
+// SuspensionPolicy is the deny-all policy a suspended tenant gets (suspension-policy.hujson — §11.4, P3-T08), stored as
+// a policy version of kind suspension; the tenant's desired version is kept and re-applied by resume.
+//
+//go:embed suspension-policy.hujson
+var SuspensionPolicy string

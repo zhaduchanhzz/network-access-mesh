@@ -278,6 +278,24 @@ func testBindFirstLoginRefusals(t *testing.T, f *fixture) {
 		AND outcome = 'denied'`, a); n != "3" {
 		t.Errorf("denied invitation.accept events: %s (idp mismatch, unverified, expired)", n)
 	}
+	// §8.4 invariant 5 (P3-T08): no member joins a suspended tenant — the invitation stays pending and binds after resume
+	frozen := invite("frozen@example.test", time.Hour)
+	f.exec(`UPDATE tenants SET status = 'suspended' WHERE id = $1`, a)
+	late := newIdentity(idpA)
+	if r := bind(late, idpA, "frozen@example.test", true); r.Refused != identity.ReasonTenantSuspended || r.MembershipID != uuid.Nil {
+		t.Errorf("first login while suspended: %+v", r)
+	}
+	if st := f.scalar(`SELECT status FROM tenant_invitations WHERE id = $1`, frozen); st != tenants.InvitationPending {
+		t.Errorf("invitation after a refused login of a suspended tenant: %s", st)
+	}
+	f.exec(`UPDATE tenants SET status = 'active' WHERE id = $1`, a)
+	if r := bind(late, idpA, "frozen@example.test", true); r.Refused != "" || r.InvitationID != frozen {
+		t.Errorf("first login after resume: %+v", r)
+	}
+	if n := f.scalar(`SELECT count(*)::text FROM audit_events WHERE tenant_id = $1 AND action = 'invitation.accept'
+		AND outcome = 'denied' AND details ->> 'reason' = 'tenant_suspended'`, a); n != "1" {
+		t.Errorf("denied invitation.accept events (tenant_suspended): %s", n)
+	}
 }
 
 func itoa(n int) string { b, _ := json.Marshal(n); return string(b) }

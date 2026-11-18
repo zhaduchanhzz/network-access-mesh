@@ -48,6 +48,8 @@ const partitionRole = "mg_partition_maint"
 //	apikey           apikey.rotate (P3-T10): its handler, its daily schedule per instance and the key expiry gauge
 //	orchestrator     tenant.provision — the 19 steps of §11.3 with compensation (P3-T05; MG_PROVISION_*, MG_PROBER_URL,
 //	                 the same agent client as reconcile)
+//	lifecycle        tenant.suspend + tenant.resume (P3-T08, §11.4) over a Headscale registry of their own that reaches a
+//	                 suspended tenant's instance (lifecycle.go), always wired — no Host Agent needed
 //	idp              driver registry keycloak (narrow route to auth.<domain> incl. /admin/realms, provisioning identity
 //	                 from the SecretStore — platform_ops) + external (hardened client) — P2-T05a; idp.audit_sync every
 //	                 minute over the keycloak driver (admin + login events of every realm → audit_events, security
@@ -97,6 +99,13 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 		return nil, err
 	}
 	if err := sender.Register(w); err != nil {
+		return nil, err
+	}
+	life, err := newLifecycle(cfg, d) // P3-T08: tenant.suspend + tenant.resume
+	if err != nil {
+		return nil, err
+	}
+	if err := life.Register(w); err != nil {
 		return nil, err
 	}
 	agent, err := newAgent(cfg, d) // one client of the Host Agent: reconcile + orchestrator

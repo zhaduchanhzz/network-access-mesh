@@ -545,6 +545,10 @@ func (s *Service) BindFirstLogin(ctx context.Context, in identity.FirstLogin) (i
 		if a, err := netip.ParseAddr(in.ClientIP); err == nil {
 			ev.ActorIP = a
 		}
+		t, err := q.GetTenant(ctx, in.TenantID)
+		if err != nil {
+			return err
+		}
 		switch {
 		case inv.IdpID != in.IdPID:
 			res.Refused = identity.ReasonInvitationIdPMismatch
@@ -555,6 +559,10 @@ func (s *Service) BindFirstLogin(ctx context.Context, in identity.FirstLogin) (i
 			if err := q.ExpireInvitation(ctx, sqlcdb.ExpireInvitationParams{Now: now, TenantID: in.TenantID, ID: inv.ID}); err != nil {
 				return err
 			}
+		case t.Status == StatusSuspended:
+			// §8.4 invariant 5 (P3-T08): a suspended tenant takes no new member; the invitation stays pending and binds
+			// at a login after the resume
+			res.Refused = identity.ReasonTenantSuspended
 		}
 		if res.Refused != "" {
 			ev.Outcome = audit.OutcomeDenied

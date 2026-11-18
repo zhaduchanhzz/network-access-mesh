@@ -144,6 +144,18 @@ phase2 = {"authLogin", "authCallback", "authLogout", "getAuthSession", "listAuth
 ids = {op.get("operationId") for _, _, op, _ in ol.operations(spec)}
 check(phase2 <= ids, "api/openapi.yaml has every Phase 2 operation", str(sorted(phase2 - ids)))
 
+# §8.4 invariant 5 (P3-T08): the writes of the tenant context are exactly the unsafe operations under /tenants/{tenantId},
+# each with a tenant permission (the Authorizer refuses them while the tenant is suspended); suspend/resume themselves
+# are platform operations, outside the guard
+_writes = ol.tenant_writes(spec)
+_perm = {op.get("operationId"): op.get("x-permission") for _, _, op, _ in ol.operations(spec)}
+check({"syncDevices", "renameDevice", "deleteDevice", "expireDevice", "createTenantInvitation"} <= set(_writes)
+      and not {"getDevice", "listDevices", "suspendPlatformTenant", "resumePlatformTenant"} & set(_writes)
+      and all(str(_perm[w]).startswith("tenant.") for w in _writes),
+      "tenant writes: unsafe operations under /tenants/{tenantId}, all with a tenant permission", str(_writes))
+check({"suspendPlatformTenant", "resumePlatformTenant"} <= ids and _perm["suspendPlatformTenant"] == "platform.tenant:suspend"
+      and _perm["resumePlatformTenant"] == "platform.tenant:suspend", "P3-T08: suspend/resume under platform.tenant:suspend")
+
 # ====================================================================== fixtures that must fail (mutations of the real spec)
 
 
@@ -223,6 +235,14 @@ FIXTURES = [
      "has no 2P cell"),
     ("2P operation without x-dual-control", add_tenant_delete, "x-dual-control: true required"),
     ("x-permission-secondary on two operations", secondary_twice, "allowed on at most one operation"),
+    # §8.4 invariant 5 (P3-T08): an operation of the tenant context without a tenant permission escapes the suspension
+    # guard of internal/authz
+    ("authenticated write of the tenant context", set_(["paths", SYNC, "post", "x-permission"], "authenticated"),
+     "escapes the suspension guard of §8.4 invariant 5"),
+    ("platform permission on a tenant write", set_(["paths", SYNC, "post", "x-permission"], "platform.tenant:suspend"),
+     "escapes the suspension guard of §8.4 invariant 5"),
+    ("internal permission on a tenant read", set_(["paths", DEVICE, "get", "x-permission"], "internal"),
+     "escapes the suspension guard of §8.4 invariant 5"),
     # x-conditions (§13.1 — conditional cells enforced by the operation, P3-T04a)
     ("x-conditions not a list", set_(["paths", "/platform/approvals/{approvalId}/approve", "post", "x-conditions"],
                                      "restore_only"), "x-conditions must be a non-empty list"),
@@ -449,12 +469,13 @@ check(len(errs_done) == 1 and "tenant.user:read" in errs_done[0] and "P2-T11" in
 check(any("tenant.user:read" in e for e in ol.lint(no_users, with_done("P2-T11")))
       and not any("tenant.user:read" in e for e in ol.lint(no_users, with_done("P2-T11"), coverage=False)),
       "lint() includes the row coverage unless coverage=False")
-check(not any("platform.tenant:suspend" in e for e in ol.row_coverage(spec, with_done("P3-T05"))[0]),
+check(not any("platform.tenant:delete" in e for e in ol.row_coverage(spec, with_done("P3-T05", "P3-T08"))[0]),
       "row of several tasks: no error while one of them is pending")
 three = ol.row_coverage(spec, with_done("P3-T05", "P3-T08", "P3-T09"))[0]
-# platform.tenant:create has its operation since P3-T05 (createPlatformTenant): only the two rows without one fail
-check(sum(any(k in e for e in three) for k in ("platform.tenant:suspend", "platform.tenant:delete")) == 2 and
-      not any("platform.tenant:create" in e for e in three),
+# platform.tenant:create has its operation since P3-T05 (createPlatformTenant), platform.tenant:suspend since P3-T08
+# (suspendPlatformTenant, resumePlatformTenant): only the row without one fails
+check(any("platform.tenant:delete" in e for e in three) and
+      not any(k in e for e in three for k in ("platform.tenant:create", "platform.tenant:suspend")),
       "row of several tasks: error once all of them are done", str(three))
 
 # the RBAC model of the real master
