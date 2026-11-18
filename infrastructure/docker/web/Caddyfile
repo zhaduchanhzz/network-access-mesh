@@ -17,23 +17,16 @@
 :8080 {
 	root * /srv/web
 
-	# Cùng CSP với portal_headers của edge (infrastructure/caddy/Caddyfile.tmpl — test src/security/csp.test.ts):
-	# chỉ tài nguyên cùng origin, không inline script/style, không nhúng frame, form chỉ về chính origin.
-	header {
-		Content-Security-Policy "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'"
-		Strict-Transport-Security "max-age=31536000"
-		X-Content-Type-Options nosniff
-		X-Frame-Options DENY
-		Referrer-Policy no-referrer
-		Cross-Origin-Opener-Policy same-origin
-		Cross-Origin-Resource-Policy same-origin
-		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
-		-Server
-		defer
-	}
+	# Header bảo mật trình duyệt (CSP, HSTS, nosniff, X-Frame-Options, Referrer-Policy, COOP/CORP, Permissions-Policy)
+	# KHÔNG đặt ở đây: edge là nguồn duy nhất cho mọi phản hồi của app./admin. — api, SPA và trang lỗi của edge
+	# (portal_headers + platform_headers của infrastructure/caddy/Caddyfile.tmpl, P4-T01a; test src/security/csp.test.ts).
+	# Container chỉ trên mg-edge, không bao giờ được phục vụ trực tiếp. Ở đây chỉ còn header theo nội dung (Cache-Control)
+	# và không lộ Server.
+	header -Server
 
 	@api path /api /api/*
-	@hidden path_regexp hidden (^|/)\.
+	# path thô (đã giải mã, chưa làm sạch): dotfile, "/./", "/../" (kể cả %2e/%2f) — matcher `path` so path đã làm sạch
+	@hidden vars_regexp hidden {http.request.uri.path} (^|/)\.
 	@unsafe path_regexp unsafe \x5c
 	route {
 		# API không bao giờ do container này trả lời — edge định tuyến /api/* tới api

@@ -2,8 +2,8 @@
 """Stack dev/CI của P2-T01a + kiểm thử functional (`make e2e-functional` = `all`).
 
   python3 tests/e2e/harness/e2e.py all      up → test → down (down chạy cả khi lỗi); exit 0 ⇔ mọi ca PASS
-  python3 tests/e2e/harness/e2e.py up       build api/worker/probe/node-exporter từ cây, render, secret, CA, network, khởi
-                                            động stack (gồm backend mg-app: db-bootstrap, migrate, api, worker; mg-obs:
+  python3 tests/e2e/harness/e2e.py up       build api/worker/web/probe/node-exporter từ cây, render, secret, CA, network, khởi
+                                            động stack (gồm backend mg-app: db-bootstrap, migrate, api, worker, web; mg-obs:
                                             prober, prometheus, alertmanager, node-exporter, alertsink), enroll 4 client
   python3 tests/e2e/harness/e2e.py test     chạy các ca trên stack đang chạy (chạy lại được)
   python3 tests/e2e/harness/e2e.py down     lưu log (đã che secret) rồi gỡ mọi đối tượng mang tiền tố
@@ -36,6 +36,7 @@ import monitoring  # noqa: E402 — E2E-76 … E2E-78 (P3-T16)
 import phase3  # noqa: E402 — E2E-32 … E2E-36 (P3-T14a, P3-T03a, P3-T08a)
 import postrestore  # noqa: E402 — E2E-70, E2E-71 (P3-T17)
 import restore  # noqa: E402 — E2E-59, E2E-60 (P3-T11: V-11)
+import spa  # noqa: E402 — E2E-85, E2E-86 (P4-T01a: SPA sau edge template v9)
 from stack import CLIENTS, SECRET_RE, TENANTS, Stack, StackError, log  # noqa: E402
 
 PHASES: dict[str, float] = {}
@@ -70,7 +71,8 @@ def ensure_users(st: Stack) -> None:
 
 
 def up(st: Stack) -> None:
-    with timed("build image api/worker/idp/probe/node-exporter từ cây (infrastructure/docker/app, idp, probe, node-exporter)"):
+    with timed("build image api/worker/web/idp/probe/node-exporter từ cây (infrastructure/docker/app, web, idp, probe, "
+               "node-exporter)"):
         st.teardown(quiet=True)
         st.build_app_images()
         st.build_idp_image()
@@ -112,7 +114,7 @@ def up(st: Stack) -> None:
         for slug in TENANTS:
             st.docker("network", "connect", st.name(f"t-{slug}"), st.name("edge"))
         log("edge gắn vào " + ", ".join(st.name(f"t-{s}") for s in TENANTS) + " (không reload Caddy)")
-    with timed("backend mg-app: db-bootstrap, migrate (job một lần), api + worker"):
+    with timed("backend mg-app: db-bootstrap, migrate (job một lần), api + worker + web"):
         state = {}
         for job, profile in (("db-bootstrap", "bootstrap"), ("migrate", "migrate")):
             p = st.compose("--profile", profile, "run", "--rm", "--no-TTY", job, check=False, timeout=600)
@@ -122,9 +124,10 @@ def up(st: Stack) -> None:
             state[profile] = json.loads(line)
             log(f"{job}: {line[:300]}")
         (st.work / "state" / "backend.json").write_text(json.dumps(state), encoding="utf-8")
-        st.compose("up", "-d", "--wait", "--wait-timeout", "240", "api", "worker", "mail-bridge", "fakeworker", timeout=300)
-        log("api, worker, mailrelay healthy (/readyz: postgres, secretstore, edge_admin; smtp_listener, hmac_key, "
-            "tls_certificate) + Worker giả (devserver của infrastructure/mail/cf-worker)")
+        st.compose("up", "-d", "--wait", "--wait-timeout", "240", "api", "worker", "web", "mail-bridge", "fakeworker",
+                   timeout=300)
+        log("api, worker, web, mailrelay healthy (/readyz: postgres, secretstore, edge_admin; healthprobe GET /; "
+            "smtp_listener, hmac_key, tls_certificate) + Worker giả (devserver của infrastructure/mail/cf-worker)")
     with timed("monitoring mg-obs (P3-T16): prometheus, alertmanager, node-exporter, alertsink"):
         st.compose("up", "-d", "--wait", "--wait-timeout", "120", "prometheus", "alertmanager", "node-exporter", "alertsink",
                    timeout=180)
@@ -195,6 +198,9 @@ def test(st: Stack, r: checks.Results) -> None:
                "app./admin./auth., OIDC + TOTP, adopt, thiết bị, audit; P3-T05: tạo tenant, /cancel; P3-T13: reconfigure; "
                "P3-T13a: restart/upgrade + upgrade-wave)"):
         backend.run_all(r, st, guarded)
+    with timed("ca E2E-85, E2E-86 (P4-T01a: SPA sau edge v9 — app./admin. trả SPA, /api/* vẫn tới api, header một nguồn, "
+               "conformance platform; web dừng ⇒ 503 có header, api không ảnh hưởng)"):
+        spa.run_all(r, st, guarded)
     with timed("ca E2E-32 … E2E-36 (Phase 3: helper enrollment P3-T14a, prober P3-T03a, lõi policy P3-T08a)"):
         phase3.run_all(r, st, guarded)
     with timed("ca E2E-37 … E2E-39 (Phase 3: lời mời P3-T05a, dual control P3-T04a — Keycloak + TOTP thật)"):
@@ -222,7 +228,8 @@ def versions(st: Stack) -> dict[str, str]:
     return {"headscale": first("exec", st.name("hs-tenant-a"), "headscale", "version"),
             "tailscale": first("exec", st.name("ts-b1"), "tailscale", "version"),
             "caddy (edge)": first("exec", st.name("edge"), "caddy", "version"),
-            "api": st.app_images[0][:19], "worker": st.app_images[1][:19], "probe": st.images["probe"][:19],
+            "api": st.app_images[0][:19], "worker": st.app_images[1][:19], "web": st.app_images[2][:19],
+            "probe": st.images["probe"][:19],
             "node-exporter": st.images["node-exporter"][:19],
             "prometheus": first("exec", st.name("prometheus"), "prometheus", "--version"),
             "alertmanager": first("exec", st.name("alertmanager"), "alertmanager", "--version"),
@@ -321,6 +328,8 @@ def main(argv: list[str]) -> int:
             return 1 if leaks else 0
         if cmd in ("all", "up"):
             up(st)
+        if cmd == "test":
+            st.reuse_app_images()   # `up` ran in another process: re-renders (E2E-77) must keep the built images
         if cmd in ("all", "test"):
             test(st, r)
             ver = versions(st)

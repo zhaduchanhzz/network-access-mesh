@@ -22,6 +22,10 @@ Params (no secret — secrets are referenced by {file.*} placeholders and compos
                  therefore, the Keycloak administration console, served only on admin.<base_domain> behind the
                  forward_auth of the api (template v8, P3-T15).
 
+From template v9 (P4-T01a) app.<base_domain> and admin.<base_domain> send every path outside /api/* (and, on admin.,
+outside the Keycloak console) to the static SPA container web:8080 on mg-edge (service `web` of compose project mg-app,
+tools/render_app.py); the edge is the single source of the browser security headers of both origins.
+
 Writes <out_dir>/caddy/Caddyfile and <out_dir>/compose.edge.yaml. Output is deterministic — guarded by
 tools/test_render_edge.py (golden files). Standard library only.
 """
@@ -38,7 +42,7 @@ import sys
 import mgenv  # noqa: E402 — tools/mgenv.py: env file of the environment (no secrets)
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-TEMPLATE_VERSION = "8"
+TEMPLATE_VERSION = "9"   # 9: SPA web sau app./admin. (P4-T01a)
 CADDYFILE_TMPL = ROOT / "infrastructure" / "caddy" / "Caddyfile.tmpl"
 COMPOSE_TMPL = ROOT / "infrastructure" / "compose" / "compose.edge.yaml.tmpl"
 

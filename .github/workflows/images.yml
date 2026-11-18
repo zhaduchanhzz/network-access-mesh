@@ -292,21 +292,22 @@ jobs:
               docker logs smoke 2>&1 | tail -3
               docker rm -f smoke >/dev/null; sudo rm -rf "$d" ;;
             web)
-              # P4-T01: non-root, rootfs chỉ-đọc, cap_drop ALL; CSP + header bảo mật; SPA fallback; asset immutable; /api/*,
-              # dotfile và "\" ⇒ 404 (edge định tuyến /api/* tới api, không bao giờ tới container này)
+              # P4-T01, P4-T01a: non-root, rootfs chỉ-đọc, cap_drop ALL; healthprobe của HEALTHCHECK; SPA fallback; asset
+              # immutable; /api/*, dotfile, "/../" (kể cả %2e) và "\" ⇒ 404 (edge định tuyến /api/* tới api). Header bảo mật
+              # trình duyệt KHÔNG do container phát — edge là nguồn duy nhất (template v9).
               test "$user" = "65532:65532"
               docker run -d --name smoke --read-only --cap-drop ALL --security-opt no-new-privileges --tmpfs /tmp:size=8m \
                 -p 127.0.0.1:18080:8080 "${IMAGE}:${GITHUB_SHA}"
               for i in $(seq 1 20); do curl -fsS -o /dev/null http://127.0.0.1:18080/ && break; sleep 1; done
+              docker exec smoke /usr/bin/healthprobe http://127.0.0.1:8080/ 200
               h=$(curl -fsS -D - -o /dev/null http://127.0.0.1:18080/t/x/devices | tr -d '\r')
-              echo "$h" | grep -qx "Content-Security-Policy: default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'"
-              echo "$h" | grep -qx 'X-Frame-Options: DENY'
-              echo "$h" | grep -qx 'X-Content-Type-Options: nosniff'
               echo "$h" | grep -qx 'Cache-Control: no-cache'
-              if echo "$h" | grep -qi '^Server:'; then echo "::error::header Server bị lộ"; exit 1; fi
+              if echo "$h" | grep -qiE '^(Server|Content-Security-Policy|Strict-Transport-Security|X-Frame-Options):'; then
+                echo "::error::container web phát Server hoặc header bảo mật (nguồn duy nhất là edge)"; exit 1
+              fi
               js=$(curl -fsS http://127.0.0.1:18080/ | grep -o '/assets/index-[A-Za-z0-9_-]*\.js' | head -1)
               curl -fsS -D - -o /dev/null "http://127.0.0.1:18080${js}" | tr -d '\r' | grep -qx 'Cache-Control: public, max-age=31536000, immutable'
-              for p in /api/v1/auth/session /.env /assets/missing.js '/a%5cb'; do
+              for p in /api/v1/auth/session /.env /assets/missing.js '/a%5cb' /x/../index.html '/%2e%2e/index.html'; do
                 test "$(curl -sS -o /dev/null -w '%{http_code}' --path-as-is "http://127.0.0.1:18080$p")" = 404
               done
               docker logs smoke 2>&1 | tail -3
