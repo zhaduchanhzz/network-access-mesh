@@ -31,10 +31,10 @@ def build_hostside(t: Target, out_dir: pathlib.Path, docker: list[str] | None = 
     out_dir.mkdir(parents=True, exist_ok=True)
     d = docker or t.host_docker
     vols = [f"{t.name('gomod')}:/go/pkg/mod", f"{t.name('gocache')}:/root/.cache/go-build"]
-    t.run([*d, "run", "--rm", "-v", f"{ROOT}:/src:ro", *[x for v in vols for x in ("-v", v)], "-v", f"{out_dir}:/out",
+    t.run(t.command(d, ["run", "--rm", "-v", f"{ROOT}:/src:ro", *[x for v in vols for x in ("-v", v)], "-v", f"{out_dir}:/out",
            "-e", "GOTOOLCHAIN=local", "-e", "GOFLAGS=-mod=readonly", "-e", "CGO_ENABLED=0", "-w", "/src", t.images["golang"],
            "sh", "-c", "go vet -tags mgtestfixture ./tests/g3/hostside && go test -c -buildvcs=false -trimpath -tags mgtestfixture "
-           f"-o /out/g3-hostside ./tests/g3/hostside && chown {_uid()} /out/g3-hostside"], timeout=1200)
+           f"-o /out/g3-hostside ./tests/g3/hostside && chown {_uid()} /out/g3-hostside"]), timeout=1200)
     return out_dir / "g3-hostside"
 
 

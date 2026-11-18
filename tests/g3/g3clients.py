@@ -45,9 +45,9 @@ class Client:
     def push_key(self, key_volume: str, key_file: str) -> None:
         """key file (platform host volume) → /run/g3/authkey in the client (tmpfs 0700), bytes piped host to host."""
         t = self.t
-        src = [*t.host_docker, "run", "--rm", "--network", "none", "--user", "65532:65532", "-v", f"{key_volume}:/k:ro",
-               t.images["alpine"], "cat", f"/k/{key_file}"]
-        dst = [*t.client_docker, "exec", "-i", self.container, "sh", "-ec", "umask 077; cat > /run/g3/authkey"]
+        src = t.host_cmd("run", "--rm", "--network", "none", "--user", "65532:65532", "-v", f"{key_volume}:/k:ro",
+               t.images["alpine"], "cat", f"/k/{key_file}")
+        dst = t.client_cmd("exec", "-i", self.container, "sh", "-ec", "umask 077; cat > /run/g3/authkey")
         a, b, err = t.pipe(src, dst)
         if a != 0 or b != 0:
             raise G3Error(f"chuyển key tới {self.host}: exit {a}/{b} {err}")

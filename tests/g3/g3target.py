@@ -130,13 +130,27 @@ class Target:
             raise G3Error(f"exit {p.returncode}: {' '.join(cmd[:8])} …\n{self.redact((err or out).strip())[-1500:]}")
         return p
 
+    @staticmethod
+    def command(prefix: list[str], args: list[str] | tuple[str, ...]) -> list[str]:
+        """prefix + args; through ssh the remote shell re-parses the joined words, so each argument is quoted (an
+        argument like "cat > /out/x" must reach `sh -c` whole, not become a redirection on the remote host)."""
+        if prefix and pathlib.PurePath(prefix[0]).name.removesuffix(".exe") == "ssh":
+            return [*prefix, *(shlex.quote(a) for a in args)]
+        return [*prefix, *args]
+
+    def host_cmd(self, *args: str) -> list[str]:
+        return self.command(self.host_docker, args)
+
+    def client_cmd(self, *args: str) -> list[str]:
+        return self.command(self.client_docker, args)
+
     def hd(self, *args: str, **kw) -> subprocess.CompletedProcess:
         """docker on the platform host."""
-        return self.run([*self.host_docker, *args], **kw)
+        return self.run(self.host_cmd(*args), **kw)
 
     def cd(self, *args: str, **kw) -> subprocess.CompletedProcess:
         """docker on the client host."""
-        return self.run([*self.client_docker, *args], **kw)
+        return self.run(self.client_cmd(*args), **kw)
 
     def pipe(self, src: list[str], dst: list[str], timeout: float = 60) -> tuple[int, int, str]:
         """src | dst without the bytes passing through this process's memory as text (key file → client container)."""

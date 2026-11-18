@@ -162,6 +162,11 @@ check(t.domain == "meshguard-ci.test" and t.host_docker[-3:] == ["sudo", "-n", "
       and t.client_docker == t.host_docker and t.edge_ip == "192.0.2.1", "Target: environment file, placeholders, client = host by default")
 check(t.cfg["tenants_dir"] == "/opt/meshguard/tenants" and t.cfg["edge_container"] == "mg-edge" and t.name("bin") == "g3-bin",
       "Target: host layout defaults (layout.sh, compose projects)")
+cmd = t.host_cmd("run", "--rm", "alpine", "sh", "-ec", "cat > /out/x; chmod 0755 /out/x")
+check(cmd[:4] == ["ssh", "h@192.0.2.53", "sudo", "-n"] and cmd[-1] == "'cat > /out/x; chmod 0755 /out/x'" and cmd[-2] == "-ec",
+      "Target: through ssh each docker argument is quoted (the remote shell must not apply the redirection)")
+local = Target(env_ci, {"connect": "192.0.2.1", "host_docker": "sudo -n docker"})
+check(local.host_cmd("sh", "-ec", "a > b")[-1] == "a > b", "Target: local docker arguments are passed unquoted")
 raises(lambda: Target(env_ci, {"nope": 1}), "Target: unknown key ⇒ error")
 raises(lambda: Target(env_ci, {"connect": "${MG_NOT_THERE}"}), "Target: unknown placeholder ⇒ error")
 raises(lambda: Target(env_ci, {}), "Target: no connect address (ci.env has no MG_LAN_IPV4) ⇒ error")
