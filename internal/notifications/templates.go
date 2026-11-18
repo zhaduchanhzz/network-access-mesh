@@ -123,6 +123,26 @@ var catalog = map[Kind]map[string]mailTemplate{
 			"Someone signed in to the administration of the platform-hosted Keycloak: client {{.client}}{{with .username}}, account {{.}}{{end}}{{with .ip}}, from {{.}}{{end}}, at {{.occurred_at}} (UTC).\n\n" +
 				"Every console sign-in needs a session approved by two Super Admins; if there is no such session, handle it as a security incident. See the security events in the Platform Console: {{.console_url}}\n\nEvent ID: {{.event_id}}"},
 	},
+	KindInstanceQuarantined: {
+		LocaleVI: {"[MeshGuard] CẢNH BÁO: instance {{.tenant_slug}} bị quarantine ({{.outcome}})",
+			"Instance Headscale của tenant {{.tenant_slug}} đã bị quarantine (§11.4): hostname của tenant trả 404, container dừng, dữ liệu giữ nguyên để điều tra. Kết quả của job: {{.outcome}}" +
+				"{{if eq .outcome \"incomplete\"}} — instance CÓ THỂ VẪN PHỤC VỤ: cô lập bằng tay theo RUNBOOK ngay{{end}}.\n\n" +
+				"Chỉ gỡ được bằng release có người thứ hai duyệt. Xem job và security event trong Platform Console: {{.console_url}}\n\nMã instance: {{.instance_id}} · job: {{.job_id}}"},
+		LocaleEN: {"[MeshGuard] ALERT: instance {{.tenant_slug}} quarantined ({{.outcome}})",
+			"The Headscale instance of tenant {{.tenant_slug}} was quarantined (§11.4): the tenant's hostname answers 404, the container is stopped, its data is kept for the investigation. Job outcome: {{.outcome}}" +
+				"{{if eq .outcome \"incomplete\"}} — the instance MAY STILL SERVE: isolate it by hand following the RUNBOOK now{{end}}.\n\n" +
+				"Only a release approved by a second person lifts it. See the job and the security events in the Platform Console: {{.console_url}}\n\nInstance ID: {{.instance_id}} · job: {{.job_id}}"},
+	},
+	KindInstanceReleased: {
+		LocaleVI: {"[MeshGuard] Release instance {{.tenant_slug}}: {{.outcome}}",
+			"Release (đã được người thứ hai duyệt) của instance Headscale thuộc tenant {{.tenant_slug}} kết thúc: {{.outcome}}" +
+				"{{if eq .outcome \"released\"}} — instance đã qua start guard và post-start gate, phục vụ lại{{else}} — instance vẫn bị quarantine{{end}}.\n\n" +
+				"Xem job trong Platform Console: {{.console_url}}\n\nMã instance: {{.instance_id}} · job: {{.job_id}}"},
+		LocaleEN: {"[MeshGuard] Release of instance {{.tenant_slug}}: {{.outcome}}",
+			"The release (approved by a second person) of the Headscale instance of tenant {{.tenant_slug}} ended: {{.outcome}}" +
+				"{{if eq .outcome \"released\"}} — the instance passed the start guard and the post-start gate and serves again{{else}} — the instance stays quarantined{{end}}.\n\n" +
+				"See the job in the Platform Console: {{.console_url}}\n\nInstance ID: {{.instance_id}} · job: {{.job_id}}"},
+	},
 }
 
 // templates are the parsed catalog.

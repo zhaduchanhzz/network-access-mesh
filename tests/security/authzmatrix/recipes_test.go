@@ -127,6 +127,14 @@ var recipes = map[string]recipe{
 	// recorded by the orchestrator, so a granted call reaches the service and answers 409 no_config_version
 	"reconfigurePlatformInstance": {idempotent: true, body: `{"log_level":"warn"}`,
 		ok: answer{http.StatusConflict, gen.ProblemCodeConflict}},
+	// quarantine / release (P3-T18, quarantineapi — mounted): a granted quarantine reaches the service, finds the
+	// instance (404 otherwise) and refuses the blank reason (422) — the matrix's instances are never quarantined, which
+	// would change the answers of the other operations on them; a granted release finds the instance not quarantined
+	// (409) before any approval request is made. The flows are internal/provisioning/quarantine's DB tests.
+	"quarantinePlatformInstance": {idempotent: true, body: `{"reason":" "}`,
+		ok: answer{http.StatusUnprocessableEntity, gen.ProblemCodeValidationFailed}},
+	"releasePlatformInstance": {idempotent: true, body: `{"reason":"matrix"}`,
+		ok: answer{http.StatusConflict, gen.ProblemCodeConflict}},
 }
 
 // objectKind is what a path parameter (other than the {tenantId} context of a tenant route) designates.

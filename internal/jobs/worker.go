@@ -64,7 +64,24 @@ type Options struct {
 	Registerer prometheus.Registerer      // nil ⇒ metrics are kept but not exported
 	Alerter    Alerter                    // receives every alert after it is counted and logged
 	Partitions *store.PartitionMaintainer // nil ⇒ partition.maintain is not scheduled in this process
+	// StepGate is consulted before every step of a job and every step of its compensation (nil ⇒ none) — the
+	// quarantine of an instance (§11.4, P3-T18) stops every other job of it at its next step.
+	StepGate StepGate
 }
+
+// GateRun is the job a StepGate decides on.
+type GateRun struct {
+	ID         uuid.UUID
+	Kind       string
+	TenantID   *uuid.UUID
+	InstanceID *uuid.UUID
+}
+
+// StepGate decides, in the bookkeeping transaction that starts a step (Run.Step) or a step's compensation
+// (Run.CompensateSteps), whether the job may go on — like /cancel (§11.3), observed at the step boundary: an error stops
+// the job there and becomes its error (a *Error keeps its code; anything else is Resumable "step_gate"). A business
+// module provides it (jobs imports none — §13.6); the worker of apps/ wires it.
+type StepGate func(ctx context.Context, q *sqlcdb.Queries, run GateRun) error
 
 // Worker runs jobs: the River client of the process (store.QueueClient) and the registered handlers. job.reaper and
 // retention.sweep are built in, and partition.maintain when Options.Partitions is set.
@@ -75,6 +92,8 @@ type Worker struct {
 	alerter    Alerter
 	metrics    *metrics
 	partitions *store.PartitionMaintainer
+
+	gate StepGate
 
 	mu        sync.Mutex
 	handlers  map[string]Handler
@@ -93,7 +112,7 @@ func NewWorker(st *store.Store, cfg Config, opts Options) (*Worker, error) {
 		log = slog.New(slog.DiscardHandler)
 	}
 	w := &Worker{st: st, cfg: cfg, log: log, alerter: opts.Alerter, metrics: newMetrics(opts.Registerer),
-		partitions: opts.Partitions, handlers: map[string]Handler{}}
+		partitions: opts.Partitions, gate: opts.StepGate, handlers: map[string]Handler{}}
 	w.handlers["job.reaper"] = HandlerFunc(w.runReaper)
 	w.handlers["retention.sweep"] = HandlerFunc(w.runSweep)
 	if w.partitions != nil {
@@ -604,12 +623,17 @@ func (r *Run) Step(ctx context.Context, name string, fn func(ctx context.Context
 	var (
 		started, cancelled bool
 		prev               []byte
+		gated              error
 	)
 	err := r.w.bookkeep(ctx, func(bctx context.Context, tx *store.Tx) error {
 		// /cancel (§11.3): the job stops after the step that was running when the operator asked — before the next one.
 		if requested, err := tx.Q.JobCancelRequested(bctx, r.ID); err != nil || requested {
 			cancelled = requested
 			return err
+		}
+		// the step gate (quarantine — P3-T18): the same boundary
+		if gated = r.gate(bctx, tx.Q); gated != nil {
+			return nil
 		}
 		row, err := tx.Q.StartJobStep(bctx, sqlcdb.StartJobStepParams{TenantID: r.TenantID, JobID: r.ID, Name: name})
 		if errors.Is(err, store.ErrNoRows) {
@@ -626,6 +650,9 @@ func (r *Run) Step(ctx context.Context, name string, fn func(ctx context.Context
 	}
 	if cancelled {
 		return Resumable(CodeCancelled, errorf("cancelled by an operator before step %s", name))
+	}
+	if gated != nil {
+		return gated
 	}
 	if !started {
 		return nil
@@ -644,6 +671,23 @@ func (r *Run) Step(ctx context.Context, name string, fn func(ctx context.Context
 		return errors.Join(ferr, Transient("step_bookkeeping", errorf("step %s: sqlstate %q", name, store.SQLState(err))))
 	}
 	return ferr
+}
+
+// gate runs the worker's StepGate for this job (nil when none, or when it lets the job go on); an error that is not a
+// job error becomes Resumable "step_gate" (no retry in place, no compensation).
+func (r *Run) gate(ctx context.Context, q *sqlcdb.Queries) error {
+	if r.w.gate == nil {
+		return nil
+	}
+	err := r.w.gate(ctx, q, GateRun{ID: r.ID, Kind: r.Kind, TenantID: r.TenantID, InstanceID: r.InstanceID})
+	if err == nil {
+		return nil
+	}
+	var je *Error
+	if errors.As(err, &je) {
+		return err
+	}
+	return Resumable("step_gate", err)
 }
 
 // StepRun is the running step handed to a Step function.

@@ -328,6 +328,9 @@ func (s *server) ValidateConfig(ctx context.Context, r *agentv1.ValidateConfigRe
 		if err := s.guard.CheckSpec(ctx, spec); err != nil {
 			return err
 		}
+		if err := s.refuseQuarantined(ctx, spec.Ref); err != nil {
+			return err
+		}
 		var err error
 		out, err = s.drv.ValidateConfig(ctx, spec)
 		return err
@@ -350,6 +353,9 @@ func (s *server) EnsureInstance(ctx context.Context, r *agentv1.EnsureInstanceRe
 	var out *agentv1.EnsureInstanceResponse
 	err = s.locked(ctx, e.Spec.Ref, func() error {
 		if err := s.guard.CheckSpec(ctx, e.Spec); err != nil {
+			return err
+		}
+		if err := s.refuseQuarantined(ctx, e.Spec.Ref); err != nil {
 			return err
 		}
 		var err error
@@ -386,19 +392,23 @@ func (s *server) ListInstances(ctx context.Context, _ *agentv1.ListInstancesRequ
 	return &agentv1.ListInstancesResponse{Instances: list, EdgeAliases: aliases}, nil
 }
 
+// statusCall runs start/stop/restart; active: refused on a quarantined instance (start, restart — P3-T18).
 func statusCall[R interface {
 	GetInstance() *agentv1.InstanceRef
 	GetJobId() string
-}](ctx context.Context, s *server, r R, op func(context.Context, agentspec.Call) (*agentv1.InstanceStatus, error)) (*agentv1.InstanceStatus, error) {
+}](ctx context.Context, s *server, r R, active bool, op func(context.Context, agentspec.Call) (*agentv1.InstanceStatus, error)) (*agentv1.InstanceStatus, error) {
 	c, err := s.v.Call(r)
 	if err != nil {
 		return nil, err
+	}
+	if active {
+		return onActive(ctx, s, c, func() (*agentv1.InstanceStatus, error) { return op(ctx, c) })
 	}
 	return onInstance(ctx, s, c, true, func() (*agentv1.InstanceStatus, error) { return op(ctx, c) })
 }
 
 func (s *server) StartInstance(ctx context.Context, r *agentv1.StartInstanceRequest) (*agentv1.StartInstanceResponse, error) {
-	st, err := statusCall(ctx, s, r, s.drv.StartInstance)
+	st, err := statusCall(ctx, s, r, true, s.drv.StartInstance)
 	if err != nil {
 		return nil, err
 	}
@@ -406,7 +416,7 @@ func (s *server) StartInstance(ctx context.Context, r *agentv1.StartInstanceRequ
 }
 
 func (s *server) StopInstance(ctx context.Context, r *agentv1.StopInstanceRequest) (*agentv1.StopInstanceResponse, error) {
-	st, err := statusCall(ctx, s, r, s.drv.StopInstance)
+	st, err := statusCall(ctx, s, r, false, s.drv.StopInstance)
 	if err != nil {
 		return nil, err
 	}
@@ -414,7 +424,7 @@ func (s *server) StopInstance(ctx context.Context, r *agentv1.StopInstanceReques
 }
 
 func (s *server) RestartInstance(ctx context.Context, r *agentv1.RestartInstanceRequest) (*agentv1.RestartInstanceResponse, error) {
-	st, err := statusCall(ctx, s, r, s.drv.RestartInstance)
+	st, err := statusCall(ctx, s, r, true, s.drv.RestartInstance)
 	if err != nil {
 		return nil, err
 	}
@@ -427,7 +437,14 @@ func (s *server) RemoveInstance(ctx context.Context, r *agentv1.RemoveInstanceRe
 		return nil, err
 	}
 	// an absent directory is not an error (idempotent compensation), but whatever exists must be this instance's
-	return onInstance(ctx, s, rm.Call, false, func() (*agentv1.RemoveInstanceResponse, error) { return s.drv.RemoveInstance(ctx, rm) })
+	return onInstance(ctx, s, rm.Call, false, func() (*agentv1.RemoveInstanceResponse, error) {
+		if rm.Data != agentv1.DataDisposition_DATA_DISPOSITION_KEEP { // a quarantined instance's data is kept (§11.4)
+			if err := s.refuseQuarantined(ctx, rm.Ref); err != nil {
+				return nil, err
+			}
+		}
+		return s.drv.RemoveInstance(ctx, rm)
+	})
 }
 
 func (s *server) UpgradeInstance(ctx context.Context, r *agentv1.UpgradeInstanceRequest) (*agentv1.UpgradeInstanceResponse, error) {
@@ -435,7 +452,7 @@ func (s *server) UpgradeInstance(ctx context.Context, r *agentv1.UpgradeInstance
 	if err != nil {
 		return nil, err
 	}
-	st, err := onInstance(ctx, s, u.Call, true, func() (*agentv1.InstanceStatus, error) { return s.drv.UpgradeInstance(ctx, u) })
+	st, err := onActive(ctx, s, u.Call, func() (*agentv1.InstanceStatus, error) { return s.drv.UpgradeInstance(ctx, u) })
 	if err != nil {
 		return nil, err
 	}
@@ -447,7 +464,7 @@ func (s *server) WriteDnsRecords(ctx context.Context, r *agentv1.WriteDnsRecords
 	if err != nil {
 		return nil, err
 	}
-	return onInstance(ctx, s, d.Call, true, func() (*agentv1.WriteDnsRecordsResponse, error) { return s.drv.WriteDNSRecords(ctx, d) })
+	return onActive(ctx, s, d.Call, func() (*agentv1.WriteDnsRecordsResponse, error) { return s.drv.WriteDNSRecords(ctx, d) })
 }
 
 func (s *server) BootstrapPolicy(ctx context.Context, r *agentv1.BootstrapPolicyRequest) (*agentv1.BootstrapPolicyResponse, error) {
@@ -455,7 +472,7 @@ func (s *server) BootstrapPolicy(ctx context.Context, r *agentv1.BootstrapPolicy
 	if err != nil {
 		return nil, err
 	}
-	return onInstance(ctx, s, c, true, func() (*agentv1.BootstrapPolicyResponse, error) { return s.drv.BootstrapPolicy(ctx, c, kind) })
+	return onActive(ctx, s, c, func() (*agentv1.BootstrapPolicyResponse, error) { return s.drv.BootstrapPolicy(ctx, c, kind) })
 }
 
 func (s *server) BootstrapApiKey(ctx context.Context, r *agentv1.BootstrapApiKeyRequest) (*agentv1.BootstrapApiKeyResponse, error) {
@@ -463,7 +480,7 @@ func (s *server) BootstrapApiKey(ctx context.Context, r *agentv1.BootstrapApiKey
 	if err != nil {
 		return nil, err
 	}
-	return onInstance(ctx, s, k.Call, true, func() (*agentv1.BootstrapApiKeyResponse, error) { return s.drv.BootstrapAPIKey(ctx, k) })
+	return onActive(ctx, s, k.Call, func() (*agentv1.BootstrapApiKeyResponse, error) { return s.drv.BootstrapAPIKey(ctx, k) })
 }
 
 func (s *server) Backup(ctx context.Context, r *agentv1.BackupRequest) (*agentv1.BackupResponse, error) {
@@ -483,7 +500,7 @@ func (s *server) Restore(ctx context.Context, r *agentv1.RestoreRequest) (*agent
 	if err != nil {
 		return nil, err
 	}
-	return onInstance(ctx, s, rs.Call, true, func() (*agentv1.RestoreResponse, error) { return s.drv.Restore(ctx, rs) })
+	return onActive(ctx, s, rs.Call, func() (*agentv1.RestoreResponse, error) { return s.drv.Restore(ctx, rs) })
 }
 
 func (s *server) PostRestoreReconcile(ctx context.Context, r *agentv1.PostRestoreReconcileRequest) (*agentv1.PostRestoreReconcileResponse, error) {
@@ -491,7 +508,7 @@ func (s *server) PostRestoreReconcile(ctx context.Context, r *agentv1.PostRestor
 	if err != nil {
 		return nil, err
 	}
-	return onInstance(ctx, s, rc.Call, true, func() (*agentv1.PostRestoreReconcileResponse, error) { return s.drv.PostRestoreReconcile(ctx, rc) })
+	return onActive(ctx, s, rc.Call, func() (*agentv1.PostRestoreReconcileResponse, error) { return s.drv.PostRestoreReconcile(ctx, rc) })
 }
 
 func (s *server) EnsureEdgeAttachment(ctx context.Context, r *agentv1.EnsureEdgeAttachmentRequest) (*agentv1.EnsureEdgeAttachmentResponse, error) {
@@ -499,7 +516,7 @@ func (s *server) EnsureEdgeAttachment(ctx context.Context, r *agentv1.EnsureEdge
 	if err != nil {
 		return nil, err
 	}
-	return onInstance(ctx, s, c, true, func() (*agentv1.EnsureEdgeAttachmentResponse, error) {
+	return onActive(ctx, s, c, func() (*agentv1.EnsureEdgeAttachmentResponse, error) {
 		if err := s.guard.CheckEdgeAttach(ctx, c.Ref); err != nil {
 			return nil, err
 		}
@@ -512,5 +529,12 @@ func (s *server) RemoveEdgeAttachment(ctx context.Context, r *agentv1.RemoveEdge
 	if err != nil {
 		return nil, err
 	}
-	return onInstance(ctx, s, d.Call, true, func() (*agentv1.RemoveEdgeAttachmentResponse, error) { return s.drv.RemoveEdgeAttachment(ctx, d) })
+	return onInstance(ctx, s, d.Call, true, func() (*agentv1.RemoveEdgeAttachmentResponse, error) {
+		if d.Reason == agentv1.EdgeDetachReason_EDGE_DETACH_REASON_COMPENSATION { // would remove meta/activated (§11.3 step 14)
+			if err := s.refuseQuarantined(ctx, d.Ref); err != nil {
+				return nil, err
+			}
+		}
+		return s.drv.RemoveEdgeAttachment(ctx, d)
+	})
 }

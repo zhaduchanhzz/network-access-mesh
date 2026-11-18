@@ -37,6 +37,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/monitoringapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/notificationsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/provisioningapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/quarantineapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/reconfigureapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/relayapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/tenantsapi"
@@ -49,6 +50,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/platform"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/lifecycle"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/orchestrator"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/quarantine"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/relay"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/secrets"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
@@ -163,6 +165,8 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 		Relay: relayapi.New(relays),
 		// Reconfigure (P3-T13): instance.reconfigure requests of the api
 		Reconfigure: reconfigureapi.New(orchestrator.NewReconfigureService(w.Store)),
+		// Quarantine (P3-T18): quarantine requests of the api; a release becomes an approval request
+		Quarantine: quarantineapi.New(quarantine.NewRequester(w.Store), appr),
 	}
 }
 

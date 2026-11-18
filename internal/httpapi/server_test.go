@@ -57,6 +57,9 @@ var operations = []struct {
 	{http.MethodGet, "/api/v1/platform/instances/" + itemID, "", "GetPlatformInstance", nil},
 	// instance.reconfigure (P3-T13)
 	{http.MethodPost, "/api/v1/platform/instances/" + itemID + "/reconfigure", `{"node_expiry_days":30}`, "ReconfigurePlatformInstance", []func(*http.Request){idempotency}},
+	// quarantine / release (P3-T18)
+	{http.MethodPost, "/api/v1/platform/instances/" + itemID + "/quarantine", `{"reason":"suspected compromise"}`, "QuarantinePlatformInstance", []func(*http.Request){idempotency}},
+	{http.MethodPost, "/api/v1/platform/instances/" + itemID + "/release", `{"reason":"investigation closed"}`, "ReleasePlatformInstance", []func(*http.Request){idempotency}},
 	// platform hosts (P3-T04)
 	{http.MethodGet, "/api/v1/platform/hosts?status=active", "", "ListPlatformHosts", nil},
 	{http.MethodPost, "/api/v1/platform/hosts", `{"name":"h1","region":"lab","run_uid_range":{"first":30000,"last":39999},"tenant_net_pool":"10.250.0.0/16"}`, "CreatePlatformHost", []func(*http.Request){idempotency}},

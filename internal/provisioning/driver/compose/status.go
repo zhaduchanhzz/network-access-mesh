@@ -116,6 +116,9 @@ func (d *Driver) status(ctx context.Context, t *tree, l layout, n agentspec.Name
 	if fi, err := t.lstat(l.activatedFile); err == nil && fi != nil {
 		st.Activated = true
 	}
+	if q, err := isQuarantined(t, l); err == nil && q {
+		st.Quarantined = true
+	}
 	for _, p := range []struct {
 		kind agentv1.PathKind
 		rel  string

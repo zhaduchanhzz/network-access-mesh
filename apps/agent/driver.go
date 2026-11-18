@@ -34,6 +34,11 @@ type Driver interface {
 	PostRestoreReconcile(ctx context.Context, r agentspec.Reconcile) (*agentv1.PostRestoreReconcileResponse, error)
 	EnsureEdgeAttachment(ctx context.Context, c agentspec.Call) (*agentv1.EnsureEdgeAttachmentResponse, error)
 	RemoveEdgeAttachment(ctx context.Context, d agentspec.EdgeDetach) (*agentv1.RemoveEdgeAttachmentResponse, error)
+	// Quarantine (§11.4, P3-T18): Quarantined reports meta/quarantined (false when the instance has no directory) —
+	// the server refuses with it every call that could make a quarantined instance serve or change it.
+	Quarantined(ctx context.Context, ref agentspec.Ref) (bool, error)
+	QuarantineInstance(ctx context.Context, c agentspec.Call) (*agentv1.QuarantineInstanceResponse, error)
+	ReleaseInstance(ctx context.Context, r agentspec.Release) (*agentv1.ReleaseInstanceResponse, error)
 }
 
 // composeDriver is the driver of the agent: the compose driver for EnsureInstance (storage → config → network →
@@ -82,6 +87,15 @@ func (d composeDriver) EnsureEdgeAttachment(ctx context.Context, c agentspec.Cal
 }
 func (d composeDriver) RemoveEdgeAttachment(ctx context.Context, r agentspec.EdgeDetach) (*agentv1.RemoveEdgeAttachmentResponse, error) {
 	return d.c.RemoveEdgeAttachment(ctx, r)
+}
+func (d composeDriver) Quarantined(ctx context.Context, ref agentspec.Ref) (bool, error) {
+	return d.c.Quarantined(ctx, ref)
+}
+func (d composeDriver) QuarantineInstance(ctx context.Context, c agentspec.Call) (*agentv1.QuarantineInstanceResponse, error) {
+	return d.c.QuarantineInstance(ctx, c)
+}
+func (d composeDriver) ReleaseInstance(ctx context.Context, r agentspec.Release) (*agentv1.ReleaseInstanceResponse, error) {
+	return d.c.ReleaseInstance(ctx, r)
 }
 
 // EdgeCycle / EdgeStarts make composeDriver an edgeSupervisor (supervisor.go).
@@ -148,5 +162,14 @@ func (noDriver) EnsureEdgeAttachment(context.Context, agentspec.Call) (*agentv1.
 	return nil, unimplemented()
 }
 func (noDriver) RemoveEdgeAttachment(context.Context, agentspec.EdgeDetach) (*agentv1.RemoveEdgeAttachmentResponse, error) {
+	return nil, unimplemented()
+}
+
+// Quarantined: without a driver there is no instance directory, hence no marker.
+func (noDriver) Quarantined(context.Context, agentspec.Ref) (bool, error) { return false, nil }
+func (noDriver) QuarantineInstance(context.Context, agentspec.Call) (*agentv1.QuarantineInstanceResponse, error) {
+	return nil, unimplemented()
+}
+func (noDriver) ReleaseInstance(context.Context, agentspec.Release) (*agentv1.ReleaseInstanceResponse, error) {
 	return nil, unimplemented()
 }

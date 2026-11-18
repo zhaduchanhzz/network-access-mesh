@@ -1117,6 +1117,12 @@ type InstanceList struct {
 // InstanceLogLevel `log.level` của Headscale (§11.3 bước 8: chỉ `info`, `warn`, `error`)
 type InstanceLogLevel string
 
+// InstanceQuarantineRequest Quarantine một instance (§11.4) — lý do ghi vào audit và security event
+type InstanceQuarantineRequest struct {
+	// Reason Lý do (sự cố, ticket, dấu hiệu bị chiếm)
+	Reason string `json:"reason"`
+}
+
 // InstanceReconfigure Tham số do nền tảng quản lý của cấu hình instance (§11.1 `HeadscaleParams`); trường vắng mặt giữ giá trị của version đang hiệu lực. `derp.server.ipv4` luôn render lại từ điểm vào công khai hiện tại của host (§17.4) — `{}` render lại đúng version hiện hành với giá trị mới nhất của registry (không đổi gì ⇒ job kết thúc không restart). Thiết lập DNS, OIDC, hạn khóa của tenant đi qua API Phase 4 (cùng job)
 type InstanceReconfigure struct {
 	// DerpRegionId `derp.server.region_id` của DERP nhúng (§10.1)
@@ -1130,6 +1136,12 @@ type InstanceReconfigure struct {
 
 	// NodeExpiryDays `node.expiry` theo ngày (render thành giờ — Headscale 0.29.7 không có đơn vị ngày)
 	NodeExpiryDays *int `json:"node_expiry_days,omitempty"`
+}
+
+// InstanceReleaseRequest Gỡ quarantine của một instance (luôn cần người thứ hai duyệt)
+type InstanceReleaseRequest struct {
+	// Reason Lý do và kết luận điều tra — người duyệt đọc trước khi duyệt
+	Reason string `json:"reason"`
 }
 
 // InstanceStatus TenantInstanceStatus (§13.3)
@@ -2014,8 +2026,20 @@ type ListPlatformInstancesParams struct {
 	Host *openapi_types.UUID `form:"host,omitempty" json:"host,omitempty"`
 }
 
+// QuarantinePlatformInstanceParams defines parameters for QuarantinePlatformInstance.
+type QuarantinePlatformInstanceParams struct {
+	// IdempotencyKey Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
 // ReconfigurePlatformInstanceParams defines parameters for ReconfigurePlatformInstance.
 type ReconfigurePlatformInstanceParams struct {
+	// IdempotencyKey Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// ReleasePlatformInstanceParams defines parameters for ReleasePlatformInstance.
+type ReleasePlatformInstanceParams struct {
 	// IdempotencyKey Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
@@ -2236,8 +2260,14 @@ type UpdatePlatformHostJSONRequestBody = HostUpdate
 // RequestIdpConsoleSessionJSONRequestBody defines body for RequestIdpConsoleSession for application/json ContentType.
 type RequestIdpConsoleSessionJSONRequestBody = IdpConsoleSessionCreate
 
+// QuarantinePlatformInstanceJSONRequestBody defines body for QuarantinePlatformInstance for application/json ContentType.
+type QuarantinePlatformInstanceJSONRequestBody = InstanceQuarantineRequest
+
 // ReconfigurePlatformInstanceJSONRequestBody defines body for ReconfigurePlatformInstance for application/json ContentType.
 type ReconfigurePlatformInstanceJSONRequestBody = InstanceReconfigure
+
+// ReleasePlatformInstanceJSONRequestBody defines body for ReleasePlatformInstance for application/json ContentType.
+type ReleasePlatformInstanceJSONRequestBody = InstanceReleaseRequest
 
 // CreatePlatformTenantJSONRequestBody defines body for CreatePlatformTenant for application/json ContentType.
 type CreatePlatformTenantJSONRequestBody = TenantCreate
@@ -2316,9 +2346,15 @@ type ServerInterface interface {
 	// GetPlatformInstance Một Headscale instance
 	// (GET /platform/instances/{instanceId})
 	GetPlatformInstance(w http.ResponseWriter, r *http.Request, instanceId InstanceId)
+	// QuarantinePlatformInstance Quarantine instance nghi bị chiếm — cô lập ngay (job instance.quarantine), không cần 2P
+	// (POST /platform/instances/{instanceId}/quarantine)
+	QuarantinePlatformInstance(w http.ResponseWriter, r *http.Request, instanceId InstanceId, params QuarantinePlatformInstanceParams)
 	// ReconfigurePlatformInstance Đổi cấu hình instance — job instance.reconfigure (version mới, restart, health gate, tự lùi)
 	// (POST /platform/instances/{instanceId}/reconfigure)
 	ReconfigurePlatformInstance(w http.ResponseWriter, r *http.Request, instanceId InstanceId, params ReconfigurePlatformInstanceParams)
+	// ReleasePlatformInstance Gỡ quarantine — luôn 2P; 202 + Location của yêu cầu phê duyệt
+	// (POST /platform/instances/{instanceId}/release)
+	ReleasePlatformInstance(w http.ResponseWriter, r *http.Request, instanceId InstanceId, params ReleasePlatformInstanceParams)
 	// ListPlatformJobs Job của nền tảng và mọi tenant
 	// (GET /platform/jobs)
 	ListPlatformJobs(w http.ResponseWriter, r *http.Request, params ListPlatformJobsParams)
@@ -3373,6 +3409,60 @@ func (siw *ServerInterfaceWrapper) GetPlatformInstance(w http.ResponseWriter, r 
 	handler.ServeHTTP(w, r)
 }
 
+// QuarantinePlatformInstance operation middleware
+func (siw *ServerInterfaceWrapper) QuarantinePlatformInstance(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "instanceId" -------------
+	var instanceId InstanceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "instanceId", r.PathValue("instanceId"), &instanceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "instanceId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params QuarantinePlatformInstanceParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.QuarantinePlatformInstance(w, r, instanceId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ReconfigurePlatformInstance operation middleware
 func (siw *ServerInterfaceWrapper) ReconfigurePlatformInstance(w http.ResponseWriter, r *http.Request) {
 
@@ -3418,6 +3508,60 @@ func (siw *ServerInterfaceWrapper) ReconfigurePlatformInstance(w http.ResponseWr
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ReconfigurePlatformInstance(w, r, instanceId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReleasePlatformInstance operation middleware
+func (siw *ServerInterfaceWrapper) ReleasePlatformInstance(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "instanceId" -------------
+	var instanceId InstanceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "instanceId", r.PathValue("instanceId"), &instanceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "instanceId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ReleasePlatformInstanceParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReleasePlatformInstance(w, r, instanceId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -5416,6 +5560,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/platform/hosts", wrapper.CreatePlatformHost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/platform/hosts/{hostId}", wrapper.GetPlatformHost)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/platform/hosts/{hostId}", wrapper.UpdatePlatformHost)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/platform/instances/{instanceId}/quarantine", wrapper.QuarantinePlatformInstance)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/platform/instances/{instanceId}/release", wrapper.ReleasePlatformInstance)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/platform/health", wrapper.GetPlatformHealth)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/platform/audit", wrapper.ListPlatformAuditEvents)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/platform/jobs", wrapper.ListPlatformJobs)
@@ -8356,6 +8502,188 @@ func (response GetPlatformInstancedefaultApplicationProblemPlusJSONResponse) Vis
 	return err
 }
 
+type QuarantinePlatformInstanceRequestObject struct {
+	InstanceId InstanceId `json:"instanceId"`
+	Params     QuarantinePlatformInstanceParams
+	Body       *QuarantinePlatformInstanceJSONRequestBody
+}
+
+type QuarantinePlatformInstanceResponseObject interface {
+	VisitQuarantinePlatformInstanceResponse(w http.ResponseWriter) error
+}
+
+type QuarantinePlatformInstance202ResponseHeaders struct {
+	Location string
+}
+
+type QuarantinePlatformInstance202JSONResponse struct {
+	Body    Job
+	Headers QuarantinePlatformInstance202ResponseHeaders
+}
+
+func (response QuarantinePlatformInstance202JSONResponse) VisitQuarantinePlatformInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Location", fmt.Sprint(response.Headers.Location))
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type QuarantinePlatformInstance401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response QuarantinePlatformInstance401ApplicationProblemPlusJSONResponse) VisitQuarantinePlatformInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type QuarantinePlatformInstance403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response QuarantinePlatformInstance403ApplicationProblemPlusJSONResponse) VisitQuarantinePlatformInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type QuarantinePlatformInstance404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response QuarantinePlatformInstance404ApplicationProblemPlusJSONResponse) VisitQuarantinePlatformInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type QuarantinePlatformInstance409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response QuarantinePlatformInstance409ApplicationProblemPlusJSONResponse) VisitQuarantinePlatformInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type QuarantinePlatformInstance422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response QuarantinePlatformInstance422ApplicationProblemPlusJSONResponse) VisitQuarantinePlatformInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type QuarantinePlatformInstance429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response QuarantinePlatformInstance429ApplicationProblemPlusJSONResponse) VisitQuarantinePlatformInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type QuarantinePlatformInstancedefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response QuarantinePlatformInstancedefaultApplicationProblemPlusJSONResponse) VisitQuarantinePlatformInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ReconfigurePlatformInstanceRequestObject struct {
 	InstanceId InstanceId `json:"instanceId"`
 	Params     ReconfigurePlatformInstanceParams
@@ -8524,6 +8852,188 @@ type ReconfigurePlatformInstancedefaultApplicationProblemPlusJSONResponse struct
 }
 
 func (response ReconfigurePlatformInstancedefaultApplicationProblemPlusJSONResponse) VisitReconfigurePlatformInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReleasePlatformInstanceRequestObject struct {
+	InstanceId InstanceId `json:"instanceId"`
+	Params     ReleasePlatformInstanceParams
+	Body       *ReleasePlatformInstanceJSONRequestBody
+}
+
+type ReleasePlatformInstanceResponseObject interface {
+	VisitReleasePlatformInstanceResponse(w http.ResponseWriter) error
+}
+
+type ReleasePlatformInstance202ResponseHeaders struct {
+	Location string
+}
+
+type ReleasePlatformInstance202JSONResponse struct {
+	Body    ApprovalRequest
+	Headers ReleasePlatformInstance202ResponseHeaders
+}
+
+func (response ReleasePlatformInstance202JSONResponse) VisitReleasePlatformInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Location", fmt.Sprint(response.Headers.Location))
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReleasePlatformInstance401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response ReleasePlatformInstance401ApplicationProblemPlusJSONResponse) VisitReleasePlatformInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReleasePlatformInstance403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response ReleasePlatformInstance403ApplicationProblemPlusJSONResponse) VisitReleasePlatformInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReleasePlatformInstance404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response ReleasePlatformInstance404ApplicationProblemPlusJSONResponse) VisitReleasePlatformInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReleasePlatformInstance409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response ReleasePlatformInstance409ApplicationProblemPlusJSONResponse) VisitReleasePlatformInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReleasePlatformInstance422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response ReleasePlatformInstance422ApplicationProblemPlusJSONResponse) VisitReleasePlatformInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReleasePlatformInstance429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response ReleasePlatformInstance429ApplicationProblemPlusJSONResponse) VisitReleasePlatformInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReleasePlatformInstancedefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response ReleasePlatformInstancedefaultApplicationProblemPlusJSONResponse) VisitReleasePlatformInstanceResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -14019,9 +14529,15 @@ type StrictServerInterface interface {
 	// GetPlatformInstance Một Headscale instance
 	// (GET /platform/instances/{instanceId})
 	GetPlatformInstance(ctx context.Context, request GetPlatformInstanceRequestObject) (GetPlatformInstanceResponseObject, error)
+	// QuarantinePlatformInstance Quarantine instance nghi bị chiếm — cô lập ngay (job instance.quarantine), không cần 2P
+	// (POST /platform/instances/{instanceId}/quarantine)
+	QuarantinePlatformInstance(ctx context.Context, request QuarantinePlatformInstanceRequestObject) (QuarantinePlatformInstanceResponseObject, error)
 	// ReconfigurePlatformInstance Đổi cấu hình instance — job instance.reconfigure (version mới, restart, health gate, tự lùi)
 	// (POST /platform/instances/{instanceId}/reconfigure)
 	ReconfigurePlatformInstance(ctx context.Context, request ReconfigurePlatformInstanceRequestObject) (ReconfigurePlatformInstanceResponseObject, error)
+	// ReleasePlatformInstance Gỡ quarantine — luôn 2P; 202 + Location của yêu cầu phê duyệt
+	// (POST /platform/instances/{instanceId}/release)
+	ReleasePlatformInstance(ctx context.Context, request ReleasePlatformInstanceRequestObject) (ReleasePlatformInstanceResponseObject, error)
 	// ListPlatformJobs Job của nền tảng và mọi tenant
 	// (GET /platform/jobs)
 	ListPlatformJobs(ctx context.Context, request ListPlatformJobsRequestObject) (ListPlatformJobsResponseObject, error)
@@ -14712,6 +15228,40 @@ func (sh *strictHandler) GetPlatformInstance(w http.ResponseWriter, r *http.Requ
 	}
 }
 
+// QuarantinePlatformInstance operation middleware
+func (sh *strictHandler) QuarantinePlatformInstance(w http.ResponseWriter, r *http.Request, instanceId InstanceId, params QuarantinePlatformInstanceParams) {
+	var request QuarantinePlatformInstanceRequestObject
+
+	request.InstanceId = instanceId
+	request.Params = params
+
+	var body QuarantinePlatformInstanceJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.QuarantinePlatformInstance(ctx, request.(QuarantinePlatformInstanceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "QuarantinePlatformInstance")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(QuarantinePlatformInstanceResponseObject); ok {
+		if err := validResponse.VisitQuarantinePlatformInstanceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ReconfigurePlatformInstance operation middleware
 func (sh *strictHandler) ReconfigurePlatformInstance(w http.ResponseWriter, r *http.Request, instanceId InstanceId, params ReconfigurePlatformInstanceParams) {
 	var request ReconfigurePlatformInstanceRequestObject
@@ -14739,6 +15289,40 @@ func (sh *strictHandler) ReconfigurePlatformInstance(w http.ResponseWriter, r *h
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ReconfigurePlatformInstanceResponseObject); ok {
 		if err := validResponse.VisitReconfigurePlatformInstanceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReleasePlatformInstance operation middleware
+func (sh *strictHandler) ReleasePlatformInstance(w http.ResponseWriter, r *http.Request, instanceId InstanceId, params ReleasePlatformInstanceParams) {
+	var request ReleasePlatformInstanceRequestObject
+
+	request.InstanceId = instanceId
+	request.Params = params
+
+	var body ReleasePlatformInstanceJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReleasePlatformInstance(ctx, request.(ReleasePlatformInstanceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReleasePlatformInstance")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReleasePlatformInstanceResponseObject); ok {
+		if err := validResponse.VisitReleasePlatformInstanceResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

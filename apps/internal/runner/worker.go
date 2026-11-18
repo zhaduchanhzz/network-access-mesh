@@ -25,6 +25,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/monitoring"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/notifications"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/apikey"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/quarantine"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/reconcile"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/secrets"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
@@ -50,6 +51,9 @@ const partitionRole = "mg_partition_maint"
 //	                 the same agent client as reconcile); instance.reconfigure (P3-T13: MG_AGENT_* — prober optional)
 //	lifecycle        tenant.suspend + tenant.resume (P3-T08, §11.4) over a Headscale registry of their own that reaches a
 //	                 suspended tenant's instance (lifecycle.go), always wired — no Host Agent needed
+//	quarantine       instance.quarantine + instance.release (P3-T18, §11.4): the Host Agent (without it the isolation
+//	                 fails Critical — the registry stays quarantined), the reachable registry for the post-start gate;
+//	                 jobs.Options.StepGate = quarantine.Gate stops every multi-step job of a quarantined instance
 //	relay            relay.probe + its schedule over the prober (P3-T05c; MG_PROBER_URL towards MG_PROVISION_EDGE_ADDR —
 //	                 without a prober nothing is probed and the relay read models say never_checked/stale)
 //	idp              driver registry keycloak (narrow route to auth.<domain> incl. /admin/realms, provisioning identity
@@ -82,8 +86,9 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 	if err != nil {
 		return nil, err
 	}
+	// StepGate (P3-T18, §11.4): every multi-step job of a quarantined instance stops before its next step
 	w, err := jobs.NewWorker(d.st, jobs.DefaultConfig(), jobs.Options{Logger: log, Registerer: reg,
-		Alerter: fanOut{dev}, Partitions: part})
+		Alerter: fanOut{dev}, Partitions: part, StepGate: quarantine.Gate})
 	if err != nil {
 		return nil, err
 	}
@@ -156,6 +161,13 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 		if err := prov.Register(w); err != nil {
 			return nil, err
 		}
+	}
+	quar, err := newQuarantine(cfg, d, agent) // P3-T18: instance.quarantine + instance.release (§11.4)
+	if err != nil {
+		return nil, err
+	}
+	if err := quar.Register(w); err != nil {
+		return nil, err
 	}
 	rcfg, err := newReconfigurer(cfg, d, agent) // P3-T13: instance.reconfigure (new version, restart, health gate, rollback)
 	if err != nil {
