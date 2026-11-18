@@ -116,7 +116,7 @@ for scope, method, segs, want in [
 for method, path, want in [
     ("GET", "/tenants", {"P2-T11"}),
     ("GET", "/tenants/{tenantId}/devices", {"P2-T13"}),
-    ("PUT", "/tenants/{tenantId}/devices/{deviceId}/tags", {"P4-T10"}),
+    ("PUT", "/tenants/{tenantId}/devices/{deviceId}/tags", {"P4-T15"}),  # P4-T10 → P4-T15 (2026-11-19)
     ("GET", "/tenants/{tenantId}/users/{membershipId}", {"P2-T11"}),
     ("PUT", "/tenants/{tenantId}/users/{membershipId}/role", {"P4-T09"}),
     ("GET", "/platform/tenants/{tenantId}", {"P2-T11"}),
@@ -431,14 +431,20 @@ check(ol.entry_path("tenant", ()) == "/tenants/{tenantId}" and ol.entry_path("te
 
 # second direction of §13.1: every row has an operation once all its tasks are done
 row_errs, row_notes = ol.row_coverage(spec, master)
-check(not row_errs and any("tenant.tag:read" in n and "P4-T15 pending" in n for n in row_notes)
+check(not row_errs and any("tenant.enrollment:read" in n and "P4-T06 pending" in n for n in row_notes)
       and any("tenant.policy:edit" in n and "P4-T10 pending" in n for n in row_notes),
       "row coverage on the real spec: no error, pending rows reported", str(row_errs))
+# P4-T15 is done (2026-11-19): its rows (tag catalog, device tags) have operations — neither a note nor an error
+check("P4-T15" in master.done and not any("tenant.tag:" in n or "tenant.device:tag" in n for n in row_notes),
+      "row coverage on the real spec: the rows of P4-T15 (done) are covered by operations", str(row_notes))
 TAGS_TRACE = "| tags (danh mục tag) | 4 | P4-T15 |\n"
 _master_text = ol.MASTER.read_text(encoding="utf-8")
 check(_master_text.count(TAGS_TRACE) == 1, "§13.2: the tag catalog group is in the traceability table")
-_errs, _notes = ol.row_coverage(spec, ol.Master(_master_text.replace(TAGS_TRACE, "")))
-check(not _errs and any("tenant.tag:read" in n and "task unknown" in n for n in _notes),
+# a row WITHOUT an operation whose only traceability group is taken out: enrollment (P4-T06, not done)
+ENROLL_TRACE = "| enrollment (gồm `instructions`) | 4 | P4-T06 |\n"
+check(_master_text.count(ENROLL_TRACE) == 1, "§13.2: the enrollment group is in the traceability table")
+_errs, _notes = ol.row_coverage(spec, ol.Master(_master_text.replace(ENROLL_TRACE, "")))
+check(not _errs and any("tenant.enrollment:read" in n and "task unknown" in n for n in _notes),
       "row coverage: a row no traceability group covers is reported as task unknown, not as an error", str(_errs))
 
 

@@ -176,6 +176,17 @@ var recipes = map[string]recipe{
 		ok: answer{http.StatusUnprocessableEntity, gen.ProblemCodeValidationFailed}},
 	"releasePlatformInstance": {idempotent: true, body: `{"reason":"matrix"}`,
 		ok: answer{http.StatusConflict, gen.ProblemCodeConflict}},
+	// tag catalog (P4-T15, tagsapi — mounted): the matrix's tag of each tenant is tag:server, carried by the End User's
+	// tagged device, so a granted delete always answers 409 tag_in_use (the object stays for every caller); a granted
+	// PATCH without If-Match reaches the service and answers 428; a create of the same name answers 201 the first time
+	// and 409 after. PUT /devices/{id}/tags without If-Match answers 428 before the catalog or Headscale.
+	"listTenantTags":  {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
+	"createTenantTag": {idempotent: true, body: `{"name":"tag:matrix-new"}`},
+	"updateTenantTag": {body: `{"description":"matrix"}`,
+		ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
+	"deleteTenantTag": {ok: answer{http.StatusConflict, gen.ProblemCodeConflict}},
+	"setDeviceTags": {body: `{"tags":["tag:server"]}`,
+		ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
 }
 
 // objectKind is what a path parameter (other than the {tenantId} context of a tenant route) designates.
@@ -192,6 +203,7 @@ const (
 	objApproval   objectKind = "approval"
 	objInvitation objectKind = "invitation"
 	objHost       objectKind = "host" // /platform/hosts/{hostId} (P3-T04)
+	objTag        objectKind = "tag"  // /tenants/{tenantId}/tags/{tagId} (P4-T15)
 	// /tenants/{tenantId}/notifications/{notificationId} (P4-T04): own-only for every role
 	objNotification objectKind = "notification"
 	objGroup        objectKind = "group" // /tenants/{t}/groups/{groupId} (P4-T09)
@@ -201,5 +213,5 @@ const (
 var paramObjects = map[string]objectKind{
 	"deviceId": objDevice, "membershipId": objMembership, "jobId": objJob, "instanceId": objInstance,
 	"tenantId": objTenant, "sessionId": objSession, "idpId": objIdP, "approvalId": objApproval, "invitationId": objInvitation,
-	"hostId": objHost, "notificationId": objNotification, "groupId": objGroup,
+	"hostId": objHost, "tagId": objTag, "notificationId": objNotification, "groupId": objGroup,
 }

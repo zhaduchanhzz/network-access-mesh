@@ -36,7 +36,15 @@ type fakeService struct {
 	device  devices.Device
 	job     jobs.Job
 	revoked devices.RevokeResult
+	ifMatch string
+	tags    []string
 	calls   int
+}
+
+func (f *fakeService) SetTags(_ context.Context, _, _ uuid.UUID, a devices.Access, ifMatch string, tags []string) (devices.Device, error) {
+	f.calls++
+	f.access, f.ifMatch, f.tags = a, ifMatch, tags
+	return f.device, f.err
 }
 
 func (f *fakeService) List(_ context.Context, _ uuid.UUID, a devices.Access, q devices.ListQuery) (devices.Page, error) {
@@ -69,6 +77,29 @@ func (f *fakeService) RequestSync(_ context.Context, _ uuid.UUID, a devices.Acce
 	return f.job, f.err
 }
 
+// tagSet mounts SetDeviceTags the way apps/ does (httpapi.TagHandlers of P4-T15 delegates to these handlers).
+type tagSet struct{ h *Handlers }
+
+func (t tagSet) SetDeviceTags(ctx context.Context, req gen.SetDeviceTagsRequestObject) (gen.SetDeviceTagsResponseObject, error) {
+	return t.h.SetDeviceTags(ctx, req)
+}
+
+func (tagSet) ListTenantTags(ctx context.Context, req gen.ListTenantTagsRequestObject) (gen.ListTenantTagsResponseObject, error) {
+	return httpapi.NotImplemented{}.ListTenantTags(ctx, req)
+}
+
+func (tagSet) CreateTenantTag(ctx context.Context, req gen.CreateTenantTagRequestObject) (gen.CreateTenantTagResponseObject, error) {
+	return httpapi.NotImplemented{}.CreateTenantTag(ctx, req)
+}
+
+func (tagSet) UpdateTenantTag(ctx context.Context, req gen.UpdateTenantTagRequestObject) (gen.UpdateTenantTagResponseObject, error) {
+	return httpapi.NotImplemented{}.UpdateTenantTag(ctx, req)
+}
+
+func (tagSet) DeleteTenantTag(ctx context.Context, req gen.DeleteTenantTagRequestObject) (gen.DeleteTenantTagResponseObject, error) {
+	return httpapi.NotImplemented{}.DeleteTenantTag(ctx, req)
+}
+
 // fakeAuthorizer grants every operation with a fixed decision (the authorization itself is tested by P2-T07; the
 // composed test with real sessions is tests/security/devicesauthz).
 type fakeAuthorizer struct{ d authz.Decision }
@@ -80,7 +111,7 @@ func (a fakeAuthorizer) RequireOperation(context.Context, string, uuid.UUID) (au
 func serve(t *testing.T, svc *fakeService, authorizer gen.StrictMiddlewareFunc, method, path, body string, hdr http.Header) *httptest.ResponseRecorder {
 	t.Helper()
 	h, err := httpapi.New(httpapi.Options{Logger: logx.New(io.Discard, slog.LevelInfo, "api"),
-		Handlers: httpapi.Handlers{Devices: New(svc)}, Hooks: httpapi.Hooks{Authz: authorizer, Session: noSession, Audit: noAudit}})
+		Handlers: httpapi.Handlers{Devices: New(svc), Tags: tagSet{New(svc)}}, Hooks: httpapi.Hooks{Authz: authorizer, Session: noSession, Audit: noAudit}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,6 +198,16 @@ func TestHandlersMapRequestsAndResponses(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Errorf("get: %d", rec.Code)
 	}
+	// PUT …/tags (P4-T15): the list and If-Match reach the service as given (the service owns every check)
+	rec = serve(t, svc, authorizer, http.MethodPut, base+"/"+dev.String()+"/tags", `{"tags":["tag:web","tag:db"]}`,
+		http.Header{"If-Match": {`"t"`}})
+	if rec.Code != http.StatusOK || svc.ifMatch != `"t"` || strings.Join(svc.tags, ",") != "tag:web,tag:db" {
+		t.Errorf("set tags: %d %s if-match %q tags %v", rec.Code, rec.Body.String(), svc.ifMatch, svc.tags)
+	}
+	rec = serve(t, svc, authorizer, http.MethodPut, base+"/"+dev.String()+"/tags", `{"tags":[]}`, nil)
+	if rec.Code != http.StatusOK || svc.ifMatch != "" || len(svc.tags) != 0 {
+		t.Errorf("set tags without If-Match: %d if-match %q", rec.Code, svc.ifMatch)
+	}
 	// Owner never shown for a tagged device; revocation kind absent when never revoked.
 	if out := device(devices.Device{Tags: []string{"tag:a"}, Revocation: devices.Revocation{State: devices.StateNone}}); out.Owner != nil ||
 		out.Revocation.Kind != nil || out.IpAddresses == nil {
@@ -215,6 +256,8 @@ func TestProblemMapping(t *testing.T) {
 		{&devices.Error{Code: devices.CodeConflict, Reason: devices.ReasonRevocationInProgress}, gen.ProblemCodeConflict, 409},
 		{&devices.Error{Code: devices.CodeValidationFailed, Field: "given_name", Detail: "bad"}, gen.ProblemCodeValidationFailed, 422},
 		{&devices.Error{Code: devices.CodeIdempotencyKeyReuse}, gen.ProblemCodeIdempotencyKeyReuse, 422},
+		{&devices.Error{Code: devices.CodePreconditionFailed, Reason: devices.ReasonStaleTags}, gen.ProblemCodePreconditionFailed, 412},
+		{&devices.Error{Code: devices.CodePreconditionReq}, gen.ProblemCodePreconditionRequired, 428},
 		{&devices.Error{Code: devices.CodeInstanceUnavailable}, gen.ProblemCodeInstanceUnavailable, 503},
 		{&devices.Error{Code: devices.CodeUpstreamRejected, Err: errors.New("upstream said " + "hskey-" + "api-x")}, gen.ProblemCodeUpstreamRejected, 502},
 		{&devices.Error{Code: devices.CodeInternal, Err: errors.New("db")}, gen.ProblemCodeInternalError, 500},

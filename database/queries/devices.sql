@@ -149,6 +149,12 @@ FOR UPDATE;
 UPDATE device_inventory_cache SET given_name = sqlc.arg(given_name)
 WHERE tenant_id = sqlc.arg(tenant_id) AND id = sqlc.arg(id) AND removed_at IS NULL;
 
+-- name: SetDeviceTags :exec
+-- PUT /devices/{id}/tags (P4-T15): tập tag Headscale trả về sau SetTags. Node có tag không còn thuộc user nào (PL-09,
+-- Headscale ≥ 0.28) — chủ sở hữu trong sổ bị gỡ như cách inventory.sync chuẩn hóa (normalise).
+UPDATE device_inventory_cache SET tags = sqlc.arg(tags), owner_membership_id = NULL
+WHERE tenant_id = sqlc.arg(tenant_id) AND id = sqlc.arg(id) AND removed_at IS NULL;
+
 -- name: StartDeviceRevocation :one
 -- Pha 1 của thu hồi hai pha (T-17): pending cho tới khi job đọc lại xác nhận. Thiết bị đang pending ⇒ 0 hàng.
 UPDATE device_inventory_cache

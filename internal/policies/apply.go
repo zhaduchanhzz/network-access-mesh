@@ -24,7 +24,8 @@ const (
 	KindSuspension = "suspension"
 )
 
-// Triggers of policy_applications.trigger the core accepts (the group/resource/tag changes come with P4).
+// Triggers of policy_applications.trigger the core accepts. tag_change comes with the tag catalog (P4-T15); the
+// group and resource changes are accepted for the policy.apply job of their modules (P4-T09, P4-T12).
 const (
 	TriggerBootstrap   = "bootstrap"
 	TriggerManual      = "manual"
@@ -148,7 +149,9 @@ type Result struct {
 	State          string // applied | failed
 	ContentSHA256  string
 	AppliedSHA256  string
-	ReadbackSHA256 string // sha256 of GetPolicy after SetPolicy ("" when not read)
+	InputsSHA256   string   // policy_applications.inputs_sha256 (content + rendered catalog — RenderCatalog)
+	TagOwners      []string // the catalog rendered into "tagOwners" (nil: nothing rendered)
+	ReadbackSHA256 string   // sha256 of GetPolicy after SetPolicy ("" when not read)
 	ErrorCode      string
 	// Reasserted: after an unknown outcome the previously applied policy was sent again and read back identical.
 	Reasserted         bool
@@ -176,7 +179,9 @@ var (
 //  1. Lint (L2 empty, syntax, L1 grants, decoder guard) — a refused policy writes nothing but the audit event
 //     policy.lint_rejected and never reaches Headscale;
 //  2. the tenant's policy lock (store.WithTenantLock, advisory, one per tenant): applications of a tenant never
-//     interleave — SetPolicy is last-write-wins (§7.2);
+//     interleave — SetPolicy is last-write-wins (§7.2); under it the tenant's tag catalog is read and rendered
+//     (RenderCatalog — P4-T15): L6 refuses a tag referenced but not declared (policy.lint_rejected, nothing else), and
+//     "tagOwners" becomes the catalog with empty owners;
 //  3. one transaction: the version (reused when the content is already the desired version — or the same suspension
 //     — otherwise version N+1, system-approved, source_hujson = the text as given), a pending policy_applications row
 //     holding exactly the bytes to send, and policy.apply.requested — committed before any call;
@@ -212,11 +217,32 @@ func (s *Service) Apply(ctx context.Context, req ApplyRequest) (Result, error) {
 	}
 	var res Result
 	err = s.st.WithTenantLock(ctx, req.TenantID, lockName, s.lockWait, func(ctx context.Context) error {
-		var e error
-		res, e = s.applyLocked(ctx, req, doc)
+		rendered, e := s.renderCatalog(ctx, req.TenantID, doc)
+		if e != nil {
+			if _, lint := IsLint(e); lint {
+				s.recordLintRejected(ctx, req, e)
+			}
+			res = Result{TenantID: req.TenantID}
+			return e
+		}
+		res, e = s.applyLocked(ctx, req, rendered)
 		return e
 	})
 	return res, err
+}
+
+// renderCatalog reads the tenant's tag catalog and renders it into the document (RenderCatalog: L6, "tagOwners").
+func (s *Service) renderCatalog(ctx context.Context, tenantID uuid.UUID, doc Document) (Document, error) {
+	var names []string
+	err := s.st.WithTenantTx(ctx, tenantID, func(q *sqlcdb.Queries) error {
+		var err error
+		names, err = q.ListTenantTagNames(ctx, tenantID)
+		return err
+	})
+	if err != nil {
+		return Document{}, fmt.Errorf("policies: read the tag catalog: %w", err)
+	}
+	return RenderCatalog(doc, names)
 }
 
 // started is what the first transaction recorded.
@@ -269,9 +295,9 @@ func (s *Service) applyLocked(ctx context.Context, req ApplyRequest, doc Documen
 // begin resolves the instance and the version, writes the pending application and policy.apply.requested.
 func (s *Service) begin(ctx context.Context, req ApplyRequest, doc Document) (started, error) {
 	st := started{res: Result{TenantID: req.TenantID, ContentSHA256: doc.ContentSHA256, AppliedSHA256: doc.AppliedSHA256,
-		State: StatePending}, trigger: req.Trigger}
+		InputsSHA256: doc.InputsSHA256, TagOwners: doc.TagOwners, State: StatePending}, trigger: req.Trigger}
 	report, _ := json.Marshal(map[string]any{"engine": "p3-t08a", "lint": map[string]any{
-		"result": "passed", "rules": []string{RuleL2, RuleSyntax, RuleL1, RuleDecoderGuard}}})
+		"result": "passed", "rules": []string{RuleL2, RuleSyntax, RuleL1, RuleDecoderGuard, RuleL6}}})
 	err := s.st.WithTenantTx(ctx, req.TenantID, func(q *sqlcdb.Queries) error {
 		inst, err := q.GetLiveInstanceForTenant(ctx, req.TenantID)
 		if errors.Is(err, store.ErrNoRows) {
@@ -299,7 +325,7 @@ func (s *Service) begin(ctx context.Context, req ApplyRequest, doc Document) (st
 			return err
 		}
 		app, err := q.InsertPolicyApplication(ctx, sqlcdb.InsertPolicyApplicationParams{TenantID: req.TenantID,
-			InstanceID: inst.ID, PolicyVersionID: v.ID, Trigger: req.Trigger, InputsSha256: &doc.ContentSHA256,
+			InstanceID: inst.ID, PolicyVersionID: v.ID, Trigger: req.Trigger, InputsSha256: &doc.InputsSHA256,
 			AppliedHujson: doc.Applied, AppliedSha256: doc.AppliedSHA256, RequestedByIdentityID: req.RequestedBy})
 		if err != nil {
 			return err
@@ -308,7 +334,7 @@ func (s *Service) begin(ctx context.Context, req ApplyRequest, doc Document) (st
 		st.op, err = audit.Requested(ctx, q, s.event(req, ActionApply, app.ID.String(), audit.Details{
 			"version_id": v.ID, "version": v.Version, "version_created": !reused, "kind": req.Kind,
 			"trigger": req.Trigger, "instance_id": inst.ID, "content_sha256": doc.ContentSHA256,
-			"applied_sha256": doc.AppliedSHA256}))
+			"applied_sha256": doc.AppliedSHA256, "inputs_sha256": doc.InputsSHA256, "tag_owners": doc.TagOwners}))
 		return err
 	})
 	if err != nil {
@@ -548,8 +574,12 @@ func (s *Service) recordLintRejected(ctx context.Context, req ApplyRequest, lint
 		if _, err := q.GetTenantPolicyState(wctx, req.TenantID); err != nil {
 			return err // unknown tenant in this scope: nothing to audit
 		}
-		ev := s.event(req, ActionLintRejected, "", audit.Details{"rule": le.Rule, "error_code": le.Code(), "kind": req.Kind,
-			"trigger": req.Trigger, "bytes": len(req.HuJSON)})
+		d := audit.Details{"rule": le.Rule, "error_code": le.Code(), "kind": req.Kind, "trigger": req.Trigger,
+			"bytes": len(req.HuJSON)}
+		if len(le.Tags) > 0 {
+			d["tags"] = le.Tags
+		}
+		ev := s.event(req, ActionLintRejected, "", d)
 		ev.ResourceType, ev.Outcome = resourceVersion, audit.OutcomeFailure
 		return audit.Record(wctx, q, ev)
 	})
