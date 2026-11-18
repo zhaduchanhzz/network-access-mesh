@@ -230,7 +230,7 @@ func (m *matrix) objectCases(op authz.Operation, a *actor, tenantCase string) []
 	switch kind {
 	case objDevice:
 		return []string{"eu-own", "eu-tagged", "other-member", "other-tenant", "missing"}
-	case objMembership, objJob, objApproval, objInvitation:
+	case objMembership, objJob, objApproval, objInvitation, objGroup:
 		if op.TenantScoped() {
 			return []string{"own", "other-tenant", "missing"}
 		}
@@ -316,8 +316,12 @@ func (m *matrix) place(t *testing.T, c *call) {
 			"eu-own": m.obj.devEU, "eu-tagged": m.obj.devEUTagged, "other-member": m.obj.devOther,
 			"other-tenant": m.obj.devEU, "as-path": m.obj.devEU,
 		}[c.objectCase][owner.Name]
+	case kind == objMembership && c.op.Method != http.MethodGet:
+		c.objectID = m.obj.target[owner.Name] // P4-T09: writes never touch an actor of the matrix
 	case kind == objMembership:
 		c.objectID = m.Actor(t, authz.RoleTenantViewer, owner).MembershipID
+	case kind == objGroup:
+		c.objectID = m.obj.group[owner.Name]
 	case kind == objApproval && c.op.TenantScoped():
 		c.objectID = m.obj.approval[owner.Name]
 	case kind == objApproval:

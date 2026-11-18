@@ -298,7 +298,7 @@ func TestSettingsSwitchOffAndVerifiedOnly(t *testing.T) {
 		t.Fatal("the unverified member must get the Portal record only")
 	}
 	// An inactive member is never a recipient.
-	f.exec(t, `UPDATE tenant_memberships SET status = 'disabled' WHERE id = $1`, f.a.admin)
+	f.exec(t, `UPDATE tenant_memberships SET status = 'locked' WHERE id = $1`, f.a.admin)
 	res, _ = f.enqueue(t, f.wrk, TenantSuspended(f.a.id, uuid.New()))
 	for _, id := range res.Notifications {
 		if n := f.count(t, `SELECT count(*) FROM notification_outbox WHERE id = $1 AND recipient_membership_id = $2`, id, f.a.admin); n != 0 {

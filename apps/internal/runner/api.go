@@ -27,6 +27,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/invitationsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/jobsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/lifecycleapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/membersapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/monitoringapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/notificationsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/provisioningapi"
@@ -38,6 +39,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/idp"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/idp/console"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/jobs"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/members"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/monitoring"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/notifications"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/platform"
@@ -48,6 +50,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/quarantine"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/relay"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/store/sqlcdb"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/usage"
 )
 
@@ -127,9 +130,13 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 	if err != nil {
 		return nil, err
 	}
-	backups := backup.New(d.st, backup.Config{Logger: log}) // P3-T11: the api enqueues; the worker runs the jobs
-	deprov := deprovision.NewRequester(d.st)                // P3-T09: the api checks and enqueues; the worker deprovisions
-	actions, err := approvalActions(backups, deprov)
+	backups := backup.New(d.st, backup.Config{Logger: log})                                                // P3-T11: the api enqueues; the worker runs the jobs
+	deprov := deprovision.NewRequester(d.st)                                                               // P3-T09: the api checks and enqueues; the worker deprovisions
+	mem, err := members.New(d.st, members.Config{Tenants: d.tenants, Guard: MembershipGuard, Logger: log}) // P4-T09
+	if err != nil {
+		return nil, err
+	}
+	actions, err := approvalActions(backups, deprov, mem)
 	if err != nil {
 		return nil, err
 	}
@@ -182,6 +189,7 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 			InstanceOps:   instanceopsapi.New(orchestrator.NewInstanceOpsService(d.st)),
 			Deprovision:   deprovisionapi.New(deprov, appr),
 			Quarantine:    quarantineapi.New(quarantine.NewRequester(d.st), appr),
+			Members:       membersapi.New(mem, appr),
 		},
 	})
 	if err != nil {
@@ -208,8 +216,32 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 // theirs — deprovision (P3-T09), restore (P3-T11), release (P3-T18), Super Admin role and tenant IdP changes (P4-T03a),
 // break-glass (P4-T13). A request of an action not registered here can be read and rejected, never approved (409
 // action_unavailable).
-func approvalActions(backups *backup.Service, deprov *deprovision.Requester) (*approvals.Registry, error) {
-	return approvals.NewRegistry(consoleSessionAction(), restoreAction(backups), releaseAction(), deprovisionAction(deprov))
+func approvalActions(backups *backup.Service, deprov *deprovision.Requester, mem *members.Service) (*approvals.Registry, error) {
+	return approvals.NewRegistry(consoleSessionAction(), restoreAction(backups), releaseAction(), deprovisionAction(deprov),
+		groupMembersAction(mem))
+}
+
+// MembershipGuard is authz.GuardMembershipChange as the members module takes it (members does not import authz —
+// §13.6): §8.4 invariants 3, 3a and the last Owner, inside the transaction that writes the change (P4-T09).
+func MembershipGuard(ctx context.Context, q *sqlcdb.Queries, tenantID uuid.UUID, c members.Change) error {
+	return authz.GuardMembershipChange(ctx, q, tenantID, authz.MembershipChange{Actor: c.Actor, Target: c.Target,
+		NewRole: c.NewRole, Deactivate: c.Deactivate, OwnershipTransfer: c.OwnershipTransfer})
+}
+
+// groupMembersAction executes an approved change of a sensitive group's members (P4-T09, §7.3, §8.6): the approver
+// held tenant.approval:decide and tenant.group:manage; the exact approved member set replaces the group's members and
+// policy.apply (group_change) is enqueued in the approval's transaction. Without the members service (tests of the
+// other actions) the action is registered and refuses to run.
+func groupMembersAction(mem *members.Service) approvals.Action {
+	return approvals.Typed(approvals.Spec{Name: members.ApprovalAction, Scope: authz.ScopeTenant, ResourceType: "group",
+		Permission: "tenant.group:manage"},
+		func(ctx context.Context, tx *store.Tx, e approvals.Execution, p members.GroupMembersPayload) (*uuid.UUID, error) {
+			if mem == nil || e.Request.TenantID == nil {
+				return nil, errors.New("group members: no members service in this process")
+			}
+			return mem.ExecuteGroupMembers(ctx, tx, *e.Request.TenantID, e.Request.ID, e.Request.ResourceID,
+				e.Request.RequestedBy.IdentityID, p)
+		})
 }
 
 // consoleSessionAction executes an approved console session (P3-T15, §8.2 (3)): the executed request IS the session —

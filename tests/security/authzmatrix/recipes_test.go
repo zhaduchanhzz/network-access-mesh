@@ -98,6 +98,23 @@ var recipes = map[string]recipe{
 	"createTenantInvitation": {idempotent: true, body: `{"email":"matrix-invitee@example.test","role":"tenant_viewer"}`},
 	"revokeTenantInvitation": {},
 	"resendTenantInvitation": {},
+	// users (write) and groups (P4-T09, membersapi — mounted): the membership writes act on a dedicated end-user member
+	// of each tenant, never on an actor of the matrix (place); without If-Match a granted write answers 428 on the
+	// existing object; an offboarding answers 202 (the next granted caller: the same pending job); the transfer to the
+	// nil membership is refused 422 before the step-up
+	"updateTenantUser":         {body: `{"status":"active"}`, ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
+	"offboardTenantUser":       {},
+	"setTenantUserRole":        {body: `{"role":"tenant_viewer"}`, ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
+	"setTenantUserAdminRole":   {body: `{"role":"tenant_admin"}`, ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
+	"revokeTenantUserSessions": {ok: answer{status: http.StatusNoContent}},
+	"transferTenantOwnership": {body: `{"membership_id":"00000000-0000-0000-0000-000000000000"}`,
+		ok: answer{http.StatusUnprocessableEntity, gen.ProblemCodeValidationFailed}},
+	"listTenantGroups":      {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
+	"createTenantGroup":     {idempotent: true, body: `{"name":"matrix-created"}`},
+	"getTenantGroup":        {ok: answer{status: http.StatusOK}},
+	"updateTenantGroup":     {body: `{"description":"matrix"}`, ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
+	"deleteTenantGroup":     {ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
+	"setTenantGroupMembers": {body: `{"membership_ids":[]}`, ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
 	// platform hosts (P3-T04, hostsapi — mounted): a granted create answers 201 the first time and 409 (name taken)
 	// after; a granted PATCH without If-Match reaches the service and answers 428 on the existing host
 	"listPlatformHosts": {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
@@ -167,12 +184,13 @@ const (
 	objIdP        objectKind = "idp"
 	objApproval   objectKind = "approval"
 	objInvitation objectKind = "invitation"
-	objHost       objectKind = "host" // /platform/hosts/{hostId} (P3-T04)
+	objHost       objectKind = "host"  // /platform/hosts/{hostId} (P3-T04)
+	objGroup      objectKind = "group" // /tenants/{t}/groups/{groupId} (P4-T09)
 )
 
 // paramObjects maps path parameters to object kinds; a new parameter must be added (TestEveryOperationHasAnExpectation).
 var paramObjects = map[string]objectKind{
 	"deviceId": objDevice, "membershipId": objMembership, "jobId": objJob, "instanceId": objInstance,
 	"tenantId": objTenant, "sessionId": objSession, "idpId": objIdP, "approvalId": objApproval, "invitationId": objInvitation,
-	"hostId": objHost,
+	"hostId": objHost, "groupId": objGroup,
 }

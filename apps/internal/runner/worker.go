@@ -22,8 +22,10 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/idp/external"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/idp/keycloak"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/jobs"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/members"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/monitoring"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/notifications"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/policies"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/apikey"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/backup"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/quarantine"
@@ -98,8 +100,9 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 		return nil, err
 	}
 	// StepGate (P3-T18, §11.4): every multi-step job of a quarantined instance stops before its next step
+	alerts := &fanOut{dev}
 	w, err := jobs.NewWorker(d.st, jobs.DefaultConfig(), jobs.Options{Logger: log, Registerer: reg,
-		Alerter: fanOut{dev}, Partitions: part, StepGate: quarantine.Gate})
+		Alerter: alerts, Partitions: part, StepGate: quarantine.Gate})
 	if err != nil {
 		return nil, err
 	}
@@ -154,6 +157,23 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 	}
 	drivers, kc, provisioned, err := idpDrivers(ctx, cfg, d)
 	if err != nil {
+		return nil, err
+	}
+	// P4-T09: member.offboard + member.idp_invite (the Headscale adapter and the IdP drivers), and the policy.apply job
+	// (trigger group_change — the level-triggered re-application of the desired version, §7.3)
+	mem, err := members.New(d.st, members.Config{Tenants: d.tenants, Headscale: d.headscale, IdP: drivers, Logger: log})
+	if err != nil {
+		return nil, err
+	}
+	if err := mem.Register(w); err != nil {
+		return nil, err
+	}
+	alerts.add(mem)
+	pol, err := policies.New(d.st, policies.Config{Registry: d.headscale, Logger: log})
+	if err != nil {
+		return nil, err
+	}
+	if err := pol.Register(w); err != nil {
 		return nil, err
 	}
 	dep, shred, err := newDeprovision(cfg, d, agent, bk, drivers) // P3-T09: tenant.deprovision + tenant.keys_destroy
@@ -286,11 +306,14 @@ func workerSchedules(s schedulers) map[string]func(context.Context) error {
 }
 
 // fanOut forwards every job alert (already counted and logged by the worker) to the modules that settle their own
-// failed jobs: devices (failed revocations, the audit pair of an API-requested sync — P2-T13).
+// failed jobs: devices (failed revocations, the audit pair of an API-requested sync — P2-T13), members (the audit pair
+// of an offboarding — P4-T09). Modules are added while the worker is wired, before it starts.
 type fanOut []jobs.Alerter
 
-func (f fanOut) JobAlert(ctx context.Context, a jobs.Alert) {
-	for _, x := range f {
+func (f *fanOut) add(a jobs.Alerter) { *f = append(*f, a) }
+
+func (f *fanOut) JobAlert(ctx context.Context, a jobs.Alert) {
+	for _, x := range *f {
 		x.JobAlert(ctx, a)
 	}
 }
