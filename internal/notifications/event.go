@@ -20,21 +20,22 @@ type Kind string
 // Kinds of P3-T05b (§20). The kinds of Phase 4 (policy 4-eyes approval, security settings, IdP configuration, group
 // membership, route approval) are added by the task that builds their producer.
 const (
-	KindTenantActivated       Kind = "tenant.activated"         // §11.3 step 19 (P3-T05)
-	KindInvitation            Kind = "tenant.invitation"        // Owner invitation (§11.3 step 16), invitations (P3-T05a)
-	KindTenantSuspended       Kind = "tenant.suspended"         // P3-T08
-	KindTenantResumed         Kind = "tenant.resumed"           // P3-T08
-	KindDeviceNew             Kind = "device.new"               // a device joined the tailnet (enrollment — P4-T06)
-	KindDeviceExpiring        Kind = "device.expiring"          // node key expires soon (inventory.sync — P2-T13)
-	KindAPIKeyExpiring        Kind = "instance.apikey_expiring" // platform: instance API key expires soon (P3-T10)
-	KindPolicyApplied         Kind = "policy.applied"           // policy core (P3-T08a), policy.apply (P4-T10)
-	KindSupportGrantRequested Kind = "support.grant_requested"  // a Support Access Grant waits for the tenant's decision (§8.7)
-	KindBreakGlass            Kind = "support.break_glass"      // a grant approved by break-glass (§8.7)
-	KindSupportGrantUsed      Kind = "support.grant_used"       // platform staff acted inside the tenant (§8.7)
-	KindApprovalRequested     Kind = "approval.requested"       // a tenant approval request waits for a decision (P3-T04a)
-	KindIdPAdminChange        Kind = "idp.admin_change"         // a change made at the tenant's IdP through Keycloak's Admin API (P3-T15)
-	KindIdPConsoleLogin       Kind = "idp.console_login"        // platform: a sign-in to the Keycloak administration (P3-T15)
-	KindInstanceRestored      Kind = "instance.restored"        // the tenant's control plane was restored from a backup (P3-T11, §17.2 step 7)
+	KindTenantActivated       Kind = "tenant.activated"          // §11.3 step 19 (P3-T05)
+	KindInvitation            Kind = "tenant.invitation"         // Owner invitation (§11.3 step 16), invitations (P3-T05a)
+	KindTenantSuspended       Kind = "tenant.suspended"          // P3-T08
+	KindTenantResumed         Kind = "tenant.resumed"            // P3-T08
+	KindDeviceNew             Kind = "device.new"                // a device joined the tailnet (enrollment — P4-T06)
+	KindDeviceExpiring        Kind = "device.expiring"           // node key expires soon (inventory.sync — P2-T13)
+	KindAPIKeyExpiring        Kind = "instance.apikey_expiring"  // platform: instance API key expires soon (P3-T10)
+	KindPolicyApplied         Kind = "policy.applied"            // policy core (P3-T08a), policy.apply (P4-T10)
+	KindSupportGrantRequested Kind = "support.grant_requested"   // a Support Access Grant waits for the tenant's decision (§8.7)
+	KindBreakGlass            Kind = "support.break_glass"       // a grant approved by break-glass (§8.7)
+	KindSupportGrantUsed      Kind = "support.grant_used"        // platform staff acted inside the tenant (§8.7)
+	KindApprovalRequested     Kind = "approval.requested"        // a tenant approval request waits for a decision (P3-T04a)
+	KindIdPAdminChange        Kind = "idp.admin_change"          // a change made at the tenant's IdP through Keycloak's Admin API (P3-T15)
+	KindIdPConsoleLogin       Kind = "idp.console_login"         // platform: a sign-in to the Keycloak administration (P3-T15)
+	KindInstanceRestored      Kind = "instance.restored"         // the tenant's control plane was restored from a backup (P3-T11, §17.2 step 7)
+	KindInstanceOpFailed      Kind = "instance.operation_failed" // platform: an instance.restart / instance.upgrade failed (P3-T13a)
 )
 
 // Tenant and platform role keys of the default recipient rules (§6.3, roles of §8.4).
@@ -103,6 +104,9 @@ var specs = map[Kind]spec{
 		"ip": fString, "occurred_at": fTime}, required: []string{"event_id", "client", "occurred_at"}, platform: true},
 	KindInstanceRestored: {fields: map[string]fieldType{"job_id": fUUID, "backup_created_at": fTime, "owner_review": fString},
 		required: []string{"job_id", "backup_created_at", "owner_review"}},
+	KindInstanceOpFailed: {fields: map[string]fieldType{"instance_id": fUUID, "tenant_slug": fString, "job_id": fUUID,
+		"operation": fString, "code": fString, "outcome": fString},
+		required: []string{"instance_id", "tenant_slug", "job_id", "operation", "code", "outcome"}, platform: true},
 }
 
 // Kinds returns every kind, sorted.
@@ -474,4 +478,16 @@ func InstanceRestored(tenantID, jobID uuid.UUID, backupCreatedAt time.Time, owne
 	return Event{Kind: KindInstanceRestored, TenantID: tenantPtr(tenantID), Ref: "job:" + jobID.String(),
 		Payload: map[string]any{"job_id": jobID, "backup_created_at": backupCreatedAt.UTC(), "owner_review": review},
 		To:      Audience{Roles: []string{RoleTenantOwner, RoleTenantAdmin}}}
+}
+
+// InstanceOperationFailed — platform event (P3-T13a): an operation of the platform on a tenant's instance failed —
+// operation "restart" or "upgrade", code the job's error code, outcome what became of the instance ("rolled_back": the
+// previous state is back — for an upgrade, the cold backup restored on the previous image; "rollback_failed": the
+// rollback itself failed — Critical, the job waits for /rollback; "resumable": the retries are spent, the lock is held
+// until /retry or /rollback). Super Admins and Platform Operators; ref = the job and the outcome.
+func InstanceOperationFailed(instanceID, jobID uuid.UUID, tenantSlug, operation, code, outcome string) Event {
+	return Event{Kind: KindInstanceOpFailed, Ref: "job:" + jobID.String() + ":" + outcome,
+		Payload: map[string]any{"instance_id": instanceID, "tenant_slug": tenantSlug, "job_id": jobID, "operation": operation,
+			"code": code, "outcome": outcome},
+		To: Audience{PlatformRoles: []string{RoleSuperAdmin, RolePlatformOperator}}}
 }

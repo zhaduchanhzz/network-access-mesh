@@ -41,6 +41,7 @@ func samples() []Event {
 		IdPAdminChange(tA, idX.String(), "idp.user.credential_reset", "platform IdP administrator", "Alice", when),
 		IdPConsoleLogin(idX.String(), "mg-bootstrap-admin", "security-admin-console", "203.0.113.7", when),
 		InstanceRestored(tA, idX, when, true),
+		InstanceOperationFailed(idX, idX, "acme", "upgrade", "preflight_failed", "rolled_back"),
 	}
 }
 
@@ -81,6 +82,8 @@ func TestRecipientRules(t *testing.T) {
 		{Invitation(tA, idX, "n@example.com", "end_user", when, ""), Audience{Emails: []string{"n@example.com"}}},
 		{IdPAdminChange(tA, "e1", "idp.user.update", "a", "", when), Audience{Roles: []string{RoleTenantOwner}}},
 		{IdPConsoleLogin("e1", "", "admin-cli", "", when), Audience{PlatformRoles: []string{RoleSuperAdmin, RolePlatformOperator}}},
+		{InstanceOperationFailed(idX, idX, "s", "restart", "no_policy", "rolled_back"),
+			Audience{PlatformRoles: []string{RoleSuperAdmin, RolePlatformOperator}}},
 	}
 	for _, c := range cases {
 		a := c.ev.To

@@ -214,6 +214,42 @@ func TestOtherRequestRefusals(t *testing.T) {
 		_, err := v.PostRestoreReconcile(&agentv1.PostRestoreReconcileRequest{Instance: goodRef(), JobId: jobID, Plan: p})
 		return err
 	}
+	targetSpec := func() *agentv1.InstanceSpec {
+		s := goodSpec()
+		s.ImageDigest = digestB
+		return s
+	}
+	upgrade := func(f func(r *agentv1.UpgradeInstanceRequest), noSpec bool) error {
+		r := &agentv1.UpgradeInstanceRequest{Instance: goodRef(), JobId: jobID, FromImageDigest: digestA, ToImageDigest: digestB,
+			Spec: targetSpec()}
+		if noSpec {
+			r.Spec = nil
+		}
+		f(r)
+		_, err := v.UpgradeInstance(r)
+		return err
+	}
+	preflight := func(f func(r *agentv1.PreflightUpgradeRequest)) error {
+		r := &agentv1.PreflightUpgradeRequest{Spec: targetSpec(), JobId: jobID, FromImageDigest: digestA,
+			Artifact: clone(goodArtifact), DataKey: make([]byte, 32)}
+		f(r)
+		_, err := v.PreflightUpgrade(r)
+		return err
+	}
+	// the good requests of P3-T13a
+	if u, err := v.UpgradeInstance(&agentv1.UpgradeInstanceRequest{Instance: goodRef(), JobId: jobID, FromImageDigest: digestA,
+		ToImageDigest: digestB, Spec: targetSpec()}); err != nil || u.Spec.Image != u.To || u.From.Digest != digestA {
+		t.Fatalf("UpgradeInstance = %+v, %v", u, err)
+	}
+	if p, err := v.PreflightUpgrade(&agentv1.PreflightUpgradeRequest{Spec: targetSpec(), JobId: jobID, FromImageDigest: digestA,
+		Artifact: clone(goodArtifact), DataKey: make([]byte, 32)}); err != nil || p.Sequence != 3 || p.Spec.Image.Digest != digestB ||
+		p.From.Digest != digestA || len(p.DataKey) != 32 {
+		t.Fatalf("PreflightUpgrade = %+v, %v", p, err)
+	}
+	if i, err := v.InspectImage(&agentv1.InspectImageRequest{Instance: goodRef(), JobId: jobID, ImageDigest: digestB}); err != nil ||
+		i.Image.Digest != digestB {
+		t.Fatalf("InspectImage = %+v, %v", i, err)
+	}
 	cases := []struct {
 		name   string
 		err    error
@@ -258,6 +294,34 @@ func TestOtherRequestRefusals(t *testing.T) {
 			_, err := v.UpgradeInstance(&agentv1.UpgradeInstanceRequest{Instance: ref, JobId: jobID, FromImageDigest: digestA, ToImageDigest: "latest"})
 			return err
 		}(), rMalformed, "to_image_digest"},
+		{"upgrade: no spec", upgrade(func(*agentv1.UpgradeInstanceRequest) {}, true), rMalformed, "spec"},
+		{"upgrade: spec of the current image", upgrade(func(r *agentv1.UpgradeInstanceRequest) { r.Spec.ImageDigest = digestA }, false),
+			rMalformed, "spec.image_digest"},
+		{"upgrade: spec of another instance", upgrade(func(r *agentv1.UpgradeInstanceRequest) { r.Spec.Instance.Slug = "other" }, false),
+			agentv1.RefusalReason_REFUSAL_REASON_IDENTITY_MISMATCH, "spec.instance"},
+		{"upgrade: spec image not allowed", upgrade(func(r *agentv1.UpgradeInstanceRequest) { r.Spec.ImageDigest = digestX }, false),
+			rImage, "spec.image_digest"},
+		{"inspect: not allowed", func() error {
+			_, err := v.InspectImage(&agentv1.InspectImageRequest{Instance: ref, JobId: jobID, ImageDigest: digestX})
+			return err
+		}(), rImage, "image_digest"},
+		{"inspect: tag", func() error {
+			_, err := v.InspectImage(&agentv1.InspectImageRequest{Instance: ref, JobId: jobID, ImageDigest: "headscale:latest"})
+			return err
+		}(), rMalformed, "image_digest"},
+		{"inspect: no job", func() error {
+			_, err := v.InspectImage(&agentv1.InspectImageRequest{Instance: ref, ImageDigest: digestA})
+			return err
+		}(), rMalformed, "job_id"},
+		{"preflight: no spec", preflight(func(r *agentv1.PreflightUpgradeRequest) { r.Spec = nil }), rMalformed, "spec"},
+		{"preflight: same image", preflight(func(r *agentv1.PreflightUpgradeRequest) { r.FromImageDigest = digestB }), rMalformed, "spec.image_digest"},
+		{"preflight: from not allowed", preflight(func(r *agentv1.PreflightUpgradeRequest) { r.FromImageDigest = digestX }), rImage, "from_image_digest"},
+		{"preflight: no artifact", preflight(func(r *agentv1.PreflightUpgradeRequest) { r.Artifact = nil }), rMalformed, "artifact"},
+		{"preflight: sequence 0", preflight(func(r *agentv1.PreflightUpgradeRequest) { r.Artifact.Sequence = 0 }), rBounds, "artifact.sequence"},
+		{"preflight: archive digest", preflight(func(r *agentv1.PreflightUpgradeRequest) { r.Artifact.ArchiveSha256 = "x" }), rMalformed, "artifact.archive_sha256"},
+		{"preflight: short data key", preflight(func(r *agentv1.PreflightUpgradeRequest) { r.DataKey = make([]byte, 16) }), rMalformed, "data_key"},
+		{"preflight: no data key", preflight(func(r *agentv1.PreflightUpgradeRequest) { r.DataKey = nil }), rMalformed, "data_key"},
+		{"preflight: traversal id", preflight(func(r *agentv1.PreflightUpgradeRequest) { r.Spec.Instance.InstanceId = "../x" }), rID, "instance.instance_id"},
 		{"dns: too many records", dns(tooManyRecords...), rLarge, "records"},
 		{"dns: nil record", dns(nil), rMalformed, "records[0]"},
 		{"dns: traversal name", dns(a("../../etc/passwd", "100.64.0.1")), rMalformed, "records[0].name"},

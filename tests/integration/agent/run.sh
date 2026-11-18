@@ -41,7 +41,16 @@
 #                               ID của đối tượng tạo sau backup — machine key khác; pre-auth key theo ID cũ rơi vào
 #                               user mới, theo ID phân giải bằng tên thì đúng user); AC-19 (B không đổi); IT-15 (symlink sang file của
 #                               B, FIFO, file thưa 1 TiB, DB hỏng ⇒ backup và start guard fail-closed + security_event); cuối cùng restore bản lấy dưới tải ghi (V-12).
+#   TestUpgradeEndToEnd         (P3-T13a, apps/agent/upgrade_integration_test.go) state machine instance.upgrade và
+#                               instance.restart của orchestrator lái agent thật với CẢ HAI image trong allowlist
+#                               ([images.mg-headscale] và [images.headscale] chính thức — MG_IT_IMAGE_OFFICIAL): configtest
+#                               của binary đích trên bản sao cold backup bị buộc lỗi (policy đang lưu không hợp lệ ghi vào
+#                               DB của BẢN SAO ngay trước configtest) ⇒ image cũ chạy lại, data/ trùng từng
+#                               byte giữa lúc dừng và lúc start lại; nâng bản vá → chính thức thành công; lỗi sau khi đổi
+#                               image (contract smoke) ⇒ tự lùi bằng restore cold backup; restart với policy bị đổi ngoài
+#                               luồng ⇒ áp lại; db.sqlite bị thay bằng DB trống ⇒ edge bị gỡ + Critical.
 # Fingerprint Noise key do container trợ giúp tính bằng chính image agent (MG_IT_HELPER_IMAGE = image id).
+# AGENTIT_RUN=<regex> chỉ chạy một phần các test (phát triển; PASS của bộ đầy đủ cần mọi test).
 # Script chụp `docker ps -a`, `docker network ls` và cây thư mục gốc TRƯỚC và SAU — phải trùng nhau.
 #
 # Dải mạng: 10.250.240.0/20 dành riêng cho agent-it (trong pool tenant 10.250.0.0/16 của versions.lock, không chồng
@@ -73,8 +82,9 @@ img = tomllib.load(open(sys.argv[1], "rb"))["images"].get(sys.argv[2], {})
 print(f"{img['image']}@{img['index']}" if re.fullmatch(r"sha256:[0-9a-f]{64}", str(img.get("index", ""))) else "")
 PY
 }
-GO_IMAGE=$(lock golang); HS_IMAGE=$(lock mg-headscale); ALPINE_IMAGE=$(lock alpine)
+GO_IMAGE=$(lock golang); HS_IMAGE=$(lock mg-headscale); ALPINE_IMAGE=$(lock alpine); OFFICIAL_IMAGE=$(lock headscale)
 [ -n "$HS_IMAGE" ] || { echo "[images.mg-headscale] chưa pin trong versions.lock"; exit 1; }
+[ -n "$OFFICIAL_IMAGE" ] || { echo "[images.headscale] chưa pin trong versions.lock"; exit 1; }
 
 # the eight /29 of the test must be inside the pool, inside 10.250.240.0/20
 python3 - "$POOL" "$NET" <<'PY' || exit 1
@@ -173,12 +183,13 @@ d run --name "$P-run" --network none --read-only --tmpfs /tmp:size=64m,mode=1777
   -v /var/run/docker.sock:/var/run/docker.sock -v "$IT_ROOT:$IT_ROOT" -v "$WORK/bin/agent.test:/it/agent.test:ro" \
   -e MG_IT_ROOT="$IT_ROOT" -e MG_IT_IMAGE="$HS_IMAGE" -e MG_IT_PREFIX="$P" -e MG_IT_POOL="$POOL" -e MG_IT_NET="$NET" \
   -e MG_IT_HELPER_IMAGE="$HELPER_IMAGE" -e MG_IT_ALPINE="$ALPINE_IMAGE" -e MG_IT_V12_ROUNDS="${MG_IT_V12_ROUNDS:-3}" \
+  -e MG_IT_IMAGE_OFFICIAL="$OFFICIAL_IMAGE" \
   --entrypoint /it/agent.test "$IMAGE" -test.v -test.count=1 -test.timeout=60m \
-  -test.run '^(TestComposeDriverEndToEnd|TestAgentOperationsEndToEnd|TestReconcileReportsForeignObjectsUntouched|TestReconfigureEndToEnd|TestBackupRestoreEndToEnd)$' \
+  -test.run "${AGENTIT_RUN:-^(TestComposeDriverEndToEnd|TestAgentOperationsEndToEnd|TestReconcileReportsForeignObjectsUntouched|TestReconfigureEndToEnd|TestBackupRestoreEndToEnd|TestUpgradeEndToEnd)\$}" \
   > "$OUT/agentit.log" 2>&1 || rc=$?
 d rm -f "$P-run" >/dev/null 2>&1 || true
 snapshot > "$OUT/after.txt"
-grep -E '^(=== RUN|--- (PASS|FAIL)|PASS|FAIL|ok)|(integration(_ops|_backup)?|reconfigure_integration)_test.go:' "$OUT/agentit.log" | grep -v '=== RUN' || true
+grep -E '^(=== RUN|--- (PASS|FAIL)|PASS|FAIL|ok)|(integration(_ops|_backup)?|reconfigure_integration|upgrade_integration)_test.go:' "$OUT/agentit.log" | grep -v '=== RUN' || true
 if ! diff -u "$OUT/before.txt" "$OUT/after.txt" > "$OUT/snapshot.diff"; then
   log "SNAPSHOT KHÁC (docker ps -a / network ls / thư mục gốc trước và sau):"; cat "$OUT/snapshot.diff"; rc=1
 else
@@ -186,8 +197,10 @@ else
 fi
 if [ "$rc" = 0 ] && grep -q '^--- PASS: TestComposeDriverEndToEnd' "$OUT/agentit.log" && grep -q '^--- PASS: TestAgentOperationsEndToEnd' "$OUT/agentit.log" \
   && grep -q '^--- PASS: TestReconcileReportsForeignObjectsUntouched' "$OUT/agentit.log" && grep -q '^--- PASS: TestReconfigureEndToEnd' "$OUT/agentit.log" \
-  && grep -q '^--- PASS: TestBackupRestoreEndToEnd' "$OUT/agentit.log"; then
+  && grep -q '^--- PASS: TestBackupRestoreEndToEnd' "$OUT/agentit.log" && grep -q '^--- PASS: TestUpgradeEndToEnd' "$OUT/agentit.log"; then
   log "AGENT DRIVER IT: PASS"
+elif [ "$rc" = 0 ] && [ -n "${AGENTIT_RUN:-}" ]; then
+  log "AGENT DRIVER IT: PASS (một phần: $AGENTIT_RUN)"
 else
   log "AGENT DRIVER IT: FAIL (log: $OUT/agentit.log)"; tail -60 "$OUT/agentit.log"; exit 1
 fi

@@ -590,6 +590,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/platform/instances/{instanceId}/restart": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restart có kiểm soát một instance — job instance.restart (start guard, health gate, post-start gate)
+         * @description §11.4 hàng Restart: Agent `RestartInstance` (start guard của Agent: file `data/`, fingerprint Noise key,
+         *     data-check) → health gate (container `healthy` sau lần restart, cùng cấu hình đang hiệu lực, cùng Noise key,
+         *     `GET /api/v1/health` qua adapter) → post-start gate (`GetPolicy` = `applied_sha256`; policy bị đổi ngoài luồng ⇒
+         *     áp lại ngay qua lõi policy, trigger `drift_repair`; không có policy hoặc API key của nền tảng bị từ chối — DB bị
+         *     thay ⇒ cảnh báo Critical + gỡ edge) → `edge.verify` rút gọn. Restart không lùi được: lỗi không phục hồi ⇒ job
+         *     `rolled_back` (không có gì để lùi; khóa lifecycle được nhả, Super Admin/Platform Operator nhận thông báo). Instance
+         *     phải `running` (quarantined ⇒ `409`); một restart đang chờ ⇒ chính job đó (hai yêu cầu nối tiếp sau khi job kết
+         *     thúc là hai lần restart — §13.5). Chạy trong khóa lifecycle của tenant. Audit `platform.instance.restart.requested`
+         *     (worker đóng `.succeeded`/`.failed`).
+         */
+        post: operations["restartPlatformInstance"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/instances/{instanceId}/upgrade": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Nâng cấp Headscale của một instance — job instance.upgrade (preflight, cold backup, configtest bản đích, tự lùi bằng restore)
+         * @description §11.4 hàng Upgrade, §17.6: `image_digest` phải nằm trong allowlist của Host Agent (Agent kiểm). Preflight không
+         *     đổi gì: phiên bản do binary của hai image báo (cùng minor với patch không thấp hơn — bằng nhau là bản build khác
+         *     của cùng phiên bản —, hoặc đúng minor kế tiếp; HS-04/RT-10), adapter có hiện thực cho phiên bản đích, `GET
+         *     /version` đúng phiên bản hiện tại, `configtest` của binary đích trên cấu hình đang hiệu lực (sha256 không đổi),
+         *     `CheckPolicy` → dừng → **cold backup** → `configtest` của binary đích trên **bản sao** đã giải mã của cold backup
+         *     (mở và migrate DB, nạp policy đang lưu — không bao giờ trên `data/` thật; lỗi ⇒ image cũ chạy lại trên dữ liệu
+         *     gốc) → đổi image → start (start guard) → health gate → post-start gate → `GET /version` = phiên bản đích +
+         *     contract smoke qua adapter → `edge.verify` → registry. Lỗi sau khi image đích đã start ⇒ tự lùi bằng restore cold
+         *     backup trên image cũ (job `rolled_back`); lùi lỗi ⇒ `failed_resumable` + Critical. Triển khai theo đợt: lệnh
+         *     `meshguard-worker admin upgrade-wave` (canary trước, rồi tối đa N job cùng lúc, dừng ở lỗi đầu tiên). Instance
+         *     phải `running` với version cấu hình do orchestrator ghi (`409 no_config_version`); đã chạy image đích ⇒ `409
+         *     already_on_target`; một upgrade chưa kết thúc tới image khác ⇒ `409 upgrade_in_progress` (cùng image ⇒ chính job
+         *     đó). Audit `platform.instance.upgrade.requested` (worker đóng `.succeeded`/`.failed`).
+         */
+        post: operations["upgradePlatformInstance"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/platform/instances/{instanceId}/backup": {
         parameters: {
             query?: never;
@@ -1755,6 +1815,11 @@ export interface components {
             nameservers?: string[];
             /** @description `derp.server.region_id` của DERP nhúng (§10.1) */
             derp_region_id?: number;
+        };
+        /** @description Image Headscale đích theo digest (`sha256:<64 hex>`); phải nằm trong allowlist của Host Agent (sinh từ versions.lock) — Agent là bên quyết định, API chỉ kiểm định dạng */
+        InstanceUpgrade: {
+            /** @description Digest của image đích (không nhận tag) */
+            image_digest: string;
         };
         /**
          * @description Trạng thái host (`hosts.status`, 0014): `active` nhận instance mới; `draining` giữ instance đang có, không nhận mới; `disabled` ngừng hẳn — placement chỉ chọn host `active`
@@ -3365,6 +3430,76 @@ export interface operations {
         };
         responses: {
             /** @description Job instance.reconfigure đã xếp hàng; theo dõi ở job */
+            202: {
+                headers: {
+                    Location: components["headers"]["JobLocation"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    restartPlatformInstance: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                instanceId: components["parameters"]["InstanceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Job instance.restart đã xếp hàng; theo dõi ở job */
+            202: {
+                headers: {
+                    Location: components["headers"]["JobLocation"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    upgradePlatformInstance: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                instanceId: components["parameters"]["InstanceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstanceUpgrade"];
+            };
+        };
+        responses: {
+            /** @description Job instance.upgrade đã xếp hàng; theo dõi ở job */
             202: {
                 headers: {
                     Location: components["headers"]["JobLocation"];

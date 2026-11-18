@@ -63,6 +63,8 @@ var routes = []struct {
 	{http.MethodGet, "/api/v1/platform/instances/" + itemID, "", "GetPlatformInstance", nil},
 	// instance.reconfigure (P3-T13)
 	{http.MethodPost, "/api/v1/platform/instances/" + itemID + "/reconfigure", `{"log_level":"warn"}`, "ReconfigurePlatformInstance", idempotency},
+	{http.MethodPost, "/api/v1/platform/instances/" + itemID + "/restart", "", "RestartPlatformInstance", idempotency},
+	{http.MethodPost, "/api/v1/platform/instances/" + itemID + "/upgrade", `{"image_digest":"sha256:` + strings.Repeat("e", 64) + `"}`, "UpgradePlatformInstance", idempotency},
 	// platform hosts (P3-T04)
 	{http.MethodGet, "/api/v1/platform/hosts?status=draining&region=lab", "", "ListPlatformHosts", nil},
 	{http.MethodPost, "/api/v1/platform/hosts", `{"name":"h1","region":"lab","run_uid_range":{"first":30000,"last":39999},"tenant_net_pool":"10.250.0.0/16"}`, "CreatePlatformHost", idempotency},

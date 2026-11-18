@@ -261,13 +261,10 @@ func (s *Service) restore(ctx context.Context, run *jobs.Run, tenantID uuid.UUID
 
 // stepInstance — §17.2 steps 2–4 at the agent: unwrap the data key (online path), hand it over with the policy to set
 // (the current applied policy, or "keep the archive's" on the older branch), record the policy application.
-func (s *Service) stepInstance(ctx context.Context, jobID, tenantID uuid.UUID, v verified, in RestoreInput, sr *jobs.StepRun) error {
-	if v.row.KeyRef == nil {
-		return jobs.Permanent("backup_key_missing", errors.New("the backup names no key"))
-	}
-	ref, err := secrets.ParseRef(*v.row.KeyRef)
-	if err != nil || ref.Tenant != tenantID || ref.Name != backupfmt.BackupKeySecretName {
-		return jobs.Permanent("backup_key_invalid", errors.New("the backup's key reference is not the tenant's backup key"))
+func (s *Service) stepInstance(ctx context.Context, jobID, tenantID uuid.UUID, v verified, in RestoreInput, sr detailer) error {
+	ref, err := keyRef(tenantID, v)
+	if err != nil {
+		return err
 	}
 	var current *sqlcdb.PolicyApplication
 	if !in.RestorePointOlderThanBackup {
@@ -286,19 +283,9 @@ func (s *Service) stepInstance(ctx context.Context, jobID, tenantID uuid.UUID, v
 			return jobs.Transient("registry_unavailable", err)
 		}
 	}
-	pt, err := s.cfg.Secrets.Get(ctx, ref)
+	dataKey, err := s.dataKey(ctx, jobID, tenantID, v, ref)
 	if err != nil {
-		if errors.Is(err, secrets.ErrNotFound) {
-			return jobs.Permanent("backup_key_destroyed", errors.New("the tenant's backup key is gone (crypto-shredded): only the DR path remains"))
-		}
-		return jobs.Transient("secret_store_unavailable", err)
-	}
-	dataKey, err := backupfmt.UnwrapDataKey(pt.Bytes(), v.row.WrappedDataKey, tenantID, v.inst.ID, v.seq)
-	pt.Wipe()
-	if err != nil {
-		s.raise(ctx, tenantID, EventIntegrity, audit.SeverityCritical, "unwrap:"+jobID.String(),
-			audit.Details{"backup_id": v.row.ID.String(), "error": "the wrapped data key does not open with the tenant's backup key"})
-		return jobs.Permanent("data_key_unwrap", err)
+		return err
 	}
 	defer clear(dataKey)
 	req := &agentv1.RestoreRequest{Instance: v.inst.ref(), JobId: jobID.String(), DataKey: dataKey,
@@ -349,6 +336,43 @@ func (s *Service) stepInstance(ctx context.Context, jobID, tenantID uuid.UUID, v
 
 var errPolicyMismatch = errors.New("policy mismatch")
 
+// detailer is where a restore step records its detail: the job's *jobs.StepRun, or the collector of an upgrade's
+// rollback (RollbackRestore — P3-T13a).
+type detailer interface {
+	SetDetail(v any) error
+}
+
+// dataKey unwraps the data key of a verified backup with the tenant's backup key (the online path — §17.1).
+func (s *Service) dataKey(ctx context.Context, jobID, tenantID uuid.UUID, v verified, ref secrets.Ref) ([]byte, error) {
+	pt, err := s.cfg.Secrets.Get(ctx, ref)
+	if err != nil {
+		if errors.Is(err, secrets.ErrNotFound) {
+			return nil, jobs.Permanent("backup_key_destroyed", errors.New("the tenant's backup key is gone (crypto-shredded): only the DR path remains"))
+		}
+		return nil, jobs.Transient("secret_store_unavailable", err)
+	}
+	dataKey, err := backupfmt.UnwrapDataKey(pt.Bytes(), v.row.WrappedDataKey, tenantID, v.inst.ID, v.seq)
+	pt.Wipe()
+	if err != nil {
+		s.raise(ctx, tenantID, EventIntegrity, audit.SeverityCritical, "unwrap:"+jobID.String(),
+			audit.Details{"backup_id": v.row.ID.String(), "error": "the wrapped data key does not open with the tenant's backup key"})
+		return nil, jobs.Permanent("data_key_unwrap", err)
+	}
+	return dataKey, nil
+}
+
+// keyRef is the reference of the tenant's backup key a verified backup names.
+func keyRef(tenantID uuid.UUID, v verified) (secrets.Ref, error) {
+	if v.row.KeyRef == nil {
+		return secrets.Ref{}, jobs.Permanent("backup_key_missing", errors.New("the backup names no key"))
+	}
+	ref, err := secrets.ParseRef(*v.row.KeyRef)
+	if err != nil || ref.Tenant != tenantID || ref.Name != backupfmt.BackupKeySecretName {
+		return secrets.Ref{}, jobs.Permanent("backup_key_invalid", errors.New("the backup's key reference is not the tenant's backup key"))
+	}
+	return ref, nil
+}
+
 // recordApplication writes the applied application of a restore (trigger restore) with the very string the instance
 // serves, superseding the current one (0013: the old row first, in the same transaction).
 func recordApplication(ctx context.Context, q *sqlcdb.Queries, tenantID, instanceID, versionID uuid.UUID, text string, inputs *string) error {
@@ -397,7 +421,7 @@ func importPolicy(ctx context.Context, q *sqlcdb.Queries, tenantID, instanceID u
 // stepReconcile — §17.2 step 5 under the instance's API-key lock (apikey.LockName — the rotation and the reconcile
 // take it): PostRestoreReconcile at the agent, then the new key into the SecretStore and the registry; the versions of
 // the keys the agent expired are destroyed.
-func (s *Service) stepReconcile(ctx context.Context, jobID, tenantID uuid.UUID, v verified, plan *agentv1.ReconcilePlan, sr *jobs.StepRun) error {
+func (s *Service) stepReconcile(ctx context.Context, jobID, tenantID uuid.UUID, v verified, plan *agentv1.ReconcilePlan, sr detailer) error {
 	var inner error
 	err := s.st.WithTenantLock(ctx, tenantID, apikey.LockName, s.cfg.APIKeyLockWait, func(ctx context.Context) error {
 		inner = s.reconcileLocked(ctx, jobID, tenantID, v, plan, sr)
@@ -412,7 +436,7 @@ func (s *Service) stepReconcile(ctx context.Context, jobID, tenantID uuid.UUID, 
 	return nil
 }
 
-func (s *Service) reconcileLocked(ctx context.Context, jobID, tenantID uuid.UUID, v verified, plan *agentv1.ReconcilePlan, sr *jobs.StepRun) error {
+func (s *Service) reconcileLocked(ctx context.Context, jobID, tenantID uuid.UUID, v verified, plan *agentv1.ReconcilePlan, sr detailer) error {
 	cctx, cancel := context.WithTimeout(ctx, 4*time.Minute)
 	defer cancel()
 	plan.ApiKeyTtl = durationpb.New(s.cfg.APIKeyTTL)
@@ -481,7 +505,7 @@ func (s *Service) storeKey(ctx context.Context, tenantID uuid.UUID, key string) 
 // stepCheck — §17.2 step 6 over the API, now that the edge is attached: the policy served is the applied one, exactly
 // one API key is valid (the one just stored), no pre-auth key of the archive is valid. A failure detaches the edge
 // again (Critical) — the hostname never keeps answering with a state that revived revoked access (IT-16).
-func (s *Service) stepCheck(ctx context.Context, jobID, tenantID uuid.UUID, v verified, devices []sqlcdb.ListRestorePlanDevicesRow, sr *jobs.StepRun) error {
+func (s *Service) stepCheck(ctx context.Context, jobID, tenantID uuid.UUID, v verified, devices []sqlcdb.ListRestorePlanDevicesRow, sr detailer) error {
 	var cur sqlcdb.PolicyApplication
 	var prefix string
 	err := s.st.WithTenantTx(ctx, tenantID, func(q *sqlcdb.Queries) error {
@@ -574,7 +598,7 @@ func (s *Service) stepCheck(ctx context.Context, jobID, tenantID uuid.UUID, v ve
 // transaction (NULL first: the restored numeric ids may be the ids the platform recorded for other users); a name not
 // found stays NULL (the user is created again at the next enrollment) — a pre-auth key issued later belongs to the
 // right user.
-func (s *Service) stepMembers(ctx context.Context, tenantID uuid.UUID, sr *jobs.StepRun) error {
+func (s *Service) stepMembers(ctx context.Context, tenantID uuid.UUID, sr detailer) error {
 	hs, err := s.cfg.Registry.ForTenant(ctx, tenantID)
 	if err != nil {
 		return jobs.Transient("instance_unavailable", err)
@@ -620,7 +644,7 @@ func (s *Service) stepMembers(ctx context.Context, tenantID uuid.UUID, sr *jobs.
 // stepFinish — §17.2 steps 6–7: inventory.sync (the instance's state into the device book: rows of nodes gone get
 // removed_at, a reused numeric id with another machine key is another device), verified_at of the backup, the Owner
 // review (older branch: security event), the notification of the Owners — in one transaction.
-func (s *Service) stepFinish(ctx context.Context, jobID, tenantID uuid.UUID, v verified, in RestoreInput, sr *jobs.StepRun) error {
+func (s *Service) stepFinish(ctx context.Context, jobID, tenantID uuid.UUID, v verified, in RestoreInput, sr detailer) error {
 	err := s.st.WithTenantJobTx(ctx, tenantID, func(tx *store.Tx) error {
 		if _, err := jobs.Enqueue(ctx, tx, jobs.Spec{Kind: SyncKind, TenantID: &tenantID, InstanceID: &v.inst.ID,
 			Slot: "restore-" + jobID.String()}); err != nil {

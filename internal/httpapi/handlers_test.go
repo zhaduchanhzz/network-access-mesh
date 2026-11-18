@@ -62,6 +62,7 @@ func TestHandlerGroupsFollowSpec(t *testing.T) {
 		"P3-T08":  reflect.TypeFor[LifecycleHandlers](),
 		"P3-T05c": reflect.TypeFor[RelayHandlers](),
 		"P3-T13":  reflect.TypeFor[ReconfigureHandlers](),
+		"P3-T13a": reflect.TypeFor[InstanceOpsHandlers](),
 	}
 	tasks := specTasks(t)
 	for task, iface := range groups {

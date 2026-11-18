@@ -26,6 +26,8 @@ type Driver interface {
 	RestartInstance(ctx context.Context, c agentspec.Call) (*agentv1.InstanceStatus, error)
 	RemoveInstance(ctx context.Context, r agentspec.Remove) (*agentv1.RemoveInstanceResponse, error)
 	UpgradeInstance(ctx context.Context, u agentspec.Upgrade) (*agentv1.InstanceStatus, error)
+	InspectImage(ctx context.Context, i agentspec.Inspect) (*agentv1.InspectImageResponse, error)
+	PreflightUpgrade(ctx context.Context, p agentspec.Preflight) (*agentv1.PreflightUpgradeResponse, error)
 	WriteDNSRecords(ctx context.Context, d agentspec.DNSRecords) (*agentv1.WriteDnsRecordsResponse, error)
 	BootstrapPolicy(ctx context.Context, c agentspec.Call, kind agentv1.PolicyKind) (*agentv1.BootstrapPolicyResponse, error)
 	BootstrapAPIKey(ctx context.Context, k agentspec.APIKey) (*agentv1.BootstrapApiKeyResponse, error)
@@ -39,8 +41,8 @@ type Driver interface {
 // composeDriver is the driver of the agent: the compose driver for EnsureInstance (storage → config → network →
 // container), status, inventory, start/stop/restart and remove (P3-T02); ValidateConfig (configtest in a throw-away
 // container), BootstrapPolicy, BootstrapApiKey, the edge attachment, the start guard and the edge supervisor (P3-T03);
-// Backup, Restore, PostRestoreReconcile (P3-T11). Still UNIMPLEMENTED (after validation, authorisation, lock and
-// guard): WriteDnsRecords, UpgradeInstance (P3-T13a).
+// Backup, Restore, PostRestoreReconcile (P3-T11); UpgradeInstance, InspectImage, PreflightUpgrade (P3-T13a). Still
+// UNIMPLEMENTED (after validation, authorisation, lock and guard): WriteDnsRecords (P4-T12).
 type composeDriver struct {
 	noDriver
 	c *compose.Driver
@@ -70,6 +72,15 @@ func (d composeDriver) RestartInstance(ctx context.Context, c agentspec.Call) (*
 }
 func (d composeDriver) RemoveInstance(ctx context.Context, r agentspec.Remove) (*agentv1.RemoveInstanceResponse, error) {
 	return d.c.RemoveInstance(ctx, r)
+}
+func (d composeDriver) UpgradeInstance(ctx context.Context, u agentspec.Upgrade) (*agentv1.InstanceStatus, error) {
+	return d.c.UpgradeInstance(ctx, u)
+}
+func (d composeDriver) InspectImage(ctx context.Context, i agentspec.Inspect) (*agentv1.InspectImageResponse, error) {
+	return d.c.InspectImage(ctx, i)
+}
+func (d composeDriver) PreflightUpgrade(ctx context.Context, p agentspec.Preflight) (*agentv1.PreflightUpgradeResponse, error) {
+	return d.c.PreflightUpgrade(ctx, p)
 }
 func (d composeDriver) BootstrapPolicy(ctx context.Context, c agentspec.Call, kind agentv1.PolicyKind) (*agentv1.BootstrapPolicyResponse, error) {
 	return d.c.BootstrapPolicy(ctx, c, kind)
@@ -133,6 +144,12 @@ func (noDriver) RemoveInstance(context.Context, agentspec.Remove) (*agentv1.Remo
 	return nil, unimplemented()
 }
 func (noDriver) UpgradeInstance(context.Context, agentspec.Upgrade) (*agentv1.InstanceStatus, error) {
+	return nil, unimplemented()
+}
+func (noDriver) InspectImage(context.Context, agentspec.Inspect) (*agentv1.InspectImageResponse, error) {
+	return nil, unimplemented()
+}
+func (noDriver) PreflightUpgrade(context.Context, agentspec.Preflight) (*agentv1.PreflightUpgradeResponse, error) {
 	return nil, unimplemented()
 }
 func (noDriver) WriteDNSRecords(context.Context, agentspec.DNSRecords) (*agentv1.WriteDnsRecordsResponse, error) {

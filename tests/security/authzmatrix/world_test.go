@@ -32,6 +32,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/devicesapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/hostsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/idpconsoleapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/instanceopsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/invitationsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/jobsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/lifecycleapi"
@@ -173,6 +174,8 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 		Relay: relayapi.New(relays),
 		// Reconfigure (P3-T13): instance.reconfigure requests of the api
 		Reconfigure: reconfigureapi.New(orchestrator.NewReconfigureService(w.Store)),
+		// InstanceOps (P3-T13a): instance.restart and instance.upgrade requests of the api (no worker: jobs stay queued)
+		InstanceOps: instanceopsapi.New(orchestrator.NewInstanceOpsService(w.Store)),
 	}
 }
 

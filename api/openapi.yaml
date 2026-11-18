@@ -1330,6 +1330,113 @@ paths:
           $ref: '#/components/responses/RateLimited'
         default:
           $ref: '#/components/responses/Unexpected'
+  # ---------------------------------------------------------------- thao tác trên instance: restart, upgrade (P3-T13a)
+  /platform/instances/{instanceId}/restart:
+    post:
+      tags: [platform]
+      operationId: restartPlatformInstance
+      summary: Restart có kiểm soát một instance — job instance.restart (start guard, health gate, post-start gate)
+      description: |-
+        §11.4 hàng Restart: Agent `RestartInstance` (start guard của Agent: file `data/`, fingerprint Noise key,
+        data-check) → health gate (container `healthy` sau lần restart, cùng cấu hình đang hiệu lực, cùng Noise key,
+        `GET /api/v1/health` qua adapter) → post-start gate (`GetPolicy` = `applied_sha256`; policy bị đổi ngoài luồng ⇒
+        áp lại ngay qua lõi policy, trigger `drift_repair`; không có policy hoặc API key của nền tảng bị từ chối — DB bị
+        thay ⇒ cảnh báo Critical + gỡ edge) → `edge.verify` rút gọn. Restart không lùi được: lỗi không phục hồi ⇒ job
+        `rolled_back` (không có gì để lùi; khóa lifecycle được nhả, Super Admin/Platform Operator nhận thông báo). Instance
+        phải `running` (quarantined ⇒ `409`); một restart đang chờ ⇒ chính job đó (hai yêu cầu nối tiếp sau khi job kết
+        thúc là hai lần restart — §13.5). Chạy trong khóa lifecycle của tenant. Audit `platform.instance.restart.requested`
+        (worker đóng `.succeeded`/`.failed`).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: platform.instance:operate
+      x-task: P3-T13a
+      x-audit-action: platform.instance.restart
+      parameters:
+        - $ref: '#/components/parameters/InstanceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '202':
+          description: Job instance.restart đã xếp hàng; theo dõi ở job
+          headers:
+            Location:
+              $ref: '#/components/headers/JobLocation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /platform/instances/{instanceId}/upgrade:
+    post:
+      tags: [platform]
+      operationId: upgradePlatformInstance
+      summary: Nâng cấp Headscale của một instance — job instance.upgrade (preflight, cold backup, configtest bản đích, tự lùi bằng restore)
+      description: |-
+        §11.4 hàng Upgrade, §17.6: `image_digest` phải nằm trong allowlist của Host Agent (Agent kiểm). Preflight không
+        đổi gì: phiên bản do binary của hai image báo (cùng minor với patch không thấp hơn — bằng nhau là bản build khác
+        của cùng phiên bản —, hoặc đúng minor kế tiếp; HS-04/RT-10), adapter có hiện thực cho phiên bản đích, `GET
+        /version` đúng phiên bản hiện tại, `configtest` của binary đích trên cấu hình đang hiệu lực (sha256 không đổi),
+        `CheckPolicy` → dừng → **cold backup** → `configtest` của binary đích trên **bản sao** đã giải mã của cold backup
+        (mở và migrate DB, nạp policy đang lưu — không bao giờ trên `data/` thật; lỗi ⇒ image cũ chạy lại trên dữ liệu
+        gốc) → đổi image → start (start guard) → health gate → post-start gate → `GET /version` = phiên bản đích +
+        contract smoke qua adapter → `edge.verify` → registry. Lỗi sau khi image đích đã start ⇒ tự lùi bằng restore cold
+        backup trên image cũ (job `rolled_back`); lùi lỗi ⇒ `failed_resumable` + Critical. Triển khai theo đợt: lệnh
+        `meshguard-worker admin upgrade-wave` (canary trước, rồi tối đa N job cùng lúc, dừng ở lỗi đầu tiên). Instance
+        phải `running` với version cấu hình do orchestrator ghi (`409 no_config_version`); đã chạy image đích ⇒ `409
+        already_on_target`; một upgrade chưa kết thúc tới image khác ⇒ `409 upgrade_in_progress` (cùng image ⇒ chính job
+        đó). Audit `platform.instance.upgrade.requested` (worker đóng `.succeeded`/`.failed`).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: platform.instance:upgrade
+      x-task: P3-T13a
+      x-audit-action: platform.instance.upgrade
+      parameters:
+        - $ref: '#/components/parameters/InstanceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InstanceUpgrade'
+      responses:
+        '202':
+          description: Job instance.upgrade đã xếp hàng; theo dõi ở job
+          headers:
+            Location:
+              $ref: '#/components/headers/JobLocation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
   # ---------------------------------------------------------------- platform backup/restore (P3-T11)
   /platform/instances/{instanceId}/backup:
     post:
@@ -3905,6 +4012,19 @@ components:
           minimum: 900
           maximum: 999
           description: '`derp.server.region_id` của DERP nhúng (§10.1)'
+    # ------------------------------------------------------------ instance.upgrade (§11.4, §17.6 — P3-T13a)
+    InstanceUpgrade:
+      type: object
+      description: >-
+        Image Headscale đích theo digest (`sha256:<64 hex>`); phải nằm trong allowlist của Host Agent (sinh từ
+        versions.lock) — Agent là bên quyết định, API chỉ kiểm định dạng
+      additionalProperties: false
+      required: [image_digest]
+      properties:
+        image_digest:
+          type: string
+          pattern: '^sha256:[0-9a-f]{64}$'
+          description: Digest của image đích (không nhận tag)
     # ------------------------------------------------------------ platform hosts (§6.3 `hosts`, migration 0014 — P3-T04)
     HostStatus:
       type: string

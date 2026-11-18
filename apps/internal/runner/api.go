@@ -22,6 +22,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/hostsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/identityapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/idpconsoleapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/instanceopsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/invitationsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/jobsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/lifecycleapi"
@@ -72,7 +73,9 @@ import (
 //	                 tenant.provision with usage's quota checks — and orchestrator.Control, P3-T05), Lifecycle
 //	                 (lifecycleapi over lifecycle.Requester — suspend/resume, P3-T08), Relay (relayapi over relay —
 //	                 the tenant's relays and the platform's regions with the last probe, reads only, P3-T05c),
-//	                 Reconfigure (reconfigureapi over orchestrator.ReconfigureService — instance.reconfigure, P3-T13)
+//	                 Reconfigure (reconfigureapi over orchestrator.ReconfigureService — instance.reconfigure, P3-T13),
+//	                 InstanceOps (instanceopsapi over orchestrator.InstanceOpsService — instance.restart and
+//	                 instance.upgrade, P3-T13a)
 //	readiness        postgres, secretstore, edge_admin (§16.2)
 func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prometheus.Registerer) (_ *component, err error) {
 	d, err := openDeps(ctx, cfg, log, idp.PlatformOIDCPaths)
@@ -162,6 +165,7 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 			Lifecycle:     lifecycleapi.New(lifecycle.NewRequester(d.st)),
 			Relay:         relayapi.New(relays),
 			Reconfigure:   reconfigureapi.New(orchestrator.NewReconfigureService(d.st)),
+			InstanceOps:   instanceopsapi.New(orchestrator.NewInstanceOpsService(d.st)),
 		},
 	})
 	if err != nil {

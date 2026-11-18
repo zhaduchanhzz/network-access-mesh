@@ -48,6 +48,8 @@ type fakeEngine struct {
 	// imageVersion is the version label of every image; offline records the policies set by the offline policy helper.
 	imageVersion string
 	offline      [][]byte
+	// binaryVersion is what `headscale version -o json` of an image reference answers (P3-T13a); absent ⇒ exit 1.
+	binaryVersion map[string]string
 }
 
 // fakeHS is the state of the Headscale CLI of one instance.
@@ -329,6 +331,14 @@ func (f *fakeEngine) RunOnce(_ context.Context, s OneShot) (OneShotResult, error
 		return f.backupHelper(s, src)
 	case len(s.Cmd) > 1 && s.Cmd[0] == "policy":
 		return f.offlinePolicy(s, src)
+	case slices.Equal(s.Cmd, []string{"version", "-o", "json"}):
+		f.mu.Lock()
+		v, ok := f.binaryVersion[s.Image]
+		f.mu.Unlock()
+		if !ok {
+			return OneShotResult{ExitCode: 1, Stderr: []byte("exec format error")}, nil
+		}
+		return OneShotResult{Stdout: []byte(`{"version": "` + v + `", "commit": "c9cf210b8bc84d13177e18b91f555788a44b47b6", "dirty": false}` + "\n")}, nil
 	case slices.Equal(s.Cmd, []string{"configtest"}):
 		cfg, err := os.ReadFile(filepath.Join(src["/etc/headscale"], "config.yaml"))
 		if err != nil {
@@ -541,7 +551,12 @@ func (r *fakeCompose) Compose(_ context.Context, p Project, args ...string) erro
 				}
 				f.ctrs[c.Name] = c
 			}
-			if c.State != "running" {
+			switch {
+			case slices.Contains(args, "--no-start"): // create (again) without starting — UpgradeInstance (P3-T13a)
+				if c.State == "" {
+					c.State = "created"
+				}
+			case c.State != "running":
 				if err := headscaleStarts(p.Dir, svc.User); err != nil {
 					return err
 				}

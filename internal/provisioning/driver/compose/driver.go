@@ -65,6 +65,8 @@ type Driver struct {
 	createMu sync.Mutex
 	// fps caches the fingerprint helper's answers per key-file identity (fileid.go).
 	fps fpCache
+	// versions caches the Headscale version of each image digest (upgrade.go — a digest names immutable content).
+	versions versionCache
 }
 
 // New returns a driver; every field of c but Log is required.

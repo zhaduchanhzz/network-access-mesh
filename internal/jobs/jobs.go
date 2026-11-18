@@ -173,9 +173,12 @@ func DefaultKinds() map[string]Kind {
 	}
 	// tenant.provision undoes its 19 steps in reverse order (§11.3, P3-T05); tenant.suspend and tenant.resume undo theirs
 	// (P3-T08: back to the desired policy and `active` / back to the suspension policy and `suspended`);
-	// instance.reconfigure writes the previous configuration version back and restarts on it (§11.4, P3-T13); the other
-	// lifecycle kinds gain /rollback with the task that builds their compensation.
-	for _, name := range []string{"tenant.provision", "tenant.suspend", "tenant.resume", "instance.reconfigure"} {
+	// instance.reconfigure writes the previous configuration version back and restarts on it (§11.4, P3-T13);
+	// instance.upgrade restores its cold backup on the previous image (§11.4: rollback = restore) and instance.restart
+	// has nothing to undo — its compensation closes the operation and releases the lock (P3-T13a); the other lifecycle
+	// kinds gain /rollback with the task that builds their compensation.
+	for _, name := range []string{"tenant.provision", "tenant.suspend", "tenant.resume", "instance.reconfigure",
+		"instance.restart", "instance.upgrade"} {
 		k := out[name]
 		k.Compensable = true
 		out[name] = k

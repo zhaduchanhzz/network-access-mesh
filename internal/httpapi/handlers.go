@@ -142,6 +142,13 @@ type BackupHandlers interface {
 	ListPlatformBackups(ctx context.Context, request gen.ListPlatformBackupsRequestObject) (gen.ListPlatformBackupsResponseObject, error)
 }
 
+// InstanceOpsHandlers — P3-T13a (`provisioning` orchestrator): the restart and the upgrade of an instance (jobs
+// instance.restart, instance.upgrade — §11.4).
+type InstanceOpsHandlers interface {
+	RestartPlatformInstance(ctx context.Context, request gen.RestartPlatformInstanceRequestObject) (gen.RestartPlatformInstanceResponseObject, error)
+	UpgradePlatformInstance(ctx context.Context, request gen.UpgradePlatformInstanceRequestObject) (gen.UpgradePlatformInstanceResponseObject, error)
+}
+
 // Handlers is the extension point of the API: one handler set per building task. A nil set answers every operation
 // of its interface with 501 not_implemented. A set may also implement only part of its interface by embedding
 // NotImplemented. Handlers return a *problem.Error for an expected failure (not_found, conflict…); any other error
@@ -163,12 +170,14 @@ type Handlers struct {
 	Relay         RelayHandlers        // P3-T05c
 	Reconfigure   ReconfigureHandlers  // P3-T13
 	Backups       BackupHandlers       // P3-T11
+	InstanceOps   InstanceOpsHandlers  // P3-T13a
 }
 
 func (h Handlers) mounted() bool {
 	return h.Auth != nil || h.Tenants != nil || h.Devices != nil || h.Audit != nil || h.Jobs != nil || h.Monitoring != nil ||
 		h.Notifications != nil || h.Approvals != nil || h.Invitations != nil || h.Hosts != nil || h.IdPConsole != nil ||
-		h.Provisioning != nil || h.Lifecycle != nil || h.Relay != nil || h.Reconfigure != nil || h.Backups != nil
+		h.Provisioning != nil || h.Lifecycle != nil || h.Relay != nil || h.Reconfigure != nil || h.Backups != nil ||
+		h.InstanceOps != nil
 }
 
 // dispatcher implements gen.StrictServerInterface by promotion from the disjoint interfaces.
@@ -189,13 +198,17 @@ type dispatcher struct {
 	RelayHandlers
 	ReconfigureHandlers
 	BackupHandlers
+	InstanceOpsHandlers
 }
 
 var _ gen.StrictServerInterface = dispatcher{}
 
 func newDispatcher(h Handlers) dispatcher {
 	d := dispatcher{h.Auth, h.Tenants, h.Devices, h.Audit, h.Jobs, h.Monitoring, h.Notifications, h.Approvals, h.Invitations,
-		h.Hosts, h.IdPConsole, h.Provisioning, h.Lifecycle, h.Relay, h.Reconfigure, h.Backups}
+		h.Hosts, h.IdPConsole, h.Provisioning, h.Lifecycle, h.Relay, h.Reconfigure, h.Backups, h.InstanceOps}
+	if d.InstanceOpsHandlers == nil {
+		d.InstanceOpsHandlers = NotImplemented{}
+	}
 	if d.BackupHandlers == nil {
 		d.BackupHandlers = NotImplemented{}
 	}
@@ -483,6 +496,14 @@ func (NotImplemented) GetTenantRelay(context.Context, gen.GetTenantRelayRequestO
 
 func (NotImplemented) ListPlatformRelayRegions(context.Context, gen.ListPlatformRelayRegionsRequestObject) (gen.ListPlatformRelayRegionsResponseObject, error) {
 	return nil, problem.NotImplemented("ListPlatformRelayRegions")
+}
+
+func (NotImplemented) RestartPlatformInstance(context.Context, gen.RestartPlatformInstanceRequestObject) (gen.RestartPlatformInstanceResponseObject, error) {
+	return nil, problem.NotImplemented("RestartPlatformInstance")
+}
+
+func (NotImplemented) UpgradePlatformInstance(context.Context, gen.UpgradePlatformInstanceRequestObject) (gen.UpgradePlatformInstanceResponseObject, error) {
+	return nil, problem.NotImplemented("UpgradePlatformInstance")
 }
 
 func (NotImplemented) ReconfigurePlatformInstance(context.Context, gen.ReconfigurePlatformInstanceRequestObject) (gen.ReconfigurePlatformInstanceResponseObject, error) {

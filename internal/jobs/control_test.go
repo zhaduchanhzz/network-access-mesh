@@ -184,6 +184,9 @@ func TestLifecycleTransitions(t *testing.T) {
 		if err := w.Register("instance.restart", runOnly{h}); err != nil {
 			t.Fatal(err)
 		}
+		if err := w.Register("instance.restore", runOnly{h}); err != nil {
+			t.Fatal(err)
+		}
 		return w
 	}
 	w := newW()
@@ -194,7 +197,7 @@ func TestLifecycleTransitions(t *testing.T) {
 	enqueueWith := func(t *testing.T, kind string, tenant, instance uuid.UUID, p *plan) uuid.UUID {
 		t.Helper()
 		spec := Spec{Kind: kind, TenantID: &tenant, RequestedBy: &f.identity}
-		if kind == "instance.restart" {
+		if kind == "instance.restart" || kind == "instance.restore" {
 			spec.InstanceID = &instance
 		}
 		var id uuid.UUID
@@ -450,13 +453,13 @@ func TestLifecycleTransitions(t *testing.T) {
 				t.Errorf("%s of a succeeded job: %v, want ErrJobState", name, err)
 			}
 		}
-		// /rollback of a kind without compensation (instance.restart) is refused.
-		restart := enqueueWith(t, "instance.restart", tenant, inst,
+		// /rollback of a kind without compensation (instance.restore) is refused.
+		restart := enqueueWith(t, "instance.restore", tenant, inst,
 			&plan{steps: []string{"x"}, fail: map[string][]error{"x": {Permanent("unhealthy", errors.New("no"))}}})
 		f.waitStatus(t, wst, restart, StatusFailedResumable, 15*time.Second)
 		var se *StateError
 		if _, err := control(t, Rollback, restart); !errors.As(err, &se) || se.Reason != "kind_not_compensable" {
-			t.Fatalf("rollback of instance.restart: %v", err)
+			t.Fatalf("rollback of instance.restore: %v", err)
 		}
 		if _, err := control(t, Retry, uuid.New()); !errors.Is(err, ErrNotFound) {
 			t.Fatalf("retry of an unknown job: %v", err)

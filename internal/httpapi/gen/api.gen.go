@@ -1259,6 +1259,12 @@ type InstanceRestoreCreate struct {
 // InstanceStatus TenantInstanceStatus (§13.3)
 type InstanceStatus string
 
+// InstanceUpgrade Image Headscale đích theo digest (`sha256:<64 hex>`); phải nằm trong allowlist của Host Agent (sinh từ versions.lock) — Agent là bên quyết định, API chỉ kiểm định dạng
+type InstanceUpgrade struct {
+	// ImageDigest Digest của image đích (không nhận tag)
+	ImageDigest string `json:"image_digest"`
+}
+
 // Invitation Lời mời người chưa từng đăng nhập (`tenant_invitations`) — không bao giờ chứa token
 type Invitation struct {
 	AcceptedAt         *time.Time          `json:"accepted_at,omitempty"`
@@ -2163,8 +2169,20 @@ type ReconfigurePlatformInstanceParams struct {
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
 
+// RestartPlatformInstanceParams defines parameters for RestartPlatformInstance.
+type RestartPlatformInstanceParams struct {
+	// IdempotencyKey Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
 // RestorePlatformInstanceParams defines parameters for RestorePlatformInstance.
 type RestorePlatformInstanceParams struct {
+	// IdempotencyKey Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// UpgradePlatformInstanceParams defines parameters for UpgradePlatformInstance.
+type UpgradePlatformInstanceParams struct {
 	// IdempotencyKey Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
@@ -2391,6 +2409,9 @@ type ReconfigurePlatformInstanceJSONRequestBody = InstanceReconfigure
 // RestorePlatformInstanceJSONRequestBody defines body for RestorePlatformInstance for application/json ContentType.
 type RestorePlatformInstanceJSONRequestBody = InstanceRestoreCreate
 
+// UpgradePlatformInstanceJSONRequestBody defines body for UpgradePlatformInstance for application/json ContentType.
+type UpgradePlatformInstanceJSONRequestBody = InstanceUpgrade
+
 // CreatePlatformTenantJSONRequestBody defines body for CreatePlatformTenant for application/json ContentType.
 type CreatePlatformTenantJSONRequestBody = TenantCreate
 
@@ -2477,9 +2498,15 @@ type ServerInterface interface {
 	// ReconfigurePlatformInstance Đổi cấu hình instance — job instance.reconfigure (version mới, restart, health gate, tự lùi)
 	// (POST /platform/instances/{instanceId}/reconfigure)
 	ReconfigurePlatformInstance(w http.ResponseWriter, r *http.Request, instanceId InstanceId, params ReconfigurePlatformInstanceParams)
+	// RestartPlatformInstance Restart có kiểm soát một instance — job instance.restart (start guard, health gate, post-start gate)
+	// (POST /platform/instances/{instanceId}/restart)
+	RestartPlatformInstance(w http.ResponseWriter, r *http.Request, instanceId InstanceId, params RestartPlatformInstanceParams)
 	// RestorePlatformInstance Xin restore một instance từ một bản backup — luôn 2P; 202 + Location của yêu cầu phê duyệt
 	// (POST /platform/instances/{instanceId}/restore)
 	RestorePlatformInstance(w http.ResponseWriter, r *http.Request, instanceId InstanceId, params RestorePlatformInstanceParams)
+	// UpgradePlatformInstance Nâng cấp Headscale của một instance — job instance.upgrade (preflight, cold backup, configtest bản đích, tự lùi bằng restore)
+	// (POST /platform/instances/{instanceId}/upgrade)
+	UpgradePlatformInstance(w http.ResponseWriter, r *http.Request, instanceId InstanceId, params UpgradePlatformInstanceParams)
 	// ListPlatformJobs Job của nền tảng và mọi tenant
 	// (GET /platform/jobs)
 	ListPlatformJobs(w http.ResponseWriter, r *http.Request, params ListPlatformJobsParams)
@@ -3714,6 +3741,60 @@ func (siw *ServerInterfaceWrapper) ReconfigurePlatformInstance(w http.ResponseWr
 	handler.ServeHTTP(w, r)
 }
 
+// RestartPlatformInstance operation middleware
+func (siw *ServerInterfaceWrapper) RestartPlatformInstance(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "instanceId" -------------
+	var instanceId InstanceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "instanceId", r.PathValue("instanceId"), &instanceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "instanceId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RestartPlatformInstanceParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RestartPlatformInstance(w, r, instanceId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // RestorePlatformInstance operation middleware
 func (siw *ServerInterfaceWrapper) RestorePlatformInstance(w http.ResponseWriter, r *http.Request) {
 
@@ -3759,6 +3840,60 @@ func (siw *ServerInterfaceWrapper) RestorePlatformInstance(w http.ResponseWriter
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RestorePlatformInstance(w, r, instanceId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpgradePlatformInstance operation middleware
+func (siw *ServerInterfaceWrapper) UpgradePlatformInstance(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "instanceId" -------------
+	var instanceId InstanceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "instanceId", r.PathValue("instanceId"), &instanceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "instanceId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpgradePlatformInstanceParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpgradePlatformInstance(w, r, instanceId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -5753,6 +5888,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/platform/instances", wrapper.ListPlatformInstances)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/platform/instances/{instanceId}", wrapper.GetPlatformInstance)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/platform/instances/{instanceId}/reconfigure", wrapper.ReconfigurePlatformInstance)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/platform/instances/{instanceId}/restart", wrapper.RestartPlatformInstance)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/platform/instances/{instanceId}/upgrade", wrapper.UpgradePlatformInstance)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/platform/instances/{instanceId}/backup", wrapper.BackupPlatformInstance)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/platform/instances/{instanceId}/restore", wrapper.RestorePlatformInstance)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/platform/backups", wrapper.ListPlatformBackups)
@@ -9194,6 +9331,187 @@ func (response ReconfigurePlatformInstancedefaultApplicationProblemPlusJSONRespo
 	return err
 }
 
+type RestartPlatformInstanceRequestObject struct {
+	InstanceId InstanceId `json:"instanceId"`
+	Params     RestartPlatformInstanceParams
+}
+
+type RestartPlatformInstanceResponseObject interface {
+	VisitRestartPlatformInstanceResponse(w http.ResponseWriter) error
+}
+
+type RestartPlatformInstance202ResponseHeaders struct {
+	Location string
+}
+
+type RestartPlatformInstance202JSONResponse struct {
+	Body    Job
+	Headers RestartPlatformInstance202ResponseHeaders
+}
+
+func (response RestartPlatformInstance202JSONResponse) VisitRestartPlatformInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Location", fmt.Sprint(response.Headers.Location))
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestartPlatformInstance401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response RestartPlatformInstance401ApplicationProblemPlusJSONResponse) VisitRestartPlatformInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestartPlatformInstance403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response RestartPlatformInstance403ApplicationProblemPlusJSONResponse) VisitRestartPlatformInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestartPlatformInstance404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response RestartPlatformInstance404ApplicationProblemPlusJSONResponse) VisitRestartPlatformInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestartPlatformInstance409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response RestartPlatformInstance409ApplicationProblemPlusJSONResponse) VisitRestartPlatformInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestartPlatformInstance422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response RestartPlatformInstance422ApplicationProblemPlusJSONResponse) VisitRestartPlatformInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestartPlatformInstance429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response RestartPlatformInstance429ApplicationProblemPlusJSONResponse) VisitRestartPlatformInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestartPlatformInstancedefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response RestartPlatformInstancedefaultApplicationProblemPlusJSONResponse) VisitRestartPlatformInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type RestorePlatformInstanceRequestObject struct {
 	InstanceId InstanceId `json:"instanceId"`
 	Params     RestorePlatformInstanceParams
@@ -9362,6 +9680,188 @@ type RestorePlatformInstancedefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response RestorePlatformInstancedefaultApplicationProblemPlusJSONResponse) VisitRestorePlatformInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpgradePlatformInstanceRequestObject struct {
+	InstanceId InstanceId `json:"instanceId"`
+	Params     UpgradePlatformInstanceParams
+	Body       *UpgradePlatformInstanceJSONRequestBody
+}
+
+type UpgradePlatformInstanceResponseObject interface {
+	VisitUpgradePlatformInstanceResponse(w http.ResponseWriter) error
+}
+
+type UpgradePlatformInstance202ResponseHeaders struct {
+	Location string
+}
+
+type UpgradePlatformInstance202JSONResponse struct {
+	Body    Job
+	Headers UpgradePlatformInstance202ResponseHeaders
+}
+
+func (response UpgradePlatformInstance202JSONResponse) VisitUpgradePlatformInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Location", fmt.Sprint(response.Headers.Location))
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpgradePlatformInstance401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response UpgradePlatformInstance401ApplicationProblemPlusJSONResponse) VisitUpgradePlatformInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpgradePlatformInstance403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response UpgradePlatformInstance403ApplicationProblemPlusJSONResponse) VisitUpgradePlatformInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpgradePlatformInstance404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response UpgradePlatformInstance404ApplicationProblemPlusJSONResponse) VisitUpgradePlatformInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpgradePlatformInstance409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response UpgradePlatformInstance409ApplicationProblemPlusJSONResponse) VisitUpgradePlatformInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpgradePlatformInstance422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response UpgradePlatformInstance422ApplicationProblemPlusJSONResponse) VisitUpgradePlatformInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpgradePlatformInstance429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response UpgradePlatformInstance429ApplicationProblemPlusJSONResponse) VisitUpgradePlatformInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpgradePlatformInstancedefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response UpgradePlatformInstancedefaultApplicationProblemPlusJSONResponse) VisitUpgradePlatformInstanceResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -14866,9 +15366,15 @@ type StrictServerInterface interface {
 	// ReconfigurePlatformInstance Đổi cấu hình instance — job instance.reconfigure (version mới, restart, health gate, tự lùi)
 	// (POST /platform/instances/{instanceId}/reconfigure)
 	ReconfigurePlatformInstance(ctx context.Context, request ReconfigurePlatformInstanceRequestObject) (ReconfigurePlatformInstanceResponseObject, error)
+	// RestartPlatformInstance Restart có kiểm soát một instance — job instance.restart (start guard, health gate, post-start gate)
+	// (POST /platform/instances/{instanceId}/restart)
+	RestartPlatformInstance(ctx context.Context, request RestartPlatformInstanceRequestObject) (RestartPlatformInstanceResponseObject, error)
 	// RestorePlatformInstance Xin restore một instance từ một bản backup — luôn 2P; 202 + Location của yêu cầu phê duyệt
 	// (POST /platform/instances/{instanceId}/restore)
 	RestorePlatformInstance(ctx context.Context, request RestorePlatformInstanceRequestObject) (RestorePlatformInstanceResponseObject, error)
+	// UpgradePlatformInstance Nâng cấp Headscale của một instance — job instance.upgrade (preflight, cold backup, configtest bản đích, tự lùi bằng restore)
+	// (POST /platform/instances/{instanceId}/upgrade)
+	UpgradePlatformInstance(ctx context.Context, request UpgradePlatformInstanceRequestObject) (UpgradePlatformInstanceResponseObject, error)
 	// ListPlatformJobs Job của nền tảng và mọi tenant
 	// (GET /platform/jobs)
 	ListPlatformJobs(ctx context.Context, request ListPlatformJobsRequestObject) (ListPlatformJobsResponseObject, error)
@@ -15646,6 +16152,33 @@ func (sh *strictHandler) ReconfigurePlatformInstance(w http.ResponseWriter, r *h
 	}
 }
 
+// RestartPlatformInstance operation middleware
+func (sh *strictHandler) RestartPlatformInstance(w http.ResponseWriter, r *http.Request, instanceId InstanceId, params RestartPlatformInstanceParams) {
+	var request RestartPlatformInstanceRequestObject
+
+	request.InstanceId = instanceId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RestartPlatformInstance(ctx, request.(RestartPlatformInstanceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RestartPlatformInstance")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RestartPlatformInstanceResponseObject); ok {
+		if err := validResponse.VisitRestartPlatformInstanceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // RestorePlatformInstance operation middleware
 func (sh *strictHandler) RestorePlatformInstance(w http.ResponseWriter, r *http.Request, instanceId InstanceId, params RestorePlatformInstanceParams) {
 	var request RestorePlatformInstanceRequestObject
@@ -15673,6 +16206,40 @@ func (sh *strictHandler) RestorePlatformInstance(w http.ResponseWriter, r *http.
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RestorePlatformInstanceResponseObject); ok {
 		if err := validResponse.VisitRestorePlatformInstanceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpgradePlatformInstance operation middleware
+func (sh *strictHandler) UpgradePlatformInstance(w http.ResponseWriter, r *http.Request, instanceId InstanceId, params UpgradePlatformInstanceParams) {
+	var request UpgradePlatformInstanceRequestObject
+
+	request.InstanceId = instanceId
+	request.Params = params
+
+	var body UpgradePlatformInstanceJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpgradePlatformInstance(ctx, request.(UpgradePlatformInstanceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpgradePlatformInstance")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpgradePlatformInstanceResponseObject); ok {
+		if err := validResponse.VisitUpgradePlatformInstanceResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
