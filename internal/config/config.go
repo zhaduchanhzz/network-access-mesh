@@ -76,6 +76,9 @@ type Config struct {
 	// Backup (MG_BACKUP_MANIFEST_PUBKEY, MG_BACKUP_INTERVAL, MG_BACKUP_RETENTION, worker): per-tenant backups — LoadBackup
 	// (P3-T11).
 	Backup Backup
+	// Deprovision (MG_DEPROVISION_KEY_GRACE, worker): the grace period before a deleted tenant's keys are destroyed —
+	// LoadDeprovision (P3-T09).
+	Deprovision Deprovision
 }
 
 // SMTP is the notification relay of the worker (MG_SMTP_*). The password is a file secret (MG_SMTP_PASSWORD_FILE), never
@@ -223,6 +226,9 @@ func Load(service string, getenv func(string) string, environ []string) (Config,
 	var backupErrs []error
 	cfg.Backup, backupErrs = LoadBackup(service, getenv)
 	errs = append(errs, backupErrs...)
+	var deprovErrs []error
+	cfg.Deprovision, deprovErrs = LoadDeprovision(service, getenv)
+	errs = append(errs, deprovErrs...)
 	cfg.Wired = cfg.Env != "dev" || strings.TrimSpace(getenv("MG_DB_URL")) != ""
 	if cfg.Wired && services[service] {
 		errs = append(errs, cfg.loadDependencies(getenv)...)

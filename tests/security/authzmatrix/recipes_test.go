@@ -129,6 +129,10 @@ var recipes = map[string]recipe{
 	// a refusal; the flows themselves are internal/provisioning/lifecycle's DB tests and E2E-56…E2E-58
 	"suspendPlatformTenant": {idempotent: true},
 	"resumePlatformTenant":  {idempotent: true},
+	// deprovision (P3-T09, deprovisionapi — mounted with the deprovision action, world_test.go): always 2P (Super Admin
+	// only); the typed slug is not the tenant's ⇒ 422 — any answer that is not a refusal; the flow itself is
+	// internal/provisioning/deprovision's DB tests and the provisioning harness (E2E-73…E2E-75)
+	"deletePlatformTenant": {idempotent: true, body: `{"confirm_slug":"matrix-mismatch","reason":"matrix"}`},
 	// instance.reconfigure (P3-T13, reconfigureapi — mounted): the matrix's instances carry no configuration version
 	// recorded by the orchestrator, so a granted call reaches the service and answers 409 no_config_version
 	"reconfigurePlatformInstance": {idempotent: true, body: `{"log_level":"warn"}`,

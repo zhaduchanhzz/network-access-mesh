@@ -71,7 +71,7 @@ func (q *Queries) GetHostByName(ctx context.Context, name string) (Host, error) 
 }
 
 const getLiveTenantBySlug = `-- name: GetLiveTenantBySlug :one
-SELECT id, slug, name, status, deployment_region, settings, desired_policy_version_id, created_at, updated_at, deleted_at, version FROM tenants
+SELECT id, slug, name, status, deployment_region, settings, desired_policy_version_id, created_at, updated_at, deleted_at, version, keys_destroy_after FROM tenants
 WHERE slug = $1 AND status <> 'deleted'
 `
 
@@ -91,6 +91,7 @@ func (q *Queries) GetLiveTenantBySlug(ctx context.Context, slug string) (Tenant,
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.Version,
+		&i.KeysDestroyAfter,
 	)
 	return i, err
 }
@@ -145,7 +146,7 @@ func (q *Queries) GetTenantMember(ctx context.Context, arg GetTenantMemberParams
 
 const getTenantView = `-- name: GetTenantView :one
 
-SELECT t.id, t.slug, t.name, t.status, t.deployment_region, t.settings, t.desired_policy_version_id, t.created_at, t.updated_at, t.deleted_at, t.version, i.server_url AS control_url
+SELECT t.id, t.slug, t.name, t.status, t.deployment_region, t.settings, t.desired_policy_version_id, t.created_at, t.updated_at, t.deleted_at, t.version, t.keys_destroy_after, i.server_url AS control_url
 FROM tenants t
 LEFT JOIN tenant_instances i ON i.tenant_id = t.id AND i.status <> 'removed'
 WHERE t.id = $1
@@ -178,6 +179,7 @@ func (q *Queries) GetTenantView(ctx context.Context, id uuid.UUID) (GetTenantVie
 		&i.Tenant.UpdatedAt,
 		&i.Tenant.DeletedAt,
 		&i.Tenant.Version,
+		&i.Tenant.KeysDestroyAfter,
 		&i.ControlUrl,
 	)
 	return i, err
@@ -186,7 +188,7 @@ func (q *Queries) GetTenantView(ctx context.Context, id uuid.UUID) (GetTenantVie
 const insertAdoptedTenant = `-- name: InsertAdoptedTenant :one
 INSERT INTO tenants (id, slug, name, status, deployment_region)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, slug, name, status, deployment_region, settings, desired_policy_version_id, created_at, updated_at, deleted_at, version
+RETURNING id, slug, name, status, deployment_region, settings, desired_policy_version_id, created_at, updated_at, deleted_at, version, keys_destroy_after
 `
 
 type InsertAdoptedTenantParams struct {
@@ -219,6 +221,7 @@ func (q *Queries) InsertAdoptedTenant(ctx context.Context, arg InsertAdoptedTena
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.Version,
+		&i.KeysDestroyAfter,
 	)
 	return i, err
 }
@@ -347,7 +350,7 @@ func (q *Queries) ListInstancesPage(ctx context.Context, arg ListInstancesPagePa
 }
 
 const listMemberTenantsPage = `-- name: ListMemberTenantsPage :many
-SELECT t.id, t.slug, t.name, t.status, t.deployment_region, t.settings, t.desired_policy_version_id, t.created_at, t.updated_at, t.deleted_at, t.version, i.server_url AS control_url
+SELECT t.id, t.slug, t.name, t.status, t.deployment_region, t.settings, t.desired_policy_version_id, t.created_at, t.updated_at, t.deleted_at, t.version, t.keys_destroy_after, i.server_url AS control_url
 FROM tenant_memberships m
 JOIN tenants t ON t.id = m.tenant_id
 LEFT JOIN tenant_instances i ON i.tenant_id = t.id AND i.status <> 'removed'
@@ -399,6 +402,7 @@ func (q *Queries) ListMemberTenantsPage(ctx context.Context, arg ListMemberTenan
 			&i.Tenant.UpdatedAt,
 			&i.Tenant.DeletedAt,
 			&i.Tenant.Version,
+			&i.Tenant.KeysDestroyAfter,
 			&i.ControlUrl,
 		); err != nil {
 			return nil, err
@@ -412,7 +416,7 @@ func (q *Queries) ListMemberTenantsPage(ctx context.Context, arg ListMemberTenan
 }
 
 const listRegistryTenantsPage = `-- name: ListRegistryTenantsPage :many
-SELECT t.id, t.slug, t.name, t.status, t.deployment_region, t.settings, t.desired_policy_version_id, t.created_at, t.updated_at, t.deleted_at, t.version, i.server_url AS control_url
+SELECT t.id, t.slug, t.name, t.status, t.deployment_region, t.settings, t.desired_policy_version_id, t.created_at, t.updated_at, t.deleted_at, t.version, t.keys_destroy_after, i.server_url AS control_url
 FROM tenants t
 LEFT JOIN tenant_instances i ON i.tenant_id = t.id AND i.status <> 'removed'
 WHERE ($1::text IS NULL OR t.status = $1::text)
@@ -465,6 +469,7 @@ func (q *Queries) ListRegistryTenantsPage(ctx context.Context, arg ListRegistryT
 			&i.Tenant.UpdatedAt,
 			&i.Tenant.DeletedAt,
 			&i.Tenant.Version,
+			&i.Tenant.KeysDestroyAfter,
 			&i.ControlUrl,
 		); err != nil {
 			return nil, err
@@ -763,7 +768,7 @@ const transitionTenantStatus = `-- name: TransitionTenantStatus :one
 UPDATE tenants
 SET status = $1, updated_at = now(), version = version + 1
 WHERE id = $2 AND status = $3
-RETURNING id, slug, name, status, deployment_region, settings, desired_policy_version_id, created_at, updated_at, deleted_at, version
+RETURNING id, slug, name, status, deployment_region, settings, desired_policy_version_id, created_at, updated_at, deleted_at, version, keys_destroy_after
 `
 
 type TransitionTenantStatusParams struct {
@@ -788,6 +793,7 @@ func (q *Queries) TransitionTenantStatus(ctx context.Context, arg TransitionTena
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.Version,
+		&i.KeysDestroyAfter,
 	)
 	return i, err
 }

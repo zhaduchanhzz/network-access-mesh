@@ -397,7 +397,7 @@ func TestP3GrantMatrix(t *testing.T) {
 		"tenants": with(map[string]grantSpec{
 			"mg_api_tenant": {S, cols("desired_policy_version_id")}, "mg_worker_tenant": {S, cols("desired_policy_version_id")},
 			"mg_api_platform":    {SI, cols("deleted_at,deployment_region,desired_policy_version_id,name,settings,status,updated_at,version")},
-			"mg_worker_platform": {SI, cols("deleted_at,deployment_region,desired_policy_version_id,name,settings,status,updated_at,version")},
+			"mg_worker_platform": {SI, cols("deleted_at,deployment_region,desired_policy_version_id,keys_destroy_after,name,settings,status,updated_at,version")},
 		}),
 	}
 	for table, byRole := range want {
@@ -746,6 +746,13 @@ func TestP3CheckConstraints(t *testing.T) {
 		{"application: pending with finished_at", pa.with("finished_at", "now()").insert("policy_applications"), "23514"},
 		{"application: failed without error code", pa.with("state", "'failed'", "finished_at", "now()").insert("policy_applications"), "23514"},
 		{"application: superseded while pending", pa.with("superseded_at", "now()").insert("policy_applications"), "23514"},
+		// tenants.keys_destroy_after (0021, P3-T09): only on a deleted tenant, never before its deletion
+		{"keys: deleted tenant scheduled after its deletion", `UPDATE tenants SET status = 'deleted', deleted_at = now(),
+			keys_destroy_after = now() + interval '30 days' WHERE id = ` + A, ""},
+		{"keys: scheduled on a live tenant", `UPDATE tenants SET keys_destroy_after = now() + interval '1 day' WHERE id = ` + A, "23514"},
+		{"keys: scheduled before the deletion", `UPDATE tenants SET status = 'deleted', deleted_at = now(),
+			keys_destroy_after = now() - interval '1 day' WHERE id = ` + A, "23514"},
+		{"keys: deleted without deleted_at", `UPDATE tenants SET status = 'deleted', keys_destroy_after = now() WHERE id = ` + A, "23514"},
 	}
 	for _, c := range cases {
 		tx, err := su.Begin(ctx)

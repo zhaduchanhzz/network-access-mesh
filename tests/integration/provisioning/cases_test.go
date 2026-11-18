@@ -13,6 +13,16 @@ package provisioning
 //	E2E-50  transient failures that outlast the in-place retries ⇒ failed_resumable (no compensation, resources kept)
 //	        ⇒ /retry continues from the failed step (earlier steps not run again) ⇒ succeeded.
 //	E2E-51  rolled_back ⇒ /retry creates a NEW job that starts at step 3 (steps 1–2 skipped) ⇒ succeeded.
+//
+// The cases of P3-T09 (deprovision — deprovision_test.go):
+//
+//	E2E-73  provision → deprovision through the 2P path: nothing left (orphan detector), the slug reserved, the Portal
+//	        sessions revoked, no schedule target left, the final backup signed in the book; after the (shortened)
+//	        grace period the keys are destroyed and the SecretStore cannot decrypt anything of the tenant.
+//	E2E-74  the worker killed (SIGKILL) inside instance.remove right after compose down, and nodes.expire answering
+//	        lost twice ⇒ reaper, /retry ⇒ the deprovision converges to the same end state.
+//	E2E-75  the final backup refused ⇒ failed_resumable at backup.final, nothing else done ⇒ /rollback before the point
+//	        of no return ⇒ the tenant active and serving again; /rollback past it refused.
 
 import (
 	"fmt"
@@ -118,15 +128,24 @@ func TestProvisioningFaultInjection(t *testing.T) {
 		}
 	})
 	t.Run("E2E-51_retry_after_rollback_new_job", func(t *testing.T) { record(h.retryAfterRollback(t)) })
+	t.Run("E2E-73_deprovision_end_to_end", func(t *testing.T) { record(h.deprovisionEndToEnd(t)) })
+	t.Run("E2E-74_deprovision_crash_mid_step", func(t *testing.T) { record(h.deprovisionCrash(t)) })
+	t.Run("E2E-75_deprovision_backup_refused_rollback", func(t *testing.T) { record(h.deprovisionBackupRefused(t)) })
 
 	t.Run("final", func(t *testing.T) {
-		inv := h.noOrphans(t)
 		if l := h.leaks(t); len(l) != 0 {
 			t.Fatalf("an API key reached a worker log: %v", l)
 		}
-		n := h.teardown(t)
-		t.Logf("final: %s; %d live instance(s) torn down (edge detached, compose down, network removed — directories left to run.sh)",
-			inv.Summary(), n)
+		// every tenant of the run still live is deprovisioned the production way (P3-T09) — no directory is left to run.sh
+		n := h.deprovisionAll(t)
+		inv := h.noOrphans(t)
+		if m := h.teardown(t); m != 0 {
+			t.Fatalf("%d live instance(s) after deprovisioning every tenant", m)
+		}
+		if len(inv.Host.Dirs) != 0 {
+			t.Fatalf("instance directories left: %v", inv.Host.Dirs)
+		}
+		t.Logf("final: %d tenant(s) deprovisioned; %s", n, inv.Summary())
 	})
 }
 

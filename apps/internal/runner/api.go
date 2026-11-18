@@ -18,6 +18,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/auditapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/authzhook"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/backupapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/deprovisionapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/devicesapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/hostsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/identityapi"
@@ -39,6 +40,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/notifications"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/platform"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/backup"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/deprovision"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/lifecycle"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/orchestrator"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/relay"
@@ -117,7 +119,8 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 		return nil, err
 	}
 	backups := backup.New(d.st, backup.Config{Logger: log}) // P3-T11: the api enqueues; the worker runs the jobs
-	actions, err := approvalActions(backups)
+	deprov := deprovision.NewRequester(d.st)                // P3-T09: the api checks and enqueues; the worker deprovisions
+	actions, err := approvalActions(backups, deprov)
 	if err != nil {
 		return nil, err
 	}
@@ -158,10 +161,11 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 			Invitations:   invitationsapi.New(d.tenants, authz.GuardInvitationRole),
 			Hosts:         hostsapi.New(platform.New(d.st)),
 			IdPConsole:    idpconsoleapi.New(appr),
-			Provisioning:  provisioningapi.New(creator, orchestrator.NewControl(d.st)),
+			Provisioning:  provisioningapi.New(creator, orchestrator.NewControl(d.st).WithQuota(usage.TenantCreationTx)),
 			Lifecycle:     lifecycleapi.New(lifecycle.NewRequester(d.st)),
 			Relay:         relayapi.New(relays),
 			Reconfigure:   reconfigureapi.New(orchestrator.NewReconfigureService(d.st)),
+			Deprovision:   deprovisionapi.New(deprov, appr),
 		},
 	})
 	if err != nil {
@@ -177,8 +181,8 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 // theirs — deprovision (P3-T09), restore (P3-T11), release (P3-T18), Super Admin role and tenant IdP changes (P4-T03a),
 // break-glass (P4-T13). A request of an action not registered here can be read and rejected, never approved (409
 // action_unavailable).
-func approvalActions(backups *backup.Service) (*approvals.Registry, error) {
-	return approvals.NewRegistry(consoleSessionAction(), restoreAction(backups))
+func approvalActions(backups *backup.Service, deprov *deprovision.Requester) (*approvals.Registry, error) {
+	return approvals.NewRegistry(consoleSessionAction(), restoreAction(backups), deprovisionAction(deprov))
 }
 
 // consoleSessionAction executes an approved console session (P3-T15, §8.2 (3)): the executed request IS the session —

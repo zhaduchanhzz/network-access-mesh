@@ -199,13 +199,8 @@ def add_param(path: str, method: str, param: dict):
 
 
 def add_tenant_delete(s: dict) -> None:
-    """A 2P operation (platform.tenant:delete) without x-dual-control."""
-    new = copy.deepcopy(op(s, "get", "/platform/tenants/{tenantId}"))
-    new.update({"operationId": "deletePlatformTenant", "x-permission": "platform.tenant:delete", "x-task": "P3-T05",
-                "x-audit-action": "platform.tenant.delete", "security": [{"sessionCookie": [], "csrfToken": []}]})
-    new["responses"]["202"] = {"description": "accepted", "headers": {"Location": {"$ref": "#/components/headers/JobLocation"}}}
-    del new["responses"]["200"]
-    s["paths"]["/platform/tenants/{tenantId}"]["delete"] = new
+    """A 2P operation (platform.tenant:delete — deletePlatformTenant of P3-T09) without x-dual-control."""
+    del op(s, "delete", "/platform/tenants/{tenantId}")["x-dual-control"]
 
 
 def secondary_twice(s: dict) -> None:
@@ -469,14 +464,21 @@ check(len(errs_done) == 1 and "tenant.user:read" in errs_done[0] and "P2-T11" in
 check(any("tenant.user:read" in e for e in ol.lint(no_users, with_done("P2-T11")))
       and not any("tenant.user:read" in e for e in ol.lint(no_users, with_done("P2-T11"), coverage=False)),
       "lint() includes the row coverage unless coverage=False")
-check(not any("platform.tenant:delete" in e for e in ol.row_coverage(spec, with_done("P3-T05", "P3-T08"))[0]),
+# the spec without deletePlatformTenant (P3-T09) — the row platform.tenant:delete has no operation any more
+no_delete = copy.deepcopy(spec)
+del no_delete["paths"]["/platform/tenants/{tenantId}"]["delete"]
+pending_t09 = with_done("P3-T05", "P3-T08")
+pending_t09.done = pending_t09.done - {"P3-T09"}  # P3-T09 is done in the real master (2026-11-18)
+check(not any("platform.tenant:delete" in e for e in ol.row_coverage(no_delete, pending_t09)[0]),
       "row of several tasks: no error while one of them is pending")
-three = ol.row_coverage(spec, with_done("P3-T05", "P3-T08", "P3-T09"))[0]
+three = ol.row_coverage(no_delete, with_done("P3-T05", "P3-T08", "P3-T09"))[0]
 # platform.tenant:create has its operation since P3-T05 (createPlatformTenant), platform.tenant:suspend since P3-T08
 # (suspendPlatformTenant, resumePlatformTenant): only the row without one fails
 check(any("platform.tenant:delete" in e for e in three) and
       not any(k in e for e in three for k in ("platform.tenant:create", "platform.tenant:suspend")),
       "row of several tasks: error once all of them are done", str(three))
+check(not ol.row_coverage(spec, with_done("P3-T05", "P3-T08", "P3-T09"))[0],
+      "P3-T09: the row platform.tenant:delete is covered by deletePlatformTenant")
 
 # the RBAC model of the real master
 model, problems = ol.rbac_model(master)

@@ -35,6 +35,7 @@ const (
 	KindIdPAdminChange        Kind = "idp.admin_change"         // a change made at the tenant's IdP through Keycloak's Admin API (P3-T15)
 	KindIdPConsoleLogin       Kind = "idp.console_login"        // platform: a sign-in to the Keycloak administration (P3-T15)
 	KindInstanceRestored      Kind = "instance.restored"        // the tenant's control plane was restored from a backup (P3-T11, §17.2 step 7)
+	KindTenantDeleted         Kind = "tenant.deleted"           // the tenant was deprovisioned (P3-T09, §11.4)
 )
 
 // Tenant and platform role keys of the default recipient rules (§6.3, roles of §8.4).
@@ -103,6 +104,8 @@ var specs = map[Kind]spec{
 		"ip": fString, "occurred_at": fTime}, required: []string{"event_id", "client", "occurred_at"}, platform: true},
 	KindInstanceRestored: {fields: map[string]fieldType{"job_id": fUUID, "backup_created_at": fTime, "owner_review": fString},
 		required: []string{"job_id", "backup_created_at", "owner_review"}},
+	KindTenantDeleted: {fields: map[string]fieldType{"job_id": fUUID, "keys_destroy_after": fTime, "final_backup": fString},
+		required: []string{"job_id", "keys_destroy_after", "final_backup"}},
 }
 
 // Kinds returns every kind, sorted.
@@ -473,5 +476,19 @@ func InstanceRestored(tenantID, jobID uuid.UUID, backupCreatedAt time.Time, owne
 	}
 	return Event{Kind: KindInstanceRestored, TenantID: tenantPtr(tenantID), Ref: "job:" + jobID.String(),
 		Payload: map[string]any{"job_id": jobID, "backup_created_at": backupCreatedAt.UTC(), "owner_review": review},
+		To:      Audience{Roles: []string{RoleTenantOwner, RoleTenantAdmin}}}
+}
+
+// TenantDeleted — §11.4 Deprovision (P3-T09): the Tenant Owners and Admins (a security notification: not switchable);
+// ref = the deprovision job. keysDestroyAfter is when the tenant's keys are destroyed (crypto-shredding — nothing can be
+// restored online after it); finalBackup is "kept" (a final backup exists, kept until then and per retention) or
+// "skipped" (the operator deprovisioned without one, an audited override of the approval).
+func TenantDeleted(tenantID, jobID uuid.UUID, keysDestroyAfter time.Time, finalBackupKept bool) Event {
+	fb := "skipped"
+	if finalBackupKept {
+		fb = "kept"
+	}
+	return Event{Kind: KindTenantDeleted, TenantID: tenantPtr(tenantID), Ref: "job:" + jobID.String(),
+		Payload: map[string]any{"job_id": jobID, "keys_destroy_after": keysDestroyAfter.UTC(), "final_backup": fb},
 		To:      Audience{Roles: []string{RoleTenantOwner, RoleTenantAdmin}}}
 }

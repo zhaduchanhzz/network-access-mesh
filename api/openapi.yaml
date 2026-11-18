@@ -1117,6 +1117,64 @@ paths:
           $ref: '#/components/responses/RateLimited'
         default:
           $ref: '#/components/responses/Unexpected'
+    # -------------------------------------------------------------- deprovision (P3-T09, §11.4) — luôn dual control
+    delete:
+      tags: [platform]
+      operationId: deletePlatformTenant
+      summary: Xin xóa (deprovision) một tenant — luôn 2P; 202 + Location của yêu cầu phê duyệt
+      description: |-
+        §11.4 Deprovision: tạo yêu cầu dual control `platform.tenant.delete` (người yêu cầu step-up; `confirm_slug` phải
+        đúng slug của tenant). Payload — đúng thứ người duyệt thấy và đúng đầu vào duy nhất của job — gồm `tenant_id`,
+        `slug` và `skip_final_backup`. Người duyệt khác người yêu cầu, step-up, giữ `platform.tenant:delete` (Super
+        Admin). Sau khi duyệt, job vòng đời `tenant.deprovision`: backup cuối (`instance.backup` — lỗi ⇒ dừng
+        `failed_resumable`, không bao giờ đi tiếp khi thiếu backup trừ khi payload đã duyệt bỏ qua có ghi audit) → policy
+        `suspension` → `status=deprovisioning` → expire mọi node + pre-auth key (**điểm không quay lại** — từ đây
+        `/rollback` bị từ chối) → thu hồi session Portal, lời mời, phê duyệt mở → gỡ target theo dõi → gỡ edge →
+        `compose down` + xóa network → xóa thư mục dữ liệu (đối chiếu archive đã ký của backup cuối) → vô hiệu issuer
+        IdP → xóa hàng relay → `status=deleted` (giữ hàng, slug giữ chỗ) → lên lịch hủy DEK sau grace period →
+        thông báo. Tenant phải `active`, `suspended` hoặc `failed` (`deleted`/`deprovisioning`/đang provisioning ⇒
+        `409`); job vòng đời khác chưa xong ⇒ `409`; instance `quarantined` mà không bỏ qua backup cuối ⇒ `409`; đang có
+        yêu cầu mở cho tenant ⇒ `409`.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: platform.tenant:delete
+      x-dual-control: true
+      x-task: P3-T09
+      x-audit-action: platform.tenant.delete.request
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TenantDeletion'
+      responses:
+        '202':
+          description: Yêu cầu phê duyệt đã tạo — người thứ hai duyệt ở `Location`
+          headers:
+            Location:
+              $ref: '#/components/headers/ApprovalLocation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
   # ---------------------------------------------------------------- suspend / resume (P3-T08, §11.4)
   /platform/tenants/{tenantId}/suspend:
     post:
@@ -3192,6 +3250,30 @@ components:
             $ref: '#/components/schemas/Tenant'
         next_cursor:
           type: [string, 'null']
+    # ------------------------------------------------------------ xóa tenant (§11.4 Deprovision, P3-T09)
+    TenantDeletion:
+      type: object
+      description: Xin xóa một tenant (luôn cần người thứ hai duyệt — §8.5)
+      required: [confirm_slug, reason]
+      additionalProperties: false
+      properties:
+        confirm_slug:
+          type: string
+          minLength: 1
+          maxLength: 63
+          description: Slug của tenant, người yêu cầu gõ lại để xác nhận đúng tenant (khác slug ⇒ `422`)
+        skip_final_backup:
+          type: boolean
+          default: false
+          description: >-
+            Người vận hành bỏ qua bản backup cuối (chỉ khi không lấy được — ví dụ instance quarantined hoặc dữ liệu
+            hỏng): người duyệt thấy cờ này; job ghi audit + `security_event` High `tenant.deprovision_without_backup` và
+            giữ nguyên thư mục dữ liệu (bản duy nhất) thay vì xóa
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 1000
+          description: Lý do (yêu cầu của khách hàng, ticket) — người duyệt đọc trước khi duyệt
     # ------------------------------------------------------------ tạo tenant (§13.3 TenantCreate, P3-T05)
     TenantCreate:
       type: object

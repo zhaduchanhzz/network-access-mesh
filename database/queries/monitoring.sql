@@ -3,10 +3,13 @@
 -- Số liệu thiết bị KHÔNG đọc ở đây: monitoring nhận chúng qua service của devices (§13.6).
 
 -- name: ListHealthProbeTargets :many
--- Pool platform: instance cần health.probe theo lịch (§13.5) — chỉ instance đang chạy.
-SELECT id, tenant_id FROM tenant_instances
-WHERE status = 'running'
-ORDER BY id;
+-- Pool platform: instance cần health.probe theo lịch (§13.5) — chỉ instance đang chạy của tenant còn phục vụ
+-- (provisioning, active, suspended): tenant đang deprovision không còn là target (P3-T09, §11.4 "gỡ target
+-- scrape/probe của instance").
+SELECT ti.id, ti.tenant_id FROM tenant_instances ti
+JOIN tenants t ON t.id = ti.tenant_id
+WHERE ti.status = 'running' AND t.status IN ('provisioning', 'active', 'suspended')
+ORDER BY ti.id;
 
 -- name: GetInstanceForProbe :one
 -- Pool platform: instance của một job health.probe và đồng hồ DB lúc bắt đầu probe (checked_at của kết quả).

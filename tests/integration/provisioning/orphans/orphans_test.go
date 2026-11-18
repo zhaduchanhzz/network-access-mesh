@@ -10,34 +10,46 @@ import (
 )
 
 // world is a clean run: tenant a provisioned (instance running, edge attached, one valid key = the stored one), tenant b
-// rolled back (instance removed, nothing on the host, its key version destroyed), plus objects of another run.
+// rolled back (instance removed, nothing on the host, its key version destroyed), tenant c deprovisioned within its
+// grace period (instance removed, IdP disabled, its backup key and IdP client secret still live, its DEK not destroyed
+// yet — P3-T09), plus objects of another run.
 func world() Inventory {
 	now := time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
-	ta, tb, other := uuid.New(), uuid.New(), uuid.New()
-	ia, ib, io := uuid.New(), uuid.New(), uuid.New()
-	pa, pb := uuid.New(), uuid.New()
+	ta, tb, tc, other := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	ia, ib, ic, io := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	pa, pb, pc := uuid.New(), uuid.New(), uuid.New()
+	grace := now.Add(48 * time.Hour)
 	ref := func(t uuid.UUID, name string, v int) string { return fmt.Sprintf("mgsec://%s/%s#%d", t, name, v) }
 	return Inventory{
-		Scope: Scope{SlugPrefix: "run-", TenantsDir: "/r/tenants", Edge: "run-edge", EdgeNetwork: "run-net", Settled: true},
-		Now:   now,
+		Scope: Scope{SlugPrefix: "run-", TenantsDir: "/r/tenants", Edge: "run-edge", EdgeNetwork: "run-net", Settled: true,
+			AllowSecrets: []string{"backup-key"}},
+		Now: now,
 		Registry: Registry{
-			Tenants: []Tenant{{ID: ta, Slug: "run-a", Status: "active"}, {ID: tb, Slug: "run-b", Status: "failed"},
+			Tenants: []Tenant{{ID: ta, Slug: "run-a", Status: "active", LiveDEKs: 1, LiveSessions: 2},
+				{ID: tb, Slug: "run-b", Status: "failed"},
+				{ID: tc, Slug: "run-c", Status: "deleted", KeysDestroyAfter: &grace, LiveDEKs: 1},
 				{ID: other, Slug: "zz-other", Status: "active"}},
 			Instances: []Instance{
 				{ID: ia, TenantID: ta, Slug: "run-a", Status: StatusRunning, APIKeyRef: ref(ta, APIKeySecretName, 2), APIKeyPrefix: "aaaaaaaaaaaa"},
 				{ID: ib, TenantID: tb, Slug: "run-b", Status: StatusRemoved},
+				{ID: ic, TenantID: tc, Slug: "run-c", Status: StatusRemoved, APIKeyRef: ref(tc, APIKeySecretName, 1), APIKeyPrefix: "cccccccccccc"},
 				{ID: io, TenantID: other, Slug: "zz-other", Status: StatusRunning},
 			},
 			IdPs: []IdP{{ID: pa, TenantID: ta, Status: "active", ClientSecretRef: ref(ta, "idp."+pa.String()+".client", 1)},
-				{ID: pb, TenantID: tb, Status: "disabled", ClientSecretRef: ref(tb, "idp."+pb.String()+".client", 1)}},
-			Invitations: []Invitation{{ID: uuid.New(), TenantID: ta, Status: "pending"}, {ID: uuid.New(), TenantID: tb, Status: "revoked"}},
-			Relays:      []Relay{{TenantID: ta, Kind: "region", Name: "mg-run-a"}, {TenantID: ta, Kind: "assignment", Name: "x"}},
+				{ID: pb, TenantID: tb, Status: "disabled", ClientSecretRef: ref(tb, "idp."+pb.String()+".client", 1)},
+				{ID: pc, TenantID: tc, Status: "disabled", ClientSecretRef: ref(tc, "idp."+pc.String()+".client", 1)}},
+			Invitations: []Invitation{{ID: uuid.New(), TenantID: ta, Status: "pending"}, {ID: uuid.New(), TenantID: tb, Status: "revoked"},
+				{ID: uuid.New(), TenantID: tc, Status: "revoked"}},
+			Relays: []Relay{{TenantID: ta, Kind: "region", Name: "mg-run-a"}, {TenantID: ta, Kind: "assignment", Name: "x"}},
 			Secrets: []Secret{
 				{TenantID: ta, Name: APIKeySecretName, Version: 1, Destroyed: true},
 				{TenantID: ta, Name: APIKeySecretName, Version: 2},
 				{TenantID: ta, Name: "idp." + pa.String() + ".client", Version: 1},
 				{TenantID: tb, Name: APIKeySecretName, Version: 1, Destroyed: true},
 				{TenantID: tb, Name: "idp." + pb.String() + ".client", Version: 1},
+				{TenantID: tc, Name: APIKeySecretName, Version: 1, Destroyed: true},
+				{TenantID: tc, Name: "idp." + pc.String() + ".client", Version: 1},
+				{TenantID: tc, Name: "backup-key", Version: 1},
 				{TenantID: other, Name: APIKeySecretName, Version: 7},
 			},
 		},
@@ -73,7 +85,7 @@ func TestCleanWorld(t *testing.T) {
 	if fs := Check(inv); len(fs) != 0 {
 		t.Fatalf("clean world: %v", fs)
 	}
-	if s := inv.Summary(); !strings.Contains(s, "instances live=1 removed=1") || !strings.Contains(s, "valid=1") {
+	if s := inv.Summary(); !strings.Contains(s, "instances live=1 removed=2") || !strings.Contains(s, "valid=1") {
 		t.Fatalf("summary %s", s)
 	}
 }
@@ -183,6 +195,35 @@ func TestEachOrphanIsFound(t *testing.T) {
 		"IdP of the rolled-back tenant still pending": {func(inv *Inventory) {
 			inv.Registry.IdPs[1].Status = "pending"
 		}, IdPNotDisabled},
+		// P3-T09: what a deprovision must have closed
+		"live instance of the deleted tenant": {func(inv *Inventory) {
+			inv.Registry.Instances[2].Status, inv.Registry.Instances[2].APIKeyRef = StatusQuarantined, ""
+		}, InstanceOfDeleted},
+		"pending invitation of the deleted tenant": {func(inv *Inventory) {
+			inv.Registry.Invitations[2].Status = "pending"
+		}, InvitationLeftDeleted},
+		"relay rows of the deleted tenant": {func(inv *Inventory) {
+			inv.Registry.Relays = append(inv.Registry.Relays, Relay{TenantID: inst(inv, "run-c").TenantID, Kind: "assignment", Name: "y"})
+		}, RelayLeftDeleted},
+		"IdP of the deleted tenant still active": {func(inv *Inventory) {
+			inv.Registry.IdPs[2].Status = "active"
+		}, IdPNotDisabledDeleted},
+		"live session of the deleted tenant": {func(inv *Inventory) {
+			inv.Registry.Tenants[2].LiveSessions = 1
+		}, SessionLeft},
+		"key destruction never scheduled": {func(inv *Inventory) {
+			inv.Registry.Tenants[2].KeysDestroyAfter = nil
+		}, KeysUnscheduled},
+		"keys live after the grace period": {func(inv *Inventory) {
+			inv.Now = inv.Registry.Tenants[2].KeysDestroyAfter.Add(time.Second)
+		}, KeysLeft},
+		"API key of the deleted instance still live": {func(inv *Inventory) {
+			for i := range inv.Registry.Secrets {
+				if s := inv.Registry.Secrets[i]; s.TenantID == inst(inv, "run-c").TenantID && s.Name == APIKeySecretName {
+					inv.Registry.Secrets[i].Destroyed = false
+				}
+			}
+		}, SecretOrphan},
 		"reconcile host finding": {func(inv *Inventory) {
 			inv.Reconcile = []HostFinding{{Kind: "removed_instance_leftover", Subject: inst(inv, "run-b").ID.String()}}
 		}, ReconcilePrefix + "removed_instance_leftover"},

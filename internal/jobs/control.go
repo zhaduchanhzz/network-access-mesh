@@ -90,7 +90,7 @@ var ErrJobState = errors.New("jobs: the job's status does not allow this action"
 // StateError is a refused control action (errors.Is(err, ErrJobState)).
 type StateError struct {
 	Action, Kind, Status string
-	Reason               string // stable code: status_not_allowed, kind_not_lifecycle, kind_not_compensable
+	Reason               string // stable code: status_not_allowed, kind_not_lifecycle, kind_not_compensable, point_of_no_return
 }
 
 func (e *StateError) Error() string {
@@ -155,6 +155,11 @@ func Rollback(ctx context.Context, tx *store.Tx, id uuid.UUID) (Controlled, erro
 	if _, ok := NextStatus(rec.Status, EventRollback); !ok {
 		return Controlled{}, &StateError{Action: ActionRollback, Kind: rec.Kind, Status: rec.Status, Reason: "status_not_allowed"}
 	}
+	if passed, err := PastPointOfNoReturn(ctx, tx.Q, k, rec.ID); err != nil {
+		return Controlled{}, err
+	} else if passed {
+		return Controlled{}, &StateError{Action: ActionRollback, Kind: rec.Kind, Status: rec.Status, Reason: ReasonPointOfNoReturn}
+	}
 	qid, err := tx.InsertQueueJob(ctx, queueArgs{JobID: rec.ID, JobKind: k.Name},
 		&river.InsertOpts{Queue: k.Queue, MaxAttempts: k.MaxAttempts + queueSlack})
 	if err != nil {
@@ -165,6 +170,33 @@ func Rollback(ctx context.Context, tx *store.Tx, id uuid.UUID) (Controlled, erro
 		return Controlled{}, controlRace(err, ActionRollback, rec)
 	}
 	return controlled(ctx, tx, row, rec.Status, EventRollback)
+}
+
+// ReasonPointOfNoReturn: /rollback of a job past its kind's point of no return (Kind.PointOfNoReturn).
+const ReasonPointOfNoReturn = "point_of_no_return"
+
+// PastPointOfNoReturn reports whether job id of kind k has passed the kind's point of no return: the step
+// Kind.PointOfNoReturn exists and recorded its created_resources (the step records them just before its first
+// irreversible action). Kinds without one never pass it. Used by /rollback and by the compensation itself (defence in
+// depth: a compensation that finds the job past it refuses).
+func PastPointOfNoReturn(ctx context.Context, q *sqlcdb.Queries, k Kind, id uuid.UUID) (bool, error) {
+	if k.PointOfNoReturn == "" {
+		return false, nil
+	}
+	row, err := q.GetJobStep(ctx, sqlcdb.GetJobStepParams{JobID: id, Name: k.PointOfNoReturn})
+	if errors.Is(err, store.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return len(row.CreatedResources) > 0 && string(row.CreatedResources) != "null", nil
+}
+
+// KindOf returns the kind of the §13.5 registry named name (ok = false: unknown).
+func KindOf(name string) (Kind, bool) {
+	k, ok := registry[name]
+	return k, ok
 }
 
 // Cancel is /cancel: a queued job ends cancelled at once; a running lifecycle job is asked to stop after its current

@@ -59,11 +59,15 @@ type Scope struct {
 
 func (s Scope) inScope(slug string) bool { return strings.HasPrefix(slug, s.SlugPrefix) }
 
-// Tenant is a tenants row.
+// Tenant is a tenants row, with what a deprovision must have closed (P3-T09).
 type Tenant struct {
 	ID     uuid.UUID
 	Slug   string
 	Status string
+	// KeysDestroyAfter is tenants.keys_destroy_after (a deleted tenant's crypto-shredding schedule; nil = none).
+	KeysDestroyAfter *time.Time
+	LiveDEKs         int // DEK versions of the tenant still holding key material
+	LiveSessions     int // Portal sessions of the tenant's identities not revoked
 }
 
 // Instance is a tenant_instances row (with its tenant's slug).
@@ -227,9 +231,18 @@ const (
 	APIKeyRejected       = "apikey_rejected"        // the stored key did not authenticate through the edge
 	ReconcilePrefix      = "reconcile."             // + a reconcile drift kind (unknown_instance, removed_instance_leftover…)
 	// Registry rows a rolled-back provisioning must have undone (tenant `failed`, §11.3 compensations 6, 16, 17).
-	InvitationLeft        = "invitation_pending_on_failed_tenant"
-	RelayLeft             = "relay_of_failed_tenant"
-	IdPNotDisabled        = "idp_not_disabled_on_failed_tenant"
+	InvitationLeft = "invitation_pending_on_failed_tenant"
+	RelayLeft      = "relay_of_failed_tenant"
+	IdPNotDisabled = "idp_not_disabled_on_failed_tenant"
+	// What a deprovision must have closed (tenant `deleted`, §11.4 — P3-T09): no live instance, invitation, relay row,
+	// enabled IdP or Portal session; the destruction of its keys scheduled, and done once the grace period has passed.
+	InstanceOfDeleted     = "instance_live_on_deleted_tenant"
+	InvitationLeftDeleted = "invitation_pending_on_deleted_tenant"
+	RelayLeftDeleted      = "relay_of_deleted_tenant"
+	IdPNotDisabledDeleted = "idp_not_disabled_on_deleted_tenant"
+	SessionLeft           = "session_live_on_deleted_tenant"
+	KeysUnscheduled       = "keys_destruction_unscheduled"
+	KeysLeft              = "keys_live_after_grace"
 	labelInstance         = "meshguard.instance_id"
 	labelHelperInstance   = "meshguard.helper_instance_id"
 	labelTenant           = "meshguard.tenant_id"
@@ -284,7 +297,7 @@ func Check(inv Inventory) []Finding {
 	c.dirs()
 	c.secrets()
 	c.keys()
-	c.failedTenants()
+	c.closedTenants()
 	for _, f := range inv.Reconcile {
 		c.add(ReconcilePrefix+f.Kind, f.Subject, "")
 	}
@@ -579,24 +592,61 @@ func (c *checker) keys() {
 	}
 }
 
-// failedTenants: a tenant that ended `failed` (rolled back, or cancelled before it ran) keeps its rows for audit, but
-// nothing a provisioning created may stay usable — no pending Owner invitation, no relay region or assignment, no IdP
-// that is not disabled.
-func (c *checker) failedTenants() {
-	failed := func(id uuid.UUID) bool { t, ok := c.tenants[id]; return ok && t.Status == "failed" }
+// closedTenants: a tenant that ended `failed` (rolled back, or cancelled before it ran) or `deleted` (deprovisioned —
+// P3-T09) keeps its rows for audit, but nothing of it may stay usable — no pending invitation, no relay region or
+// assignment, no IdP that is not disabled; a deleted tenant also has no live instance and no live Portal session, its
+// key destruction is scheduled, and once that time has passed no DEK or secret version of it holds key material.
+func (c *checker) closedTenants() {
+	state := func(id uuid.UUID) string {
+		if t, ok := c.tenants[id]; ok && (t.Status == "failed" || t.Status == "deleted") {
+			return t.Status
+		}
+		return ""
+	}
+	pick := func(st, failed, deleted string) string {
+		if st == "deleted" {
+			return deleted
+		}
+		return failed
+	}
 	for _, inv := range c.inv.Registry.Invitations {
-		if failed(inv.TenantID) && inv.Status == "pending" {
-			c.add(InvitationLeft, inv.ID.String(), "tenant "+c.tenants[inv.TenantID].Slug)
+		if st := state(inv.TenantID); st != "" && inv.Status == "pending" {
+			c.add(pick(st, InvitationLeft, InvitationLeftDeleted), inv.ID.String(), "tenant "+c.tenants[inv.TenantID].Slug)
 		}
 	}
 	for _, r := range c.inv.Registry.Relays {
-		if failed(r.TenantID) {
-			c.add(RelayLeft, r.Kind+" "+r.Name, "tenant "+c.tenants[r.TenantID].Slug)
+		if st := state(r.TenantID); st != "" {
+			c.add(pick(st, RelayLeft, RelayLeftDeleted), r.Kind+" "+r.Name, "tenant "+c.tenants[r.TenantID].Slug)
 		}
 	}
 	for _, p := range c.inv.Registry.IdPs {
-		if failed(p.TenantID) && p.Status != "disabled" {
-			c.add(IdPNotDisabled, p.ID.String(), p.Status)
+		if st := state(p.TenantID); st != "" && p.Status != "disabled" {
+			c.add(pick(st, IdPNotDisabled, IdPNotDisabledDeleted), p.ID.String(), p.Status)
+		}
+	}
+	for _, i := range c.instances {
+		if state(i.TenantID) == "deleted" && live(i.Status) {
+			c.add(InstanceOfDeleted, i.ID.String(), i.Slug+" "+i.Status)
+		}
+	}
+	liveSecrets := map[uuid.UUID]int{}
+	for _, s := range c.inv.Registry.Secrets {
+		if !s.Destroyed {
+			liveSecrets[s.TenantID]++
+		}
+	}
+	for _, t := range c.tenants {
+		if t.Status != "deleted" {
+			continue
+		}
+		if t.LiveSessions > 0 {
+			c.add(SessionLeft, t.Slug, fmt.Sprintf("%d session(s)", t.LiveSessions))
+		}
+		switch {
+		case t.KeysDestroyAfter == nil:
+			c.add(KeysUnscheduled, t.Slug, "")
+		case !c.inv.Now.Before(*t.KeysDestroyAfter) && (t.LiveDEKs > 0 || liveSecrets[t.ID] > 0):
+			c.add(KeysLeft, t.Slug, fmt.Sprintf("%d DEK(s), %d secret version(s)", t.LiveDEKs, liveSecrets[t.ID]))
 		}
 	}
 }

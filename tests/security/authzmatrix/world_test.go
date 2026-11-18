@@ -29,6 +29,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/auditapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/authzhook"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/backupapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/deprovisionapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/devicesapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/hostsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/idpconsoleapi"
@@ -49,6 +50,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/notifications"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/platform"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/backup"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/deprovision"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/lifecycle"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/orchestrator"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/relay"
@@ -131,6 +133,12 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 			func(context.Context, *store.Tx, approvals.Execution, backup.RestorePayload) (*uuid.UUID, error) {
 				return nil, nil
 			}),
+		// the deprovision of P3-T09 (apps/internal/runner registers the executing action — here a no-op)
+		approvals.Typed(approvals.Spec{Name: deprovision.Action, Scope: authz.ScopePlatform, ResourceType: "tenant",
+			Permission: deprovision.Permission},
+			func(context.Context, *store.Tx, approvals.Execution, deprovision.Payload) (*uuid.UUID, error) {
+				return nil, nil
+			}),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -173,6 +181,8 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 		Relay: relayapi.New(relays),
 		// Reconfigure (P3-T13): instance.reconfigure requests of the api
 		Reconfigure: reconfigureapi.New(orchestrator.NewReconfigureService(w.Store)),
+		// Deprovision (P3-T09): the 2P request of DELETE /platform/tenants/{id} (no worker here)
+		Deprovision: deprovisionapi.New(deprovision.NewRequester(w.Store), appr),
 	}
 }
 

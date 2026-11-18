@@ -95,6 +95,8 @@ var routes = []struct {
 	// suspend / resume (P3-T08)
 	{http.MethodPost, "/api/v1/platform/tenants/" + tenantID + "/suspend", "", "SuspendPlatformTenant", idempotency},
 	{http.MethodPost, "/api/v1/platform/tenants/" + tenantID + "/resume", "", "ResumePlatformTenant", idempotency},
+	// deprovision (P3-T09)
+	{http.MethodDelete, "/api/v1/platform/tenants/" + tenantID, `{"confirm_slug":"acme","reason":"ticket 1"}`, "DeletePlatformTenant", idempotency},
 }
 
 // recorder mounts the generated routes on a plain net/http ServeMux (§4.3) under /api/v1. A strict middleware records

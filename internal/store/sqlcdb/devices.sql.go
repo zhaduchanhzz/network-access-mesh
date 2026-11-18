@@ -585,9 +585,10 @@ func (q *Queries) ListOrphanedRevocations(ctx context.Context, arg ListOrphanedR
 }
 
 const listRunningInstances = `-- name: ListRunningInstances :many
-SELECT id, tenant_id FROM tenant_instances
-WHERE status = 'running'
-ORDER BY id
+SELECT ti.id, ti.tenant_id FROM tenant_instances ti
+JOIN tenants t ON t.id = ti.tenant_id
+WHERE ti.status = 'running' AND t.status IN ('provisioning', 'active', 'suspended')
+ORDER BY ti.id
 `
 
 type ListRunningInstancesRow struct {
@@ -595,7 +596,8 @@ type ListRunningInstancesRow struct {
 	TenantID uuid.UUID
 }
 
-// Pool platform: instance cần inventory.sync theo lịch (§13.5).
+// Pool platform: instance cần inventory.sync theo lịch (§13.5) — instance đang chạy của tenant còn phục vụ (tenant
+// đang deprovision không còn được đồng bộ — P3-T09).
 func (q *Queries) ListRunningInstances(ctx context.Context) ([]ListRunningInstancesRow, error) {
 	rows, err := q.db.Query(ctx, listRunningInstances)
 	if err != nil {

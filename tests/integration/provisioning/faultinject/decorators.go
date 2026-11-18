@@ -15,6 +15,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/headscale"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/idp"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/platform"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/backup"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/orchestrator"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/secrets"
 )
@@ -125,6 +126,40 @@ func (a *Agent) RemoveEdgeAttachment(ctx context.Context, r *agentv1.RemoveEdgeA
 	return wrapRPC(a.In, "agent.RemoveEdgeAttachment", func() (*agentv1.RemoveEdgeAttachmentResponse, error) {
 		return a.Next.RemoveEdgeAttachment(ctx, r, o...)
 	})
+}
+
+// BackupAgent decorates the Host Agent client of the backup service (backup.Agent — the final backup of a deprovision,
+// P3-T09): Backup goes through the injector ("agent.Backup"); the restore RPCs pass through.
+type BackupAgent struct {
+	Next backup.Agent
+	In   *Injector
+}
+
+var _ backup.Agent = (*BackupAgent)(nil)
+
+// Backup implements backup.Agent.
+func (a *BackupAgent) Backup(ctx context.Context, r *agentv1.BackupRequest, o ...grpc.CallOption) (*agentv1.BackupResponse, error) {
+	return wrapRPC(a.In, "agent.Backup", func() (*agentv1.BackupResponse, error) { return a.Next.Backup(ctx, r, o...) })
+}
+
+// Restore implements backup.Agent (no fault).
+func (a *BackupAgent) Restore(ctx context.Context, r *agentv1.RestoreRequest, o ...grpc.CallOption) (*agentv1.RestoreResponse, error) {
+	return a.Next.Restore(ctx, r, o...)
+}
+
+// PostRestoreReconcile implements backup.Agent (no fault).
+func (a *BackupAgent) PostRestoreReconcile(ctx context.Context, r *agentv1.PostRestoreReconcileRequest, o ...grpc.CallOption) (*agentv1.PostRestoreReconcileResponse, error) {
+	return a.Next.PostRestoreReconcile(ctx, r, o...)
+}
+
+// EnsureEdgeAttachment implements backup.Agent (no fault).
+func (a *BackupAgent) EnsureEdgeAttachment(ctx context.Context, r *agentv1.EnsureEdgeAttachmentRequest, o ...grpc.CallOption) (*agentv1.EnsureEdgeAttachmentResponse, error) {
+	return a.Next.EnsureEdgeAttachment(ctx, r, o...)
+}
+
+// RemoveEdgeAttachment implements backup.Agent (no fault).
+func (a *BackupAgent) RemoveEdgeAttachment(ctx context.Context, r *agentv1.RemoveEdgeAttachmentRequest, o ...grpc.CallOption) (*agentv1.RemoveEdgeAttachmentResponse, error) {
+	return a.Next.RemoveEdgeAttachment(ctx, r, o...)
 }
 
 // ---------------------------------------------------------------------------------------------------- registry
@@ -268,6 +303,14 @@ func (i *hsInstance) Version(ctx context.Context) (string, error) {
 
 func (i *hsInstance) Health(ctx context.Context) (headscale.Health, error) {
 	return hsCall(i.in, "Health", "headscale.Health", func() (headscale.Health, error) { return i.Instance.Health(ctx) })
+}
+
+// ExpireNode — step nodes.expire of a deprovision (P3-T09). A fault after the call drops the answer: the node expired
+// while the job only sees the failure.
+func (i *hsInstance) ExpireNode(ctx context.Context, id uint64, at *time.Time) (headscale.Node, error) {
+	return hsCall(i.in, headscale.OpExpireNode, "headscale.ExpireNode", func() (headscale.Node, error) {
+		return i.Instance.ExpireNode(ctx, id, at)
+	})
 }
 
 // ---------------------------------------------------------------------------------------------------- prober

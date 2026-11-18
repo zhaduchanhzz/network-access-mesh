@@ -70,11 +70,12 @@ var fixtureSteps = map[int64]func(f *fixture, t *testing.T, c *pgx.Conn){
 	12: (*fixture).step12, 13: (*fixture).step13, 14: (*fixture).step14, 15: (*fixture).step15,
 	16: (*fixture).step16,
 	17: (*fixture).step17,
+	21: (*fixture).step21,
 }
 
 // latestMigration is the number of the last migration of database/migrations (TestMigrationsUpWithData,
 // TestMigrationsShareClusterRoles).
-const latestMigration = 17
+const latestMigration = 21
 
 // migrationVersions are the versions that have a migration, ascending. Tasks written in parallel use provisional
 // numbers; the coordinator renumbers at merge so that the numbers stay contiguous (goose refuses a migration numbered
@@ -370,6 +371,14 @@ func (f *fixture) step17(t *testing.T, c *pgx.Conn) {
 				manifest = convert_to('{"fixture":true}', 'UTF8'), manifest_signature = decode(repeat('cd', 64), 'hex'),
 				manifest_sha256 = repeat('e', 64), method = 'vacuum_into'
 			WHERE id = $1 AND sequence IS NULL`, tr.backup, 1000+i)
+	}
+}
+
+// step21 (P3-T09, deprovision — provisional number): no new table; the fixture's tenants are live (keys_destroy_after
+// stays NULL — it is set only on a deleted tenant, CHECK tenants_keys_destroy_after_deleted).
+func (f *fixture) step21(t *testing.T, c *pgx.Conn) {
+	for _, tr := range f.tenants() {
+		exec(t, c, `UPDATE tenants SET keys_destroy_after = NULL WHERE id = $1`, tr.id)
 	}
 }
 

@@ -14,7 +14,9 @@
 //   - a tenant the caller is not an active member of — another tenant's ID, or one that does not exist — ⇒
 //     ErrNotFound (404 not_found, invariant 6: existence is not revealed);
 //   - an active member or platform user without the grant ⇒ ErrForbidden (403 forbidden);
-//   - a write of a tenant role while the tenant is suspended ⇒ ErrTenantSuspended (403 tenant_suspended, invariant 5).
+//   - a write of a tenant role while the tenant is suspended — or being deprovisioned (P3-T09: the job applies the
+//     suspension policy and moves the tenant to `deprovisioning`) — ⇒ ErrTenantSuspended (403 tenant_suspended,
+//     invariant 5); the reason of the denial says which.
 //
 // A Decision carries the obligations the service layer must honour: own-resource filtering for grants of scope own
 // (x-own-resource, invariant 3b), dual control for x-dual-control operations (§8.6 2P rule) and the condition of a
@@ -105,9 +107,10 @@ const (
 // Statuses read by the decisions. Only "active" grants access (identities, memberships, platform users); the full
 // sets of statuses are fixed by P2-T06 / P4-T09 / P4-T03a.
 const (
-	StatusActive    = "active"
-	TenantSuspended = "suspended"
-	TenantDeleted   = "deleted"
+	StatusActive         = "active"
+	TenantSuspended      = "suspended"
+	TenantDeprovisioning = "deprovisioning" // P3-T09: closed like a suspended tenant until it is deleted
+	TenantDeleted        = "deleted"
 )
 
 // Principal is who the session says the caller is — an identity, never a role (§8.3 step 8). The identity module
@@ -354,6 +357,9 @@ func decideTenant(p Principal, tenantID uuid.UUID, req Requirement, acc *access)
 	}
 	if acc.tenantStatus == TenantSuspended && !req.ReadOnly {
 		return Decision{}, deny(ErrTenantSuspended, "tenant_suspended")
+	}
+	if acc.tenantStatus == TenantDeprovisioning && !req.ReadOnly {
+		return Decision{}, deny(ErrTenantSuspended, "tenant_deprovisioning")
 	}
 	d.TenantID, d.MembershipID = tenantID, acc.subjectID
 	return d, nil
