@@ -1,7 +1,7 @@
 # Sinh bởi tools/render_app.py từ infrastructure/compose/compose.app.yaml.tmpl (template_version ${template_version}).
 # KHÔNG sửa tay — render lại. Project mg-app (P2-T16, §4.2, §14.4): backend của Management Plane — api, worker và hai
 # job một lần của database (migrate, db-bootstrap) — và `mail-bridge` (P3-T05b-mail: cầu SMTP `mailrelay:587` của relay thư ra qua Cloudflare
-# Email Service, cùng image với worker) khi môi trường có MG_MAILRELAY_URL. Tách khỏi mg-core (postgres, crowdsec) như mg-edge/mg-idp/mg-backup:
+# Email Service, cùng image với worker) khi môi trường có MG_MAILRELAY_URL, và `web` (SPA tĩnh sau edge — P4-T01a). Tách khỏi mg-core (postgres, crowdsec) như mg-edge/mg-idp/mg-backup:
 # deploy backend thường xuyên không bao giờ recreate PostgreSQL, và file này cần giá trị của môi trường (domain, dải bị
 # chặn của HTTP client IdP…) còn compose.core.yaml thì không. Đặt tại /opt/meshguard/core/compose.app.yaml. Network
 # do infrastructure/host/networks.sh tạo trước (external); PostgreSQL là service `postgres` của mg-core trên mg-data.
@@ -16,7 +16,7 @@
 #   một lần:  docker compose -p mg-app -f compose.app.yaml --profile bootstrap run --rm -T db-bootstrap
 #   mỗi lần nâng cấp: sudo bash infrastructure/host/migrate.sh  (backup pre-migration của mg-backup, dừng nếu lỗi,
 #             rồi `--profile migrate run --rm -T migrate`)
-#   rồi:      docker compose -p mg-app -f compose.app.yaml up -d api worker [mail-bridge]
+#   rồi:      docker compose -p mg-app -f compose.app.yaml up -d api worker web [mail-bridge]
 name: mg-app
 
 x-hardening: &hardening
@@ -150,6 +150,29 @@ services:
       start_interval: 2s
     restart: unless-stopped
     stop_grace_period: 45s                        # job đang chạy có SoftStopTimeout 30 s (§11.3)
+
+  # SPA tĩnh (P4-T01, P4-T01a — §12.4, §14.4): edge (template v9) chuyển mọi path ngoài /api/* của app./admin. (và ngoài
+  # console Keycloak trên admin.) tới web:8080 trên mg-edge. Chỉ file tĩnh: không secret, không volume, không network
+  # nào khác (không DB, không mg-egress); header bảo mật trình duyệt do edge đặt — nguồn duy nhất. Cùng commit với
+  # api/worker (versions.lock): client API sinh từ spec luôn khớp api.
+  web:
+    <<: *hardening
+    image: ${web_image}
+    user: "65532:65532"
+    networks:
+      mg-edge: {}                                 # edge → web:8080 (alias = tên service)
+    mem_limit: 128m
+    cpus: 0.5
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD", "/usr/bin/healthprobe", "http://127.0.0.1:8080/", "200"]   # index.html (distroless: không curl)
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+      start_interval: 2s
+    restart: unless-stopped
+    stop_grace_period: 10s
 
 ${mailrelay_service}  # Job migrate (§6.1): goose + seed + River bằng mg_migrator, rồi mật khẩu các role đăng nhập từ bản của job này,
   # rồi kiểm (schema mới nhất, River, seed RBAC, không quyền trên partition). Không bao giờ chạy bằng `up`.

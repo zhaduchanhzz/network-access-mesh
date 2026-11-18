@@ -13,8 +13,8 @@
 //     before the run finished and was reviewed; audited platform.restore.reconcile.requested;
 //  2. revocations: every session created before cutoff revoked (sessions.revoked_at, migration 0018), the auth requests
 //     of the dump deleted; every approval request still open (pending, approved not executed) and every executed
-//     Keycloak console session still in its window expired; every pending invitation revoked; support access grants
-//     do not exist yet in the schema (P4-T05) — a schema that has them makes the run refuse to start (fail closed);
+//     Keycloak console session still in its window expired; every pending invitation revoked; every approved support
+//     access grant revoked and every pending one expired (migration 0023, P4-T05 — a dump of an older schema has none);
 //  3. instances: the Host Agent's inventory (ListInstances) against the registry through the report-only inspector of
 //     P3-T12 — an instance on the host with no registry row (a tenant created in the gap) is an ORPHAN: reported,
 //     never deleted, never adopted (adopt-instance or a 2P deprovision decides); a registered instance with nothing on

@@ -4,8 +4,10 @@
 # bản vá golang.org/x/net + klauspost/compress với image edge) chỉ với module chuẩn, trên distroless static nonroot.
 # - Một bản build phục vụ cả app.<domain> và admin.<domain>; mọi đường dẫn không phải file tĩnh ⇒ index.html (SPA),
 #   /api/* ⇒ 404 (edge định tuyến /api/* tới api, không bao giờ tới đây), dotfile và đường dẫn có "\" ⇒ 404.
-# - Header bảo mật (CSP giống hệt portal_headers của edge — test src/security/csp.test.ts) do chính container phát,
-#   edge ghi đè cùng giá trị: an toàn cả khi bị phục vụ không qua edge.
+# - Header bảo mật trình duyệt (CSP, HSTS, …) KHÔNG do container phát: edge là nguồn duy nhất cho mọi phản hồi của
+#   app./admin. (P4-T01a — test src/security/csp.test.ts); container chỉ trên mg-edge (service `web` của mg-app).
+# - /usr/bin/healthprobe (infrastructure/docker/edge/healthprobe, chỉ thư viện chuẩn — cùng mã với image edge):
+#   HEALTHCHECK của compose — distroless không có curl.
 # - Không secret, không ghi đĩa: chạy --read-only --cap-drop ALL; XDG_* trỏ vào /tmp (tmpfs khi chạy compose).
 # - build tái lập: cùng commit ⇒ cùng dist/ (tên file theo hash nội dung); vite build + scripts/check-dist.mjs (không
 #   inline script/style, không tài nguyên ngoài origin, không sourcemap).
@@ -27,6 +29,9 @@ RUN npm run --silent build && find dist -type f | sort && sha256sum dist/index.h
 
 FROM ${CADDY_BUILDER} AS caddy
 ENV XCADDY_SETCAP=0 GOTOOLCHAIN=local CGO_ENABLED=0
+COPY infrastructure/docker/edge/healthprobe/main.go /src/healthprobe/main.go
+RUN mkdir -p /out \
+ && cd /src/healthprobe && go build -trimpath -ldflags='-s -w' -o /out/healthprobe main.go
 RUN mkdir -p /out \
  && xcaddy build v2.11.9 \
       --replace golang.org/x/net=golang.org/x/net@v0.62.0 \
@@ -38,6 +43,7 @@ RUN /out/caddy validate --config /out/Caddyfile --adapter caddyfile
 
 FROM ${RUNTIME}
 COPY --from=caddy /out/caddy /usr/bin/caddy
+COPY --from=caddy /out/healthprobe /usr/bin/healthprobe
 COPY --from=caddy /out/Caddyfile /etc/caddy/Caddyfile
 COPY --from=spa /src/apps/web/dist /srv/web
 ENV XDG_CONFIG_HOME=/tmp/caddy-config XDG_DATA_HOME=/tmp/caddy-data
