@@ -477,3 +477,115 @@ Hoàn tác (khóa nhầm, người quay lại): `$CORE run --rm --no-deps -T api
 ### Phiên đồng thời (ASVS 7.1.2)
 
 Không giới hạn số phiên BFF của một người (Portal web + Console, nhiều trình duyệt). Mỗi phiên hiện ở `GET /api/v1/auth/sessions` (thời điểm tạo, lần dùng cuối, IP, user agent); chính người đó thu hồi phiên lạ bằng `DELETE /api/v1/auth/sessions/{id}` (không đòi xác thực lại — chấp nhận ở §23, A-5) hoặc đăng xuất. Người vận hành thu hồi **mọi** phiên của một người bằng `revoke-sessions` ở trên; thu hồi mọi phiên của mọi người sau restore — `post-restore-reconcile` ([backup-restore.md](../../docs/operations/backup-restore.md) mục 6.5); sự cố khóa không kèm restore — `revoke-sessions` từng người. Cảnh báo khi số phiên vượt ngưỡng: Phase 6 (giám sát).
+
+## Monitoring và cảnh báo tối thiểu `mg-obs` (P3-T16)
+
+Project compose **`mg-obs`** (render bằng `tools/render_monitoring.py`): `prometheus`, `alertmanager`, `node-exporter` (node_exporter v1.12.1 build lại từ nguồn — `[sources.node-exporter]`), `prober` (P3-T03a: RPC của worker trên `mg-admin` `10.249.2.3:8080` + `/probe` cho Prometheus) và `alertsink` (kênh cảnh báo nội bộ). Không cổng nào publish; không đổi firewall host. Thiết kế, phép thử và diễn tập: [P3-T16](../../docs/planning/evidence/P3-T16.md).
+
+### Điều kiện
+
+- `~/mg` ở commit đã gộp P3-T16; workflow `images` xanh trên commit đó và `versions.lock` đã pin **cùng commit** `[images.mg-probe]` (bản có `/probe` + `alertsink`) và `[images.mg-node-exporter]` (mới). `render_monitoring.py` từ chối khi thiếu pin.
+- `networks.sh` đã tạo `mg-edge`, `mg-admin`, `mg-obs`, `mg-egress`; edge template ≥ v8 (listener metrics `10.249.3.2:9091`); project `mg-backup` đang chạy (status.prom).
+
+### Triển khai
+
+```bash
+cd ~/mg
+sudo bash infrastructure/host/layout.sh                     # thêm core/monitoring/{prometheus/{rules,targets},alertmanager,drill}
+sudo bash infrastructure/host/obs-secrets.sh check          # edge_metrics_token có sẵn (P1-T03); kênh ngoài: "không có"
+sudo bash infrastructure/host/check-secrets.sh              # mọi dòng PASS (SKIP cho kênh chưa bật)
+python3 tools/render_monitoring.py infrastructure/environments/staging/staging.env /tmp/mg-obs
+M=/opt/meshguard/core/monitoring
+sudo install -m 0644 /tmp/mg-obs/compose.monitoring.yaml /opt/meshguard/core/compose.monitoring.yaml
+sudo install -m 0644 /tmp/mg-obs/monitoring/prometheus/prometheus.yml $M/prometheus/
+sudo install -m 0644 /tmp/mg-obs/monitoring/prometheus/rules/meshguard.rules.yml $M/prometheus/rules/
+sudo install -m 0644 /tmp/mg-obs/monitoring/alertmanager/alertmanager.yml $M/alertmanager/
+sudo bash infrastructure/host/obs-targets.sh install         # timer mg-obs-targets (mỗi phút) + lượt đầu: "2 instance(s)"
+OBS="sudo docker compose -p mg-obs -f /opt/meshguard/core/compose.monitoring.yaml"
+$OBS up -d --wait --wait-timeout 180                         # prometheus, alertmanager, prober, alertsink healthy
+```
+
+Kiểm (đọc qua một container dùng-một-lần trên `mg-obs` — image alpine pin của `versions.lock`):
+
+```bash
+A=docker.io/library/alpine@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
+sudo docker run --rm --network mg-obs $A wget -qO- http://10.249.3.3:9090/api/v1/targets > /tmp/targets.json
+python3 -c 'import json; t=json.load(open("/tmp/targets.json"))["data"]["activeTargets"]; print(len(t), "targets; down:", [(x["labels"]["job"], x["labels"].get("instance"), x["lastError"]) for x in t if x["health"] != "up"])'
+# mong đợi: 16 targets (prometheus, alertmanager, node, prober, alertsink, api, worker, 2 headscale, 2 probe-key-edge,
+# 2 probe-key-public, 3 probe-tls), danh sách down rỗng
+sudo docker logs mg-obs-alertsink-1 2>&1 | grep -c '"alert notification"'   # cảnh báo đang có (nếu có) đã tới kênh
+```
+
+### Nối prober cho worker (`MG_PROBER_URL`)
+
+`staging.env` có `MG_PROBER_URL=http://10.249.2.3:8080` (địa chỉ tĩnh của prober trên `mg-admin` — `render_app.py` từ chối mọi giá trị khác, kể cả tên container: tên có thể phân giải ra địa chỉ `mg-edge` và lời gọi bị `caller_not_allowed` — P3-T05c). Sau khi `mg-obs` healthy:
+
+```bash
+python3 tools/render_app.py infrastructure/environments/staging/staging.env /tmp/mg-app
+sudo cp /opt/meshguard/core/compose.app.yaml /root/compose.app.yaml.$(date -u +%Y%m%dT%H%M%SZ)   # bản cũ để hoàn tác
+sudo install -m 0644 /tmp/mg-app/compose.app.yaml /opt/meshguard/core/compose.app.yaml
+APP="sudo docker compose -p mg-app -f /opt/meshguard/core/compose.app.yaml"
+$APP up -d --wait worker
+$APP logs --since 5m worker | grep -c 'relay.probe is not run'                                    # 0
+eval "$(python3 tools/mgenv.py export infrastructure/environments/staging/staging.env)"
+P=$(python3 -c 'import tomllib; i=tomllib.load(open("versions.lock","rb"))["images"]["mg-probe"]; print(i["image"]+"@"+i["index"])')
+echo "{\"address\":\"10.249.0.2:443\",\"host\":\"tenant-a.mesh.$MG_BASE_DOMAIN\"}" | sudo docker run --rm -i \
+  --network container:$($APP ps -q worker) --read-only --cap-drop ALL --user 65532:65532 $P call --url "$MG_PROBER_URL" edge \
+  | grep -E '"ok"|"blocked"'                                                                       # ok true, blocked 22
+```
+
+Từ đây `relay.probe` chạy theo lịch (region `embedded` có instance chạy — A/B adopt chưa có hàng relay tới P3-T14b) và bước 17/18 của `POST /platform/tenants` không còn dừng vì thiếu prober.
+
+### Kênh cảnh báo
+
+Mặc định staging: **alertsink** (webhook nội bộ trên `mg-obs`, giữ 1000 thông báo trong bộ nhớ) — đọc `sudo docker logs mg-obs-alertsink-1 2>&1 | grep '"alert notification"'` hoặc `wget -qO- http://10.249.3.7:8080/v1/notifications` từ container trên `mg-obs`. Không gửi tới người.
+
+- **E-mail (Cloudflare Email Service qua cầu SMTP `mailrelay`)** — khi project của cầu đã chạy (service `mailrelay:587` trên network `mail`, STARTTLS với CA nội bộ `/opt/meshguard/secrets/mail/ca.crt`; file CA phải đọc được bởi UID 65534 hoặc nhóm `mg-sec-obs` 20006 — chỉ chứng chỉ, không khóa): điền `MG_ALERT_EMAIL_TO=<địa chỉ,…>` (người gửi `MG_SMTP_FROM`, mặc định `MeshGuard <no-reply@MG_BASE_DOMAIN>`) trong `staging.env`, render + cài như mục Triển khai (compose + `alertmanager.yml`), `$OBS up -d alertmanager` (alertmanager nối thêm network `mail`). Thử: `$OBS exec -T alertmanager amtool alert add DrillEmail severity=warning drill=1 --annotation=summary="thử kênh e-mail" --alertmanager.url=http://127.0.0.1:9093` ⇒ thư tới trong ~30 s (+ bản ghi ở alertsink). Relay khác: `MG_ALERT_SMTP_SMARTHOST=host:port` (+ `MG_ALERT_SMTP_CA_FILE`, `MG_ALERT_SMTP_USERNAME`, mật khẩu: `sudo bash infrastructure/host/obs-secrets.sh set smtp_password < file-tạm`).
+- **Telegram**: `sudo bash infrastructure/host/obs-secrets.sh set telegram_bot_token < file-tạm`, `MG_ALERT_TELEGRAM_CHAT_ID=<id>`, render + cài + `up -d alertmanager`.
+- **Webhook ngoài** (Slack/Teams/…): `sudo bash infrastructure/host/obs-secrets.sh set alert_webhook_url < file-tạm` (URL https có token), `MG_ALERT_WEBHOOK=on`, render + cài + `up -d alertmanager`.
+- Kênh ra ngoài host đi qua `mg-egress` (e-mail qua `mail`); không credential nào nằm trong file render (chỉ `*_file`). `AlertmanagerNotificationsFailing` báo khi một kênh gửi lỗi. Giữ alertsink cho diễn tập (`MG_ALERT_SINK=on`).
+
+### Diễn tập (mỗi rule bắn một lần, thông báo tới kênh)
+
+```bash
+sudo python3 tools/render_monitoring.py drill all /opt/meshguard/core/monitoring --step 70   # 11 file diễn tập, nhãn drill="1"
+sleep 240                                                                                       # `for` dài nhất 2 phút + nhóm 30 s
+sudo docker logs --since 10m mg-obs-alertsink-1 2>&1 | grep '"alert notification"' | grep '"drill":"1"' \
+  | grep -o '"alertname":"[A-Za-z]*"' | sort -u        # 14 rule (danh sách: P3-T16 mục 6)
+sudo python3 tools/render_monitoring.py drill clear /opt/meshguard/core/monitoring               # ⇒ thông báo resolved
+$OBS stop node-exporter && sleep 180 && $OBS start node-exporter                                 # PlatformTargetDown{job=node}
+sudo mv /opt/meshguard/backups/idp/status.prom /root/idp-status.prom.drill && sleep 720 \
+  && sudo mv /root/idp-status.prom.drill /opt/meshguard/backups/idp/status.prom                  # PlatformBackupStatusMissing{target=idp}
+```
+
+`HostRebooted` diễn tập (`drill="1"`) không nén cảnh báo thật (inhibition chỉ nhận nguồn không có nhãn diễn tập). Không dừng instance thật của tenant để diễn tập — instance ma `drill-ghost` (đích giả `targets/drill-instance.json`) cho đúng hai rule đó.
+
+### Cảnh báo (P3-T16) — ý nghĩa và việc đầu tiên
+
+| Rule | Mức | Việc đầu tiên |
+|---|---|---|
+| `TenantInstanceDown` | critical | `docker ps -a --filter name=mg-hs-<slug>`; log Agent (start guard từ chối? `edge_attach`?); edge còn gắn `mg-t-<slug>` (`reattach-edge.sh`) |
+| `TenantControlProbeFailed` | critical | `via=edge`: như trên; `via=public`: VPS/tunnel/DNS (`tools/health_probe.py`, `wg show`) |
+| `CertificateExpiringSoon` | high | log ACME của edge (`docker logs mg-edge`, tìm `acme`): DNS-01, token DNS, CAA |
+| `PlatformBackupOverdue`, `PlatformBackupFailing`, `PlatformBackupStatusMissing` | high | `docker compose -p mg-backup … run --rm <dịch vụ> status` (pg-backup, idp-backup, edge-backup); log dịch vụ; [backup-restore](../../docs/operations/backup-restore.md) mục 2 |
+| `TenantBackupOverdue` | high | job `instance.backup` lỗi của tenant (`GET /platform/backups?instance_id=`), Host Agent, `MG_BACKUP_MANIFEST_PUBKEY` |
+| `NodeFilesystemAlmostFull` | high | `df -h`; retention backup (§17.1), log container, image cũ (`docker image ls`) — không xóa dữ liệu tenant |
+| `HostRebooted` | warning | chỉ để nén cảnh báo tenant 10 phút sau boot; kiểm instance lên đủ sau cửa sổ |
+| `PlatformTargetDown` | high | `docker compose -p <project> ps` của job tương ứng; `probe-*` ⇒ prober |
+| `AlertmanagerNotificationsFailing` | high | log alertmanager; secret kênh (`obs-secrets.sh check`); cầu `mailrelay` / đường ra `mg-egress` |
+| `ReconcileNoiseKeyMismatch` | critical | không start lại instance; báo cáo `instance.reconcile`, `security_events` `reconcile.noise_key_mismatch`; restore (§17.2) |
+| `ReconcileSecurityDrift` | high | báo cáo reconcile + `security_events` `reconcile.<kind>`; reconcile không tự sửa |
+| `InstanceAPIKeyExpiringSoon` | high | job `apikey.rotate` lỗi của tenant; chạy tay `meshguard-worker admin apikey-rotate` |
+| `IdPConsoleLogin` | high | đối chiếu phiên console 2P (mục "Console quản trị Keycloak"); không có phiên đã duyệt ⇒ sự cố |
+| `IdPAuditSyncStale` | high | `meshguard_idp_audit_sync_failures_total{reason}`; chạy tay `admin idp-audit-sync` |
+
+Giới hạn đã biết: log Critical của start guard (Agent `network_mode: none`) không có đường metrics — hệ quả của nó lộ qua `TenantInstanceDown` (≤ 2 phút) và `ReconcileNoiseKeyMismatch`; số liệu network của host không có (node-exporter ở netns riêng trên `mg-obs`); HTTP SD từ api, cAdvisor, Grafana, Loki: P6-T01.
+
+### Hoàn tác
+
+```bash
+$OBS down                                                    # dữ liệu Prometheus/Alertmanager giữ trong volume (down -v để xóa)
+sudo systemctl disable --now mg-obs-targets.timer
+sudo rm -f /etc/systemd/system/mg-obs-targets.* /usr/local/sbin/mg-obs-targets && sudo systemctl daemon-reload
+sudo install -m 0644 /root/compose.app.yaml.<ts> /opt/meshguard/core/compose.app.yaml && $APP up -d worker   # worker không prober
+```

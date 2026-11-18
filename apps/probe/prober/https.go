@@ -176,32 +176,11 @@ func (l *Local) https(ctx context.Context, p httpsPlan) (res HTTPSResult) {
 	ctx, cancel := context.WithTimeout(ctx, p.limit)
 	defer cancel()
 
-	var d net.Dialer
-	raw, err := d.DialContext(ctx, "tcp", p.addr.String())
-	if err != nil {
-		res.Error = classify(ctx, err)
+	tc, cleanup, e := l.handshake(ctx, p.addr, p.sni, start, &res.Timing, &res.TLS)
+	defer cleanup()
+	if e != nil {
+		res.Error = e
 		return res
-	}
-	defer func() { _ = raw.Close() }()
-	res.Timing.ConnectMS = ms(time.Since(start))
-	deadline, _ := ctx.Deadline()
-	_ = raw.SetDeadline(deadline)
-	stop := context.AfterFunc(ctx, func() { _ = raw.SetDeadline(time.Unix(1, 0)) })
-	defer stop()
-
-	t0 := time.Now()
-	tc := tls.Client(raw, &tls.Config{ServerName: p.sni, RootCAs: l.roots, MinVersion: tls.VersionTLS12,
-		NextProtos: []string{"http/1.1"}})
-	if err := tc.HandshakeContext(ctx); err != nil {
-		res.Error = classifyTLS(ctx, err)
-		return res
-	}
-	res.Timing.TLSMS = ms(time.Since(t0))
-	cs := tc.ConnectionState()
-	res.TLS = &TLSInfo{Version: tls.VersionName(cs.Version)}
-	if len(cs.PeerCertificates) > 0 {
-		leaf := cs.PeerCertificates[0]
-		res.TLS.Issuer, res.TLS.DNSNames, res.TLS.NotAfter = leaf.Issuer.CommonName, leaf.DNSNames, leaf.NotAfter.UTC()
 	}
 
 	hreq := &http.Request{Method: http.MethodGet, URL: &url.URL{Scheme: "https", Host: p.sni, Opaque: p.path, RawQuery: p.query},
@@ -242,6 +221,71 @@ func (l *Local) https(ctx context.Context, p httpsPlan) (res HTTPSResult) {
 	l.check(&res, resp.Header, body.Bytes(), p.expect)
 	res.OK = res.Error == nil && len(res.Failures) == 0
 	return res
+}
+
+// handshake dials addr and runs a verified TLS handshake with sni (ALPN http/1.1). It fills the connect and TLS timings
+// and the session's TLSInfo; cleanup closes the connection and must always be called. ctx bounds the whole exchange:
+// its deadline becomes the socket deadline and its end aborts a blocked read or write.
+func (l *Local) handshake(ctx context.Context, addr netip.AddrPort, sni string, start time.Time, timing *Timing,
+	info **TLSInfo) (tc *tls.Conn, cleanup func(), failure *Error) {
+	cleanup = func() {}
+	var d net.Dialer
+	raw, err := d.DialContext(ctx, "tcp", addr.String())
+	if err != nil {
+		return nil, cleanup, classify(ctx, err)
+	}
+	timing.ConnectMS = ms(time.Since(start))
+	deadline, _ := ctx.Deadline()
+	_ = raw.SetDeadline(deadline)
+	stop := context.AfterFunc(ctx, func() { _ = raw.SetDeadline(time.Unix(1, 0)) })
+	cleanup = func() { stop(); _ = raw.Close() }
+
+	t0 := time.Now()
+	tc = tls.Client(raw, &tls.Config{ServerName: sni, RootCAs: l.roots, MinVersion: tls.VersionTLS12,
+		NextProtos: []string{"http/1.1"}})
+	if err := tc.HandshakeContext(ctx); err != nil {
+		return nil, cleanup, classifyTLS(ctx, err)
+	}
+	timing.TLSMS = ms(time.Since(t0))
+	cs := tc.ConnectionState()
+	*info = &TLSInfo{Version: tls.VersionName(cs.Version)}
+	if len(cs.PeerCertificates) > 0 {
+		leaf := cs.PeerCertificates[0]
+		(*info).Issuer, (*info).DNSNames, (*info).NotAfter = leaf.Issuer.CommonName, leaf.DNSNames, leaf.NotAfter.UTC()
+	}
+	return tc, cleanup, nil
+}
+
+// TLS runs a verified TLS handshake with req.SNI against req.Address and reports the certificate the server presented
+// (P3-T16: certificate expiry of every site of the edge — a site whose HTTP layer refuses the prober, such as
+// admin.<domain>, still presents its certificate). Nothing is sent after the handshake.
+func (l *Local) TLS(ctx context.Context, req TLSRequest) (TLSResult, error) {
+	addr, err := parseTarget("address", req.Address)
+	if err != nil {
+		return TLSResult{}, err
+	}
+	sni := strings.ToLower(strings.TrimSpace(req.SNI))
+	if !validHostname(sni) || net.ParseIP(sni) != nil {
+		return TLSResult{}, newError(CodeInvalidRequest, "sni must be a DNS host name")
+	}
+	limit, err := timeout(req.TimeoutMS, DefaultHTTPSTimeout)
+	if err != nil {
+		return TLSResult{}, err
+	}
+	if err := checkTarget(l.allow, "address", addr); err != nil {
+		return TLSResult{}, err
+	}
+	res := TLSResult{Address: addr.String(), SNI: sni, CheckedAt: l.now().UTC()}
+	start := time.Now()
+	ctx, cancel := context.WithTimeout(ctx, limit)
+	defer cancel()
+	_, cleanup, e := l.handshake(ctx, addr, sni, start, &res.Timing, &res.TLS)
+	cleanup()
+	res.Error, res.OK = e, e == nil
+	res.Timing.TotalMS = ms(time.Since(start))
+	l.log.InfoContext(ctx, "probe", "kind", "tls", "address", res.Address, "sni", sni, "ok", res.OK, "code", code(e),
+		"total_ms", res.Timing.TotalMS)
+	return res, nil
 }
 
 // check evaluates the expectations of an answer.

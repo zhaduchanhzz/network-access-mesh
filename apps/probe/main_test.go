@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,6 +50,35 @@ func TestDispatchUsage(t *testing.T) {
 	if code, _, _ := run(t, none, "", "call", "--url", "not a url", "stun"); code != 2 {
 		t.Fatalf("call with a bad URL: %d", code)
 	}
+	// P3-T16: optional scrape allow-list and capver are validated too
+	code, _, stderr = run(t, env(map[string]string{"MG_PROBE_ALLOW_CALLERS": "10.249.2.0/24", "MG_PROBE_ALLOW_TARGETS": "10.249.0.2",
+		"MG_PROBE_ALLOW_SCRAPERS": "prometheus", "MG_PROBE_CAPVER": "0"}), "", "serve")
+	if code != 2 || !strings.Contains(stderr, "MG_PROBE_ALLOW_SCRAPERS") || !strings.Contains(stderr, "MG_PROBE_CAPVER") {
+		t.Fatalf("bad scrapers/capver: %d %s", code, stderr)
+	}
+	// the alert sink refuses to start without its allow-list (fail closed)
+	if code, _, stderr := run(t, none, "", "alertsink"); code != 2 || !strings.Contains(stderr, "MG_ALERTSINK_ALLOW_CALLERS") {
+		t.Fatalf("alertsink without allow-list: %d %s", code, stderr)
+	}
+	if code, _, _ := run(t, none, "", "alertsink", "x"); code != 2 {
+		t.Fatalf("alertsink with an argument: %d", code)
+	}
+}
+
+// httpGet is a GET on loopback (no proxy) returning status and body.
+func httpGet(t *testing.T, url string) (int, string) {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := (&http.Client{Transport: &http.Transport{Proxy: nil}}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	b, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(b)
 }
 
 func TestSelftest(t *testing.T) {
@@ -101,7 +132,8 @@ func TestRunSubcommand(t *testing.T) {
 func TestServe(t *testing.T) {
 	rpcAddr, internalAddr := freeTCP(t), freeTCP(t)
 	getenv := env(map[string]string{"MG_PROBE_LISTEN": rpcAddr, "MG_INTERNAL_ADDR": internalAddr,
-		"MG_PROBE_ALLOW_CALLERS": "127.0.0.1", "MG_PROBE_ALLOW_TARGETS": "127.0.0.0/8", "MG_LOG_LEVEL": "debug"})
+		"MG_PROBE_ALLOW_CALLERS": "127.0.0.1", "MG_PROBE_ALLOW_TARGETS": "127.0.0.0/8", "MG_PROBE_ALLOW_SCRAPERS": "127.0.0.1",
+		"MG_LOG_LEVEL": "debug"})
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan int, 1)
 	var logs bytes.Buffer
@@ -130,6 +162,21 @@ func TestServe(t *testing.T) {
 	if code != 3 || !strings.Contains(out, prober.CodeTargetNotAllowed) {
 		t.Fatalf("call outside the allow-list: %d %s", code, out)
 	}
+	// P3-T16: GET /probe on the internal listener (the stub's CA is not trusted ⇒ a failed probe, reported as metrics)
+	e, err := stub.NewEdge("127.0.0.1:0", "mesh.example.test", "tenant-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = e.Close() })
+	status, body := httpGet(t, "http://"+internalAddr+prober.RouteScrape+"?module=tls&target="+e.Addr().String()+
+		"&host="+e.Host("tenant-a"))
+	if status != 200 || !strings.Contains(body, "probe_success 0") || !strings.Contains(body, `probe_failure_info{code="tls_verify"} 1`) {
+		t.Fatalf("scrape: %d\n%s", status, body)
+	}
+	if status, body = httpGet(t, "http://"+internalAddr+"/metrics"); status != 200 ||
+		!strings.Contains(body, `meshguard_probe_scrapes_total{module="tls",outcome="failed"} 1`) {
+		t.Fatalf("metrics: %d\n%s", status, body)
+	}
 	cancel()
 	select {
 	case code := <-done:
@@ -139,7 +186,61 @@ func TestServe(t *testing.T) {
 	case <-time.After(30 * time.Second):
 		t.Fatal("serve did not stop")
 	}
-	if !strings.Contains(logs.String(), `"msg":"starting"`) || !strings.Contains(logs.String(), `"kind":"stun"`) {
+	if !strings.Contains(logs.String(), `"msg":"starting"`) || !strings.Contains(logs.String(), `"kind":"stun"`) ||
+		!strings.Contains(logs.String(), `"msg":"probe failed"`) || strings.Contains(logs.String(), `"kind":"tls"`) {
+		t.Fatalf("logs (a scrape probe logs its failure once, not its info line):\n%s", logs.String())
+	}
+}
+
+// alertsink serves the webhook route and the internal listener, and stops on cancel.
+func TestAlertsink(t *testing.T) {
+	apiAddr, internalAddr := freeTCP(t), freeTCP(t)
+	getenv := env(map[string]string{"MG_ALERTSINK_LISTEN": apiAddr, "MG_INTERNAL_ADDR": internalAddr,
+		"MG_ALERTSINK_ALLOW_CALLERS": "127.0.0.1"})
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan int, 1)
+	var logs bytes.Buffer
+	go func() { done <- dispatch(ctx, []string{"alertsink"}, getenv, strings.NewReader(""), &logs, &logs) }()
+	deadline := time.Now().Add(10 * time.Second)
+	for healthcheck(getenv, io.Discard) != 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("healthcheck never passed")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	body := `{"version":"4","status":"firing","receiver":"meshguard","groupKey":"k","alerts":[{"status":"firing",` +
+		`"labels":{"alertname":"Drill","severity":"high"},"annotations":{"summary":"drill"},"startsAt":"2026-11-18T03:00:00Z"}]}`
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "http://"+apiAddr+"/v1/alerts", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := (&http.Client{Transport: &http.Transport{Proxy: nil}}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("POST: %d", resp.StatusCode)
+	}
+	if status, out := httpGet(t, "http://"+apiAddr+"/v1/notifications?alertname=Drill"); status != 200 ||
+		!strings.Contains(out, `"alertname":"Drill"`) {
+		t.Fatalf("list: %d %s", status, out)
+	}
+	if status, out := httpGet(t, "http://"+internalAddr+"/metrics"); status != 200 ||
+		!strings.Contains(out, `meshguard_alertsink_notifications_total{receiver="meshguard",status="firing"} 1`) {
+		t.Fatalf("metrics: %d %s", status, out)
+	}
+	cancel()
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Fatalf("alertsink exit %d:\n%s", code, logs.String())
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("alertsink did not stop")
+	}
+	if !strings.Contains(logs.String(), `"msg":"alert notification"`) {
 		t.Fatalf("logs:\n%s", logs.String())
 	}
 }

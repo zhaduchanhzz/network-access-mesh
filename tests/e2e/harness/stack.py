@@ -43,6 +43,7 @@ import render_app  # noqa: E402
 import render_edge  # noqa: E402
 import render_idp  # noqa: E402
 import render_instance  # noqa: E402
+import render_monitoring  # noqa: E402 — project mg-obs (P3-T16)
 
 TENANTS = ("tenant-a", "tenant-b")
 CLIENTS = {"a1": "tenant-a", "a2": "tenant-a", "b1": "tenant-b", "b2": "tenant-b"}
@@ -59,7 +60,8 @@ UID = {"postgres": "999:999", "idp": "1000:1000", "edge": "10001:10001", "dbinit
 # Backend (P2-T16): file secrets of compose.app.yaml → <work>/secrets/<path>, group = the fixed GID of §14.2 (root:<gid>
 # 0440, as infrastructure/host/app-secrets.sh lays them out on the host). One copy per consumer, same values as the
 # role passwords db-init sets.
-APP_SECRET_GROUPS = {"api": 20002, "worker": 20003, "app": 20001, "migrate": 20004, "kek-app": 20001, "kek-ops": 20003}
+APP_SECRET_GROUPS = {"api": 20002, "worker": 20003, "app": 20001, "migrate": 20004, "kek-app": 20001, "kek-ops": 20003,
+                     "obs": 20006}   # P3-T16: Prometheus (65534 + mg-sec-obs) — copy of the edge's metrics token
 APP_ROLES = ("mg_api_tenant", "mg_api_platform", "mg_worker_tenant", "mg_worker_platform", "mg_audit_writer",
              "mg_partition_maint")
 DUMMY_IMAGES = ("sha256:" + "0" * 64, "sha256:" + "1" * 64)   # render without Docker (e2e.py render, test_stack.py)
@@ -103,6 +105,9 @@ class Stack:
         self.edge_idp_ip = f"{base}.7.2"              # the edge on the idp network (G2 round 2, A-8)
         self.host_ip = f"{base}.0.1"                  # this host on the edge network: the only admin. source (P2-T16)
         self.app_images = DUMMY_IMAGES                # (api, worker) — build_app_images() sets the local image IDs
+        # P3-T16: static addresses of project mg-obs (render_monitoring.OBS_IPS / PROBER_IPS on the stack's subnets)
+        self.obs_ips = {k: f"{base}.3.{v.rsplit('.', 1)[1]}" for k, v in render_monitoring.OBS_IPS.items()}
+        self.prober_admin_ip = f"{base}.2.{render_monitoring.PROBER_IPS['prober_admin_ip'].rsplit('.', 1)[1]}"
         # name → (subnet, internal, ip-range for dynamic allocation) — same layout as infrastructure/host/networks.sh
         self.networks = {
             "edge": (f"{base}.0.0/24", False, f"{base}.0.128/25"),
@@ -123,7 +128,10 @@ class Stack:
         self.images = {"headscale": img(hs_key), "edge": img("mg-edge"), "stund": img("mg-stund"),
                        "idp": img("mg-idp"), "postgres": img("postgres"), "tailscale": img("tailscale"),
                        "alpine": img("alpine"), "golang": img("golang"), "distroless": img("distroless-static"),
-                       "probe": f"{self.prefix}-probe:e2e"}   # P3-T03a: built from the tree (build_probe_image)
+                       "probe": f"{self.prefix}-probe:e2e",   # P3-T03a: built from the tree (build_probe_image)
+                       # P3-T16: official pins + node_exporter rebuilt from source (build_node_exporter_image)
+                       "prometheus": img("prometheus"), "alertmanager": img("alertmanager"),
+                       "node-exporter": f"{self.prefix}-node-exporter:e2e"}
         env.update(MG_E2E_EDGE_IPV4=self.edge_ip, MG_E2E_TENANT_A_CIDR=net_a, MG_E2E_TENANT_B_CIDR=net_b,
                    MG_E2E_HEADSCALE_IMAGE=self.images["headscale"], MG_E2E_EDGE_IMAGE=self.images["edge"],
                    MG_E2E_ADMIN_ALLOW=f"{self.host_ip}/32")
@@ -157,7 +165,8 @@ class Stack:
     def compose_files(self) -> list[str]:
         r = self.work / "render"
         files = [r / "tenant-a" / "compose.yaml", r / "tenant-b" / "compose.yaml", r / "edge" / "compose.edge.yaml",
-                 r / "idp" / "compose.idp.yaml", r / "app" / "compose.app.yaml", ROOT / "compose.yaml"]
+                 r / "idp" / "compose.idp.yaml", r / "app" / "compose.app.yaml", r / "obs" / "compose.monitoring.yaml",
+                 ROOT / "compose.yaml"]
         return [x for f in files for x in ("-f", str(f))]
 
     def compose(self, *args: str, **kw) -> subprocess.CompletedProcess:
@@ -201,7 +210,10 @@ class Stack:
         files = render_idp.render(self.env, self.images["idp"])
         render_edge.write(files, out / "idp")
         log(f"render idp: {len([f for f in files if f.startswith('idp/realms/')])} realm, compose.idp.yaml")
+        render_monitoring.OBS_IPS.update(self.obs_ips)
+        render_monitoring.PROBER_IPS.update(prober_admin_ip=self.prober_admin_ip)
         self.render_app()
+        self.render_obs()
         pol = self.work / "policies"
         pol.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ROOT / "infrastructure" / "headscale" / "templates" / "test-allow-intra.hujson",
@@ -217,6 +229,50 @@ class Stack:
         os.chmod(self.work / "render" / "app" / "compose.app.yaml", 0o644)
         log(f"render app: compose.app.yaml (template {render_app.TEMPLATE_VERSION}, api {self.app_images[0][:19]}…, "
             f"worker {self.app_images[1][:19]}…)")
+
+    def obs_built(self, key: str) -> str:
+        """The image ID of an image built from the tree, or a dummy ID before the build (render without Docker)."""
+        ref = self.images[key]
+        return ref if render_monitoring.IMAGE_RE.match(ref) else DUMMY_IMAGES[0]
+
+    def render_obs(self) -> None:
+        """Project mg-obs (P3-T16) by tools/render_monitoring.py for the ci environment (the stack's addresses), the
+        instance targets of the two tenants (the labels of their Headscale containers, like obs-targets.sh), the drill
+        directory and the backup status files read by node-exporter: postgres overdue (last success 30 h ago — max age
+        26 h), edge fresh, idp absent — the sources of PlatformBackupOverdue and PlatformBackupStatusMissing (E2E-78)."""
+        out = self.work / "render" / "obs"
+        files = render_monitoring.render(self.env, self.obs_built("probe"), node_exporter_image=self.obs_built("node-exporter"))
+        render_edge.write(files, out)
+        rows = []
+        for slug in TENANTS:
+            p = json.loads((ENV_DIR / "tenants" / f"{slug}.json").read_text(encoding="utf-8"))
+            rows.append((p["tenant_id"], p["instance_id"], f"mg-hs-{slug}"))
+        entries, _ = render_monitoring.instance_targets(rows)
+        render_monitoring.write_atomic(out / "monitoring" / "prometheus" / "targets" / "instances.json",
+                                       json.dumps(entries, indent=2) + "\n")
+        (out / "monitoring" / "drill").mkdir(parents=True, exist_ok=True)
+        now = time.time()
+        status = {"postgres": now - 30 * 3600, "edge": now - 600}
+        for target in ("postgres", "idp", "edge"):
+            d = self.work / "obs" / "backups" / target
+            d.mkdir(parents=True, exist_ok=True)
+            os.chmod(d, 0o755)
+            if target in status:   # the format of apps/backup (same HELP texts — node_exporter merges families on them)
+                render_monitoring.write_atomic(d / "status.prom",
+                                               render_monitoring.backup_status_prom(target, status[target]))
+        log(f"render obs: compose.monitoring.yaml (template {render_monitoring.TEMPLATE_VERSION}), prometheus.yml, "
+            f"alertmanager.yml, {len(entries)} instance target(s), status.prom postgres (quá hạn) + edge")
+
+    def build_node_exporter_image(self) -> None:
+        """node_exporter v1.12.1 rebuilt from source (infrastructure/docker/node-exporter, P3-T16)."""
+        t0 = time.time()
+        tag = f"{self.prefix}-node-exporter:e2e"
+        ctx = ROOT / "infrastructure" / "docker" / "node-exporter"
+        self.docker("build", "-q", "-f", str(ctx / "Dockerfile"), "--label", "meshguard.role=e2e", "-t", tag, str(ctx),
+                    timeout=1800)
+        self.images["node-exporter"] = self.docker("image", "inspect", "-f", "{{.Id}}", tag).stdout.strip()
+        log(f"build node-exporter (infrastructure/docker/node-exporter): {self.images['node-exporter'][:19]}… trong "
+            f"{time.time() - t0:.0f} s")
 
     def build_app_images(self) -> None:
         """api and worker images built from the tree with the production Dockerfile (infrastructure/docker/app)."""
@@ -349,6 +405,8 @@ class Stack:
             if name == "admin_token":                      # copies: the caller of the admin listener, api/worker
                 s("harness/admin_token", v)
                 s("app/edge_admin_token", v)
+            if name == "metrics_token":                    # copy of Prometheus (P3-T16: obs/edge_metrics_token)
+                s("obs/edge_metrics_token", v)
         s("harness/kc_admin_password", admin_pw)           # the harness's copy: Keycloak Admin API of the checks
         for c in CLIENTS:                                  # filled with a pre-auth key right before the client starts
             self.write_private(self.work / "secrets" / "clients" / f"{c}.authkey", "")
@@ -423,17 +481,17 @@ class Stack:
             self.compose("--profile", "tools", "--profile", "migrate", "--profile", "bootstrap", "down", "-v",
                          "--remove-orphans", "--timeout", "10", check=False, timeout=180)
         ids = self.docker("ps", "-aq", "--filter", f"label=com.docker.compose.project={self.prefix}", check=False).stdout.split()
-        for extra in ("probe", "caller", "direct", "enroll"):
+        for extra in ("probe", "caller", "direct", "enroll", "obs-"):
             ids += self.docker("ps", "-aq", "--filter", f"name=^{self.name(extra)}", check=False).stdout.split()
         if ids:
             self.docker("rm", "-f", *ids, check=False)
         for n in self.networks:
             self.docker("network", "rm", self.name(n), check=False)
-        for v in ("edge-data", "idp-db-data"):
+        for v in ("edge-data", "idp-db-data", "prometheus-data", "alertmanager-data"):
             self.docker("volume", "rm", "-f", f"{self.prefix}_{v}", check=False)
         if not self.keep_cache:
             self.docker("volume", "rm", "-f", self.name("gomod"), self.name("gocache"), check=False)
-        for app in ("api", "worker", "idp", "probe"):        # images built from the tree (build cache is kept)
+        for app in ("api", "worker", "idp", "probe", "node-exporter"):   # images built from the tree (build cache is kept)
             self.docker("image", "rm", "-f", f"{self.prefix}-{app}:e2e", check=False)
         if self.work.exists():
             self.helper("rm -rf /w/* /w/.[!.]* 2>/dev/null || true", f"{self.work}:/w")

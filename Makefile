@@ -3,7 +3,7 @@ PYTHON ?= python3
 
 SQLC_VERSION ?= v1.31.1
 
-.PHONY: help docs docs-check render-test lint secret-scan api-lint api-gen agent-gen authz-gen go-test go-lint go-build sqlc sqlc-diff e2e-functional isolation isolation-headscale agent-it provisioning-it
+.PHONY: help docs docs-check render-test monitoring-test lint secret-scan api-lint api-gen agent-gen authz-gen go-test go-lint go-build sqlc sqlc-diff e2e-functional isolation isolation-headscale agent-it provisioning-it
 
 help: ## Liệt kê các target
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-14s %s\n", $$1, $$2}'
@@ -18,8 +18,15 @@ secret-scan: ## Quét secret trong repo (cần gitleaks; cấu hình .gitleaks.t
 	@command -v gitleaks >/dev/null || { echo "gitleaks chưa cài — xem README"; exit 1; }
 	gitleaks git --config .gitleaks.toml --redact --no-banner .
 
-render-test: ## Test tham số môi trường (mgenv) + golden test của tool render (instance Headscale, edge, IdP, backup, mg-app, mg-agent) + migrate.sh
-	$(PYTHON) tools/test_mgenv.py && $(PYTHON) tools/test_render_instance.py && $(PYTHON) tools/test_render_edge.py && $(PYTHON) tools/test_render_idp.py && $(PYTHON) tools/test_render_backup.py && $(PYTHON) tools/test_render_app.py && $(PYTHON) tools/test_render_agent.py && $(PYTHON) tools/test_host_migrate.py
+render-test: ## Test tham số môi trường (mgenv) + golden test của tool render (instance Headscale, edge, IdP, backup, mg-app, mg-agent, mg-obs) + migrate.sh
+	$(PYTHON) tools/test_mgenv.py && $(PYTHON) tools/test_render_instance.py && $(PYTHON) tools/test_render_edge.py && $(PYTHON) tools/test_render_idp.py && $(PYTHON) tools/test_render_backup.py && $(PYTHON) tools/test_render_app.py && $(PYTHON) tools/test_render_agent.py && $(PYTHON) tools/test_render_monitoring.py && $(PYTHON) tools/test_host_migrate.py
+
+PROMETHEUS_IMAGE ?= docker.io/prom/prometheus@sha256:fa3302279710be2f21a8301ec17a8b4f2301fd829bd113839b3b6b02b6f191a2
+DOCKER ?= docker
+
+monitoring-test: ## promtool check rules + test rules của bộ cảnh báo P3-T16 (image prometheus pin trong versions.lock; cần Docker)
+	$(DOCKER) run --rm -v "$(CURDIR)/infrastructure/monitoring/rules:/r:ro" -w /r --entrypoint /bin/promtool $(PROMETHEUS_IMAGE) check rules meshguard.rules.yml
+	$(DOCKER) run --rm -v "$(CURDIR)/infrastructure/monitoring/rules:/r:ro" -w /r --entrypoint /bin/promtool $(PROMETHEUS_IMAGE) test rules meshguard.rules.test.yml
 
 api-lint: ## Spec-lint api/openapi.yaml (x-permission hai chiều với §8.5/§8.6, x-task, tenant chỉ từ path, action path, problem+json) + seed RBAC/bảng authz đã sinh + test của lint
 	$(PYTHON) tools/openapi_lint.py && $(PYTHON) tools/test_openapi_lint.py

@@ -1,0 +1,133 @@
+# Sinh bởi tools/render_monitoring.py từ infrastructure/monitoring/prometheus.yml.tmpl (template_version 1).
+# KHÔNG sửa tay — render lại. Prometheus của project mg-obs (P3-T16; §16.1, §16.3 của master). Không chứa secret: token
+# của listener metrics của edge là file secret (/run/secrets/edge_metrics_token — authorization.credentials_file).
+#
+# Đích scrape:
+#   prometheus, alertmanager, node (node-exporter 10.249.3.5 — §14.4), prober (10.249.3.6: /metrics),
+#   alertsink (10.249.3.7), api và worker (/metrics của listener nội bộ :9090 trên mg-obs — tên service của project mg-app),
+#   headscale    /metrics của từng instance QUA listener metrics của edge (10.249.3.2:9091, /instance/<slug>/metrics,
+#                Bearer token) — đích lấy từ targets/*.json (obs-targets.sh sinh từ nhãn container của tenant; HTTP SD
+#                của api /internal/prometheus/sd thuộc P6-T01). Nhãn tenant_id/instance_id/slug do SD gắn (honor_labels
+#                false, nhãn cùng tên do target tự khai bị đổi thành exported_* rồi bị bỏ), có trần sample/label/body.
+#   probe-key-*  GET /key?v=<capver> của <slug>.mesh.meshguard-ci.test qua prober (/probe, module key); via edge (10.249.0.2:443)
+#   probe-tls    chứng chỉ của app.meshguard-ci.test, auth.meshguard-ci.test, admin.meshguard-ci.test qua listener public của edge (module tls)
+global:
+  scrape_interval: 5s
+  scrape_timeout: 4s
+  evaluation_interval: 5s
+  external_labels:
+    env: ci
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["10.249.3.4:9093"]
+
+rule_files:
+  - /etc/prometheus/rules/*.rules.yml
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: alertmanager
+    static_configs:
+      - targets: ["10.249.3.4:9093"]
+
+  - job_name: node
+    static_configs:
+      - targets: ["10.249.3.5:9100"]
+
+  - job_name: prober
+    static_configs:
+      - targets: ["10.249.3.6:9090"]
+
+  - job_name: alertsink
+    static_configs:
+      - targets: ["10.249.3.7:9090"]
+
+  - job_name: api
+    static_configs:
+      - targets: ["api:9090"]
+
+  - job_name: worker
+    static_configs:
+      - targets: ["worker:9090"]
+
+  - job_name: headscale
+    authorization:
+      type: Bearer
+      credentials_file: /run/secrets/edge_metrics_token
+    honor_labels: false
+    sample_limit: 20000
+    label_limit: 64
+    label_name_length_limit: 128
+    label_value_length_limit: 1024
+    body_size_limit: 16MB
+    file_sd_configs:
+      - files: ["/etc/prometheus/targets/*.json"]
+        refresh_interval: 1m
+    relabel_configs:
+      - source_labels: [slug]
+        regex: "[a-z][a-z0-9-]{1,30}[a-z0-9]"
+        action: keep
+      - source_labels: [slug]
+        target_label: __metrics_path__
+        replacement: /instance/${1}/metrics
+      - target_label: __address__
+        replacement: 10.249.3.2:9091
+      - source_labels: [slug]
+        target_label: instance
+    metric_relabel_configs:
+      - regex: exported_.*
+        action: labeldrop
+
+  - job_name: probe-key-edge
+    metrics_path: /probe
+    params:
+      module: [key]
+      capver: ["113"]
+    file_sd_configs:
+      - files: ["/etc/prometheus/targets/*.json"]
+        refresh_interval: 1m
+    relabel_configs:
+      - source_labels: [slug]
+        regex: "[a-z][a-z0-9-]{1,30}[a-z0-9]"
+        action: keep
+      - source_labels: [slug]
+        target_label: __param_host
+        replacement: ${1}.mesh.meshguard-ci.test
+      - target_label: __param_target
+        replacement: 10.249.0.2:443
+      - target_label: __address__
+        replacement: 10.249.3.6:9090
+      - source_labels: [slug]
+        target_label: instance
+      - target_label: module
+        replacement: key
+      - target_label: via
+        replacement: edge
+    metric_relabel_configs:
+      - regex: exported_.*
+        action: labeldrop
+
+  - job_name: probe-tls
+    metrics_path: /probe
+    params:
+      module: [tls]
+    static_configs:
+      - targets: ["app.meshguard-ci.test", "auth.meshguard-ci.test", "admin.meshguard-ci.test"]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_host
+      - source_labels: [__address__]
+        target_label: instance
+      - target_label: __param_target
+        replacement: 10.249.0.2:443
+      - target_label: __address__
+        replacement: 10.249.3.6:9090
+      - target_label: module
+        replacement: tls
+      - target_label: via
+        replacement: edge

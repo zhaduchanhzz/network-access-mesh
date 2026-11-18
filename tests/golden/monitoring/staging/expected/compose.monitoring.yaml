@@ -1,0 +1,240 @@
+# Sinh bởi tools/render_monitoring.py từ infrastructure/compose/compose.monitoring.yaml.tmpl (template_version 1).
+# KHÔNG sửa tay — render lại. Project mg-obs (P3-T16, §14.3/§14.4/§16): bộ cảnh báo tối thiểu trước Phase 6 —
+# prometheus, alertmanager, node-exporter, prober (P3-T03a: RPC cho worker + /probe cho Prometheus) và alertsink (kênh cảnh báo nội bộ).
+# Tách khỏi mg-app/mg-core/mg-edge: deploy backend không recreate prober, monitoring sống độc lập với cái nó giám sát.
+# Đặt tại /opt/meshguard/core/compose.monitoring.yaml; cấu hình render vào /opt/meshguard/core/monitoring/ (không secret).
+# Network do infrastructure/host/networks.sh tạo trước (external).
+#
+# Bất biến (tools/test_render_monitoring.py kiểm): mọi image pin digest; không publish cổng nào; rootfs chỉ-đọc,
+# cap_drop ALL, no-new-privileges, giới hạn RAM/PID mọi service; không Docker socket; không secret trong biến môi
+# trường (token listener metrics của edge và credential kênh cảnh báo là file secret root:mg-sec-obs 0440 trong
+# /opt/meshguard/secrets/obs/, nhóm 20006 qua group_add); non-root mọi service (65534 nobody: prometheus, alertmanager,
+# node-exporter; 65532: prober, alertsink). Network theo §14.3: prometheus, node-exporter, alertsink CHỈ mg-obs;
+# alertmanager mg-obs + mg-egress (kênh gửi đi ra ngoài host chỉ qua mg-egress) + network `mail` của cầu SMTP mailrelay
+# khi e-mail cảnh báo bật (MG_ALERT_EMAIL_TO); prober mg-edge (listener public của
+# edge trong host), mg-admin IP tĩnh 10.249.2.3 (RPC của worker: MG_PROBER_URL=http://10.249.2.3:8080), mg-obs (scrape),
+# mg-egress (điểm vào công khai).
+#
+# Cách Prometheus tới node-exporter (§14.4, chốt ở P3-T16): node-exporter KHÔNG dùng host network và không nghe trên
+# interface nào của host — chạy trên mg-obs (internal, IP tĩnh 10.249.3.5) với pid: host và / của host mount
+# chỉ-đọc (--path.rootfs): CPU, RAM, đĩa, load, boot time là của host; số liệu network của host KHÔNG có (netns của
+# container — nối ở P6-T01 nếu cần). Không đổi firewall host, không cổng nào trên LAN.
+#
+# Thứ tự (infrastructure/host/RUNBOOK.md, mục P3-T16):
+#   sudo bash infrastructure/host/layout.sh && sudo bash infrastructure/host/obs-secrets.sh check
+#   python3 tools/render_monitoring.py <env file> /opt/meshguard/core   (+ sudo bash infrastructure/host/obs-targets.sh)
+#   docker compose -p mg-obs -f compose.monitoring.yaml up -d
+name: mg-obs
+
+x-hardening: &hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  logging:
+    driver: json-file
+    options: {max-size: "10m", max-file: "5"}
+  labels:
+    meshguard.role: obs
+  restart: unless-stopped
+
+services:
+  prometheus:
+    <<: *hardening
+    image: docker.io/prom/prometheus@sha256:a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1
+    user: "65534:65534"
+    group_add: ["20006"]                          # mg-sec-obs: token listener metrics của edge
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --storage.tsdb.retention.size=2GB
+      - --web.listen-address=:9090                # không --web.enable-lifecycle/admin-api: reload bằng SIGHUP
+    volumes:
+      - type: bind
+        source: /opt/meshguard/core/monitoring/prometheus
+        target: /etc/prometheus
+        read_only: true
+        bind:
+          create_host_path: false
+      - prometheus-data:/prometheus
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    secrets:
+      - {source: obs_edge_metrics_token, target: edge_metrics_token}
+    networks:
+      mg-obs:
+        ipv4_address: 10.249.3.3             # nguồn DUY NHẤT được gọi /probe của prober
+    mem_limit: 1g
+    cpus: 1.0
+    pids_limit: 256
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/-/ready"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+      start_interval: 2s
+    stop_grace_period: 60s
+
+  alertmanager:
+    <<: *hardening
+    image: docker.io/prom/alertmanager@sha256:a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2
+    user: "65534:65534"
+    group_add: ["20006"]                          # mg-sec-obs: credential của kênh cảnh báo (khi bật)
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+      - --web.listen-address=:9093
+      - --cluster.listen-address=                 # một instance: tắt gossip HA (không nghe 9094)
+      - --data.retention=120h
+    volumes:
+      - type: bind
+        source: /opt/meshguard/core/monitoring/alertmanager
+        target: /etc/alertmanager
+        read_only: true
+        bind:
+          create_host_path: false
+      - alertmanager-data:/alertmanager
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    networks:
+      mg-obs:
+        ipv4_address: 10.249.3.4
+      mg-egress:
+        gw_priority: 1                            # kênh gửi đi (Telegram, webhook ngoài) chỉ qua mg-egress
+    dns_search: ["."]
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 128
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9093/-/ready"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+      start_interval: 2s
+    stop_grace_period: 30s
+
+  # node_exporter v1.12.1 build lại từ mã nguồn với Go 1.27.4 + golang.org/x đã vá (image chính thức không qua gate grype —
+  # versions.lock [sources.node-exporter]).
+  node-exporter:
+    <<: *hardening
+    image: ghcr.io/zhaduchanhzz/network-access-mesh/node-exporter@sha256:a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4
+    user: "65534:65534"
+    group_add: ["20007"]                          # mg-sec-backup: đọc status.prom của backups/postgres|idp|edge
+    pid: host                                     # /proc của host (CPU, RAM, mount, boot time) — §14.4
+    command:
+      - --path.rootfs=/host
+      - --web.listen-address=:9100
+      - --collector.textfile.directory=/textfile/postgres
+      - --collector.textfile.directory=/textfile/idp
+      - --collector.textfile.directory=/textfile/edge
+      - --collector.textfile.directory=/textfile/drill
+    volumes:
+      - type: bind                                # / của host, chỉ-đọc (đĩa > 80% kể cả filesystem backup)
+        source: /
+        target: /host
+        read_only: true
+        bind:
+          propagation: rslave
+          create_host_path: false
+      - type: bind                                # status.prom của pg-backup (P2-T03a) — hook "quá hạn backup"
+        source: /opt/meshguard/backups/postgres
+        target: /textfile/postgres
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /opt/meshguard/backups/idp
+        target: /textfile/idp
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /opt/meshguard/backups/edge
+        target: /textfile/edge
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind                                # diễn tập cảnh báo: root:root 0755, rỗng khi không diễn tập
+        source: /opt/meshguard/core/monitoring/drill
+        target: /textfile/drill
+        read_only: true
+        bind:
+          create_host_path: false
+    networks:
+      mg-obs:
+        ipv4_address: 10.249.3.5
+    mem_limit: 128m
+    cpus: 0.5
+    pids_limit: 64                                # image distroless (không wget): sống/chết đo bằng up{job="node"}
+
+  prober:
+    <<: *hardening
+    image: ghcr.io/zhaduchanhzz/network-access-mesh/probe@sha256:a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3
+    user: "65532:65532"
+    environment:
+      MG_PROBE_ALLOW_CALLERS: 10.249.2.0/24         # RPC: chỉ worker trên mg-admin (bước 17/18, relay.probe)
+      MG_PROBE_ALLOW_TARGETS: 10.249.0.2,203.0.113.10        # IP của edge trên mg-edge + điểm vào công khai — không tra DNS
+      MG_PROBE_ALLOW_SCRAPERS: 10.249.3.3       # /probe: chỉ Prometheus
+      MG_PROBE_CAPVER: "113"                    # /key?v=<capver> (versions.lock [monitoring] capver — RT-09)
+    networks:
+      mg-edge: {}
+      mg-admin:
+        ipv4_address: 10.249.2.3          # MG_PROBER_URL của worker — KHÔNG gọi bằng tên (P3-T05c)
+      mg-obs:
+        ipv4_address: 10.249.3.6
+      mg-egress:
+        gw_priority: 1                            # điểm vào công khai (VPS) đi qua mg-egress
+    mem_limit: 128m
+    cpus: 0.5
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/meshguard-probe", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+      start_interval: 2s
+    stop_grace_period: 20s
+
+  # Kênh cảnh báo NỘI BỘ của staging/dev (không gửi tới người): nhận webhook của Alertmanager, giữ 1000 thông báo
+  # gần nhất trong bộ nhớ, log mỗi cảnh báo một dòng — `docker logs mg-obs-alertsink-1`. Chỉ trên mg-obs.
+  alertsink:
+    <<: *hardening
+    image: ghcr.io/zhaduchanhzz/network-access-mesh/probe@sha256:a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3
+    command: ["alertsink"]
+    user: "65532:65532"
+    environment:
+      MG_ALERTSINK_ALLOW_CALLERS: 10.249.3.0/24   # Alertmanager + người đọc diễn tập trên mg-obs
+    networks:
+      mg-obs:
+        ipv4_address: 10.249.3.7
+    mem_limit: 64m
+    cpus: 0.25
+    pids_limit: 32
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/meshguard-probe", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+      start_interval: 2s
+
+# Secret dạng file trên host (root:mg-sec-obs 0440 — layout.sh, obs-secrets.sh); Compose bỏ qua uid/gid/mode (ST-05).
+secrets:
+  obs_edge_metrics_token: {file: /opt/meshguard/secrets/obs/edge_metrics_token}
+
+volumes:
+  prometheus-data:
+  alertmanager-data:
+
+networks:
+  mg-edge:
+    external: true
+  mg-admin:
+    external: true
+  mg-obs:
+    external: true
+  mg-egress:
+    external: true

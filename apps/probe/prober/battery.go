@@ -20,27 +20,16 @@ const forbiddenConcurrency = 4
 func (l *Local) Edge(ctx context.Context, req EdgeRequest) (EdgeResult, error) {
 	host := strings.ToLower(strings.TrimSpace(req.Host))
 	base := HTTPSRequest{Address: req.Address, SNI: host, Host: host, TimeoutMS: req.TimeoutMS}
-	if req.CapVer == 0 {
-		req.CapVer = DefaultCapVer
-	}
-	if req.CapVer < 1 || req.CapVer > 10000 {
-		return EdgeResult{}, newError(CodeInvalidRequest, "capver must be 1-10000")
-	}
-	if req.PublicKey != "" && !publicKeyRE.MatchString(req.PublicKey) {
-		return EdgeResult{}, newError(CodeInvalidRequest, "public_key must be mkey:<64 hex digits>")
-	}
 	forbidden := req.Forbidden
 	if forbidden == nil {
 		forbidden = DefaultForbidden
 	}
+	keyReq, err := keyRequest(req.Address, host, req.CapVer, req.PublicKey, req.TimeoutMS)
+	if err != nil {
+		return EdgeResult{}, err
+	}
 	if len(forbidden) == 0 || len(forbidden) > maxForbidden {
 		return EdgeResult{}, newError(CodeInvalidRequest, "forbidden must list 1-64 paths")
-	}
-	keyReq := base
-	keyReq.Path = "/key?v=" + strconv.Itoa(req.CapVer)
-	keyReq.Expect = Expect{Status: []int{200}, JSONPresent: []string{"publicKey"}}
-	if req.PublicKey != "" {
-		keyReq.Expect.JSONEquals = map[string]string{"publicKey": req.PublicKey}
 	}
 	keyPlan, err := planHTTPS(keyReq)
 	if err != nil {
@@ -61,10 +50,7 @@ func (l *Local) Edge(ctx context.Context, req EdgeRequest) (EdgeResult, error) {
 	res := EdgeResult{Host: host, CheckedAt: l.now().UTC(), Forbidden: make([]HTTPSResult, len(plans))}
 	start := time.Now()
 	res.Key = l.https(ctx, keyPlan)
-	if k := res.Key.JSON["publicKey"]; res.Key.Error == nil && res.Key.Status == 200 && !publicKeyRE.MatchString(k) {
-		res.Key.Failures = append(res.Key.Failures, Failure{Check: "json:publicKey", Want: "mkey:<64 hex digits>", Got: bounded(k, 80)})
-		res.Key.OK = false
-	}
+	checkKey(&res.Key)
 	sem := make(chan struct{}, forbiddenConcurrency)
 	var wg sync.WaitGroup
 	for i, p := range plans {
@@ -87,6 +73,34 @@ func (l *Local) Edge(ctx context.Context, req EdgeRequest) (EdgeResult, error) {
 		"key_status", res.Key.Status, "key_code", code(res.Key.Error), "blocked", res.Blocked, "forbidden", len(res.Forbidden),
 		"total_ms", res.TotalMS)
 	return res, nil
+}
+
+// keyRequest is GET /key?v=<capver> of a tenant hostname through address (SNI = Host = host): 200 with a Noise public
+// key — equal to publicKey when given. capver 0 selects DefaultCapVer.
+func keyRequest(address, host string, capver int, publicKey string, timeoutMS int) (HTTPSRequest, error) {
+	if capver == 0 {
+		capver = DefaultCapVer
+	}
+	if capver < 1 || capver > 10000 {
+		return HTTPSRequest{}, newError(CodeInvalidRequest, "capver must be 1-10000")
+	}
+	if publicKey != "" && !publicKeyRE.MatchString(publicKey) {
+		return HTTPSRequest{}, newError(CodeInvalidRequest, "public_key must be mkey:<64 hex digits>")
+	}
+	req := HTTPSRequest{Address: address, SNI: host, Host: host, TimeoutMS: timeoutMS,
+		Path: "/key?v=" + strconv.Itoa(capver), Expect: Expect{Status: []int{200}, JSONPresent: []string{"publicKey"}}}
+	if publicKey != "" {
+		req.Expect.JSONEquals = map[string]string{"publicKey": publicKey}
+	}
+	return req, nil
+}
+
+// checkKey adds the shape check of the Noise public key ("mkey:<64 hex>") to the result of a keyRequest.
+func checkKey(res *HTTPSResult) {
+	if k := res.JSON["publicKey"]; res.Error == nil && res.Status == 200 && !publicKeyRE.MatchString(k) {
+		res.Failures = append(res.Failures, Failure{Check: "json:publicKey", Want: "mkey:<64 hex digits>", Got: bounded(k, 80)})
+		res.OK = false
+	}
 }
 
 // Relay runs the check of provisioning step 17 (relay.assign, §11.3): GET /derp/probe of the tenant through the edge
