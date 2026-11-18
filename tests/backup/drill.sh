@@ -67,8 +67,11 @@ bk() {
     -f "$W/core/compose.backup.yaml" -f "$ROOT/tests/backup/compose.backup.test.yaml" "$@"
 }
 idp() {
+  local extra=()
+  # IdP render với relay thư (MG_IDP_MAIL_SINK=mailrelay của staging.env): network mail + CA của lượt thử
+  if grep -q 'idp_mailrelay_ca' "$W/core/compose.idp.yaml" 2>/dev/null; then extra=(-f "$ROOT/tests/idp/compose.idp.mailrelay.test.yaml"); fi
   sudo env MGT_WORK="$W" MGT_PREFIX="$PREFIX" docker compose -p "$PREFIX-idp" \
-    -f "$W/core/compose.idp.yaml" -f "$ROOT/tests/idp/compose.idp.test.yaml" "$@"
+    -f "$W/core/compose.idp.yaml" -f "$ROOT/tests/idp/compose.idp.test.yaml" "${extra[@]}" "$@"
 }
 psql_in() { local c=$1; shift; $D exec -i "$c" psql -X -q -v ON_ERROR_STOP=1 -U postgres "$@"; }
 wait_pg() {
@@ -174,8 +177,14 @@ data $NET_BASE.1.0/24 yes -
 egress $NET_BASE.5.0/24 no -
 idp-data $NET_BASE.6.0/24 yes -
 idp $NET_BASE.7.0/24 yes $NET_BASE.7.128/25
+mail $NET_BASE.8.0/24 yes -
 prep $NET_BASE.10.0/24 no -
 EOF
+  # CA thử cho truststore của Keycloak khi IdP dùng relay thư (chỉ chứng chỉ; khóa bỏ ngay — không secret)
+  sudo install -d -o root -g root -m 0755 "$W/secrets/mail"
+  openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout /dev/null -subj "/CN=drill mailrelay CA" \
+    -days 2 -out "$W/ca-mail.crt" >/dev/null 2>&1
+  sudo install -m 0444 "$W/ca-mail.crt" "$W/secrets/mail/ca.crt" && rm -f "$W/ca-mail.crt"
   if [ -z "$GO_CACHE" ]; then GO_CACHE=$PREFIX-gomod; GO_CACHE_OWN=1; $D volume create "$GO_CACHE" >/dev/null; fi
   say "render (tools/render_backup.py, tools/render_idp.py — recipient của lượt diễn tập qua biến môi trường)"
   MG_BACKUP_RECOVERY_RECIPIENT=$RECIPIENT python3 "$ROOT/tools/render_backup.py" "$ENVFILE" "$W/core" --image "$BACKUP_IMAGE"
@@ -467,7 +476,7 @@ down() {
   $D rm -f "$PREFIX-src-pg" "$PREFIX-restore-pg" > /dev/null 2>&1
   for v in "$PREFIX-edge-data" "$PREFIX-edge-restored" "$PREFIX-idp_idp-db-data"; do $D volume rm "$v" > /dev/null 2>&1; done
   [ "$GO_CACHE_OWN" = 1 ] && $D volume rm "$GO_CACHE" > /dev/null 2>&1
-  for n in edge data egress idp-data idp prep; do $D network rm "$PREFIX-$n" > /dev/null 2>&1; done
+  for n in edge data egress idp-data idp mail prep; do $D network rm "$PREFIX-$n" > /dev/null 2>&1; done
   [ -d "$W/keys" ] && shred -u "$W/keys/identity" "$W/keys/other" 2> /dev/null
   sudo rm -rf "$W"
   echo "còn lại: $($D ps -a --filter "name=$PREFIX" -q | wc -l) container, $($D network ls --filter "name=$PREFIX" -q | wc -l) network, $($D volume ls --filter "name=$PREFIX" -q | wc -l) volume"

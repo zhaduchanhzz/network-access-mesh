@@ -1,0 +1,11 @@
+# Ghép SAU compose.idp.test.yaml khi IdP được render với MG_IDP_MAIL_SINK=mailrelay (P3-T05b-mail — staging từ
+# 2026-11-18): network `mail` (external, dùng chung với cầu SMTP trên host thật) đổi sang network riêng của lượt thử,
+# và CA nội bộ của mailrelay đổi sang một CA thử trong thư mục làm việc. CHỈ cho máy dev/CI (tests/backup/drill.sh).
+services: {}
+secrets:
+  idp_mailrelay_ca:
+    file: ${MGT_WORK}/secrets/mail/ca.crt
+networks:
+  mail:
+    name: ${MGT_PREFIX}-mail
+    external: true
