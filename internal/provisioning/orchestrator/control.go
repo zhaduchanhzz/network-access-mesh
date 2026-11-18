@@ -165,6 +165,12 @@ func (c *Control) Cancel(ctx context.Context, actor, jobID uuid.UUID, idem *Idem
 				return out, err
 			}
 		}
+		if r.Event == jobs.EventCancelQueued && rec.Kind == ReconfigureKind {
+			// P3-T13: a reconfiguration that never ran — its audit operation closes .failed (cancelled).
+			if err := failCancelledReconfigure(ctx, tx, rec); err != nil {
+				return out, err
+			}
+		}
 		if !out.Changed {
 			return out, nil
 		}

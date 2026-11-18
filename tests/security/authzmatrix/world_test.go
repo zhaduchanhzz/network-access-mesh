@@ -28,6 +28,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/approvalsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/auditapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/authzhook"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/backupapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/devicesapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/hostsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/idpconsoleapi"
@@ -37,6 +38,8 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/monitoringapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/notificationsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/provisioningapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/reconfigureapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/relayapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/tenantsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/idp/console"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/jobs"
@@ -45,8 +48,10 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/monitoring"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/notifications"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/platform"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/backup"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/lifecycle"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/orchestrator"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/relay"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/secrets"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store/storetest"
@@ -120,6 +125,12 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 			func(context.Context, *store.Tx, approvals.Execution, console.Payload) (*uuid.UUID, error) {
 				return nil, nil
 			}),
+		// the restore of P3-T11 (apps/internal/runner registers the executing action — here a no-op)
+		approvals.Typed(approvals.Spec{Name: backup.ActionRestore, Scope: authz.ScopePlatform, ResourceType: "instance",
+			Permission: "platform.instance:restore", DecideConditions: []string{authz.CondRestoreOnly}},
+			func(context.Context, *store.Tx, approvals.Execution, backup.RestorePayload) (*uuid.UUID, error) {
+				return nil, nil
+			}),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -130,6 +141,11 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 	}
 	// Provisioning (P3-T05): the api side of the Tenant Orchestrator — tenant creation (steps 1–2, no worker here: the
 	// job stays queued) and the job controls, with the api's quota checks as apps/* wires them.
+	// Relay (P3-T05c): the api side of the RelayService — reads only (no Prober), as apps/* wires it.
+	relays, err := relay.New(w.Store, relay.Config{Logger: log, Registerer: prometheus.NewRegistry()})
+	if err != nil {
+		t.Fatal(err)
+	}
 	creator, err := orchestrator.NewCreator(orchestrator.CreatorConfig{Store: w.Store, Secrets: m.sec,
 		Quota: usage.NewChecker(w.Store), QuotaTx: usage.TenantCreationTx, BaseDomain: "mesh.test"})
 	if err != nil {
@@ -144,6 +160,8 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 		Approvals:   approvalsapi.New(appr),
 		Invitations: invitationsapi.New(dir, authz.GuardInvitationRole),
 		IdPConsole:  idpconsoleapi.New(appr), // P3-T15: the Keycloak console session (always 2P)
+		// Backup/restore (P3-T11): the api side — enqueue a backup, a 2P restore request, the backup book
+		Backups: backupapi.New(backup.New(w.Store, backup.Config{Logger: log}), appr),
 
 		// Notifications (P3-T05b, notificationsapi over notifications.Reader — reads the caller's own rows only).
 		Notifications: notificationsapi.New(notifications.NewReader(w.Store)),
@@ -151,6 +169,10 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 		Provisioning:  provisioningapi.New(creator, orchestrator.NewControl(w.Store)),
 		// Lifecycle (P3-T08): suspend/resume requests of the api (no worker here: a job would stay queued)
 		Lifecycle: lifecycleapi.New(lifecycle.NewRequester(w.Store)),
+		// Relay (P3-T05c): the tenant's relays and the platform's regions, reads only
+		Relay: relayapi.New(relays),
+		// Reconfigure (P3-T13): instance.reconfigure requests of the api
+		Reconfigure: reconfigureapi.New(orchestrator.NewReconfigureService(w.Store)),
 	}
 }
 

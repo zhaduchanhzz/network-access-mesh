@@ -43,6 +43,18 @@ var catalog = map[Kind]map[string]mailTemplate{
 		LocaleEN: {"[MeshGuard] Tenant {{.tenant_name}} suspended",
 			"Tenant {{.tenant_name}} ({{.tenant_slug}}) has been suspended: devices can no longer reach each other and changes are refused until the tenant is resumed.\n\nJob ID: {{.job_id}}"},
 	},
+	KindInstanceRestored: {
+		LocaleVI: {"[MeshGuard] Control plane của tenant {{.tenant_name}} đã được khôi phục từ backup",
+			"Control plane (Headscale) của tenant {{.tenant_name}} ({{.tenant_slug}}) đã được khôi phục từ bản backup lấy lúc {{.backup_created_at}} (UTC). " +
+				"Mọi API key và pre-auth key có trong bản backup đã bị vô hiệu; thiết bị đăng ký sau thời điểm đó phải enroll lại." +
+				"{{if eq .owner_review \"required\"}}\n\nCẦN RÀ SOÁT: sổ của nền tảng cũ hơn bản backup, nên các thu hồi (thiết bị, thành viên) thực hiện sau thời điểm backup không khôi phục được. Hãy rà lại danh sách thiết bị và thành viên trong Portal; policy trong bản backup được giữ và chờ bạn duyệt lại.{{end}}" +
+				"\n\nMã job: {{.job_id}}"},
+		LocaleEN: {"[MeshGuard] The control plane of tenant {{.tenant_name}} was restored from a backup",
+			"The control plane (Headscale) of tenant {{.tenant_name}} ({{.tenant_slug}}) was restored from the backup taken at {{.backup_created_at}} (UTC). " +
+				"Every API key and pre-auth key in that backup has been invalidated; devices registered after that time must enroll again." +
+				"{{if eq .owner_review \"required\"}}\n\nREVIEW REQUIRED: the platform's records are older than the backup, so revocations (devices, members) made after the backup's time could not be restored. Review the devices and members in the Portal; the policy of the backup was kept and awaits your approval.{{end}}" +
+				"\n\nJob ID: {{.job_id}}"},
+	},
 	KindTenantResumed: {
 		LocaleVI: {"[MeshGuard] Tenant {{.tenant_name}} đã được khôi phục",
 			"Tenant {{.tenant_name}} ({{.tenant_slug}}) đã hoạt động lại; policy trước khi tạm ngưng được áp lại.\n\nMã job: {{.job_id}}"},

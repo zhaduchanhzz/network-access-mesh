@@ -60,3 +60,39 @@ func TestLoadProvisioning(t *testing.T) {
 		t.Fatalf("skip on ci: %v", errs)
 	}
 }
+
+// TestLoadProvisioningProberOnly (P3-T05c): the prober without the orchestrator — MG_PROBER_URL + MG_PROVISION_EDGE_ADDR
+// only — is valid and enables no orchestrator (relay.probe runs, tenant.provision does not); the edge address and the
+// URL are still checked; any orchestrator setting brings back the full set.
+func TestLoadProvisioningProberOnly(t *testing.T) {
+	only := map[string]string{"MG_PROBER_URL": "http://prober:8080", "MG_PROVISION_EDGE_ADDR": "10.249.0.2:443"}
+	get := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
+	p, errs := LoadProvisioning("worker", "staging", get(only))
+	if len(errs) != 0 || p.Enabled() || p.ProberURL != "http://prober:8080" || p.EdgeAddr != "10.249.0.2:443" {
+		t.Fatalf("prober only: %+v %v", p, errs)
+	}
+	for name, over := range map[string]map[string]string{
+		"no edge address":   {"MG_PROVISION_EDGE_ADDR": ""},
+		"edge not ip:port":  {"MG_PROVISION_EDGE_ADDR": "edge:443"},
+		"bad prober URL":    {"MG_PROBER_URL": "ftp://prober"},
+		"orchestrator half": {"MG_PROVISION_HEADSCALE_VERSION": "v0.29.7"},
+		"dns check set":     {"MG_PROVISION_DNS_CHECK": "resolve"},
+		"nameservers set":   {"MG_PROVISION_NAMESERVERS": "1.1.1.1"},
+		"api process":       nil,
+	} {
+		m := map[string]string{}
+		for k, v := range only {
+			m[k] = v
+		}
+		for k, v := range over {
+			m[k] = v
+		}
+		service := "worker"
+		if name == "api process" {
+			service = "api"
+		}
+		if _, errs := LoadProvisioning(service, "staging", get(m)); len(errs) == 0 {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}

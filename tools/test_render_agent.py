@@ -101,10 +101,32 @@ def main() -> int:
         check(False, "refused: unpinned headscale image", "accepted")
     except ra.ParamError:
         check(True, "refused: unpinned headscale image")
-    # the real staging env file renders (its public entry and domain)
+    # backups (P3-T11): nothing before the key ceremony; after it the recovery recipient, the manifest public key and
+    # the signing key as a file secret (never a value); a private key or one half alone is refused
+    check("MANIFEST_SIGNING_KEY" not in c and "manifest_signing_key" not in c, "no backup configuration before the ceremony")
+    rec, pub = "age19xj7cfa42y3mshtts25e4td278yhmjp5tkeeky2ryhvea4zpr4cqd9p2tx", "MCowBQYDK2VwAyEA7rQo5bebwY3AlnB9ahjZwGGUzVu39POjhZbZwbg7Wlc="
+    bc = ra.render({**ENV, "MG_BACKUP_RECOVERY_RECIPIENT": rec, "MG_BACKUP_MANIFEST_PUBKEY": pub}, IMAGE)["compose.agent.yaml"]
+    bl = bc.splitlines()
+    for want in (f"      MG_AGENT_BACKUP_RECOVERY_RECIPIENT: {rec}", f"      MG_BACKUP_MANIFEST_PUBKEY: {pub}",
+                 "      MG_AGENT_MANIFEST_SIGNING_KEY_FILE: /run/secrets/manifest_signing_key",
+                 "      - source: manifest_signing_key", "  manifest_signing_key:",
+                 "    file: /opt/meshguard/secrets/agent/manifest_signing_key"):
+        check(want in bl, f"backups: {want.strip()}")
+    check("${" not in bc, "backups: no placeholder left")
+    for name, extra in {"private key as recipient": {"MG_BACKUP_RECOVERY_RECIPIENT": "AGE-SECRET-KEY-1" + "Q" * 58, "MG_BACKUP_MANIFEST_PUBKEY": pub},
+                        "recipient without the manifest key": {"MG_BACKUP_RECOVERY_RECIPIENT": rec},
+                        "manifest key without recipient": {"MG_BACKUP_MANIFEST_PUBKEY": pub},
+                        "manifest key not Ed25519": {"MG_BACKUP_RECOVERY_RECIPIENT": rec, "MG_BACKUP_MANIFEST_PUBKEY": "abc"}}.items():
+        try:
+            ra.render({**ENV, **extra}, IMAGE)
+            check(False, f"refused: {name}", "accepted")
+        except ra.ParamError:
+            check(True, f"refused: {name}")
+    # the real staging env file renders (its public entry and domain — and its ceremony keys: backups enabled)
     staging = ra.ROOT / "infrastructure" / "environments" / "staging" / "staging.env"
     real = ra.render(mgenv.environment(staging), IMAGE)
     check("MG_AGENT_PUBLIC_ENTRY_IPV4:" in real["compose.agent.yaml"], "staging env file renders")
+    check("MG_AGENT_MANIFEST_SIGNING_KEY_FILE:" in real["compose.agent.yaml"], "staging: backups enabled (ceremony done)")
     print(f"{'FAIL' if failures else 'PASS'} test_render_agent: {failures} failure(s)")
     return 1 if failures else 0
 

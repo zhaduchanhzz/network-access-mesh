@@ -123,11 +123,13 @@ type APIKey struct {
 	KeepPrefix string
 }
 
-// Backup is a validated BackupRequest. DataKey is a secret.
+// Backup is a validated BackupRequest. DataRecipient is the X25519 public key of the backup's data key (the data key
+// itself never reaches the agent for a backup — P3-T11).
 type Backup struct {
 	Call
-	Sequence uint64
-	DataKey  []byte
+	Sequence      uint64
+	DataRecipient []byte
+	RetainFrom    uint64
 }
 
 // Restore is a validated RestoreRequest. DataKey is a secret; Policy is nil when KeepBackupPolicy.
@@ -153,6 +155,7 @@ type Reconcile struct {
 	Call
 	APIKeyTTL           time.Duration
 	RevokedMachineKeys  []string
+	DeletedMachineKeys  []string
 	Nodes               []NodeState
 	OffboardedUsers     []string
 	RestorePointIsOlder bool
@@ -619,11 +622,14 @@ func (v *Validator) Backup(r *agentv1.BackupRequest) (Backup, error) {
 	if r.GetSequence() == 0 {
 		return Backup{}, outOfBounds("sequence", "must be at least 1")
 	}
-	k, err := dataKey("data_key", r.GetDataKey())
+	k, err := dataKey("data_recipient", r.GetDataRecipient())
 	if err != nil {
 		return Backup{}, err
 	}
-	return Backup{Call: c, Sequence: r.GetSequence(), DataKey: k}, nil
+	if r.GetRetainFromSequence() > r.GetSequence() {
+		return Backup{}, outOfBounds("retain_from_sequence", "must not exceed sequence")
+	}
+	return Backup{Call: c, Sequence: r.GetSequence(), DataRecipient: k, RetainFrom: r.GetRetainFromSequence()}, nil
 }
 
 // Restore validates a RestoreRequest. The archive is always one of the same instance (path derived from the
@@ -692,6 +698,14 @@ func (v *Validator) PostRestoreReconcile(r *agentv1.PostRestoreReconcileRequest)
 	if out.RevokedMachineKeys, err = uniqueStrings("plan.revoked_machine_keys", p.GetRevokedMachineKeys(), MaxListItems,
 		machineKeyRE, "want mkey:<64 lower-case hex>"); err != nil {
 		return Reconcile{}, err
+	}
+	if out.DeletedMachineKeys, err = uniqueStrings("plan.deleted_machine_keys", p.GetDeletedMachineKeys(), MaxListItems,
+		machineKeyRE, "want mkey:<64 lower-case hex>"); err != nil {
+		return Reconcile{}, err
+	}
+	if out.RestorePointIsOlder && (len(out.RevokedMachineKeys) > 0 || len(out.DeletedMachineKeys) > 0 || len(p.GetNodes()) > 0) {
+		// §17.2 step 4 branch: PostgreSQL is older than the instance — it has no revocation list or state to impose
+		return Reconcile{}, malformed("plan", "restore_point_older_than_backup takes no revoked, deleted or desired-state node")
 	}
 	nodes := p.GetNodes()
 	if len(nodes) > MaxListItems {

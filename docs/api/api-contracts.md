@@ -84,7 +84,7 @@ Quy ước của bảng: `{t}` là viết tắt của `{tenantId}`; trong các n
 | diagnostics | 5 | P5-T08 |
 | `platform/security-events` | 6 | P6-T02a |
 | usage; billing; `platform/usage` | 6 | P6-T11 |
-| `platform/backups` | 6 | P6-T04 |
+| `platform/backups` | 3 | P3-T11, P6-T04 |
 | Gỡ ban CrowdSec (endpoint và quyền chốt trong task) | 6 | P6-T07a |
 | internal: `healthz`, `readyz`, `metrics` | 2 | P2-T01 (kiểm tra readiness bổ sung dần theo P2-T04, P2-T09) |
 | internal: `prometheus/sd` | 6 | P6-T01 |
@@ -186,9 +186,9 @@ Hành vi upstream phải được mã hóa trong adapter và ghim bằng contrac
 | Job kind | Kích hoạt | Khóa chống trùng (`dedupe_key`, chỉ áp dụng khi job đang chờ/đang chạy) | Ghi chú |
 |---|---|---|---|
 | `tenant.provision` / `tenant.suspend` / `tenant.resume` / `tenant.deprovision` | API | `tenant:<id>:lifecycle` | State machine §11; một lifecycle job tại một thời điểm cho mỗi tenant. `tenant.suspend`/`tenant.resume` (P3-T08): có compensation (`/rollback`), bước ở §11.4 |
-| `instance.reconfigure` / `instance.restart` / `instance.upgrade` | API / lịch | `instance:<id>:<kind>` | Có health gate + rollback; hai yêu cầu restart nối tiếp tạo hai lần restart |
+| `instance.reconfigure` / `instance.restart` / `instance.upgrade` | API / lịch | `instance:<id>:<kind>` | Có health gate + rollback; hai yêu cầu restart nối tiếp tạo hai lần restart. **P3-T13:** `instance.reconfigure` có compensation (`/rollback`); một job chưa kết thúc mỗi instance — yêu cầu cùng thay đổi nhận lại chính job đó, thay đổi khác ⇒ `409 reconfigure_in_progress` (không gộp lặng lẽ); thay đổi không làm đổi `config_sha256` ⇒ job kết thúc không restart |
 | `instance.quarantine` / `instance.release` | API | `instance:<id>:quarantine` | §11.4; `release` chỉ chạy sau phê duyệt 2P |
-| `instance.backup` | Lịch | `instance:<id>:backup:<slot>` | §17.1 |
+| `instance.backup` | Lịch; API `POST /platform/instances/{id}/backup` (P3-T11) | `instance:<id>:backup:<slot>` | §17.1. Hiện thực (P3-T11): chu kỳ theo plan — `PlanLimits.backup_interval_minutes` của subscription còn hiệu lực (override của subscription trước), kẹp trong 15 phút…24 giờ; tenant không có subscription ⇒ `MG_BACKUP_INTERVAL` (mặc định 1 giờ); `<slot>` = `<phút>m-<số chu kỳ>`, mỗi instance một độ lệch riêng trong chu kỳ (hash của id); job từ API dùng `<slot>` = `api` (đang chờ hoặc đang chạy ⇒ trả lại đúng job đó) |
 | `instance.restore` | API (sau phê duyệt 2P) | `instance:<id>:restore` | §17.2; khóa không chứa `<slot>` của backup; chờ job backup đang chạy của cùng instance kết thúc rồi mới bắt đầu |
 | `apikey.rotate` | Lịch (trước hạn ≥ 14 ngày) | `instance:<id>:apikey:<period>` | Tạo key mới → kiểm tra → expire key cũ. **P3-T10:** lịch đọc registry mỗi 5 phút; key còn ≤ 21 ngày (14 ngày của §16.3 + một tuần thử lại) hoặc chưa ghi hạn ⇒ tối đa một job mỗi chu kỳ 24 giờ của instance (`<period>` = số thứ tự chu kỳ, lệch theo hash `instance_id`); bỏ qua instance `quarantined`/`removed`/không chạy, tenant ngoài `provisioning`/`active`/`suspended` và tenant có job nhóm lifecycle đang chạy; theo yêu cầu: `meshguard-worker admin apikey-rotate --tenant … [--force]` |
 | `backup.purge` (từ P6-T04) | Lịch (tenant đã xóa, hết retention) | `instance:<id>:purge` | Bản offsite của tenant đã xóa được xóa bằng lifecycle rule của kho (ưu tiên) hoặc do người vận hành xóa bằng credential riêng giữ **ngoài host** — `backup-shipper` chỉ có quyền append; job này **xác minh** bằng cách liệt kê kho (credential chỉ liệt kê): không còn object/snapshot nào của `instance_id`, rồi cập nhật `backups`, ghi audit, và cảnh báo nếu quá hạn mà dữ liệu vẫn còn |
@@ -205,6 +205,7 @@ Hành vi upstream phải được mã hóa trong adapter và ghim bằng contrac
 | `enrollment.reconcile` | Lịch | `tenant:<id>:enroll:<slot>` | Đối chiếu key đã dùng/hết hạn; chuyển request quá hạn (chờ duyệt hoặc chờ `issue` 24 giờ; mã 10 phút) sang `expired` |
 | `usage.collect` | Lịch (hằng ngày) | `tenant:<id>:usage:<date>` | Ghi `usage_records` |
 | `health.probe` | Lịch | `instance:<id>:health:<slot>` | Cập nhật `tenant_instances.last_health` |
+| `relay.probe` (P3-T05c) | Lịch (mỗi 5 phút, lệch theo hash của region; region chưa từng probe ⇒ ngay ở lượt lịch đầu tiên thấy nó) | `relay:<region>:probe:<slot>` | Chỉ region `embedded` đang `active` có instance đang chạy: Prober `Relay` (`GET /derp/probe` qua listener công khai của edge + STUN binding tới địa chỉ STUN của region) ⇒ cập nhật `relay_regions.last_probe`/`last_probe_at`; probe không chạy được (prober không tới được, đích ngoài allow-list) ⇒ job lỗi, không ghi gì; chỉ chạy khi worker có `MG_PROBER_URL` (+ `MG_PROVISION_EDGE_ADDR` — được đặt riêng, không cần orchestrator); theo yêu cầu: `meshguard-worker admin relay-probe --tenant …` |
 | `job.reaper` | Lịch (mỗi phút) | theo slot | Job `running` đã quá `timeout_at`, hoặc job mà queue đã loại bỏ ⇒ job nhóm lifecycle: `failed_resumable` (vẫn giữ khóa chạy tới khi `/retry` hoặc `/rollback`), job khác: `failed`; phát cảnh báo |
 | `grant.expire` / `session.gc` / `retention.sweep` | Lịch | theo slot | Dọn dẹp theo giá trị retention ở §6.4 |
 

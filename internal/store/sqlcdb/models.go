@@ -68,21 +68,27 @@ type AuthRequest struct {
 }
 
 type Backup struct {
-	ID               uuid.UUID
-	TenantID         *uuid.UUID
-	InstanceID       *uuid.UUID
-	Kind             string
-	Status           string
-	StorageUri       string
-	SizeBytes        *int64
-	Sha256           *string
-	KeyRef           *string
-	HeadscaleVersion *string
-	StartedAt        time.Time
-	FinishedAt       *time.Time
-	ExpiresAt        *time.Time
-	VerifiedAt       *time.Time
-	JobID            *uuid.UUID
+	ID                uuid.UUID
+	TenantID          *uuid.UUID
+	InstanceID        *uuid.UUID
+	Kind              string
+	Status            string
+	StorageUri        string
+	SizeBytes         *int64
+	Sha256            *string
+	KeyRef            *string
+	HeadscaleVersion  *string
+	StartedAt         time.Time
+	FinishedAt        *time.Time
+	ExpiresAt         *time.Time
+	VerifiedAt        *time.Time
+	JobID             *uuid.UUID
+	Sequence          *int64
+	WrappedDataKey    []byte
+	Manifest          []byte
+	ManifestSignature []byte
+	ManifestSha256    *string
+	Method            *string
 }
 
 type DeviceInventoryCache struct {
@@ -358,6 +364,8 @@ type RelayRegion struct {
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 	Version      int64
+	LastProbe    []byte
+	LastProbeAt  *time.Time
 }
 
 type Role struct {

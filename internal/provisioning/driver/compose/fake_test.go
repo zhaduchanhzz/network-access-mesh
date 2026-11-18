@@ -45,6 +45,9 @@ type fakeEngine struct {
 	runErr, execErr error
 	createOutput    []byte
 	starts          chan struct{}
+	// imageVersion is the version label of every image; offline records the policies set by the offline policy helper.
+	imageVersion string
+	offline      [][]byte
 }
 
 // fakeHS is the state of the Headscale CLI of one instance.
@@ -242,6 +245,12 @@ func (f *fakeEngine) StopContainer(_ context.Context, name string, _ time.Durati
 	return nil
 }
 
+func (f *fakeEngine) ImageVersion(context.Context, string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.imageVersion, nil
+}
+
 func (f *fakeEngine) EnsureImage(_ context.Context, ref string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -316,6 +325,10 @@ func (f *fakeEngine) RunOnce(_ context.Context, s OneShot) (OneShotResult, error
 			return OneShotResult{ExitCode: 1}, nil
 		}
 		return OneShotResult{Stdout: []byte(fp + "\n")}, nil
+	case len(s.Entrypoint) == 1 && s.Entrypoint[0] == HelperBinary && len(s.Cmd) == 1 && s.Cmd[0] != FingerprintCommand:
+		return f.backupHelper(s, src)
+	case len(s.Cmd) > 1 && s.Cmd[0] == "policy":
+		return f.offlinePolicy(s, src)
 	case slices.Equal(s.Cmd, []string{"configtest"}):
 		cfg, err := os.ReadFile(filepath.Join(src["/etc/headscale"], "config.yaml"))
 		if err != nil {
@@ -428,7 +441,7 @@ func headscaleStarts(dir, user string) error {
 	for _, f := range []struct {
 		name    string
 		content []byte
-	}{{"noise_private.key", newNoiseKey()}, {"derp_server_private.key", newNoiseKey()}, {"db.sqlite", []byte("SQLite format 3")}} {
+	}{{"noise_private.key", newNoiseKey()}, {"derp_server_private.key", newNoiseKey()}, {"db.sqlite", validDB()}} {
 		p := filepath.Join(data, f.name)
 		if _, err := os.Lstat(p); err == nil {
 			continue

@@ -17,6 +17,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/approvalsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/auditapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/authzhook"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/backupapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/devicesapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/hostsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/identityapi"
@@ -27,6 +28,8 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/monitoringapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/notificationsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/provisioningapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/reconfigureapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/relayapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/tenantsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/identity"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/idp"
@@ -35,8 +38,10 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/monitoring"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/notifications"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/platform"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/backup"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/lifecycle"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/orchestrator"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/relay"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/usage"
 )
@@ -65,7 +70,9 @@ import (
 //	                 (invitationsapi over tenants + authz.GuardInvitationRole), IdPConsole (idpconsoleapi over
 //	                 approvals — P3-T15), Provisioning (provisioningapi over orchestrator.Creator — steps 1–2 of
 //	                 tenant.provision with usage's quota checks — and orchestrator.Control, P3-T05), Lifecycle
-//	                 (lifecycleapi over lifecycle.Requester — suspend/resume, P3-T08)
+//	                 (lifecycleapi over lifecycle.Requester — suspend/resume, P3-T08), Relay (relayapi over relay —
+//	                 the tenant's relays and the platform's regions with the last probe, reads only, P3-T05c),
+//	                 Reconfigure (reconfigureapi over orchestrator.ReconfigureService — instance.reconfigure, P3-T13)
 //	maintenance      the gate of P3-T17 (MG_MAINTENANCE OR system_settings maintenance, polled): 503 maintenance to
 //	                 everything but the platform sign-in on admin.<domain> (httpapi.Options.Maintenance)
 //	readiness        postgres, secretstore, edge_admin (§16.2)
@@ -111,13 +118,18 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 	if err != nil {
 		return nil, err
 	}
-	actions, err := approvalActions()
+	backups := backup.New(d.st, backup.Config{Logger: log}) // P3-T11: the api enqueues; the worker runs the jobs
+	actions, err := approvalActions(backups)
 	if err != nil {
 		return nil, err
 	}
 	authorizer := authz.New(d.st)
 	appr, err := approvals.New(d.st, approvals.Config{Approvers: authorizer, Registry: actions, Security: auditLog,
 		Logger: log})
+	if err != nil {
+		return nil, err
+	}
+	relays, err := relay.New(d.st, relay.Config{Logger: log, Registerer: reg}) // reads only — the worker probes
 	if err != nil {
 		return nil, err
 	}
@@ -149,11 +161,14 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 			Monitoring:    monitoringapi.New(mon),
 			Notifications: notificationsapi.New(notifications.NewReader(d.st)),
 			Approvals:     approvalsapi.New(appr),
+			Backups:       backupapi.New(backups, appr),
 			Invitations:   invitationsapi.New(d.tenants, authz.GuardInvitationRole),
 			Hosts:         hostsapi.New(platform.New(d.st)),
 			IdPConsole:    idpconsoleapi.New(appr),
 			Provisioning:  provisioningapi.New(creator, orchestrator.NewControl(d.st)),
 			Lifecycle:     lifecycleapi.New(lifecycle.NewRequester(d.st)),
+			Relay:         relayapi.New(relays),
+			Reconfigure:   reconfigureapi.New(orchestrator.NewReconfigureService(d.st)),
 		},
 	})
 	if err != nil {
@@ -180,8 +195,8 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 // theirs — deprovision (P3-T09), restore (P3-T11), release (P3-T18), Super Admin role and tenant IdP changes (P4-T03a),
 // break-glass (P4-T13). A request of an action not registered here can be read and rejected, never approved (409
 // action_unavailable).
-func approvalActions() (*approvals.Registry, error) {
-	return approvals.NewRegistry(consoleSessionAction())
+func approvalActions(backups *backup.Service) (*approvals.Registry, error) {
+	return approvals.NewRegistry(consoleSessionAction(), restoreAction(backups))
 }
 
 // consoleSessionAction executes an approved console session (P3-T15, §8.2 (3)): the executed request IS the session —

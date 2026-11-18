@@ -42,4 +42,10 @@
 //
 // Nothing here logs or returns a credential: the API key exists only between the agent's response and the SecretStore,
 // IdP secrets only as mgsec:// references.
+//
+// instance.reconfigure (P3-T13, reconfigure.go): a new configuration version of a running instance — validated,
+// recorded `pending`, written, restarted, behind the health gate and the post-start gate of §11.4 — rolled back to the
+// previous version when it does not come up (InstanceReconfigurer, jobs.Handler + jobs.Compensator); its API side is
+// ReconfigureService (POST /platform/instances/{instanceId}/reconfigure) and EnqueueReconfigure, the internal entry
+// point of the Phase 4 operations that change a setting rendered into the instance's configuration.
 package orchestrator

@@ -78,7 +78,7 @@ flowchart TD
   C8a --> C11 --> C09[P3-T09 deprovision] --> C14
   C4a --> C09
   G3 --> D01[P4-T01 web shell] --> D04[P4-T04 devices UI]
-  G3 --> D05[P4-T05 migrations 0021–0024] --> D06[P4-T06 enrollment] --> D07[P4-T07 web-auth gate]
+  G3 --> D05[P4-T05 migrations 0020–0023] --> D06[P4-T06 enrollment] --> D07[P4-T07 web-auth gate]
   D05 --> D09[P4-T09 users/groups] --> D10[P4-T10 policies] --> D11[P4-T11 policy UI]
   D04 --> D10a[P4-T10a báo cáo G4a] --> G4a{{G4a}}
   D07 --> D10a

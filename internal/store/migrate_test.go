@@ -29,7 +29,7 @@ func TestMigrationsUpWithData(t *testing.T) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	defer e.lockCluster(t)()
-	for _, v := range migrationVersions(t) {
+	for _, v := range migrationVersions() {
 		if err := MigrateTo(ctx, mig, v); err != nil {
 			t.Fatalf("migration %04d on a database with data: %v", v, err)
 		}
@@ -243,14 +243,14 @@ func TestMigrationsShareClusterRoles(t *testing.T) {
 	}
 }
 
-// TestMigration0020WorkerRevokesSessions — P3-T17, migration 0020 (provisional number; a grant only): before it the
-// worker's platform role (session.gc: SELECT, DELETE) cannot revoke a session; after it it revokes one — revoked_at and
-// the logout hint, exactly the columns of the identity module's revocation — and still cannot touch any other column
-// (the expiry, the identity) nor insert one; the api's role is unchanged.
-func TestMigration0020WorkerRevokesSessions(t *testing.T) {
+// TestMigration0018WorkerRevokesSessions — P3-T17, migration 0018 (a grant only): before it the worker's platform role
+// (session.gc: SELECT, DELETE) cannot revoke a session; after it it revokes one — revoked_at and the logout hint,
+// exactly the columns of the identity module's revocation — and still cannot touch any other column (the expiry, the
+// identity) nor insert one; the api's role is unchanged.
+func TestMigration0018WorkerRevokesSessions(t *testing.T) {
 	e := requireDB(t)
 	ctx := ctxT(t)
-	db := e.newDatabase(t, 15)
+	db := e.newDatabase(t, 17)
 	su := e.connectAdmin(t, db)
 	mig, err := OpenMigrator(e.storeURL(db), e.creds(t, "mg_migrator"))
 	if err != nil {
@@ -258,7 +258,7 @@ func TestMigration0020WorkerRevokesSessions(t *testing.T) {
 	}
 	defer func() { _ = mig.Close() }()
 	f := newFixture()
-	for v := int64(1); v <= 15; v++ {
+	for v := int64(1); v <= 17; v++ {
 		fixtureSteps[v](f, t, su)
 	}
 	hash := "session-" + f.sfx // the 0002 fixture session
@@ -266,17 +266,17 @@ func TestMigration0020WorkerRevokesSessions(t *testing.T) {
 		WHERE id_hash = sha256(convert_to($1, 'UTF8')) AND revoked_at IS NULL`
 	worker := e.connectAs(t, db, "mg_worker_platform")
 	_, err = worker.Exec(ctx, revoke, hash)
-	wantSQLState(t, "mg_worker_platform revokes a session before 0020", err, "42501")
+	wantSQLState(t, "mg_worker_platform revokes a session before 0018", err, "42501")
 	_ = worker.Close(ctx)
-	if err := MigrateTo(ctx, mig, 20); err != nil {
-		t.Fatalf("0020: %v", err)
+	if err := MigrateTo(ctx, mig, 18); err != nil {
+		t.Fatalf("0018: %v", err)
 	}
-	if v, err := SchemaVersion(ctx, mig); err != nil || v != 20 {
-		t.Fatalf("schema version = %d (%v), want 20", v, err)
+	if v, err := SchemaVersion(ctx, mig); err != nil || v != 18 {
+		t.Fatalf("schema version = %d (%v), want 18", v, err)
 	}
 	worker = e.connectAs(t, db, "mg_worker_platform")
 	if tag, err := worker.Exec(ctx, revoke, hash); err != nil || tag.RowsAffected() != 1 {
-		t.Fatalf("mg_worker_platform revokes a session after 0020: %v (%d rows)", err, tag.RowsAffected())
+		t.Fatalf("mg_worker_platform revokes a session after 0018: %v (%d rows)", err, tag.RowsAffected())
 	}
 	for name, sql := range map[string]string{
 		"extends a session":             `UPDATE sessions SET absolute_expires_at = now() + interval '1 day' WHERE id_hash = sha256(convert_to($1, 'UTF8'))`,

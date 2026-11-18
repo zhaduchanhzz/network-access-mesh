@@ -152,34 +152,36 @@ func (q *Queries) GetTenantPolicyState(ctx context.Context, tenantID uuid.UUID) 
 	return desired_policy_version_id, err
 }
 
-const insertHuJSONPolicyVersion = `-- name: InsertHuJSONPolicyVersion :one
+const insertAdoptedPolicyVersion = `-- name: InsertAdoptedPolicyVersion :one
 INSERT INTO policy_versions (tenant_id, version, kind, source_hujson, content_sha256, state, validation_report,
-                             parent_version_id, approved_at, approved_content_sha256)
-VALUES ($1, $2, $3, $4, $5,
-        'approved', $6, $7, now(), $5)
+                             parent_version_id)
+VALUES ($1, $2, 'user', $3, $4,
+        $5, $6, $7)
 RETURNING id, tenant_id, version, revision, kind, source, source_hujson, content_sha256, state, validation_report, parent_version_id, rollback_of, created_by, submitted_by, submitted_at, approved_by, approved_at, approved_content_sha256, review_mode, rejected_by, rejected_at, rejected_reason, created_at, updated_at
 `
 
-type InsertHuJSONPolicyVersionParams struct {
+type InsertAdoptedPolicyVersionParams struct {
 	TenantID         uuid.UUID
 	Version          int32
-	Kind             string
 	SourceHujson     *string
 	ContentSha256    string
+	State            string
 	ValidationReport []byte
 	ParentVersionID  *uuid.UUID
 }
 
-// Version do nền tảng phát hành (baseline/suspension/fixture — kind baseline|suspension): hệ thống duyệt ngay
-// (approved_by NULL, review_mode NULL — CHECK của 0013 chỉ đòi người duyệt với kind user). content_sha256 = sha256 của
-// đúng chuỗi source_hujson (DB kiểm).
-func (q *Queries) InsertHuJSONPolicyVersion(ctx context.Context, arg InsertHuJSONPolicyVersionParams) (PolicyVersion, error) {
-	row := q.db.QueryRow(ctx, insertHuJSONPolicyVersion,
+// P3-T17 (§17.2, đối soát sau restore PostgreSQL — khác InsertImportedPolicyVersion của restore một instance, P3-T11):
+// chuỗi policy ĐANG CHẠY trên Headscale, mới hơn bản DB vừa restore biết, nhập lại thành version kind user ở trạng thái
+// validated (lint đạt) hoặc draft (lint không đạt) — không bao giờ approved: chỉ Owner/Admin duyệt được nó (§7.3), nên
+// không job nào áp nó thay người. content_sha256 = sha256 của đúng chuỗi source_hujson (DB kiểm); parent = version
+// mong muốn trước đó.
+func (q *Queries) InsertAdoptedPolicyVersion(ctx context.Context, arg InsertAdoptedPolicyVersionParams) (PolicyVersion, error) {
+	row := q.db.QueryRow(ctx, insertAdoptedPolicyVersion,
 		arg.TenantID,
 		arg.Version,
-		arg.Kind,
 		arg.SourceHujson,
 		arg.ContentSha256,
+		arg.State,
 		arg.ValidationReport,
 		arg.ParentVersionID,
 	)
@@ -213,35 +215,34 @@ func (q *Queries) InsertHuJSONPolicyVersion(ctx context.Context, arg InsertHuJSO
 	return i, err
 }
 
-const insertImportedPolicyVersion = `-- name: InsertImportedPolicyVersion :one
+const insertHuJSONPolicyVersion = `-- name: InsertHuJSONPolicyVersion :one
 INSERT INTO policy_versions (tenant_id, version, kind, source_hujson, content_sha256, state, validation_report,
-                             parent_version_id)
-VALUES ($1, $2, 'user', $3, $4,
-        $5, $6, $7)
+                             parent_version_id, approved_at, approved_content_sha256)
+VALUES ($1, $2, $3, $4, $5,
+        'approved', $6, $7, now(), $5)
 RETURNING id, tenant_id, version, revision, kind, source, source_hujson, content_sha256, state, validation_report, parent_version_id, rollback_of, created_by, submitted_by, submitted_at, approved_by, approved_at, approved_content_sha256, review_mode, rejected_by, rejected_at, rejected_reason, created_at, updated_at
 `
 
-type InsertImportedPolicyVersionParams struct {
+type InsertHuJSONPolicyVersionParams struct {
 	TenantID         uuid.UUID
 	Version          int32
+	Kind             string
 	SourceHujson     *string
 	ContentSha256    string
-	State            string
 	ValidationReport []byte
 	ParentVersionID  *uuid.UUID
 }
 
-// P3-T17 (§17.2 bước 4): chuỗi policy ĐANG CHẠY trên Headscale, mới hơn bản DB vừa restore biết, nhập lại thành version
-// kind user ở trạng thái validated (lint đạt) hoặc draft (lint không đạt) — không bao giờ approved: chỉ Owner/Admin
-// duyệt được nó (§7.3), nên không job nào áp nó thay người. content_sha256 = sha256 của đúng chuỗi source_hujson (DB
-// kiểm); parent = version mong muốn trước đó.
-func (q *Queries) InsertImportedPolicyVersion(ctx context.Context, arg InsertImportedPolicyVersionParams) (PolicyVersion, error) {
-	row := q.db.QueryRow(ctx, insertImportedPolicyVersion,
+// Version do nền tảng phát hành (baseline/suspension/fixture — kind baseline|suspension): hệ thống duyệt ngay
+// (approved_by NULL, review_mode NULL — CHECK của 0013 chỉ đòi người duyệt với kind user). content_sha256 = sha256 của
+// đúng chuỗi source_hujson (DB kiểm).
+func (q *Queries) InsertHuJSONPolicyVersion(ctx context.Context, arg InsertHuJSONPolicyVersionParams) (PolicyVersion, error) {
+	row := q.db.QueryRow(ctx, insertHuJSONPolicyVersion,
 		arg.TenantID,
 		arg.Version,
+		arg.Kind,
 		arg.SourceHujson,
 		arg.ContentSha256,
-		arg.State,
 		arg.ValidationReport,
 		arg.ParentVersionID,
 	)

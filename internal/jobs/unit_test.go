@@ -27,7 +27,7 @@ var planKinds = []string{
 	"instance.reconfigure", "instance.restart", "instance.upgrade", "instance.quarantine", "instance.release",
 	"instance.backup", "instance.restore", "apikey.rotate", "backup.purge", "inventory.sync", "device.revoke",
 	"policy.apply", "policy.drift_check", "instance.reconcile", "host.reconcile", "instance.oidc_check", "partition.maintain",
-	"notification.send", "idp.audit_sync", "enrollment.reconcile", "usage.collect", "health.probe", "job.reaper",
+	"notification.send", "idp.audit_sync", "enrollment.reconcile", "usage.collect", "health.probe", "relay.probe", "job.reaper",
 	"grant.expire", "session.gc", "retention.sweep",
 }
 

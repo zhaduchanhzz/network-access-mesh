@@ -558,6 +558,8 @@ def run_all(r, st: Stack, guarded) -> None:
     """Run E2E-17 … E2E-31 in order (each later check builds on the state of the earlier ones)."""
     import asvs2  # noqa: PLC0415 — imports this module
     import orchestrator  # noqa: PLC0415 — imports this module
+    import reconfigure  # noqa: PLC0415 — imports this module
+    import relayread  # noqa: PLC0415 — imports this module
     state = json.loads((st.work / "state" / "backend.json").read_text(encoding="utf-8")) \
         if (st.work / "state" / "backend.json").exists() else {}
     guarded(r, "E2E-17", check_ready, st, state)
@@ -569,6 +571,8 @@ def run_all(r, st: Stack, guarded) -> None:
             guarded(r, "E2E-23", check_devices, st, state)
         guarded(r, "E2E-24", check_platform, st, state)
         orchestrator.run_all(r, st, guarded, state)   # E2E-46, E2E-47: Tenant Orchestrator API (P3-T05)
+        relayread.run_all(r, st, guarded, state)      # E2E-65, E2E-66: relay read model + relay probe (P3-T05c)
+        reconfigure.run_all(r, st, guarded, state)    # E2E-63, E2E-64: instance.reconfigure API (P3-T13)
         asvs2.run_all(r, st, guarded)        # E2E-26 … E2E-31: fixes of the G2 review, round 2 (OWASP ASVS)
     guarded(r, "E2E-25", check_audit, st)
 

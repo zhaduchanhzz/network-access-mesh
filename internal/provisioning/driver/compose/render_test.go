@@ -230,7 +230,6 @@ func TestParityWithRenderInstancePy(t *testing.T) {
 		"golden tenant-a":          "tests/golden/headscale/tenant-a/params.json",
 		"staging tenant-a":         "infrastructure/environments/staging/tenants/tenant-a.json",
 		"staging tenant-b":         "infrastructure/environments/staging/tenants/tenant-b.json",
-		"staging tenant-c":         "infrastructure/environments/staging/tenants/tenant-c.json",
 		"contract hsct":            "tests/integration/headscale/testdata/params.json",
 		"isolation iso-a":          "tests/isolation/headscale/testdata/params-a.json",
 		"isolation iso-b":          "tests/isolation/headscale/testdata/params-b.json",

@@ -11,7 +11,7 @@
 //  1. maintenance: the persisted flag (system_settings `maintenance`) is set ON in the restored database with the
 //     post_restore record (status running) — dropping the startup switch MG_MAINTENANCE can no longer reopen the API
 //     before the run finished and was reviewed; audited platform.restore.reconcile.requested;
-//  2. revocations: every session created before cutoff revoked (sessions.revoked_at, migration 0020), the auth requests
+//  2. revocations: every session created before cutoff revoked (sessions.revoked_at, migration 0018), the auth requests
 //     of the dump deleted; every approval request still open (pending, approved not executed) and every executed
 //     Keycloak console session still in its window expired; every pending invitation revoked; support access grants
 //     do not exist yet in the schema (P4-T05) — a schema that has them makes the run refuse to start (fail closed);

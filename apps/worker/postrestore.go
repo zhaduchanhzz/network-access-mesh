@@ -7,7 +7,7 @@ package main
 //	docker compose -p mg-app exec -T worker /usr/local/bin/meshguard admin post-restore-reconcile \
 //	    --restore-point <started_at of the dump's manifest, RFC 3339> [--dry-run]
 //
-// It needs the worker's roles (sessions — migration 0020 —, invitations, policy applications), its SecretStore
+// It needs the worker's roles (sessions — migration 0018 —, invitations, policy applications), its SecretStore
 // (kek-app: the instances' API keys), the edge admin listener (Headscale) and the Host Agent (MG_AGENT_* — the
 // inventory of the host and BootstrapApiKey); without the agent the instance and key steps are reported incomplete.
 //

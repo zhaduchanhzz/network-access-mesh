@@ -800,7 +800,7 @@ func TestEdgeSupervisor(t *testing.T) {
 		t.Fatalf("events %v", ev)
 	}
 	// the flag is gone: never re-attached by the supervisor, even once data/ is back
-	_ = os.WriteFile(filepath.Join(rg.idir, "data", "db.sqlite"), []byte("SQLite format 3"), 0o600)
+	_ = os.WriteFile(filepath.Join(rg.idir, "data", "db.sqlite"), validDB(), 0o600)
 	cycle()
 	if rg.edgeOn("mg-t-acme") {
 		t.Fatal("re-attached without the flag")

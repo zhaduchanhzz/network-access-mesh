@@ -194,7 +194,9 @@ Sau khi restore (dump đêm — RPO 24 giờ tới P6-T03 —, hoặc bộ `pre-
 trạng thái thật của các instance: session, support grant, phê duyệt, lời mời bị thu hồi trong khoảng mất dữ liệu sống
 lại; tenant tạo trong khoảng đó chỉ còn trên host; API key xoay trong khoảng đó không còn trong SecretStore; policy áp
 trong khoảng đó mới hơn bản DB biết. Headscale vẫn phục vụ client suốt quá trình (§17.4) và **là nguồn đúng** cho node,
-key và policy đang hiệu lực (§6.4). Thiết kế, kết quả diễn tập và giới hạn: [P3-T17](../planning/evidence/P3-T17.md).
+key và policy đang hiệu lực (§6.4). Thiết kế, kết quả diễn tập và giới hạn: [P3-T17](../planning/evidence/P3-T17.md). Mục này là restore **PostgreSQL**
+— các instance giữ nguyên; restore **một instance Headscale** từ backup của nó (P3-T11, 2P
+`POST /platform/instances/{id}/restore`, §17.2) là thao tác khác, làm sau khi đã tắt bảo trì.
 
 **Chế độ bảo trì** (api: `503 maintenance` + `Retry-After: 60` cho mọi request — kể cả cổng console Keycloak — trừ đăng
 nhập platform trên `admin.<domain>`; worker: không job nào của hàng đợi chạy, không lịch nào enqueue) bật khi **một
@@ -254,7 +256,7 @@ Mã thoát của `post-restore-reconcile`: `0` hoàn tất (báo cáo vẫn có 
 bước và đối tượng không làm được (Agent không cấu hình/không tới được, instance không tới được, key không cấp lại được) —
 sửa rồi chạy lại; `1` lỗi (cờ ghi `post_restore.status = failed` ⇒ `maintenance off` bị chặn); `2` sai cú pháp hoặc
 điểm khôi phục ở tương lai. Lệnh dùng quyền của worker (Host Agent — `MG_AGENT_*`, kek-app, policy, lời mời; migration
-0020 cho nó quyền thu hồi session) và **từ chối chạy** nếu schema đã có bảng `support_access_grants` (P4-T05) mà bản này
+0018 cho nó quyền thu hồi session) và **từ chối chạy** nếu schema đã có bảng `support_access_grants` (P4-T05) mà bản này
 chưa biết thu hồi.
 
 Các bước của lệnh (`cutoff` = đồng hồ DB lúc lệnh bắt đầu; mọi bước idempotent; `--dry-run` chỉ đọc và đếm):
@@ -284,6 +286,11 @@ Các bước của lệnh (`cutoff` = đồng hồ DB lúc lệnh bắt đầu; 
   [RUNBOOK](../../infrastructure/host/RUNBOOK.md), chỉ `--host`), rồi chạy lại bước 7.
 - `open_jobs[]` — job `queued`/`running`/`failed_resumable` của bản dump (ví dụ thông báo đã gửi sau thời điểm backup sẽ
   gửi lại): xem từng job; `/cancel` sau khi API mở lại nếu không muốn nó chạy tiếp.
+- Backup instance (P3-T11) lấy trong khoảng mất dữ liệu: archive còn trên đĩa (`backups/tenants/<instance_id>/`) nhưng
+  DB vừa restore không có hàng `backups` của nó — không restore được qua API; `sequence` theo thời gian nên lần backup
+  kế tiếp không trùng tên archive, và retention của các lần sau dọn nó như bản cũ. Nếu sau đó cần restore một instance
+  từ bản backup **mới hơn** DB vừa restore: đặt `restore_point_older_than_backup` trong yêu cầu 2P (§17.2 — Agent giữ
+  policy của archive, Owner rà lại).
 - Khi chưa có bản sao audit ngoài host (P6-T02): thông báo Owner của mọi tenant tự rà lại thành viên, thiết bị và policy
   (offboard, đổi role, hủy DEK trong khoảng `gap` không khôi phục được).
 

@@ -32,6 +32,7 @@ import idpadmin  # noqa: E402 — E2E-40 … E2E-43 (P3-T15)
 import lifecycle  # noqa: E402 — E2E-56 … E2E-58 (P3-T08)
 import phase3  # noqa: E402 — E2E-32 … E2E-36 (P3-T14a, P3-T03a, P3-T08a)
 import postrestore  # noqa: E402 — E2E-70, E2E-71 (P3-T17)
+import restore  # noqa: E402 — E2E-59, E2E-60 (P3-T11: V-11)
 from stack import CLIENTS, SECRET_RE, TENANTS, Stack, StackError, log  # noqa: E402
 
 PHASES: dict[str, float] = {}
@@ -179,8 +180,8 @@ def test(st: Stack, r: checks.Results) -> None:
         guarded(r, "E2E-14", checks.check_cross_tenant_key, st)
     with timed("ca E2E-15 (policy deny)"):
         guarded(r, "E2E-15", checks.check_deny, st, ips)
-    with timed("ca E2E-17 … E2E-25, E2E-46, E2E-47 (backend P2-T16: api/worker, edge app./admin./auth., OIDC + TOTP, adopt, "
-               "thiết bị, audit; P3-T05: tạo tenant, /cancel)"):
+    with timed("ca E2E-17 … E2E-25, E2E-46, E2E-47, E2E-63, E2E-64 (backend P2-T16: api/worker, edge app./admin./auth., "
+               "OIDC + TOTP, adopt, thiết bị, audit; P3-T05: tạo tenant, /cancel; P3-T13: reconfigure)"):
         backend.run_all(r, st, guarded)
     with timed("ca E2E-32 … E2E-36 (Phase 3: helper enrollment P3-T14a, prober P3-T03a, lõi policy P3-T08a)"):
         phase3.run_all(r, st, guarded)
@@ -188,6 +189,8 @@ def test(st: Stack, r: checks.Results) -> None:
         dualcontrol.run_all(r, st, guarded)
     with timed("ca E2E-40 … E2E-43 (Phase 3: quản trị IdP P3-T15 — idp.audit_sync, console Keycloak sau 2P)"):
         idpadmin.run_all(r, st, guarded)
+    with timed("ca E2E-59, E2E-60 (P3-T11: V-11 — restore bản chụp cũ, Noise key bị thay; restart Headscale của tenant-a)"):
+        restore.run_all(r, st, guarded)
     with timed("ca E2E-56 … E2E-58 (Phase 3: suspend/resume P3-T08 — policy suspension, TCP thật, 403 tenant_suspended)"):
         lifecycle.run_all(r, st, guarded)
     # last: E2E-71 replaces the stack's database by an older dump (restore runbook) — nothing may run after it

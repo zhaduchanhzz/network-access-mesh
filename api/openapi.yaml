@@ -68,6 +68,8 @@ tags:
     description: Job của tenant, phép chiếu an toàn (§13.3, §13.5) — P2-T12
   - name: notifications
     description: Thông báo trong Portal của chính người gọi (§13.2, §6.3 `notification_outbox`) — P3-T05b
+  - name: relay
+    description: Relay DERP của tenant — region được gán và kết quả probe kèm `checked_at`, chỉ đọc (§10, §10.6) — P3-T05c
   - name: platform
     description: Platform Console, chỉ phục vụ trên origin `admin.<domain>` (§12.2, §13.2) — P2-T08, P2-T11, P2-T12, P2-T13a
   - name: approvals
@@ -926,6 +928,74 @@ paths:
           $ref: '#/components/responses/RateLimited'
         default:
           $ref: '#/components/responses/Unexpected'
+  # ---------------------------------------------------------------- relay (P3-T05c — chỉ đọc ở MVP)
+  /tenants/{tenantId}/relay:
+    get:
+      tags: [relay]
+      operationId: getTenantRelay
+      summary: Relay DERP của tenant — region được gán và kết quả probe gần nhất kèm `checked_at`
+      description: >-
+        Relay của instance chưa `removed` của tenant (`relay_assignments` + `relay_regions`, §6.3 — bước 17
+        `relay.assign` của provisioning tạo chúng) với health của region: kết quả probe tổng hợp gần nhất của prober
+        (`GET /derp/probe` qua listener công khai của edge + STUN binding tới điểm vào công khai — job `relay.probe`),
+        `checked_at` là lúc probe bắt đầu. Không có số liệu giả (§10.6): embedded DERP không xuất metrics relay —
+        byte, throughput, số kết nối, lỗi xác thực, độ trễ phía client nằm trong `unavailable` kèm lý do. Tenant chỉ
+        lấy từ path; không nhận tham số truy vấn nào. Tenant chưa có relay nào trong registry ⇒ `assignments` rỗng.
+      x-permission: tenant.relay:read
+      x-task: P3-T05c
+      x-audit-action: relay.read
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '200':
+          description: Relay của tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantRelay'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /platform/relay-regions:
+    get:
+      tags: [platform]
+      operationId: listPlatformRelayRegions
+      summary: Relay region của nền tảng — chỉ đọc ở MVP
+      description: >-
+        Mọi region (`relay_regions`, §6.3) theo `(created_at, id)`, mỗi region kèm assignment (tenant, instance, trạng
+        thái instance) và health (cùng quy tắc với `GET /tenants/{tenantId}/relay`; region `standalone`/`shared` chưa
+        được probe ở MVP ⇒ `unknown`/`no_probe`). Ghi (`POST`/`PATCH`/`DELETE`) thuộc P7-T04. Số liệu không đo được
+        (§10.6) nằm trong `unavailable`.
+      x-permission: platform.relay:read
+      x-task: P3-T05c
+      x-audit-action: platform.relay_region.list
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Một trang relay region
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RelayRegionList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
   # ---------------------------------------------------------------- platform (đọc — P2-T08, P2-T11, P2-T12, P2-T13a)
   /platform/tenants:
     get:
@@ -1201,6 +1271,207 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  # ---------------------------------------------------------------- thao tác trên instance: reconfigure (P3-T13)
+  /platform/instances/{instanceId}/reconfigure:
+    post:
+      tags: [platform]
+      operationId: reconfigurePlatformInstance
+      summary: Đổi cấu hình instance — job instance.reconfigure (version mới, restart, health gate, tự lùi)
+      description: |-
+        §11.4 hàng Reconfigure: render version mới từ version đang hiệu lực + thay đổi yêu cầu → `configtest` (Agent,
+        container tạm) → version `pending` → `CheckPolicy` chuỗi đang áp dụng → ghi atomically → restart → health gate
+        (container healthy, `GET /api/v1/health` qua adapter, post-start gate) → `edge.verify` rút gọn → version
+        `applied`. Lỗi không phục hồi sau khi ghi ⇒ ghi lại version trước + restart + kiểm lại, version mới `failed`,
+        job `rolled_back`; lùi lỗi ⇒ `failed_resumable` (`compensation_failed`) + `security_event` Critical. Instance
+        phải `running` (quarantined ⇒ `409`) và đã có version cấu hình do orchestrator ghi (`409 no_config_version`);
+        một job reconfigure chưa kết thúc với thay đổi khác ⇒ `409`, cùng thay đổi ⇒ chính job đó. Chạy trong khóa
+        lifecycle của tenant (§13.5 (d)). Audit `platform.instance.reconfigure.requested` (worker đóng
+        `.succeeded`/`.failed`).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: platform.instance:operate
+      x-task: P3-T13
+      x-audit-action: platform.instance.reconfigure
+      parameters:
+        - $ref: '#/components/parameters/InstanceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InstanceReconfigure'
+      responses:
+        '202':
+          description: Job instance.reconfigure đã xếp hàng; theo dõi ở job
+          headers:
+            Location:
+              $ref: '#/components/headers/JobLocation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  # ---------------------------------------------------------------- platform backup/restore (P3-T11)
+  /platform/instances/{instanceId}/backup:
+    post:
+      tags: [platform]
+      operationId: backupPlatformInstance
+      summary: Backup một instance ngay — job `instance.backup` (202)
+      description: |-
+        §17.1: một job `instance.backup` (cùng job của lịch `MG_BACKUP_INTERVAL`): instance đang chạy ⇒ `VACUUM INTO`
+        trong container trợ giúp (data/ chỉ-đọc), đang dừng ⇒ cold copy; archive age mã hóa tới data key của bản backup
+        (bọc bằng khóa backup của tenant — đường online) và recovery recipient của nền tảng (đường DR); manifest ký Ed25519
+        được worker kiểm trước khi hàng `backups` thành `succeeded`. Trong lúc một backup theo yêu cầu đang chờ/chạy, gọi
+        lại trả đúng job đó. Instance `quarantined`/`removed` hoặc tenant không còn phục vụ ⇒ `409`. Thư mục dữ liệu thù
+        địch (symlink, FIFO, file thưa quá lớn, DB hỏng) ⇒ job `failed` + security event (IT-15).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: platform.instance:operate
+      x-task: P3-T11
+      x-audit-action: instance.backup
+      parameters:
+        - $ref: '#/components/parameters/InstanceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '202':
+          description: Job backup đã xếp hàng; theo dõi ở job
+          headers:
+            Location:
+              $ref: '#/components/headers/JobLocation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /platform/instances/{instanceId}/restore:
+    post:
+      tags: [platform]
+      operationId: restorePlatformInstance
+      summary: Xin restore một instance từ một bản backup — luôn 2P; 202 + Location của yêu cầu phê duyệt
+      description: |-
+        §17.2: tạo yêu cầu dual control `platform.instance.restore` (người yêu cầu step-up); payload — đúng thứ người
+        duyệt thấy và đúng đầu vào duy nhất của job — gồm `backup_id`, `instance_id` và `restore_point_older_than_backup`
+        (người vận hành khẳng định PostgreSQL đã được khôi phục về thời điểm CŨ HƠN bản backup: giữ policy trong bản
+        backup làm version cần rà soát, không đặt lại route/tag/thu hồi theo PostgreSQL, đánh dấu tenant cần Owner rà
+        soát). Người duyệt khác người yêu cầu, step-up, giữ `platform.instance:restore` (Platform Operator duyệt được nhờ
+        điều kiện `restore_only`). Sau khi duyệt, job vòng đời `instance.restore` chạy theo thứ tự provisioning: kiểm
+        manifest ký + danh tính trước khi mở bọc data key, restore (policy đặt offline trước lần start đầu, edge gỡ),
+        `PostRestoreReconcile` (mọi API key/pre-auth key của bản backup hết hiệu lực, node thu hồi sau backup bị expire lại
+        theo `machine_key`), gắn lại edge, kiểm qua API, phân giải lại Headscale user theo tên, `inventory.sync`, báo cáo.
+        `backup_id` không phải bản backup `succeeded` của chính instance này ⇒ `422`/`409`; đang có yêu cầu mở cho
+        instance ⇒ `409`.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: platform.instance:restore
+      x-dual-control: true
+      x-task: P3-T11
+      x-audit-action: platform.instance.restore.request
+      parameters:
+        - $ref: '#/components/parameters/InstanceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InstanceRestoreCreate'
+      responses:
+        '202':
+          description: Yêu cầu phê duyệt đã tạo — người thứ hai duyệt ở `Location`
+          headers:
+            Location:
+              $ref: '#/components/headers/ApprovalLocation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /platform/backups:
+    get:
+      tags: [platform]
+      operationId: listPlatformBackups
+      summary: Sổ backup — mới nhất trước
+      description: |-
+        Hàng `backups` (§6.3): bản backup instance của mọi tenant (P3-T11) và — về sau — bản phạm vi nền tảng. Không trả
+        data key đã bọc hay nội dung manifest, chỉ digest. Lọc theo instance, trạng thái.
+      x-permission: platform.backup:read
+      x-task: P3-T11
+      x-audit-action: platform.backup.list
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - name: instance
+          in: query
+          required: false
+          description: Lọc theo instance
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/BackupStatus'
+      responses:
+        '200':
+          description: Một trang backup
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
         '429':
           $ref: '#/components/responses/RateLimited'
         default:
@@ -3494,6 +3765,149 @@ components:
             $ref: '#/components/schemas/Instance'
         next_cursor:
           type: [string, 'null']
+    # ------------------------------------------------------------ backup/restore (§6.3 `backups` — P3-T11)
+    InstanceRestoreCreate:
+      type: object
+      description: Xin restore một instance từ một bản backup (luôn cần người thứ hai duyệt — §8.5)
+      required: [backup_id, reason]
+      additionalProperties: false
+      properties:
+        backup_id:
+          type: string
+          format: uuid
+          description: Bản backup `succeeded` của chính instance này (`GET /platform/backups?instance=…`)
+        restore_point_older_than_backup:
+          type: boolean
+          default: false
+          description: >-
+            Người vận hành khẳng định PostgreSQL đã được khôi phục về thời điểm cũ hơn bản backup (§17.2 bước 4):
+            policy trong bản backup được giữ và nhập thành version cần rà soát; không đặt lại route/tag và không thu hồi
+            lại theo PostgreSQL; tenant được đánh dấu cần Owner rà soát
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 1000
+          description: Lý do (sự cố, ticket) — người duyệt đọc trước khi duyệt
+    BackupStatus:
+      type: string
+      description: >-
+        Trạng thái hàng `backups` (0011): `running` (đang chạy), `succeeded` (archive + manifest ký đã kiểm), `failed`,
+        `purged` (archive đã xóa theo retention; hàng giữ để audit)
+      enum: [running, succeeded, failed, purged]
+    BackupKind:
+      type: string
+      description: Loại bản backup — `instance` (Headscale của một tenant, P3-T11); các loại phạm vi nền tảng nhập về sau
+      enum: [instance, postgres, idp, edge]
+    BackupMethod:
+      type: string
+      description: '`vacuum_into` (instance đang chạy, data/ chỉ-đọc) hoặc `cold_copy` (instance đang dừng)'
+      enum: [vacuum_into, cold_copy]
+    Backup:
+      type: object
+      description: >-
+        Một bản backup (§6.3 `backups`). Không chứa data key đã bọc hay nội dung manifest — chỉ digest của ciphertext
+        (`sha256`) và của manifest ký (`manifest_sha256`)
+      required: [id, kind, status, storage_uri, started_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          $ref: '#/components/schemas/BackupKind'
+        status:
+          $ref: '#/components/schemas/BackupStatus'
+        tenant_id:
+          type: [string, 'null']
+          format: uuid
+        instance_id:
+          type: [string, 'null']
+          format: uuid
+        sequence:
+          type: [integer, 'null']
+          format: int64
+          description: Số thứ tự tăng dần của archive trong thư mục của instance (ghi trong manifest ký)
+        method:
+          oneOf:
+            - $ref: '#/components/schemas/BackupMethod'
+            - type: 'null'
+        size_bytes:
+          type: [integer, 'null']
+          format: int64
+        sha256:
+          type: [string, 'null']
+          pattern: '^[0-9a-f]{64}$'
+        manifest_sha256:
+          type: [string, 'null']
+          pattern: '^[0-9a-f]{64}$'
+        headscale_version:
+          type: [string, 'null']
+        storage_uri:
+          type: string
+          description: Vị trí archive (không chứa credential)
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: [string, 'null']
+          format: date-time
+        expires_at:
+          type: [string, 'null']
+          format: date-time
+        verified_at:
+          type: [string, 'null']
+          format: date-time
+          description: Lần restore từ bản này hoàn tất gần nhất
+        job_id:
+          type: [string, 'null']
+          format: uuid
+    BackupList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Backup'
+        next_cursor:
+          type: [string, 'null']
+    # ------------------------------------------------------------ instance.reconfigure (§11.4, §13.5 — P3-T13)
+    InstanceLogLevel:
+      type: string
+      description: '`log.level` của Headscale (§11.3 bước 8: chỉ `info`, `warn`, `error`)'
+      enum: [info, warn, error]
+    InstanceReconfigure:
+      type: object
+      description: >-
+        Tham số do nền tảng quản lý của cấu hình instance (§11.1 `HeadscaleParams`); trường vắng mặt giữ giá trị của
+        version đang hiệu lực. `derp.server.ipv4` luôn render lại từ điểm vào công khai hiện tại của host (§17.4) —
+        `{}` render lại đúng version hiện hành với giá trị mới nhất của registry (không đổi gì ⇒ job kết thúc không
+        restart). Thiết lập DNS, OIDC, hạn khóa của tenant đi qua API Phase 4 (cùng job)
+      additionalProperties: false
+      properties:
+        log_level:
+          $ref: '#/components/schemas/InstanceLogLevel'
+        node_expiry_days:
+          type: integer
+          minimum: 1
+          maximum: 3650
+          description: '`node.expiry` theo ngày (render thành giờ — Headscale 0.29.7 không có đơn vị ngày)'
+        nameservers:
+          type: array
+          minItems: 1
+          maxItems: 8
+          uniqueItems: true
+          description: >-
+            `dns.nameservers.global` (`override_local_dns` — RT-07): địa chỉ IP unicast dùng được (không loopback,
+            link-local, multicast), không trùng; ngoài dải network tenant của host (Agent kiểm)
+          items:
+            type: string
+            minLength: 2
+            maxLength: 45
+        derp_region_id:
+          type: integer
+          minimum: 900
+          maximum: 999
+          description: '`derp.server.region_id` của DERP nhúng (§10.1)'
     # ------------------------------------------------------------ platform hosts (§6.3 `hosts`, migration 0014 — P3-T04)
     HostStatus:
       type: string
@@ -3754,6 +4168,225 @@ components:
           $ref: '#/components/schemas/InstanceCounts'
         jobs:
           $ref: '#/components/schemas/JobQueueHealth'
+    # ------------------------------------------------------------ relay (§6.3 `relay_regions`/`relay_assignments`, §10.6 — P3-T05c)
+    RelayRegionKind:
+      type: string
+      description: >-
+        `embedded` (DERP nhúng trong Headscale của tenant — MVP, ADR-11), `standalone` (derper riêng của một tenant —
+        phương án lùi §10.3), `shared` (relay dùng chung — research proposal §10.5, Phase 7)
+      enum: [embedded, standalone, shared]
+    RelayAdminStatus:
+      type: string
+      description: >-
+        Trạng thái quản trị (`relay_regions.status`, `relay_assignments.status` — 0010); sức khỏe đo được nằm ở `health`,
+        không ở đây
+      enum: [pending, active, disabled]
+    RelayCheck:
+      type: object
+      description: >-
+        Một phép kiểm của lần probe gần nhất, đo bởi prober bên trong nền tảng (`duration_ms` là thời gian của phép kiểm
+        từ prober — không phải độ trễ client thấy)
+      required: [ok, duration_ms]
+      properties:
+        ok:
+          type: boolean
+        status:
+          type: integer
+          minimum: 100
+          maximum: 599
+          description: Trạng thái HTTP nhận được (chỉ `derp`); vắng khi không nhận được câu trả lời
+        code:
+          type: string
+          pattern: '^[a-z][a-z0-9_]{0,63}$'
+          description: >-
+            Mã lỗi ổn định của prober khi phép kiểm không đạt (`timeout`, `refused`, `unreachable`, `tls_handshake`,
+            `tls_verify`, `bad_response`, `no_mapped_address`, `expectation_failed`…); vắng khi đạt
+        duration_ms:
+          type: integer
+          format: int64
+          minimum: 0
+    RelayHealth:
+      type: object
+      description: >-
+        Health của region từ lần probe tổng hợp gần nhất (`derp`: `GET /derp/probe` qua listener công khai của edge ⇒
+        200; `stun`: STUN binding tới địa chỉ STUN của region ⇒ có mapped address). `checked_at` là lúc probe bắt đầu,
+        `null` khi chưa từng probe; kết quả cũ hơn ngưỡng, region/assignment không `active`, instance không chạy, hoặc
+        loại region chưa được probe ⇒ `status = unknown` kèm `reason`; `derp`/`stun` là các phép kiểm của lần probe ở
+        `checked_at`
+      required: [status, checked_at]
+      properties:
+        status:
+          $ref: '#/components/schemas/HealthStatus'
+        checked_at:
+          type: [string, 'null']
+          format: date-time
+        reason:
+          type: string
+          pattern: '^[a-z][a-z0-9_]{0,63}$'
+          description: >-
+            Lý do ổn định khi `status` khác `healthy`. Kết quả probe: `derp_probe_failed`, `stun_probe_failed`,
+            `relay_unreachable` (cả hai). Không có kết luận: `never_checked`, `stale`, `invalid_record`,
+            `instance_not_running`, `relay_not_active`, `no_probe`. Tập giá trị chỉ được bổ sung (cộng thêm)
+        derp:
+          $ref: '#/components/schemas/RelayCheck'
+        stun:
+          $ref: '#/components/schemas/RelayCheck'
+    RelayRegion:
+      type: object
+      description: >-
+        Region relay (`relay_regions`, §6.3) — tham số công khai, như client của tenant thấy trong DERP map; không chứa
+        secret
+      required: [id, code, name, kind, derp_region_id, hostname, derp_port, verify_mode, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          description: '`region_code` (ví dụ `mg-<slug>`, §10.1)'
+        name:
+          type: string
+        kind:
+          $ref: '#/components/schemas/RelayRegionKind'
+        derp_region_id:
+          type: integer
+          minimum: 900
+          maximum: 999
+        hostname:
+          type: string
+        ipv4:
+          type: string
+          format: ipv4
+          description: Địa chỉ quảng bá của điểm vào công khai (`derp.server.ipv4`, §10.1)
+        ipv6:
+          type: string
+          format: ipv6
+        stun_port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        derp_port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        verify_mode:
+          type: string
+          description: '`in_process` (`verify_clients` của DERP nhúng) | `verify_url` (fail-closed)'
+          enum: [in_process, verify_url]
+        status:
+          $ref: '#/components/schemas/RelayAdminStatus'
+    RelayUnavailable:
+      type: object
+      description: Số đo relay nền tảng KHÔNG báo — "không khả dụng" kèm lý do thay vì số giả (§10.6, §12.4)
+      required: [metric, reason]
+      properties:
+        metric:
+          type: string
+          description: >-
+            `traffic_bytes`, `throughput`, `connections`, `auth_failures`, `client_latency` (chỉ bổ sung; một mục rời
+            danh sách khi task xây nguồn của nó hoàn tất)
+          pattern: '^[a-z][a-z0-9_]{0,63}$'
+        reason:
+          type: string
+          description: '`unsupported` (thành phần không cung cấp được — embedded DERP không xuất metrics relay), `no_source` (nền tảng chưa có nguồn)'
+          pattern: '^[a-z][a-z0-9_]{0,63}$'
+        detail:
+          type: string
+          description: Câu giải thích ngắn (tiếng Anh) cho người đọc; phần ổn định là `reason`
+    RelayAssignment:
+      type: object
+      description: Một relay của tenant — assignment của instance tới một region (`relay_assignments`), kèm health của region
+      required: [id, priority, status, region, health]
+      properties:
+        id:
+          type: string
+          format: uuid
+        priority:
+          type: integer
+          minimum: 0
+        status:
+          $ref: '#/components/schemas/RelayAdminStatus'
+        region:
+          $ref: '#/components/schemas/RelayRegion'
+        health:
+          $ref: '#/components/schemas/RelayHealth'
+    TenantRelay:
+      type: object
+      description: Relay của tenant (§12.3 mục Relay) — mỗi health kèm `checked_at`; số đo không có nguồn ở `unavailable`
+      required: [assignments, unavailable]
+      properties:
+        assignments:
+          type: array
+          items:
+            $ref: '#/components/schemas/RelayAssignment'
+        unavailable:
+          type: array
+          items:
+            $ref: '#/components/schemas/RelayUnavailable'
+    PlatformRelayAssignment:
+      type: object
+      description: Assignment của một region như nhân sự nền tảng thấy (metadata registry)
+      required: [id, tenant_id, instance_id, priority, status, instance_status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        instance_id:
+          type: string
+          format: uuid
+        priority:
+          type: integer
+          minimum: 0
+        status:
+          $ref: '#/components/schemas/RelayAdminStatus'
+        instance_status:
+          $ref: '#/components/schemas/InstanceStatus'
+    PlatformRelayRegion:
+      type: object
+      required: [region, tenant_id, assignments, health, created_at, updated_at, version]
+      properties:
+        region:
+          $ref: '#/components/schemas/RelayRegion'
+        tenant_id:
+          type: [string, 'null']
+          format: uuid
+          description: Tenant sở hữu region (`embedded`, `standalone`); `null` với region `shared`
+        host_id:
+          type: string
+          format: uuid
+        assignments:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlatformRelayAssignment'
+        health:
+          $ref: '#/components/schemas/RelayHealth'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+    RelayRegionList:
+      type: object
+      required: [items, next_cursor, unavailable]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlatformRelayRegion'
+        next_cursor:
+          type: [string, 'null']
+        unavailable:
+          type: array
+          items:
+            $ref: '#/components/schemas/RelayUnavailable'
     # ------------------------------------------------------------ dual control (§8.5/§8.6 2P, §6.3 — P3-T04a)
     ApprovalStatus:
       type: string

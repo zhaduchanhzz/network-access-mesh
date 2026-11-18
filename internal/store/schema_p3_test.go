@@ -12,33 +12,50 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"maps"
+	"path"
 	"reflect"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/zhaduchanhzz/network-access-mesh/database"
 )
 
 // p3Tables are the tables created by 0009–0013, in migration order.
 var p3Tables = []string{"approval_requests", "tenant_invitations", "notification_outbox", "relay_regions", "relay_assignments",
 	"backups", "subscription_plans", "subscriptions", "policy_versions", "policy_applications"}
 
-// TestLatestMigration: the embedded migrations end at latestMigration of the fixture (0020 since P3-T17, provisional) — the version
+// TestLatestMigration: the embedded migrations end at latestMigration of the fixture (0018 since P3-T17) — the version
 // `meshguard-api migrate status` reports as latest_migration (current = schema_version == latest_migration,
-// ReadDeployState) — and the fixture has a step for every migration.
+// ReadDeployState) — and the fixture has a step for every embedded migration and none for a number without one
+// (migrationVersions = the embedded versions).
 func TestLatestMigration(t *testing.T) {
 	v, err := LatestMigration()
 	if err != nil || v != latestMigration {
 		t.Fatalf("LatestMigration() = %d (%v), want latestMigration = %d", v, err, latestMigration)
 	}
-	for _, i := range migrationVersions(t) {
-		if fixtureSteps[i] == nil {
-			t.Errorf("no fixture step for migration %04d", i)
+	names, err := fs.Glob(database.Migrations, "migrations/*.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var embedded []int64
+	for _, n := range names {
+		v, err := strconv.ParseInt(strings.SplitN(path.Base(n), "_", 2)[0], 10, 64)
+		if err != nil {
+			t.Fatalf("migration %s: %v", n, err)
 		}
+		embedded = append(embedded, v)
+	}
+	slices.Sort(embedded)
+	if got := migrationVersions(); !slices.Equal(got, embedded) || got[len(got)-1] != latestMigration {
+		t.Errorf("fixture steps for migrations %v, embedded migrations %v (latest %d)", got, embedded, latestMigration)
 	}
 }
 
@@ -215,8 +232,10 @@ func TestP3CrossTenantWritesRejected(t *testing.T) {
 		insApplication = `INSERT INTO policy_applications (tenant_id, instance_id, policy_version_id, trigger, applied_hujson, applied_sha256)
 			VALUES ($1, $2, $3, 'manual', $4, $5)`
 		insAssignment = `INSERT INTO relay_assignments (tenant_id, instance_id, relay_region_id, priority) VALUES ($1, $2, $3, 9)`
-		insBackup     = `INSERT INTO backups (tenant_id, instance_id, kind, storage_uri, key_ref, headscale_version, job_id)
-			VALUES ($1, $2, 'instance', 'file:///opt/meshguard/backups/x.age', 'mgsec://'||$4||'/backup-key#1', '0.29.7', $3)`
+		insBackup     = `INSERT INTO backups (tenant_id, instance_id, kind, storage_uri, key_ref, headscale_version, job_id, sequence,
+				wrapped_data_key)
+			VALUES ($1, $2, 'instance', 'file:///opt/meshguard/backups/x.age', 'mgsec://'||$4||'/backup-key#1', '0.29.7', $3,
+				1 + floor(random() * 1e15)::bigint, decode(repeat('ab', 60), 'hex'))`
 	)
 	tok := func() string { return "tok-" + randomHex(8) }
 	ver := func() int64 { return 100 + randInt(1<<30) }
@@ -333,7 +352,7 @@ func TestP3GrantMatrix(t *testing.T) {
 		return out
 	}
 	approvalDecide := cols("approved_by_identity_id,decided_at,job_id,status")
-	backupUpdate := cols("expires_at,finished_at,sha256,size_bytes,status,verified_at")
+	backupUpdate := cols("expires_at,finished_at,manifest,manifest_sha256,manifest_signature,method,sha256,size_bytes,status,verified_at")
 	want := map[string]map[string]grantSpec{
 		"approval_requests": with(map[string]grantSpec{
 			"mg_api_tenant": {SI, approvalDecide}, "mg_api_platform": {SI, approvalDecide},
@@ -349,7 +368,7 @@ func TestP3GrantMatrix(t *testing.T) {
 		}),
 		"relay_regions": with(map[string]grantSpec{
 			"mg_api_tenant": {S, nil}, "mg_worker_tenant": {S, nil}, "mg_api_platform": {S, nil},
-			"mg_worker_platform": {SID, cols("derp_port,hostname,ipv4,ipv6,name,status,stun_port,updated_at,version")},
+			"mg_worker_platform": {SID, cols("derp_port,hostname,ipv4,ipv6,last_probe,last_probe_at,name,status,stun_port,updated_at,version")},
 		}),
 		"relay_assignments": with(map[string]grantSpec{
 			"mg_api_tenant": {S, nil}, "mg_worker_tenant": {S, nil}, "mg_api_platform": {S, nil},
@@ -553,8 +572,11 @@ func TestP3CheckConstraints(t *testing.T) {
 		"hostname": "'check.mesh.test'", "verify_mode": "'in_process'", "tenant_id": A}
 	assignment := row{"tenant_id": A, "instance_id": lit(a.instance), "relay_region_id": lit(region2)}
 	bkp := row{"tenant_id": A, "instance_id": lit(a.instance), "kind": "'instance'", "storage_uri": "'file:///opt/meshguard/backups/c.age'",
-		"key_ref": "'mgsec://" + f.a.id.String() + "/backup-key#2'", "headscale_version": "'0.29.7'"}
-	done := bkp.with("status", "'succeeded'", "finished_at", "now()", "size_bytes", "10", "sha256", "repeat('0', 64)")
+		"key_ref": "'mgsec://" + f.a.id.String() + "/backup-key#2'", "headscale_version": "'0.29.7'",
+		"sequence": "(2000 + random() * 1e12)::bigint", "wrapped_data_key": "decode(repeat('ab', 60), 'hex')"}
+	done := bkp.with("status", "'succeeded'", "finished_at", "now()", "size_bytes", "10", "sha256", "repeat('0', 64)",
+		"manifest", "convert_to('{}', 'UTF8')", "manifest_signature", "decode(repeat('cd', 64), 'hex')", "manifest_sha256", "repeat('e', 64)",
+		"method", "'vacuum_into'")
 	quota := `"max_devices": 10, "max_users": 10, "max_tagged_devices": 2, "max_live_enrollment_credentials": 3`
 	plan := row{"key": "'check-'||substr(md5(random()::text), 1, 8)", "name": "'Check'", "limits": "'{" + quota + "}'"}
 	limits := func(extra string) string { return "'{" + quota + ", " + extra + "}'" }
@@ -647,6 +669,17 @@ func TestP3CheckConstraints(t *testing.T) {
 		{"backup: verified while failed", bkp.with("status", "'failed'", "finished_at", "now()", "verified_at", "now()").insert("backups"), "23514"},
 		{"backup: unknown kind", bkp.with("kind", "'sqlite'").insert("backups"), "23514"},
 		{"backup: unknown status", bkp.with("status", "'done'").insert("backups"), "23514"},
+		// backups — P3-T11 (backup_manifest): sequence + wrapped data key on every instance archive, manifest once done
+		{"backup: instance archive without sequence", bkp.with("sequence", "-").insert("backups"), "23514"},
+		{"backup: instance archive without wrapped data key", bkp.with("wrapped_data_key", "-").insert("backups"), "23514"},
+		{"backup: wrapped data key of 32 bytes", bkp.with("wrapped_data_key", "decode(repeat('ab', 32), 'hex')").insert("backups"), "23514"},
+		{"backup: sequence 0", bkp.with("sequence", "0").insert("backups"), "23514"},
+		{"backup: sequence of A's instance twice", bkp.with("sequence", "1000").insert("backups"), "23505"},
+		{"backup: succeeded without manifest", done.with("manifest", "-").insert("backups"), "23514"},
+		{"backup: succeeded without signature", done.with("manifest_signature", "-").insert("backups"), "23514"},
+		{"backup: signature of 63 bytes", done.with("manifest_signature", "decode(repeat('cd', 63), 'hex')").insert("backups"), "23514"},
+		{"backup: manifest sha256 not hex", done.with("manifest_sha256", "repeat('E', 64)").insert("backups"), "23514"},
+		{"backup: unknown method", done.with("method", "'cp'").insert("backups"), "23514"},
 		// subscription_plans (PlanLimits — mg_plan_limits_valid)
 		{"plan: valid quota keys only", plan.insert("subscription_plans"), ""},
 		{"plan: valid every key", plan.with("limits", limits(`"backup_interval_minutes": 15, "instance": {"cpus": 0.5, "memory_mb": 256, "pids": 128}`)).insert("subscription_plans"), ""},

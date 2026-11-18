@@ -190,7 +190,7 @@ func (s *Service) adopt(ctx context.Context, req RunningReview, res RunningResul
 		if err != nil {
 			return err
 		}
-		v, err := q.InsertImportedPolicyVersion(ctx, sqlcdb.InsertImportedPolicyVersionParams{TenantID: req.TenantID,
+		v, err := q.InsertAdoptedPolicyVersion(ctx, sqlcdb.InsertAdoptedPolicyVersionParams{TenantID: req.TenantID,
 			Version: n, SourceHujson: &text, ContentSha256: sha, State: status, ValidationReport: raw,
 			ParentVersionID: desired})
 		if err != nil {

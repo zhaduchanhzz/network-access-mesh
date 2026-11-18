@@ -396,6 +396,9 @@ const (
 	RefusalReason_REFUSAL_REASON_PERMISSION_DENIED RefusalReason = 17
 	// The operation is not allowed in the instance's current state (e.g. storage on an activated instance).
 	RefusalReason_REFUSAL_REASON_STATE RefusalReason = 18
+	// A backup archive or its manifest fails a check — signature, hash, identity, sequence, version — or the database
+	// of the instance (or of an archive) fails its integrity check (P3-T11, T-15). Nothing was decrypted or changed.
+	RefusalReason_REFUSAL_REASON_INTEGRITY RefusalReason = 19
 )
 
 // Enum value maps for RefusalReason.
@@ -420,6 +423,7 @@ var (
 		16: "REFUSAL_REASON_UNAUTHENTICATED",
 		17: "REFUSAL_REASON_PERMISSION_DENIED",
 		18: "REFUSAL_REASON_STATE",
+		19: "REFUSAL_REASON_INTEGRITY",
 	}
 	RefusalReason_value = map[string]int32{
 		"REFUSAL_REASON_UNSPECIFIED":         0,
@@ -441,6 +445,7 @@ var (
 		"REFUSAL_REASON_UNAUTHENTICATED":     16,
 		"REFUSAL_REASON_PERMISSION_DENIED":   17,
 		"REFUSAL_REASON_STATE":               18,
+		"REFUSAL_REASON_INTEGRITY":           19,
 	}
 )
 
@@ -3565,13 +3570,17 @@ type BackupRequest struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	Instance *InstanceRef           `protobuf:"bytes,1,opt,name=instance,proto3" json:"instance,omitempty"`
 	JobId    string                 `protobuf:"bytes,2,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
-	// Strictly increasing per instance; names the archive under backups/tenants/<instance_id>/.
+	// Strictly increasing per instance; names the archive under backups/tenants/<instance_id>/. An existing complete
+	// archive of the same sequence with a valid manifest is returned as is (a retried job); a partial one is removed.
 	Sequence uint64 `protobuf:"varint,3,opt,name=sequence,proto3" json:"sequence,omitempty"`
-	// Random 32-byte data key, wrapped by the worker with the tenant's backup key (online path, §17.1); the agent
-	// also wraps it to the platform recovery recipient (DR path).
-	DataKey       []byte `protobuf:"bytes,4,opt,name=data_key,json=dataKey,proto3" json:"data_key,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// The X25519 public key (32 bytes) of the backup's random data key: the archive is encrypted to it (online path) and
+	// to the platform recovery recipient (DR path). The data key itself never reaches the agent for a backup.
+	DataRecipient []byte `protobuf:"bytes,4,opt,name=data_recipient,json=dataRecipient,proto3" json:"data_recipient,omitempty"`
+	// Local retention decided by the worker (backups.expires_at): once this backup succeeded, the archives of this
+	// instance with a smaller sequence are removed. 0 keeps every archive; must not exceed sequence.
+	RetainFromSequence uint64 `protobuf:"varint,5,opt,name=retain_from_sequence,json=retainFromSequence,proto3" json:"retain_from_sequence,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *BackupRequest) Reset() {
@@ -3625,11 +3634,18 @@ func (x *BackupRequest) GetSequence() uint64 {
 	return 0
 }
 
-func (x *BackupRequest) GetDataKey() []byte {
+func (x *BackupRequest) GetDataRecipient() []byte {
 	if x != nil {
-		return x.DataKey
+		return x.DataRecipient
 	}
 	return nil
+}
+
+func (x *BackupRequest) GetRetainFromSequence() uint64 {
+	if x != nil {
+		return x.RetainFromSequence
+	}
+	return 0
 }
 
 type BackupArtifact struct {
@@ -3641,8 +3657,15 @@ type BackupArtifact struct {
 	Method           BackupMethod           `protobuf:"varint,5,opt,name=method,proto3,enum=meshguard.agent.v1.BackupMethod" json:"method,omitempty"`
 	CreatedAt        *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	HeadscaleVersion string                 `protobuf:"bytes,7,opt,name=headscale_version,json=headscaleVersion,proto3" json:"headscale_version,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// The signed manifest as written (canonical JSON) and its Ed25519 signature: the worker verifies both with
+	// MG_BACKUP_MANIFEST_PUBKEY before recording the backup, and again before any restore (§17.1 — worker AND agent).
+	Manifest            []byte `protobuf:"bytes,8,opt,name=manifest,proto3" json:"manifest,omitempty"`
+	ManifestSignature   []byte `protobuf:"bytes,9,opt,name=manifest_signature,json=manifestSignature,proto3" json:"manifest_signature,omitempty"`
+	NoiseKeyFingerprint string `protobuf:"bytes,10,opt,name=noise_key_fingerprint,json=noiseKeyFingerprint,proto3" json:"noise_key_fingerprint,omitempty"`
+	// Archives removed by retain_from_sequence.
+	RemovedArchives uint32 `protobuf:"varint,11,opt,name=removed_archives,json=removedArchives,proto3" json:"removed_archives,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *BackupArtifact) Reset() {
@@ -3722,6 +3745,34 @@ func (x *BackupArtifact) GetHeadscaleVersion() string {
 		return x.HeadscaleVersion
 	}
 	return ""
+}
+
+func (x *BackupArtifact) GetManifest() []byte {
+	if x != nil {
+		return x.Manifest
+	}
+	return nil
+}
+
+func (x *BackupArtifact) GetManifestSignature() []byte {
+	if x != nil {
+		return x.ManifestSignature
+	}
+	return nil
+}
+
+func (x *BackupArtifact) GetNoiseKeyFingerprint() string {
+	if x != nil {
+		return x.NoiseKeyFingerprint
+	}
+	return ""
+}
+
+func (x *BackupArtifact) GetRemovedArchives() uint32 {
+	if x != nil {
+		return x.RemovedArchives
+	}
+	return 0
 }
 
 type BackupResponse struct {
@@ -3835,7 +3886,8 @@ type RestoreRequest struct {
 	Instance *InstanceRef           `protobuf:"bytes,1,opt,name=instance,proto3" json:"instance,omitempty"`
 	JobId    string                 `protobuf:"bytes,2,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
 	Artifact *ArtifactRef           `protobuf:"bytes,3,opt,name=artifact,proto3" json:"artifact,omitempty"`
-	DataKey  []byte                 `protobuf:"bytes,4,opt,name=data_key,json=dataKey,proto3" json:"data_key,omitempty"`
+	// The backup's data key (the X25519 identity of the online path), unwrapped by the worker for this job only.
+	DataKey []byte `protobuf:"bytes,4,opt,name=data_key,json=dataKey,proto3" json:"data_key,omitempty"`
 	// §17.2 step 4: the policy set (offline, before the first start) on the restored database.
 	//
 	// Types that are valid to be assigned to Policy:
@@ -3949,11 +4001,20 @@ func (*RestoreRequest_AppliedPolicyHujson) isRestoreRequest_Policy() {}
 func (*RestoreRequest_KeepBackupPolicy) isRestoreRequest_Policy() {}
 
 type RestoreResponse struct {
-	state              protoimpl.MessageState `protogen:"open.v1"`
-	RestoredDataSha256 string                 `protobuf:"bytes,1,opt,name=restored_data_sha256,json=restoredDataSha256,proto3" json:"restored_data_sha256,omitempty"`
-	PreviousDataKeptAs string                 `protobuf:"bytes,2,opt,name=previous_data_kept_as,json=previousDataKeptAs,proto3" json:"previous_data_kept_as,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// sha256 over the manifest's list of the restored data/ files (path, size, sha256 — sorted).
+	RestoredDataSha256 string `protobuf:"bytes,1,opt,name=restored_data_sha256,json=restoredDataSha256,proto3" json:"restored_data_sha256,omitempty"`
+	// The previous data/, kept under the instance directory (removed after MG_AGENT_RESTORE_KEEP).
+	PreviousDataKeptAs string `protobuf:"bytes,2,opt,name=previous_data_kept_as,json=previousDataKeptAs,proto3" json:"previous_data_kept_as,omitempty"`
+	// sha256 of the policy the restored instance serves (read back over the CLI after the start; one trailing newline
+	// removed): the applied policy, or the archive's policy with keep_backup_policy.
+	PolicySha256 string `protobuf:"bytes,3,opt,name=policy_sha256,json=policySha256,proto3" json:"policy_sha256,omitempty"`
+	// keep_backup_policy only: the policy the restored instance serves, for the worker to import as a version to review.
+	BackupPolicyHujson []byte `protobuf:"bytes,4,opt,name=backup_policy_hujson,json=backupPolicyHujson,proto3" json:"backup_policy_hujson,omitempty"`
+	// The restore happened earlier under the same job_id (a retried call): nothing was decrypted or swapped again.
+	AlreadyRestored bool `protobuf:"varint,5,opt,name=already_restored,json=alreadyRestored,proto3" json:"already_restored,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *RestoreResponse) Reset() {
@@ -3998,6 +4059,27 @@ func (x *RestoreResponse) GetPreviousDataKeptAs() string {
 		return x.PreviousDataKeptAs
 	}
 	return ""
+}
+
+func (x *RestoreResponse) GetPolicySha256() string {
+	if x != nil {
+		return x.PolicySha256
+	}
+	return ""
+}
+
+func (x *RestoreResponse) GetBackupPolicyHujson() []byte {
+	if x != nil {
+		return x.BackupPolicyHujson
+	}
+	return nil
+}
+
+func (x *RestoreResponse) GetAlreadyRestored() bool {
+	if x != nil {
+		return x.AlreadyRestored
+	}
+	return false
 }
 
 // NodeDesiredState is the PostgreSQL state of one node, matched by machine key (never by numeric id — §17.2).
@@ -4065,16 +4147,18 @@ type ReconcilePlan struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Expiration of the API key bootstrapped after every restored key is expired (whole hours, 24h..8760h).
 	ApiKeyTtl *durationpb.Duration `protobuf:"bytes,1,opt,name=api_key_ttl,json=apiKeyTtl,proto3" json:"api_key_ttl,omitempty"`
-	// Nodes revoked after the backup was taken (≤ 10000).
+	// Nodes revoked (expired) after the backup was taken — expired again (≤ 10000).
 	RevokedMachineKeys []string `protobuf:"bytes,2,rep,name=revoked_machine_keys,json=revokedMachineKeys,proto3" json:"revoked_machine_keys,omitempty"`
-	// Routes and tags to reset (skipped when restore_point_older_than_backup).
+	// Routes and tags to reset (must be empty when restore_point_older_than_backup).
 	Nodes []*NodeDesiredState `protobuf:"bytes,3,rep,name=nodes,proto3" json:"nodes,omitempty"`
-	// Headscale users of offboarded members: mg-<membership uuid> (≤ 10000).
+	// Headscale users of offboarded members: mg-<membership uuid> (≤ 10000) — every node of theirs is expired.
 	OffboardedUsers []string `protobuf:"bytes,4,rep,name=offboarded_users,json=offboardedUsers,proto3" json:"offboarded_users,omitempty"`
-	// §17.2 step 4 branch: PostgreSQL is older than the backup.
+	// §17.2 step 4 branch: PostgreSQL is older than the backup (no revocation list, no route/tag reset).
 	RestorePointOlderThanBackup bool `protobuf:"varint,5,opt,name=restore_point_older_than_backup,json=restorePointOlderThanBackup,proto3" json:"restore_point_older_than_backup,omitempty"`
-	unknownFields               protoimpl.UnknownFields
-	sizeCache                   protoimpl.SizeCache
+	// Nodes deleted after the backup was taken — deleted again (≤ 10000).
+	DeletedMachineKeys []string `protobuf:"bytes,6,rep,name=deleted_machine_keys,json=deletedMachineKeys,proto3" json:"deleted_machine_keys,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *ReconcilePlan) Reset() {
@@ -4142,6 +4226,13 @@ func (x *ReconcilePlan) GetRestorePointOlderThanBackup() bool {
 	return false
 }
 
+func (x *ReconcilePlan) GetDeletedMachineKeys() []string {
+	if x != nil {
+		return x.DeletedMachineKeys
+	}
+	return nil
+}
+
 type PostRestoreReconcileRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Instance      *InstanceRef           `protobuf:"bytes,1,opt,name=instance,proto3" json:"instance,omitempty"`
@@ -4203,19 +4294,24 @@ func (x *PostRestoreReconcileRequest) GetPlan() *ReconcilePlan {
 }
 
 type PostRestoreReconcileResponse struct {
-	state                protoimpl.MessageState `protogen:"open.v1"`
-	ApiKey               string                 `protobuf:"bytes,1,opt,name=api_key,json=apiKey,proto3" json:"api_key,omitempty"`
-	ApiKeyPrefix         string                 `protobuf:"bytes,2,opt,name=api_key_prefix,json=apiKeyPrefix,proto3" json:"api_key_prefix,omitempty"`
-	ApiKeyExpiresAt      *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=api_key_expires_at,json=apiKeyExpiresAt,proto3" json:"api_key_expires_at,omitempty"`
-	ApiKeysExpired       uint32                 `protobuf:"varint,4,opt,name=api_keys_expired,json=apiKeysExpired,proto3" json:"api_keys_expired,omitempty"`
-	PreauthKeysExpired   uint32                 `protobuf:"varint,5,opt,name=preauth_keys_expired,json=preauthKeysExpired,proto3" json:"preauth_keys_expired,omitempty"`
-	NodesExpired         uint32                 `protobuf:"varint,6,opt,name=nodes_expired,json=nodesExpired,proto3" json:"nodes_expired,omitempty"`
-	RoutesReset          uint32                 `protobuf:"varint,7,opt,name=routes_reset,json=routesReset,proto3" json:"routes_reset,omitempty"`
-	TagsReset            uint32                 `protobuf:"varint,8,opt,name=tags_reset,json=tagsReset,proto3" json:"tags_reset,omitempty"`
-	UsersHandled         uint32                 `protobuf:"varint,9,opt,name=users_handled,json=usersHandled,proto3" json:"users_handled,omitempty"`
-	UnmatchedMachineKeys []string               `protobuf:"bytes,10,rep,name=unmatched_machine_keys,json=unmatchedMachineKeys,proto3" json:"unmatched_machine_keys,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	ApiKey             string                 `protobuf:"bytes,1,opt,name=api_key,json=apiKey,proto3" json:"api_key,omitempty"`
+	ApiKeyPrefix       string                 `protobuf:"bytes,2,opt,name=api_key_prefix,json=apiKeyPrefix,proto3" json:"api_key_prefix,omitempty"`
+	ApiKeyExpiresAt    *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=api_key_expires_at,json=apiKeyExpiresAt,proto3" json:"api_key_expires_at,omitempty"`
+	ApiKeysExpired     uint32                 `protobuf:"varint,4,opt,name=api_keys_expired,json=apiKeysExpired,proto3" json:"api_keys_expired,omitempty"`
+	PreauthKeysExpired uint32                 `protobuf:"varint,5,opt,name=preauth_keys_expired,json=preauthKeysExpired,proto3" json:"preauth_keys_expired,omitempty"`
+	NodesExpired       uint32                 `protobuf:"varint,6,opt,name=nodes_expired,json=nodesExpired,proto3" json:"nodes_expired,omitempty"`
+	RoutesReset        uint32                 `protobuf:"varint,7,opt,name=routes_reset,json=routesReset,proto3" json:"routes_reset,omitempty"`
+	TagsReset          uint32                 `protobuf:"varint,8,opt,name=tags_reset,json=tagsReset,proto3" json:"tags_reset,omitempty"`
+	UsersHandled       uint32                 `protobuf:"varint,9,opt,name=users_handled,json=usersHandled,proto3" json:"users_handled,omitempty"`
+	// Machine keys of the plan (revoked, deleted or desired state) that the restored database does not have.
+	UnmatchedMachineKeys []string `protobuf:"bytes,10,rep,name=unmatched_machine_keys,json=unmatchedMachineKeys,proto3" json:"unmatched_machine_keys,omitempty"`
+	NodesDeleted         uint32   `protobuf:"varint,11,opt,name=nodes_deleted,json=nodesDeleted,proto3" json:"nodes_deleted,omitempty"`
+	// Nodes whose tags differ from the desired state but cannot be reset through the CLI (Headscale 0.29 never removes
+	// a tag from a tagged node): reported for the Owner, never guessed.
+	TagsNotReset  []string `protobuf:"bytes,12,rep,name=tags_not_reset,json=tagsNotReset,proto3" json:"tags_not_reset,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *PostRestoreReconcileResponse) Reset() {
@@ -4314,6 +4410,20 @@ func (x *PostRestoreReconcileResponse) GetUsersHandled() uint32 {
 func (x *PostRestoreReconcileResponse) GetUnmatchedMachineKeys() []string {
 	if x != nil {
 		return x.UnmatchedMachineKeys
+	}
+	return nil
+}
+
+func (x *PostRestoreReconcileResponse) GetNodesDeleted() uint32 {
+	if x != nil {
+		return x.NodesDeleted
+	}
+	return 0
+}
+
+func (x *PostRestoreReconcileResponse) GetTagsNotReset() []string {
+	if x != nil {
+		return x.TagsNotReset
 	}
 	return nil
 }
@@ -4748,12 +4858,13 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\n" +
 	"expires_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x12\x18\n" +
 	"\acreated\x18\x04 \x01(\bR\acreated\x12!\n" +
-	"\fexpired_keys\x18\x05 \x01(\rR\vexpiredKeys\"\x9f\x01\n" +
+	"\fexpired_keys\x18\x05 \x01(\rR\vexpiredKeys\"\xd8\x01\n" +
 	"\rBackupRequest\x12;\n" +
 	"\binstance\x18\x01 \x01(\v2\x1f.meshguard.agent.v1.InstanceRefR\binstance\x12\x15\n" +
 	"\x06job_id\x18\x02 \x01(\tR\x05jobId\x12\x1a\n" +
-	"\bsequence\x18\x03 \x01(\x04R\bsequence\x12\x1e\n" +
-	"\bdata_key\x18\x04 \x01(\fB\x03\x80\x01\x01R\adataKey\"\xbd\x02\n" +
+	"\bsequence\x18\x03 \x01(\x04R\bsequence\x12%\n" +
+	"\x0edata_recipient\x18\x04 \x01(\fR\rdataRecipient\x120\n" +
+	"\x14retain_from_sequence\x18\x05 \x01(\x04R\x12retainFromSequence\"\xe7\x03\n" +
 	"\x0eBackupArtifact\x12\x1a\n" +
 	"\bsequence\x18\x01 \x01(\x04R\bsequence\x12%\n" +
 	"\x0earchive_sha256\x18\x02 \x01(\tR\rarchiveSha256\x12'\n" +
@@ -4763,7 +4874,12 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x06method\x18\x05 \x01(\x0e2 .meshguard.agent.v1.BackupMethodR\x06method\x129\n" +
 	"\n" +
 	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12+\n" +
-	"\x11headscale_version\x18\a \x01(\tR\x10headscaleVersion\"P\n" +
+	"\x11headscale_version\x18\a \x01(\tR\x10headscaleVersion\x12\x1a\n" +
+	"\bmanifest\x18\b \x01(\fR\bmanifest\x12-\n" +
+	"\x12manifest_signature\x18\t \x01(\fR\x11manifestSignature\x122\n" +
+	"\x15noise_key_fingerprint\x18\n" +
+	" \x01(\tR\x13noiseKeyFingerprint\x12)\n" +
+	"\x10removed_archives\x18\v \x01(\rR\x0fremovedArchives\"P\n" +
 	"\x0eBackupResponse\x12>\n" +
 	"\bartifact\x18\x01 \x01(\v2\".meshguard.agent.v1.BackupArtifactR\bartifact\"y\n" +
 	"\vArtifactRef\x12\x1a\n" +
@@ -4777,25 +4893,29 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\bdata_key\x18\x04 \x01(\fB\x03\x80\x01\x01R\adataKey\x124\n" +
 	"\x15applied_policy_hujson\x18\x05 \x01(\fH\x00R\x13appliedPolicyHujson\x12.\n" +
 	"\x12keep_backup_policy\x18\x06 \x01(\bH\x00R\x10keepBackupPolicyB\b\n" +
-	"\x06policy\"v\n" +
+	"\x06policy\"\xf8\x01\n" +
 	"\x0fRestoreResponse\x120\n" +
 	"\x14restored_data_sha256\x18\x01 \x01(\tR\x12restoredDataSha256\x121\n" +
-	"\x15previous_data_kept_as\x18\x02 \x01(\tR\x12previousDataKeptAs\"p\n" +
+	"\x15previous_data_kept_as\x18\x02 \x01(\tR\x12previousDataKeptAs\x12#\n" +
+	"\rpolicy_sha256\x18\x03 \x01(\tR\fpolicySha256\x120\n" +
+	"\x14backup_policy_hujson\x18\x04 \x01(\fR\x12backupPolicyHujson\x12)\n" +
+	"\x10already_restored\x18\x05 \x01(\bR\x0falreadyRestored\"p\n" +
 	"\x10NodeDesiredState\x12\x1f\n" +
 	"\vmachine_key\x18\x01 \x01(\tR\n" +
 	"machineKey\x12'\n" +
 	"\x0fapproved_routes\x18\x02 \x03(\tR\x0eapprovedRoutes\x12\x12\n" +
-	"\x04tags\x18\x03 \x03(\tR\x04tags\"\xa9\x02\n" +
+	"\x04tags\x18\x03 \x03(\tR\x04tags\"\xdb\x02\n" +
 	"\rReconcilePlan\x129\n" +
 	"\vapi_key_ttl\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\tapiKeyTtl\x120\n" +
 	"\x14revoked_machine_keys\x18\x02 \x03(\tR\x12revokedMachineKeys\x12:\n" +
 	"\x05nodes\x18\x03 \x03(\v2$.meshguard.agent.v1.NodeDesiredStateR\x05nodes\x12)\n" +
 	"\x10offboarded_users\x18\x04 \x03(\tR\x0foffboardedUsers\x12D\n" +
-	"\x1frestore_point_older_than_backup\x18\x05 \x01(\bR\x1brestorePointOlderThanBackup\"\xa8\x01\n" +
+	"\x1frestore_point_older_than_backup\x18\x05 \x01(\bR\x1brestorePointOlderThanBackup\x120\n" +
+	"\x14deleted_machine_keys\x18\x06 \x03(\tR\x12deletedMachineKeys\"\xa8\x01\n" +
 	"\x1bPostRestoreReconcileRequest\x12;\n" +
 	"\binstance\x18\x01 \x01(\v2\x1f.meshguard.agent.v1.InstanceRefR\binstance\x12\x15\n" +
 	"\x06job_id\x18\x02 \x01(\tR\x05jobId\x125\n" +
-	"\x04plan\x18\x03 \x01(\v2!.meshguard.agent.v1.ReconcilePlanR\x04plan\"\xc9\x03\n" +
+	"\x04plan\x18\x03 \x01(\v2!.meshguard.agent.v1.ReconcilePlanR\x04plan\"\x94\x04\n" +
 	"\x1cPostRestoreReconcileResponse\x12\x1c\n" +
 	"\aapi_key\x18\x01 \x01(\tB\x03\x80\x01\x01R\x06apiKey\x12$\n" +
 	"\x0eapi_key_prefix\x18\x02 \x01(\tR\fapiKeyPrefix\x12G\n" +
@@ -4808,7 +4928,9 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"tags_reset\x18\b \x01(\rR\ttagsReset\x12#\n" +
 	"\rusers_handled\x18\t \x01(\rR\fusersHandled\x124\n" +
 	"\x16unmatched_machine_keys\x18\n" +
-	" \x03(\tR\x14unmatchedMachineKeys\"q\n" +
+	" \x03(\tR\x14unmatchedMachineKeys\x12#\n" +
+	"\rnodes_deleted\x18\v \x01(\rR\fnodesDeleted\x12$\n" +
+	"\x0etags_not_reset\x18\f \x03(\tR\ftagsNotReset\"q\n" +
 	"\x1bEnsureEdgeAttachmentRequest\x12;\n" +
 	"\binstance\x18\x01 \x01(\v2\x1f.meshguard.agent.v1.InstanceRefR\binstance\x12\x15\n" +
 	"\x06job_id\x18\x02 \x01(\tR\x05jobId\"\x8e\x01\n" +
@@ -4865,7 +4987,7 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x13PATH_KIND_META_FILE\x10\v\x12\x15\n" +
 	"\x11PATH_KIND_DB_FILE\x10\f\x12\x1c\n" +
 	"\x18PATH_KIND_NOISE_KEY_FILE\x10\r\x12\x1b\n" +
-	"\x17PATH_KIND_DERP_KEY_FILE\x10\x0e*\x87\x05\n" +
+	"\x17PATH_KIND_DERP_KEY_FILE\x10\x0e*\xa5\x05\n" +
 	"\rRefusalReason\x12\x1e\n" +
 	"\x1aREFUSAL_REASON_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18REFUSAL_REASON_MALFORMED\x10\x01\x12\x1d\n" +
@@ -4886,7 +5008,8 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x13REFUSAL_REASON_BUSY\x10\x0f\x12\"\n" +
 	"\x1eREFUSAL_REASON_UNAUTHENTICATED\x10\x10\x12$\n" +
 	" REFUSAL_REASON_PERMISSION_DENIED\x10\x11\x12\x18\n" +
-	"\x14REFUSAL_REASON_STATE\x10\x12*k\n" +
+	"\x14REFUSAL_REASON_STATE\x10\x12\x12\x1c\n" +
+	"\x18REFUSAL_REASON_INTEGRITY\x10\x13*k\n" +
 	"\rServingStatus\x12\x1e\n" +
 	"\x1aSERVING_STATUS_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16SERVING_STATUS_SERVING\x10\x01\x12\x1e\n" +

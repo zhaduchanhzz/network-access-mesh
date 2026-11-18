@@ -391,6 +391,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tenants/{tenantId}/relay": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Relay DERP của tenant — region được gán và kết quả probe gần nhất kèm `checked_at`
+         * @description Relay của instance chưa `removed` của tenant (`relay_assignments` + `relay_regions`, §6.3 — bước 17 `relay.assign` của provisioning tạo chúng) với health của region: kết quả probe tổng hợp gần nhất của prober (`GET /derp/probe` qua listener công khai của edge + STUN binding tới điểm vào công khai — job `relay.probe`), `checked_at` là lúc probe bắt đầu. Không có số liệu giả (§10.6): embedded DERP không xuất metrics relay — byte, throughput, số kết nối, lỗi xác thực, độ trễ phía client nằm trong `unavailable` kèm lý do. Tenant chỉ lấy từ path; không nhận tham số truy vấn nào. Tenant chưa có relay nào trong registry ⇒ `assignments` rỗng.
+         */
+        get: operations["getTenantRelay"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/relay-regions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Relay region của nền tảng — chỉ đọc ở MVP
+         * @description Mọi region (`relay_regions`, §6.3) theo `(created_at, id)`, mỗi region kèm assignment (tenant, instance, trạng thái instance) và health (cùng quy tắc với `GET /tenants/{tenantId}/relay`; region `standalone`/`shared` chưa được probe ở MVP ⇒ `unknown`/`no_probe`). Ghi (`POST`/`PATCH`/`DELETE`) thuộc P7-T04. Số liệu không đo được (§10.6) nằm trong `unavailable`.
+         */
+        get: operations["listPlatformRelayRegions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/platform/tenants": {
         parameters: {
             query?: never;
@@ -514,6 +554,110 @@ export interface paths {
         };
         /** Một Headscale instance */
         get: operations["getPlatformInstance"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/instances/{instanceId}/reconfigure": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Đổi cấu hình instance — job instance.reconfigure (version mới, restart, health gate, tự lùi)
+         * @description §11.4 hàng Reconfigure: render version mới từ version đang hiệu lực + thay đổi yêu cầu → `configtest` (Agent,
+         *     container tạm) → version `pending` → `CheckPolicy` chuỗi đang áp dụng → ghi atomically → restart → health gate
+         *     (container healthy, `GET /api/v1/health` qua adapter, post-start gate) → `edge.verify` rút gọn → version
+         *     `applied`. Lỗi không phục hồi sau khi ghi ⇒ ghi lại version trước + restart + kiểm lại, version mới `failed`,
+         *     job `rolled_back`; lùi lỗi ⇒ `failed_resumable` (`compensation_failed`) + `security_event` Critical. Instance
+         *     phải `running` (quarantined ⇒ `409`) và đã có version cấu hình do orchestrator ghi (`409 no_config_version`);
+         *     một job reconfigure chưa kết thúc với thay đổi khác ⇒ `409`, cùng thay đổi ⇒ chính job đó. Chạy trong khóa
+         *     lifecycle của tenant (§13.5 (d)). Audit `platform.instance.reconfigure.requested` (worker đóng
+         *     `.succeeded`/`.failed`).
+         */
+        post: operations["reconfigurePlatformInstance"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/instances/{instanceId}/backup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Backup một instance ngay — job `instance.backup` (202)
+         * @description §17.1: một job `instance.backup` (cùng job của lịch `MG_BACKUP_INTERVAL`): instance đang chạy ⇒ `VACUUM INTO`
+         *     trong container trợ giúp (data/ chỉ-đọc), đang dừng ⇒ cold copy; archive age mã hóa tới data key của bản backup
+         *     (bọc bằng khóa backup của tenant — đường online) và recovery recipient của nền tảng (đường DR); manifest ký Ed25519
+         *     được worker kiểm trước khi hàng `backups` thành `succeeded`. Trong lúc một backup theo yêu cầu đang chờ/chạy, gọi
+         *     lại trả đúng job đó. Instance `quarantined`/`removed` hoặc tenant không còn phục vụ ⇒ `409`. Thư mục dữ liệu thù
+         *     địch (symlink, FIFO, file thưa quá lớn, DB hỏng) ⇒ job `failed` + security event (IT-15).
+         */
+        post: operations["backupPlatformInstance"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/instances/{instanceId}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Xin restore một instance từ một bản backup — luôn 2P; 202 + Location của yêu cầu phê duyệt
+         * @description §17.2: tạo yêu cầu dual control `platform.instance.restore` (người yêu cầu step-up); payload — đúng thứ người
+         *     duyệt thấy và đúng đầu vào duy nhất của job — gồm `backup_id`, `instance_id` và `restore_point_older_than_backup`
+         *     (người vận hành khẳng định PostgreSQL đã được khôi phục về thời điểm CŨ HƠN bản backup: giữ policy trong bản
+         *     backup làm version cần rà soát, không đặt lại route/tag/thu hồi theo PostgreSQL, đánh dấu tenant cần Owner rà
+         *     soát). Người duyệt khác người yêu cầu, step-up, giữ `platform.instance:restore` (Platform Operator duyệt được nhờ
+         *     điều kiện `restore_only`). Sau khi duyệt, job vòng đời `instance.restore` chạy theo thứ tự provisioning: kiểm
+         *     manifest ký + danh tính trước khi mở bọc data key, restore (policy đặt offline trước lần start đầu, edge gỡ),
+         *     `PostRestoreReconcile` (mọi API key/pre-auth key của bản backup hết hiệu lực, node thu hồi sau backup bị expire lại
+         *     theo `machine_key`), gắn lại edge, kiểm qua API, phân giải lại Headscale user theo tên, `inventory.sync`, báo cáo.
+         *     `backup_id` không phải bản backup `succeeded` của chính instance này ⇒ `422`/`409`; đang có yêu cầu mở cho
+         *     instance ⇒ `409`.
+         */
+        post: operations["restorePlatformInstance"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/backups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Sổ backup — mới nhất trước
+         * @description Hàng `backups` (§6.3): bản backup instance của mọi tenant (P3-T11) và — về sau — bản phạm vi nền tảng. Không trả
+         *     data key đã bọc hay nội dung manifest, chỉ digest. Lọc theo instance, trạng thái.
+         */
+        get: operations["listPlatformBackups"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1528,6 +1672,92 @@ export interface components {
             items: components["schemas"]["Instance"][];
             next_cursor: string | null;
         };
+        /** @description Xin restore một instance từ một bản backup (luôn cần người thứ hai duyệt — §8.5) */
+        InstanceRestoreCreate: {
+            /**
+             * Format: uuid
+             * @description Bản backup `succeeded` của chính instance này (`GET /platform/backups?instance=…`)
+             */
+            backup_id: string;
+            /**
+             * @description Người vận hành khẳng định PostgreSQL đã được khôi phục về thời điểm cũ hơn bản backup (§17.2 bước 4): policy trong bản backup được giữ và nhập thành version cần rà soát; không đặt lại route/tag và không thu hồi lại theo PostgreSQL; tenant được đánh dấu cần Owner rà soát
+             * @default false
+             */
+            restore_point_older_than_backup: boolean;
+            /** @description Lý do (sự cố, ticket) — người duyệt đọc trước khi duyệt */
+            reason: string;
+        };
+        /**
+         * @description Trạng thái hàng `backups` (0011): `running` (đang chạy), `succeeded` (archive + manifest ký đã kiểm), `failed`, `purged` (archive đã xóa theo retention; hàng giữ để audit)
+         * @enum {string}
+         */
+        BackupStatus: "running" | "succeeded" | "failed" | "purged";
+        /**
+         * @description Loại bản backup — `instance` (Headscale của một tenant, P3-T11); các loại phạm vi nền tảng nhập về sau
+         * @enum {string}
+         */
+        BackupKind: "instance" | "postgres" | "idp" | "edge";
+        /**
+         * @description `vacuum_into` (instance đang chạy, data/ chỉ-đọc) hoặc `cold_copy` (instance đang dừng)
+         * @enum {string}
+         */
+        BackupMethod: "vacuum_into" | "cold_copy";
+        /** @description Một bản backup (§6.3 `backups`). Không chứa data key đã bọc hay nội dung manifest — chỉ digest của ciphertext (`sha256`) và của manifest ký (`manifest_sha256`) */
+        Backup: {
+            /** Format: uuid */
+            id: string;
+            kind: components["schemas"]["BackupKind"];
+            status: components["schemas"]["BackupStatus"];
+            /** Format: uuid */
+            tenant_id?: string | null;
+            /** Format: uuid */
+            instance_id?: string | null;
+            /**
+             * Format: int64
+             * @description Số thứ tự tăng dần của archive trong thư mục của instance (ghi trong manifest ký)
+             */
+            sequence?: number | null;
+            method?: components["schemas"]["BackupMethod"] | null;
+            /** Format: int64 */
+            size_bytes?: number | null;
+            sha256?: string | null;
+            manifest_sha256?: string | null;
+            headscale_version?: string | null;
+            /** @description Vị trí archive (không chứa credential) */
+            storage_uri: string;
+            /** Format: date-time */
+            started_at: string;
+            /** Format: date-time */
+            finished_at?: string | null;
+            /** Format: date-time */
+            expires_at?: string | null;
+            /**
+             * Format: date-time
+             * @description Lần restore từ bản này hoàn tất gần nhất
+             */
+            verified_at?: string | null;
+            /** Format: uuid */
+            job_id?: string | null;
+        };
+        BackupList: {
+            items: components["schemas"]["Backup"][];
+            next_cursor: string | null;
+        };
+        /**
+         * @description `log.level` của Headscale (§11.3 bước 8: chỉ `info`, `warn`, `error`)
+         * @enum {string}
+         */
+        InstanceLogLevel: "info" | "warn" | "error";
+        /** @description Tham số do nền tảng quản lý của cấu hình instance (§11.1 `HeadscaleParams`); trường vắng mặt giữ giá trị của version đang hiệu lực. `derp.server.ipv4` luôn render lại từ điểm vào công khai hiện tại của host (§17.4) — `{}` render lại đúng version hiện hành với giá trị mới nhất của registry (không đổi gì ⇒ job kết thúc không restart). Thiết lập DNS, OIDC, hạn khóa của tenant đi qua API Phase 4 (cùng job) */
+        InstanceReconfigure: {
+            log_level?: components["schemas"]["InstanceLogLevel"];
+            /** @description `node.expiry` theo ngày (render thành giờ — Headscale 0.29.7 không có đơn vị ngày) */
+            node_expiry_days?: number;
+            /** @description `dns.nameservers.global` (`override_local_dns` — RT-07): địa chỉ IP unicast dùng được (không loopback, link-local, multicast), không trùng; ngoài dải network tenant của host (Agent kiểm) */
+            nameservers?: string[];
+            /** @description `derp.server.region_id` của DERP nhúng (§10.1) */
+            derp_region_id?: number;
+        };
         /**
          * @description Trạng thái host (`hosts.status`, 0014): `active` nhận instance mới; `draining` giữ instance đang có, không nhận mới; `disabled` ngừng hẳn — placement chỉ chọn host `active`
          * @enum {string}
@@ -1656,6 +1886,120 @@ export interface components {
             tenants: components["schemas"]["TenantCounts"];
             instances: components["schemas"]["InstanceCounts"];
             jobs: components["schemas"]["JobQueueHealth"];
+        };
+        /**
+         * @description `embedded` (DERP nhúng trong Headscale của tenant — MVP, ADR-11), `standalone` (derper riêng của một tenant — phương án lùi §10.3), `shared` (relay dùng chung — research proposal §10.5, Phase 7)
+         * @enum {string}
+         */
+        RelayRegionKind: "embedded" | "standalone" | "shared";
+        /**
+         * @description Trạng thái quản trị (`relay_regions.status`, `relay_assignments.status` — 0010); sức khỏe đo được nằm ở `health`, không ở đây
+         * @enum {string}
+         */
+        RelayAdminStatus: "pending" | "active" | "disabled";
+        /** @description Một phép kiểm của lần probe gần nhất, đo bởi prober bên trong nền tảng (`duration_ms` là thời gian của phép kiểm từ prober — không phải độ trễ client thấy) */
+        RelayCheck: {
+            ok: boolean;
+            /** @description Trạng thái HTTP nhận được (chỉ `derp`); vắng khi không nhận được câu trả lời */
+            status?: number;
+            /** @description Mã lỗi ổn định của prober khi phép kiểm không đạt (`timeout`, `refused`, `unreachable`, `tls_handshake`, `tls_verify`, `bad_response`, `no_mapped_address`, `expectation_failed`…); vắng khi đạt */
+            code?: string;
+            /** Format: int64 */
+            duration_ms: number;
+        };
+        /** @description Health của region từ lần probe tổng hợp gần nhất (`derp`: `GET /derp/probe` qua listener công khai của edge ⇒ 200; `stun`: STUN binding tới địa chỉ STUN của region ⇒ có mapped address). `checked_at` là lúc probe bắt đầu, `null` khi chưa từng probe; kết quả cũ hơn ngưỡng, region/assignment không `active`, instance không chạy, hoặc loại region chưa được probe ⇒ `status = unknown` kèm `reason`; `derp`/`stun` là các phép kiểm của lần probe ở `checked_at` */
+        RelayHealth: {
+            status: components["schemas"]["HealthStatus"];
+            /** Format: date-time */
+            checked_at: string | null;
+            /** @description Lý do ổn định khi `status` khác `healthy`. Kết quả probe: `derp_probe_failed`, `stun_probe_failed`, `relay_unreachable` (cả hai). Không có kết luận: `never_checked`, `stale`, `invalid_record`, `instance_not_running`, `relay_not_active`, `no_probe`. Tập giá trị chỉ được bổ sung (cộng thêm) */
+            reason?: string;
+            derp?: components["schemas"]["RelayCheck"];
+            stun?: components["schemas"]["RelayCheck"];
+        };
+        /** @description Region relay (`relay_regions`, §6.3) — tham số công khai, như client của tenant thấy trong DERP map; không chứa secret */
+        RelayRegion: {
+            /** Format: uuid */
+            id: string;
+            /** @description `region_code` (ví dụ `mg-<slug>`, §10.1) */
+            code: string;
+            name: string;
+            kind: components["schemas"]["RelayRegionKind"];
+            derp_region_id: number;
+            hostname: string;
+            /**
+             * Format: ipv4
+             * @description Địa chỉ quảng bá của điểm vào công khai (`derp.server.ipv4`, §10.1)
+             */
+            ipv4?: string;
+            /** Format: ipv6 */
+            ipv6?: string;
+            stun_port?: number;
+            derp_port: number;
+            /**
+             * @description `in_process` (`verify_clients` của DERP nhúng) | `verify_url` (fail-closed)
+             * @enum {string}
+             */
+            verify_mode: "in_process" | "verify_url";
+            status: components["schemas"]["RelayAdminStatus"];
+        };
+        /** @description Số đo relay nền tảng KHÔNG báo — "không khả dụng" kèm lý do thay vì số giả (§10.6, §12.4) */
+        RelayUnavailable: {
+            /** @description `traffic_bytes`, `throughput`, `connections`, `auth_failures`, `client_latency` (chỉ bổ sung; một mục rời danh sách khi task xây nguồn của nó hoàn tất) */
+            metric: string;
+            /** @description `unsupported` (thành phần không cung cấp được — embedded DERP không xuất metrics relay), `no_source` (nền tảng chưa có nguồn) */
+            reason: string;
+            /** @description Câu giải thích ngắn (tiếng Anh) cho người đọc; phần ổn định là `reason` */
+            detail?: string;
+        };
+        /** @description Một relay của tenant — assignment của instance tới một region (`relay_assignments`), kèm health của region */
+        RelayAssignment: {
+            /** Format: uuid */
+            id: string;
+            priority: number;
+            status: components["schemas"]["RelayAdminStatus"];
+            region: components["schemas"]["RelayRegion"];
+            health: components["schemas"]["RelayHealth"];
+        };
+        /** @description Relay của tenant (§12.3 mục Relay) — mỗi health kèm `checked_at`; số đo không có nguồn ở `unavailable` */
+        TenantRelay: {
+            assignments: components["schemas"]["RelayAssignment"][];
+            unavailable: components["schemas"]["RelayUnavailable"][];
+        };
+        /** @description Assignment của một region như nhân sự nền tảng thấy (metadata registry) */
+        PlatformRelayAssignment: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            tenant_id: string;
+            /** Format: uuid */
+            instance_id: string;
+            priority: number;
+            status: components["schemas"]["RelayAdminStatus"];
+            instance_status: components["schemas"]["InstanceStatus"];
+        };
+        PlatformRelayRegion: {
+            region: components["schemas"]["RelayRegion"];
+            /**
+             * Format: uuid
+             * @description Tenant sở hữu region (`embedded`, `standalone`); `null` với region `shared`
+             */
+            tenant_id: string | null;
+            /** Format: uuid */
+            host_id?: string;
+            assignments: components["schemas"]["PlatformRelayAssignment"][];
+            health: components["schemas"]["RelayHealth"];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: int64 */
+            version: number;
+        };
+        RelayRegionList: {
+            items: components["schemas"]["PlatformRelayRegion"][];
+            next_cursor: string | null;
+            unavailable: components["schemas"]["RelayUnavailable"][];
         };
         /**
          * @description `pending` → `approved` (người thứ hai) → `executed` (thực thi một lần, cùng transaction với job — trạng thái cuối); `pending` → `rejected`; `pending`/`approved` quá `expires_at` → `expired`
@@ -2722,6 +3066,64 @@ export interface operations {
             default: components["responses"]["Unexpected"];
         };
     };
+    getTenantRelay: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Relay của tenant */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantRelay"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    listPlatformRelayRegions: {
+        parameters: {
+            query?: {
+                /** @description Số phần tử tối đa của trang */
+                limit?: components["parameters"]["Limit"];
+                /** @description Con trỏ mờ lấy từ `next_cursor` của trang trước */
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Một trang relay region */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RelayRegionList"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
     listPlatformTenants: {
         parameters: {
             query?: {
@@ -2942,6 +3344,146 @@ export interface operations {
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    reconfigurePlatformInstance: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                instanceId: components["parameters"]["InstanceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstanceReconfigure"];
+            };
+        };
+        responses: {
+            /** @description Job instance.reconfigure đã xếp hàng; theo dõi ở job */
+            202: {
+                headers: {
+                    Location: components["headers"]["JobLocation"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    backupPlatformInstance: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                instanceId: components["parameters"]["InstanceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Job backup đã xếp hàng; theo dõi ở job */
+            202: {
+                headers: {
+                    Location: components["headers"]["JobLocation"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    restorePlatformInstance: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                instanceId: components["parameters"]["InstanceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstanceRestoreCreate"];
+            };
+        };
+        responses: {
+            /** @description Yêu cầu phê duyệt đã tạo — người thứ hai duyệt ở `Location` */
+            202: {
+                headers: {
+                    Location: components["headers"]["ApprovalLocation"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalRequest"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    listPlatformBackups: {
+        parameters: {
+            query?: {
+                /** @description Số phần tử tối đa của trang */
+                limit?: components["parameters"]["Limit"];
+                /** @description Con trỏ mờ lấy từ `next_cursor` của trang trước */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Lọc theo instance */
+                instance?: string;
+                status?: components["schemas"]["BackupStatus"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Một trang backup */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackupList"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationFailed"];
             429: components["responses"]["RateLimited"];
             default: components["responses"]["Unexpected"];
         };

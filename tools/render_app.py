@@ -137,6 +137,11 @@ def agent_blocks(env: dict[str, str]) -> dict[str, str]:
         if not re.fullmatch(r"https?://[a-z0-9.-]+(:\d+)?/?", prober):
             raise ParamError("MG_PROBER_URL phải là http(s)://host[:port]")
         lines.append(f"MG_PROBER_URL: {prober}")
+    pub = env.get("MG_BACKUP_MANIFEST_PUBKEY", "").strip()
+    if pub:  # P3-T11: the worker verifies every backup manifest (§17.1) — the public key of the key ceremony
+        if not all(re.fullmatch(r"MCowBQYDK2VwAyEA[A-Za-z0-9+/]{43}=", k.strip()) for k in pub.split(",")):
+            raise ParamError("MG_BACKUP_MANIFEST_PUBKEY phải là khóa công khai Ed25519 (SPKI, base64)")
+        lines.append(f"MG_BACKUP_MANIFEST_PUBKEY: {pub}   # kiểm manifest ký của backup tenant (P3-T11)")
     return {
         "worker_agent_env": "".join("\n      " + x for x in lines),
         "worker_agent_secret": "\n      - {source: app_agent_token, target: agent_token}",

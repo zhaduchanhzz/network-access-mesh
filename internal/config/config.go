@@ -73,6 +73,9 @@ type Config struct {
 	SMTP SMTP
 	// Provisioning (MG_PROVISION_*, MG_PROBER_URL, worker, optional): the Tenant Orchestrator — LoadProvisioning (P3-T05).
 	Provisioning Provisioning
+	// Backup (MG_BACKUP_MANIFEST_PUBKEY, MG_BACKUP_INTERVAL, MG_BACKUP_RETENTION, worker): per-tenant backups — LoadBackup
+	// (P3-T11).
+	Backup Backup
 	// Maintenance (MG_MAINTENANCE: 1/true/on, default off — P3-T17, §17.2): the process starts in maintenance mode
 	// whatever the database says — the api answers 503 except the platform sign-in on admin.<domain>, the worker runs no
 	// job and no schedule. It is the startup switch of a PostgreSQL restore (the restored database does not hold the
@@ -223,6 +226,9 @@ func Load(service string, getenv func(string) string, environ []string) (Config,
 	if cfg.Provisioning.Enabled() && !cfg.Agent.Configured() {
 		errs = append(errs, errors.New("MG_PROVISION_*: the Tenant Orchestrator needs the Host Agent (MG_AGENT_SOCKET, MG_AGENT_TOKEN_FILE)"))
 	}
+	var backupErrs []error
+	cfg.Backup, backupErrs = LoadBackup(service, getenv)
+	errs = append(errs, backupErrs...)
 	switch strings.ToLower(strings.TrimSpace(getenv("MG_MAINTENANCE"))) {
 	case "", "0", "false", "off":
 	case "1", "true", "on":

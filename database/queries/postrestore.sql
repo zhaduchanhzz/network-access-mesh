@@ -17,7 +17,7 @@ FROM sessions
 WHERE revoked_at IS NULL AND created_at <= sqlc.arg(cutoff)::timestamptz;
 
 -- name: RevokeSessionsBefore :execrows
--- Pool platform (quyền UPDATE (revoked_at, id_token_hint_enc) của 0020): thu hồi như RevokeIdentitySessions — kể cả
+-- Pool platform (quyền UPDATE (revoked_at, id_token_hint_enc) của 0018): thu hồi như RevokeIdentitySessions — kể cả
 -- session đã hết hạn idle (vô hại) — và xóa hint đăng xuất.
 UPDATE sessions SET revoked_at = sqlc.arg(cutoff)::timestamptz, id_token_hint_enc = NULL
 WHERE revoked_at IS NULL AND created_at <= sqlc.arg(cutoff)::timestamptz;

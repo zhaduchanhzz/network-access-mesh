@@ -156,6 +156,8 @@ func DefaultKinds() map[string]Kind {
 		other("enrollment.reconcile", "tenant:{tenant}:enroll:{slot}", ScopeTenant, QueueDefault, 3, 2*time.Minute),
 		other("usage.collect", "tenant:{tenant}:usage:{slot}", ScopeTenant, QueueDefault, 3, 5*time.Minute),
 		other("health.probe", "instance:{instance}:health:{slot}", ScopeInstance, QueueDefault, 1, time.Minute),
+		// P3-T05c: one probe of an embedded relay region (internal/relay); {object} = the region id
+		other("relay.probe", "relay:{object}:probe:{slot}", ScopeTenant, QueueDefault, 1, time.Minute),
 		other("job.reaper", "job.reaper:{slot}", ScopePlatform, QueueMaintenance, 1, 50*time.Second),
 		other("grant.expire", "grant.expire:{slot}", ScopePlatform, QueueMaintenance, 3, 2*time.Minute),
 		other("session.gc", "session.gc:{slot}", ScopePlatform, QueueMaintenance, 3, 2*time.Minute),
@@ -170,9 +172,10 @@ func DefaultKinds() map[string]Kind {
 		out[k.Name] = k
 	}
 	// tenant.provision undoes its 19 steps in reverse order (§11.3, P3-T05); tenant.suspend and tenant.resume undo theirs
-	// (P3-T08: back to the desired policy and `active` / back to the suspension policy and `suspended`); the other
+	// (P3-T08: back to the desired policy and `active` / back to the suspension policy and `suspended`);
+	// instance.reconfigure writes the previous configuration version back and restarts on it (§11.4, P3-T13); the other
 	// lifecycle kinds gain /rollback with the task that builds their compensation.
-	for _, name := range []string{"tenant.provision", "tenant.suspend", "tenant.resume"} {
+	for _, name := range []string{"tenant.provision", "tenant.suspend", "tenant.resume", "instance.reconfigure"} {
 		k := out[name]
 		k.Compensable = true
 		out[name] = k
@@ -329,6 +332,19 @@ func checkScope(k Kind, s Spec) error {
 		return fmt.Errorf("%w: resource needs a type and an id", ErrInvalidSpec)
 	}
 	return nil
+}
+
+// DedupeKey returns the dedupe_key Enqueue gives a job of spec (§13.5 (b)) — for a caller that looks for the
+// unfinished job of the same key before writing anything of its own (instance.reconfigure — P3-T13).
+func DedupeKey(s Spec) (string, error) {
+	k, ok := registry[s.Kind]
+	if !ok {
+		return "", fmt.Errorf("%w: %q", ErrUnknownKind, s.Kind)
+	}
+	if err := checkScope(k, s); err != nil {
+		return "", err
+	}
+	return k.dedupeKey(s)
 }
 
 // dedupeKey fills the kind's template; every placeholder it uses must have a value.

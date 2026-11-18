@@ -97,8 +97,8 @@ Chi tiết từng môi trường (bổ sung cho đoạn trên):
 | Dependencies | G2 |
 | Files/modules expected | `apps/agent`, `apps/probe`, `api/agent/v1/agent.proto`, `internal/provisioning/**`, `internal/relay`, `internal/notifications`, `internal/policies` (lõi), `internal/usage` (quota tối thiểu), template hoàn chỉnh trong `infrastructure/headscale/templates/`, `infrastructure/monitoring/` (bộ cảnh báo tối thiểu — P3-T16) |
 | Configuration requirements | Socket Agent; allowlist image digest; dải UID và dải subnet tenant (`tenant_net_pool`) theo host; lịch job; SMTP; số người duyệt 2P (D-11) |
-| Database migrations | `0009`–`0015` theo bản đồ migration ở §6.3 (approval/invitation/notification; relay; backups; plans/subscriptions; policy_versions + policy_applications; ràng buộc placement của `hosts`/`tenant_instances`; `provisioning_jobs.cancel_requested_at`) và `0020` (quyền thu hồi session của worker — P3-T17) |
-| API changes | `POST /platform/tenants`, `/platform/tenants/{id}/suspend`, `/resume`, `DELETE /platform/tenants/{id}`, `platform/instances/{id}/<action>`, `platform/hosts`, `platform/approvals`, `tenants/{t}/approvals`, `platform/jobs/{id}/retry`, `/cancel`, `/rollback`, `tenants/{t}/invitations`, `tenants/{t}/notifications`, `tenants/{t}/relay`, `platform/relay-regions` (chỉ đọc) |
+| Database migrations | `0009`–`0019` theo bản đồ migration ở §6.3 (approval/invitation/notification; relay; backups; plans/subscriptions; policy_versions + policy_applications; ràng buộc placement của `hosts`/`tenant_instances`; `provisioning_jobs.cancel_requested_at`; kết quả probe relay `relay_regions.last_probe` — 0016, P3-T05c; cột manifest/data key của `backups` — 0017, P3-T11; quyền thu hồi session của worker — 0018, P3-T17; `0019` dành cho task Phase 3 song song) |
+| API changes | `POST /platform/tenants`, `/platform/tenants/{id}/suspend`, `/resume`, `DELETE /platform/tenants/{id}`, `platform/instances/{id}/<action>`, `platform/hosts`, `platform/approvals`, `tenants/{t}/approvals`, `platform/jobs/{id}/retry`, `/cancel`, `/rollback`, `tenants/{t}/invitations`, `tenants/{t}/notifications`, `tenants/{t}/relay`, `platform/relay-regions` (chỉ đọc), `platform/backups` (chỉ đọc — P3-T11) |
 | Security controls | Agent kiểm tra spec; không secret trong job payload/log; policy deny-all trước attach; dual control cho xóa/restore; một lifecycle job/tenant |
 | Unit tests | State machine (mọi chuyển trạng thái, compensation); cấp phát UID; validator spec của Agent |
 | Integration tests | Provision trên Docker thật; **tiêm lỗi tại từng step** ⇒ không còn tài nguyên mồ côi; retry idempotent; reconcile báo cáo drift |
@@ -119,7 +119,7 @@ Chi tiết từng môi trường (bổ sung cho đoạn trên):
 | Dependencies | G3 (API ổn định) |
 | Files/modules expected | `apps/web/**`, `internal/{enrollment,policies,network,members}`, bổ sung `api/openapi.yaml` |
 | Configuration requirements | Hai origin; CSP; quy tắc chuyển hướng `/register/*` ở edge |
-| Database migrations | `0021`–`0024` theo bản đồ migration ở §6.3 (enrollment_requests; groups + tenant_tags; network_resources/dns_records; support_access_grants + identity_links) |
+| Database migrations | `0020`–`0023` theo bản đồ migration ở §6.3 (enrollment_requests; groups + tenant_tags; network_resources/dns_records; support_access_grants + identity_links) |
 | API changes | `enrollment/*`, `policies/*`, `groups/*`, `tags/*`, `users` (ghi, gồm `role`, `admin-role`, `ownership-transfer`), `devices/{id}/tags`, `routes/*`, `dns/*`, `resources/*`, `support-grants/*`, `platform/users`, `platform/settings`, `platform/identity-providers`, `platform/plans`, `tenants/{t}/settings` (+ `settings/security`), `tenants/{t}/approvals`, `tenants/{t}/identity-provider`, `request-deletion`, `PATCH /platform/tenants/{id}` |
 | Security controls | Guardrail lint policy; 4-eyes tùy chọn; step-up; key hiển thị một lần; claim chỉ khi có yêu cầu đang chờ trong cùng phiên + kiểm node sau đăng ký (§7.4) |
 | Unit tests | Render policy tất định; lint L1–L13; component (Vitest) |
@@ -163,7 +163,7 @@ Chi tiết từng môi trường (bổ sung cho đoạn trên):
 | Dependencies | G5 |
 | Files/modules expected | `infrastructure/monitoring/**`, `docs/operations/**`, pipeline CI supply chain, `tests/load/**` |
 | Configuration requirements | Kho offsite; kênh cảnh báo; lịch xoay; quy tắc `DOCKER-USER` |
-| Database migrations | `0025` usage_records (partition) + bảng tổng hợp |
+| Database migrations | `0024` usage_records (partition) + bảng tổng hợp |
 | API changes | `usage/*` (gồm `tenants/{t}/billing` và `platform/usage`), `platform/backups`, `platform/security-events`, gỡ ban CrowdSec (endpoint chốt ở P6-T07a) |
 | Security controls | Hash-chain audit; đẩy audit ra ngoài host; rà soát grant định kỳ; allow-list đích cho `mg-egress` |
 | Unit tests | Hash-chain audit; tổng hợp usage; KEK rewrap |

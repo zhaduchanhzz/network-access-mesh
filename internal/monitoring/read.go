@@ -76,12 +76,13 @@ type Unavailable struct {
 }
 
 // notYet are the sections of §16.4 without a figure in this release. Each one becomes a figure — and leaves this list —
-// in the task that builds its source: policies (P3-T08a, P4-T10), relay (P3-T03a prober, P3-T05c), routes (P4-T12),
-// security events (P6-T02a).
+// in the task that builds its source: policies (P3-T08a, P4-T10), routes (P4-T12), security events (P6-T02a); relay has
+// its source since P3-T05c (relay.probe, served by GET /tenants/{t}/relay with checked_at) and becomes a figure of the
+// dashboard with the Tenant Portal (P4-T04).
 var notYet = []Unavailable{
 	{SectionPolicies, ReasonNoSource, "Policy versions and their applications are not managed by the platform yet."},
 	{SectionRoutes, ReasonNotServed, "Route status is not served by the dashboard yet."},
-	{SectionRelay, ReasonNoSource, "Relay probes are not deployed yet."},
+	{SectionRelay, ReasonNotServed, "Relay health is served by GET /tenants/{tenantId}/relay, not by the dashboard yet."},
 	{SectionSecurityEvents, ReasonNotServed, "Security events are not served by the dashboard yet."},
 }
 
