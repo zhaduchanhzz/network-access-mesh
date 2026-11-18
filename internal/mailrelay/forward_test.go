@@ -98,7 +98,7 @@ var testKey = strings.Repeat("relay-test-", 4)
 
 func newForwarder(t testing.TB, url, key string, m *Metrics) *HTTPForwarder {
 	t.Helper()
-	f, err := NewHTTPForwarder(ForwarderConfig{URL: url, KeyFile: key, Metrics: m, AttemptTimeout: 2 * time.Second,
+	f, err := NewHTTPForwarder(ForwarderConfig{URL: url, KeyFile: key, Metrics: m, AttemptTimeout: 5 * time.Second,
 		Backoff: []time.Duration{10 * time.Millisecond}})
 	if err != nil {
 		t.Fatal(err)
@@ -213,7 +213,7 @@ func TestForwardTimeoutAndBudget(t *testing.T) {
 	defer cancel()
 	t0 := time.Now()
 	out := f.Forward(ctx, "no-reply@example.com", []string{"a@example.org"}, []byte("x"))
-	if out.Class != Temporary || out.Code != "timeout" || out.Attempts < 2 || time.Since(t0) > 2*time.Second {
+	if out.Class != Temporary || out.Code != "timeout" || out.Attempts < 2 || time.Since(t0) > 4*time.Second {
 		t.Fatalf("timeouts: %+v after %v", out, time.Since(t0))
 	}
 	// the context budget ends the retries

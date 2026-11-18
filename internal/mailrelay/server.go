@@ -145,19 +145,20 @@ func (s *Server) session(ctx context.Context, c net.Conn) {
 	defer s.cfg.Metrics.session()()
 	end := time.Now().Add(s.cfg.SessionTimeout)
 	ss := &session{s: s, conn: c, br: bufio.NewReaderSize(c, 4096), bw: bufio.NewWriter(c), log: s.cfg.Logger}
-	stop := context.AfterFunc(ctx, func() { _ = ss.conn.SetReadDeadline(time.Now()) })
+	// the raw connection, never ss.conn (replaced by STARTTLS on the session goroutine): its deadline also ends a TLS read
+	stop := context.AfterFunc(ctx, func() { _ = c.SetReadDeadline(time.Now()) })
 	defer stop()
 	ss.reply(220, s.cfg.Hostname+" ESMTP MeshGuard mail relay")
 	for {
-		if ctx.Err() != nil {
-			ss.reply(421, "4.3.2 service shutting down")
-			return
-		}
 		rd := time.Now().Add(s.cfg.ReadTimeout)
 		if rd.After(end) {
 			rd = end
 		}
 		_ = ss.conn.SetReadDeadline(rd)
+		if ctx.Err() != nil { // after the deadline: a shutdown from now on cuts the read below
+			ss.reply(421, "4.3.2 service shutting down")
+			return
+		}
 		line, err := ss.readLine()
 		if err != nil {
 			var ne net.Error
@@ -165,6 +166,10 @@ func (s *Server) session(ctx context.Context, c net.Conn) {
 			case errors.Is(err, errLineTooLong):
 				s.cfg.Metrics.reject(ReasonSyntax)
 				ss.reply(500, "5.5.6 command line too long")
+				// read what is still in flight (bounded) before closing: closing a socket with unread input sends a TCP
+				// reset, which can destroy the 500 before the client reads it
+				_ = ss.conn.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+				_, _ = io.Copy(io.Discard, io.LimitReader(ss.br, 64<<10))
 			case errors.As(err, &ne) && ne.Timeout() && ctx.Err() == nil:
 				ss.reply(421, "4.4.2 idle timeout, closing connection")
 			}
