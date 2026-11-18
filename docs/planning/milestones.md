@@ -115,7 +115,7 @@ Chi tiết từng môi trường (bổ sung cho đoạn trên):
 |---|---|
 | Objective | Portal thống nhất cho Super Admin và Tenant Admin |
 | Scope | Platform Console, Tenant Portal, Device Management, Enrollment (web-auth claim + pre-auth key), Policy Management, DNS/Routes, Resource Catalog, Audit UI, i18n vi/en, dark/light, a11y |
-| Technical tasks | P4-T01…P4-T14 và P4-T03a, P4-T09a, P4-T10a, P4-T15 |
+| Technical tasks | P4-T01…P4-T14 và P4-T01a, P4-T03a, P4-T09a, P4-T10a, P4-T15 |
 | Dependencies | G3 (API ổn định) |
 | Files/modules expected | `apps/web/**`, `internal/{enrollment,policies,network,members}`, bổ sung `api/openapi.yaml` |
 | Configuration requirements | Hai origin; CSP; quy tắc chuyển hướng `/register/*` ở edge |

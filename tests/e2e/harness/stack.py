@@ -1,7 +1,8 @@
 """Stack dev/CI of P2-T01a: parameters, render, ephemeral CA, secrets, networks, compose — used by e2e.py.
 
 Everything is rendered by the repository's own tools (tools/render_instance.py, render_edge.py, render_idp.py and,
-since P2-T16, render_app.py — the backend api/worker/migrate/db-bootstrap with images built from the tree) from the
+since P2-T16, render_app.py — the backend api/worker/migrate/db-bootstrap and, since P4-T01a, the SPA container web, with
+images built from the tree) from the
 `ci` environment (infrastructure/environments/ci); the only CI-specific change to a rendered file is the edge's `tls`
 block (ACME DNS-01 → certificate of the run's internal CA — ci_tls()). Secrets are generated per run into
 <work>/secrets as 0400 files owned by their consumer's UID (an alpine helper container sets the ownership), handed to
@@ -65,7 +66,8 @@ APP_SECRET_GROUPS = {"api": 20002, "worker": 20003, "app": 20001, "migrate": 200
                      "obs": 20006}   # P3-T16: Prometheus (65534 + mg-sec-obs) — copy of the edge's metrics token
 APP_ROLES = ("mg_api_tenant", "mg_api_platform", "mg_worker_tenant", "mg_worker_platform", "mg_audit_writer",
              "mg_partition_maint")
-DUMMY_IMAGES = ("sha256:" + "0" * 64, "sha256:" + "1" * 64)   # render without Docker (e2e.py render, test_stack.py)
+# (api, worker, web) before the build — render without Docker (e2e.py render, test_stack.py)
+DUMMY_IMAGES = ("sha256:" + "0" * 64, "sha256:" + "1" * 64, "sha256:" + "2" * 64)
 # The ACME DNS-01 block of the rendered Caddyfile, replaced by the run's certificate (ci_tls).
 TLS_DNS01 = re.compile(r"\n\ttls \{\n\t\tdns cloudflare \{file\./run/secrets/cloudflare_dns_token\}\n"
                        r"\t\tresolvers [0-9. ]+\n\t\}\n")
@@ -105,7 +107,7 @@ class Stack:
         self.worker_edge_ip = f"{base}.0.4"           # render_edge.APP_IPS: the edge's Admin-API allow-list (P2-T16)
         self.edge_idp_ip = f"{base}.7.2"              # the edge on the idp network (G2 round 2, A-8)
         self.host_ip = f"{base}.0.1"                  # this host on the edge network: the only admin. source (P2-T16)
-        self.app_images = DUMMY_IMAGES                # (api, worker) — build_app_images() sets the local image IDs
+        self.app_images = DUMMY_IMAGES                # (api, worker, web) — build_app_images() sets the local IDs
         # P3-T16: static addresses of project mg-obs (render_monitoring.OBS_IPS / PROBER_IPS on the stack's subnets)
         self.obs_ips = {k: f"{base}.3.{v.rsplit('.', 1)[1]}" for k, v in render_monitoring.OBS_IPS.items()}
         self.prober_admin_ip = f"{base}.2.{render_monitoring.PROBER_IPS['prober_admin_ip'].rsplit('.', 1)[1]}"
@@ -232,7 +234,7 @@ class Stack:
         render_edge.write(files, self.work / "render" / "app")
         os.chmod(self.work / "render" / "app" / "compose.app.yaml", 0o644)
         log(f"render app: compose.app.yaml (template {render_app.TEMPLATE_VERSION}, api {self.app_images[0][:19]}…, "
-            f"worker {self.app_images[1][:19]}…)")
+            f"worker {self.app_images[1][:19]}…, web {self.app_images[2][:19]}…)")
 
     def obs_built(self, key: str) -> str:
         """The image ID of an image built from the tree, or a dummy ID before the build (render without Docker)."""
@@ -279,17 +281,30 @@ class Stack:
             f"{time.time() - t0:.0f} s")
 
     def build_app_images(self) -> None:
-        """api and worker images built from the tree with the production Dockerfile (infrastructure/docker/app)."""
+        """api and worker images built from the tree with the production Dockerfile (infrastructure/docker/app), and the
+        SPA image web (infrastructure/docker/web — npm ci + vite build + Caddy, context = the repository; P4-T01a)."""
         ids = []
-        for app in ("api", "worker"):
+        for app in ("api", "worker", "web"):
             t0 = time.time()
             tag = f"{self.prefix}-{app}:e2e"
-            self.docker("build", "-q", "-f", str(ROOT / "infrastructure" / "docker" / "app" / "Dockerfile"),
-                        "--build-arg", f"APP={app}", "--build-arg", "VERSION=e2e", "--build-arg", "COMMIT=e2e",
+            if app == "web":
+                dockerfile, args = "web", []
+            else:
+                dockerfile = "app"
+                args = ["--build-arg", f"APP={app}", "--build-arg", "VERSION=e2e", "--build-arg", "COMMIT=e2e"]
+            self.docker("build", "-q", "-f", str(ROOT / "infrastructure" / "docker" / dockerfile / "Dockerfile"), *args,
                         "--label", "meshguard.role=e2e", "-t", tag, str(ROOT), timeout=1800)
             ids.append(self.docker("image", "inspect", "-f", "{{.Id}}", tag).stdout.strip())
-            log(f"build {app} (infrastructure/docker/app/Dockerfile): {ids[-1][:19]}… trong {time.time() - t0:.0f} s")
-        self.app_images = (ids[0], ids[1])
+            log(f"build {app} (infrastructure/docker/{dockerfile}/Dockerfile): {ids[-1][:19]}… trong {time.time() - t0:.0f} s")
+        self.app_images = (ids[0], ids[1], ids[2])
+
+    def reuse_app_images(self) -> None:
+        """`e2e.py test` in a process of its own: the api/worker/web images `up` built (tags <prefix>-<app>:e2e), so a
+        re-render of compose.app.yaml (E2E-77) does not fall back to the dummy IDs."""
+        ids = [self.docker("image", "inspect", "-f", "{{.Id}}", f"{self.prefix}-{app}:e2e", check=False).stdout.strip()
+               for app in ("api", "worker", "web")]
+        if all(ids):
+            self.app_images = (ids[0], ids[1], ids[2])
 
     def build_probe_image(self) -> None:
         """The prober image built from the tree with its production Dockerfile (infrastructure/docker/probe, P3-T03a)."""
@@ -519,7 +534,7 @@ class Stack:
             self.docker("volume", "rm", "-f", f"{self.prefix}_{v}", check=False)
         if not self.keep_cache:
             self.docker("volume", "rm", "-f", self.name("gomod"), self.name("gocache"), check=False)
-        for app in ("api", "worker", "idp", "probe", "node-exporter"):   # images built from the tree (build cache is kept)
+        for app in ("api", "worker", "web", "idp", "probe", "node-exporter"):   # images built from the tree (cache kept)
             self.docker("image", "rm", "-f", f"{self.prefix}-{app}:e2e", check=False)
         if self.work.exists():
             self.helper("rm -rf /w/* /w/.[!.]* 2>/dev/null || true", f"{self.work}:/w")

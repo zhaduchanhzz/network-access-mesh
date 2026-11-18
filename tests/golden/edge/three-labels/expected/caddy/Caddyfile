@@ -1,11 +1,12 @@
-# Sinh bởi tools/render_edge.py từ infrastructure/caddy/Caddyfile.tmpl (template_version 8).
+# Sinh bởi tools/render_edge.py từ infrastructure/caddy/Caddyfile.tmpl (template_version 9).
 # KHÔNG sửa tay — render lại. Edge của MeshGuard (§14.6): mesh domain mesh.example.com, CA staging.
 # - Site public chỉ bind IP tĩnh của edge trên mg-edge (10.249.0.2); cổng publish của host DNAT tới IP này (V-30).
 # - Listener nội bộ: admin trên mg-admin (10.249.2.2:8081), metrics trên mg-obs (10.249.3.2:9091).
 # - Listener tunnel-facing (VPS gateway — §14.6, GW-02): không có (Local Development, chỉ LAN-direct)
-# - Site của nền tảng (P2-T16, §8.3, §15.4): app.example.com (LAN-direct + tunnel-facing) → api, auth.example.com
-#   (LAN-direct + tunnel-facing) → idp, admin.example.com CHỈ LAN-direct (không bao giờ trên listener tunnel-facing)
-#   và chỉ từ 192.0.2.0/24. Admin REST API và realm master của Keycloak chỉ từ worker (10.249.0.4) trên
+# - Site của nền tảng (P2-T16, §8.3, §15.4): app.example.com (LAN-direct + tunnel-facing) → /api/* tới api, phần còn
+#   lại tới SPA tĩnh web (từ template v9 — P4-T01a), auth.example.com (LAN-direct + tunnel-facing) → idp,
+#   admin.example.com (cũng api + web) CHỈ LAN-direct (không bao giờ trên listener tunnel-facing) và chỉ từ
+#   192.0.2.0/24. Admin REST API và realm master của Keycloak chỉ từ worker (10.249.0.4) trên
 #   listener LAN-direct. idp chỉ ở network mg-idp cùng edge (10.249.7.2): ngoài edge, không container nào tới thẳng
 #   được idp:8080 (G2 vòng 2, A-8) — mọi lối vào Keycloak đi qua các route dưới đây.
 # - Console quản trị Keycloak (§8.2 (3), P3-T15 — từ template v8): CHỈ trên admin.example.com, sau forward_auth tới
@@ -80,11 +81,8 @@
 	}
 }
 
-# Site của nền tảng (app., admin., auth. — P2-T16): nguồn thuộc pool tenant (container Headscale không bao giờ gọi
-# edge — §14.3 kiểm soát (3)) và path có "\" bị chặn trước mọi route; HSTS, nosniff; không lộ header Server.
-(platform_site) {
-	@from_tenant_pool remote_ip 10.250.0.0/16
-	@unsafe_path path_regexp unsafe \x5c
+# Header của mọi phản hồi của site nền tảng: HSTS, nosniff; không lộ header Server.
+(platform_headers) {
 	header {
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options nosniff
@@ -93,14 +91,46 @@
 	}
 }
 
-# Portal/Console (app., admin.): trang và API cùng origin, không nhúng frame, không referrer. Đối số: matcher của các
-# phản hồi nhận header (`*` = mọi phản hồi; admin. trừ console Keycloak — giữ CSP/frame của chính Keycloak, P3-T15).
+# Site của nền tảng (app., admin., auth. — P2-T16): nguồn thuộc pool tenant (container Headscale không bao giờ gọi
+# edge — §14.3 kiểm soát (3)) và path có "\" bị chặn trước mọi route.
+(platform_site) {
+	@from_tenant_pool remote_ip 10.250.0.0/16
+	@unsafe_path path_regexp unsafe \x5c
+	import platform_headers
+}
+
+# Portal/Console (app., admin.): trang và API cùng origin, không nhúng frame, không referrer, cô lập cửa sổ/tài nguyên
+# khỏi origin khác, tắt API thiết bị. Edge là NGUỒN DUY NHẤT của các header này cho mọi phản hồi của hai origin — api,
+# SPA của container web (container không tự đặt header bảo mật — P4-T01a) và trang lỗi của edge: một chỗ để sửa, giá
+# trị không bao giờ lệch giữa API và trang. Đối số: matcher của các phản hồi nhận header (`*` = mọi phản hồi; admin.
+# trừ console Keycloak — giữ CSP/frame của chính Keycloak, P3-T15).
 (portal_headers) {
 	header {args[0]} {
 		Content-Security-Policy "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'"
 		X-Frame-Options DENY
 		Referrer-Policy no-referrer
+		Cross-Origin-Opener-Policy same-origin
+		Cross-Origin-Resource-Policy same-origin
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
 		defer
+	}
+}
+
+# Portal/Console (app., admin. — template v9, P4-T01a):
+# - @dot_segment: path THÔ (đã giải mã %xx, CHƯA làm sạch) có đoạn bắt đầu bằng "." — dotfile, "/./", "/../", kể cả
+#   dạng %2e/%2f ⇒ 404 trước mọi định tuyến. Matcher `path` của Caddy so path ĐÃ làm sạch: "/api/../metrics" thành
+#   "/metrics" và — nếu không chặn ở đây — rơi sang SPA (200) thay vì 404.
+# - api/web (hoặc console Keycloak) không trả lời — container dừng, đang deploy, lỗi dial ⇒ 503 tĩnh, không cache, có
+#   Retry-After, thay cho 502 rỗng mặc định. handle_errors chạy ngoài route chính nên header `defer` của site không
+#   tới đây: import lại tường minh (vẫn một nguồn).
+(portal_site) {
+	@dot_segment vars_regexp dot {http.request.uri.path} (^|/)\.
+	handle_errors 502 503 504 {
+		import platform_headers
+		import portal_headers *
+		header Cache-Control no-store
+		header Retry-After 30
+		respond "Service temporarily unavailable" 503
 	}
 }
 
@@ -166,20 +196,26 @@ Disallow: /
 }
 
 # Tenant Portal + SaaS API (§8.3, §15.1): app.example.com — LAN-direct và tunnel-facing (public qua VPS). /api/* →
-# api:8080 trên mg-edge (api chỉ nhận request từ IP của edge — MG_TRUSTED_PROXIES); path khác ⇒ 404 tới khi có web UI
-# (Phase 4). Thứ tự xử lý tường minh trong `route` (không phụ thuộc cách Caddy sắp các `handle`).
+# api:8080 trên mg-edge (api chỉ nhận request từ IP của edge — MG_TRUSTED_PROXIES); mọi path khác → SPA tĩnh web:8080
+# trên mg-edge (project mg-app — P4-T01a): file nếu có, nếu không index.html (router của SPA quyết định — 404 thống
+# nhất); /internal/*, /healthz, /readyz, /metrics của api vì vậy không bao giờ tới api. Thứ tự xử lý tường minh trong
+# `route` (không phụ thuộc cách Caddy sắp các `handle`).
 app.example.com {
 	import access_log
 	import tls_acme
 	import platform_site
 	import portal_headers *
+	import portal_site
 	route {
 		abort @from_tenant_pool
 		respond @unsafe_path 404
+		respond @dot_segment 404
 		reverse_proxy /api/* api.:8080 {
 			import upstream_headers
 		}
-		respond 404
+		reverse_proxy web.:8080 {
+			import upstream_headers
+		}
 	}
 }
 
@@ -193,12 +229,14 @@ app.example.com {
 # đã duyệt; 401/403 của api đi thẳng về trình duyệt. Body của request vẫn tới Keycloak nguyên vẹn; Authorization (token
 # quản trị của console) không gửi sang api. Impersonation bị chặn hai lớp (gate + respond 403). Realm master phát URL
 # theo frontendUrl https://admin.example.com (infrastructure/idp/realm-update.sh) nên console chỉ gọi origin này.
+# Ngoài console: /api/* → api, còn lại → SPA web (Platform Console — P4-T01a), như app.
 admin.example.com {
 	import access_log
 	import tls_acme
 	import platform_site
 	@portal not path /admin /admin/* /realms/master /realms/master/* /resources/*
 	import portal_headers @portal
+	import portal_site
 	@outside_admin not remote_ip 192.0.2.0/24
 	@idp_console path /admin /admin/* /realms/master /realms/master/* /resources/*
 	@idp_impersonation path_regexp impersonation (?i)^/admin/realms/[^/]+/users/[^/]+/impersonation/?$
@@ -217,10 +255,13 @@ admin.example.com {
 				import upstream_headers
 			}
 		}
+		respond @dot_segment 404
 		reverse_proxy /api/* api.:8080 {
 			import upstream_headers
 		}
-		respond 404
+		reverse_proxy web.:8080 {
+			import upstream_headers
+		}
 	}
 }
 

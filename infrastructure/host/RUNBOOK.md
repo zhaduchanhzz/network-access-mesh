@@ -138,6 +138,30 @@ Hoàn tác (về digest chính thức): đặt lại `"headscale_build": "offici
    - `tests/security/edge/external.py` từ một máy ngoài.
 6. Hoàn tác: cài lại bản sao lưu rồi reload.
 
+### Template v8 → v9 (P4-T01a — SPA sau `app.`/`admin.`): **reload**, không recreate
+
+v9 chỉ đổi Caddyfile (site `app.`/`admin.`: path ngoài `/api/*` ⇒ `web.:8080`, dot segment ⇒ 404, trang lỗi 503, header bảo mật một nguồn); `compose.edge.yaml` chỉ khác dòng chú thích `template_version` ⇒ mục 2 ở trên (reload — loại (a) của §14.6, lên lịch). Thiết kế: [P4-T01a](../../docs/planning/evidence/P4-T01a.md).
+
+```bash
+# 0. versions.lock: [images.mg-api], [images.mg-worker], [images.mg-web] pin từ CÙNG một lượt workflow `images` (render_app
+#    từ chối nếu thiếu/khác tag). api/worker đổi commit và có migration mới ⇒ sudo bash infrastructure/host/migrate.sh trước.
+# 1. web TRƯỚC edge (edge v9 không có web ⇒ app./admin. trả 503 tĩnh)
+python3 tools/render_app.py infrastructure/environments/staging/staging.env /tmp/mg-app   # → /opt/meshguard/core/
+APP="sudo docker compose -p mg-app -f /opt/meshguard/core/compose.app.yaml"
+$APP up -d --wait web                                  # (+ api worker nếu đổi image) — healthprobe GET / ⇒ 200
+$APP exec -T web /usr/bin/healthprobe http://127.0.0.1:8080/ 200 && echo web-ok
+# 2. edge: render, so compose (chỉ dòng template_version), sao lưu, cài, validate, reload
+python3 tools/render_edge.py infrastructure/environments/staging/edge.json /tmp/edge
+diff /opt/meshguard/core/compose.edge.yaml /tmp/edge/compose.edge.yaml   # chỉ dòng chú thích ⇒ reload
+sudo cp -a /opt/meshguard/core/caddy/Caddyfile /root/Caddyfile.v8.$(date +%s)
+sudo install -m 0644 /tmp/edge/caddy/Caddyfile /opt/meshguard/core/caddy/Caddyfile
+docker exec mg-edge caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+docker exec mg-edge caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile --address unix//run/caddy/admin.sock
+```
+
+3. Kiểm (ngoài các kiểm của mục 5): `https://app.<domain>/` và `/tenants/<id>/devices` qua VPS và LAN-direct ⇒ 200 `text/html` cùng `index.html`, **một** `Content-Security-Policy`, không `Server`; `/api/v1/auth/session` ⇒ 401 `problem+json`; `/healthz`, `/metrics`, `/internal/…` ⇒ `index.html` (không phải body của api); `/.env`, `/api/../metrics` ⇒ 404; `https://admin.<domain>/` từ LAN ⇒ SPA, console Keycloak (`/admin/master/console/`) vẫn sau `forward_auth` (401 khi không có phiên); `run_staging.sh` (nhóm `platform` cần `mg-app-web-1` chạy). Stream long-poll của tenant đóng ~5 phút sau reload (`stream_close_delay`), client tự nối lại.
+4. Hoàn tác: cài lại `/root/Caddyfile.v8.<ts>` rồi reload (web để chạy cũng vô hại — không gì định tuyến tới); bỏ web: `$APP stop web && $APP rm -f web`.
+
 ## IdP — Keycloak `mg-idp` (P2-T05, triển khai lên staging ở P2-T16)
 
 Project `mg-idp`: `idp` (Keycloak 26.8.2, 3 realm `platform`/`tenant-a`/`tenant-b` nhập lúc khởi động đầu), `idp-db` (PostgreSQL riêng, chỉ trên `mg-idp-data`) và — khi `MG_IDP_MAIL_SINK=mailpit` (staging) — `mailsink` (Mailpit, network `mail` internal: thư không ra ngoài host). Không publish cổng nào; `auth.<domain>` qua edge là bước riêng của P2-T16 (template edge mới + reload có lịch). Thiết kế: [P2-T05](../../docs/planning/evidence/P2-T05.md), [P2-T05b](../../docs/planning/evidence/P2-T05b.md).
@@ -428,8 +452,10 @@ python3 tools/render_app.py infrastructure/environments/staging/staging.env /tmp
 APP="sudo docker compose -p mg-app -f /opt/meshguard/core/compose.app.yaml"
 $APP --profile bootstrap run --rm -T db-bootstrap                 # MỘT lần (superuser): mg_migrator, mg_backup
 sudo bash infrastructure/host/migrate.sh                          # mỗi lần nâng cấp: backup pre-migration → migrate
-$APP up -d --wait api worker                                      # /readyz: postgres, secretstore, edge_admin
+$APP up -d --wait api worker web                                  # /readyz: postgres, secretstore, edge_admin; web: healthprobe
 ```
+
+Từ P4-T01a, `render_app.py` cần `[images.mg-api]`, `[images.mg-worker]` **và** `[images.mg-web]` cùng commit (hoặc cả ba `--api-image --worker-image --web-image`); service `web` (SPA) chỉ trên `mg-edge`, edge template ≥ v9 định tuyến tới nó (mục "Template v8 → v9" ở trên).
 
 ## Relay thư ra — `mailrelay` + Worker Cloudflare (P3-T05b-mail)
 

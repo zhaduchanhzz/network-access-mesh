@@ -32,7 +32,8 @@
 # Dải mạng: network tenant của lần chạy lấy từ PIT_POOL (mặc định 10.250.224.0/24 — trong pool tenant 10.250.0.0/16, không
 # chồng staging 10.250.0.0/24, e2e 10.250.23x, agent-it/contract/isolation 10.250.240.0/20); network điều khiển
 # <prefix>-net = PIT_CTL_NET (mặc định 10.249.224.0/28). Một network Docker nào đang chồng hai dải này ⇒ từ chối
-# (exit 75) hoặc chờ PIT_WAIT giây (kiểm lại mỗi 15 s). Kết quả: $PIT_OUT/pit.log (log test), agent.log, edge.log,
+# (exit 75) hoặc chờ PIT_WAIT giây (kiểm lại mỗi 15 s); container instance (nhãn meshguard.instance_id) không mang tiền tố
+# của lần chạy cũng vậy. Kết quả: $PIT_OUT/pit.log (log test), agent.log, edge.log,
 # workers/ (log từng tiến trình worker), leftovers.txt, snapshot before/after (đối tượng mang tiền tố của lần chạy).
 set -euo pipefail
 
@@ -100,9 +101,20 @@ for line in sys.stdin:
             print(f"{name} {s} chồng dải của lần chạy"); sys.exit(4)
 ' "$POOL" "$CTL"
 }
+# Instance của lượt khác trên cùng Docker host (stack e2e, provisioning-it/agent-it của người khác): reconcile host của
+# Agent và bộ phát hiện mồ côi so MỌI container mang nhãn instance với registry của lượt này (P3-T14b) ⇒ chúng thành
+# unknown_instance. Lượt chạy cần Docker host không có container instance nào không mang tiền tố của nó (như CI).
+foreign_instances() {  # exit 3: còn container instance của lượt khác
+  local f
+  f=$(d ps -a --filter label=meshguard.instance_id --format '{{.Names}}' 2>/dev/null | grep -v -- "$P" | head -5 | tr '
+' ' ' || true)
+  [ -z "$f" ] && return 0
+  echo "container instance của lượt khác trên Docker host: $f"; return 3
+}
 waited=0
 while true; do
   rc=0; msg=$(check_free) || rc=$?
+  [ "$rc" = 0 ] && { msg=$(foreign_instances) || rc=$?; }
   [ "$rc" = 0 ] && break
   if [ "$waited" -ge "$WAIT" ]; then echo "$msg — đổi PIT_POOL/PIT_CTL_NET hoặc chờ (PIT_WAIT)"; exit 75; fi
   [ "$waited" = 0 ] && log "chờ: $msg"
