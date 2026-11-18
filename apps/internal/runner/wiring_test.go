@@ -327,6 +327,36 @@ func TestWiringKeepsDefaults(t *testing.T) {
 	if len(statuses) != 1 || statuses[0] != "lifecycle.ReachableStatuses" {
 		t.Errorf("lifecycle.go sets TenantStatuses %v, want exactly [lifecycle.ReachableStatuses]", statuses)
 	}
+	// the second exception (P3-T09): the registry of tenant.deprovision reaches a deprovisioning tenant's instance —
+	// deprovision.go sets TenantStatuses exactly once, to deprovision.ReachableStatuses
+	if got := tenantStatusesSet(t, fset, "deprovision.go"); len(got) != 1 || got[0] != "deprovision.ReachableStatuses" {
+		t.Errorf("deprovision.go sets TenantStatuses %v, want exactly [deprovision.ReachableStatuses]", got)
+	}
+}
+
+// tenantStatusesSet returns the values the file assigns to a TenantStatuses field ("pkg.Name" for a selector).
+func tenantStatusesSet(t *testing.T, fset *token.FileSet, name string) []string {
+	t.Helper()
+	file, err := parser.ParseFile(fset, name, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	ast.Inspect(file, func(n ast.Node) bool {
+		if kv, ok := n.(*ast.KeyValueExpr); ok {
+			if id, ok := kv.Key.(*ast.Ident); ok && id.Name == "TenantStatuses" {
+				value := "?"
+				if sel, ok := kv.Value.(*ast.SelectorExpr); ok {
+					if pkg, ok := sel.X.(*ast.Ident); ok {
+						value = pkg.Name + "." + sel.Sel.Name
+					}
+				}
+				out = append(out, value)
+			}
+		}
+		return true
+	})
+	return out
 }
 
 // wiredEnv is the environment of a wired process on the test database (the shape compose.app.yaml renders).

@@ -55,6 +55,18 @@ var catalog = map[Kind]map[string]mailTemplate{
 				"{{if eq .owner_review \"required\"}}\n\nREVIEW REQUIRED: the platform's records are older than the backup, so revocations (devices, members) made after the backup's time could not be restored. Review the devices and members in the Portal; the policy of the backup was kept and awaits your approval.{{end}}" +
 				"\n\nJob ID: {{.job_id}}"},
 	},
+	KindTenantDeleted: {
+		LocaleVI: {"[MeshGuard] Tenant {{.tenant_name}} đã bị xóa",
+			"Tenant {{.tenant_name}} ({{.tenant_slug}}) đã bị xóa theo yêu cầu đã được hai người phê duyệt: mọi thiết bị đã hết hạn, " +
+				"phiên đăng nhập Portal đã bị thu hồi và control plane đã được gỡ khỏi máy chủ." +
+				"{{if eq .final_backup \"kept\"}} Bản backup cuối được giữ tới {{.keys_destroy_after}} (UTC).{{else}} Không có bản backup cuối (người vận hành đã bỏ qua có ghi audit).{{end}}" +
+				" Từ {{.keys_destroy_after}} (UTC), khóa mã hóa của tenant bị hủy và không còn khôi phục được gì.\n\nMã job: {{.job_id}}"},
+		LocaleEN: {"[MeshGuard] Tenant {{.tenant_name}} has been deleted",
+			"Tenant {{.tenant_name}} ({{.tenant_slug}}) has been deleted on a request approved by two people: every device has expired, " +
+				"Portal sessions have been revoked and the control plane has been removed from the server." +
+				"{{if eq .final_backup \"kept\"}} The final backup is kept until {{.keys_destroy_after}} (UTC).{{else}} There is no final backup (an operator skipped it; this is audited).{{end}}" +
+				" From {{.keys_destroy_after}} (UTC) the tenant's encryption keys are destroyed and nothing can be restored.\n\nJob ID: {{.job_id}}"},
+	},
 	KindTenantResumed: {
 		LocaleVI: {"[MeshGuard] Tenant {{.tenant_name}} đã được khôi phục",
 			"Tenant {{.tenant_name}} ({{.tenant_slug}}) đã hoạt động lại; policy trước khi tạm ngưng được áp lại.\n\nMã job: {{.job_id}}"},

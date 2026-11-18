@@ -55,6 +55,9 @@ const partitionRole = "mg_partition_maint"
 //	                 the same agent client as reconcile); instance.reconfigure (P3-T13: MG_AGENT_* — prober optional)
 //	lifecycle        tenant.suspend + tenant.resume (P3-T08, §11.4) over a Headscale registry of their own that reaches a
 //	                 suspended tenant's instance (lifecycle.go), always wired — no Host Agent needed
+//	deprovision      tenant.deprovision (P3-T09, §11.4: the final backup in-process, 15 steps, 2P upstream) over a
+//	                 registry that reaches a deprovisioning tenant (deprovision.go); tenant.keys_destroy every hour after
+//	                 MG_DEPROVISION_KEY_GRACE (crypto-shredding — §6.1)
 //	quarantine       instance.quarantine + instance.release (P3-T18, §11.4): the Host Agent (without it the isolation
 //	                 fails Critical — the registry stays quarantined), the reachable registry for the post-start gate;
 //	                 jobs.Options.StepGate = quarantine.Gate stops every multi-step job of a quarantined instance
@@ -151,6 +154,16 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 	}
 	drivers, kc, provisioned, err := idpDrivers(ctx, cfg, d)
 	if err != nil {
+		return nil, err
+	}
+	dep, shred, err := newDeprovision(cfg, d, agent, bk, drivers) // P3-T09: tenant.deprovision + tenant.keys_destroy
+	if err != nil {
+		return nil, err
+	}
+	if err := dep.Register(w); err != nil {
+		return nil, err
+	}
+	if err := shred.Register(w); err != nil {
 		return nil, err
 	}
 	audits, err := auditsync.New(d.st, auditsync.Config{Source: kc, Logger: log, Registerer: reg})

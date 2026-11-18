@@ -41,6 +41,7 @@ func samples() []Event {
 		IdPAdminChange(tA, idX.String(), "idp.user.credential_reset", "platform IdP administrator", "Alice", when),
 		IdPConsoleLogin(idX.String(), "mg-bootstrap-admin", "security-admin-console", "203.0.113.7", when),
 		InstanceRestored(tA, idX, when, true),
+		TenantDeleted(tA, idX, when, true),
 		InstanceQuarantined(idX, "acme", idX, OutcomeIsolated),
 		InstanceReleased(idX, "acme", idX, OutcomeReleased),
 	}
@@ -79,6 +80,7 @@ func TestRecipientRules(t *testing.T) {
 		{ApprovalRequested(tA, idX, "a.b", "", "", time.Time{}), Audience{Permission: "tenant.approval:decide"}},
 		{PolicyApplied(tA, idX, idX, 1, "baseline", "manual", "x"), Audience{Roles: []string{RoleTenantOwner, RoleTenantAdmin}}},
 		{TenantSuspended(tA, idX), Audience{Roles: []string{RoleTenantOwner, RoleTenantAdmin}}},
+		{TenantDeleted(tA, idX, when, false), Audience{Roles: []string{RoleTenantOwner, RoleTenantAdmin}}},
 		{APIKeyExpiring(idX, "s", when), Audience{PlatformRoles: []string{RoleSuperAdmin, RolePlatformOperator}}},
 		{Invitation(tA, idX, "n@example.com", "end_user", when, ""), Audience{Emails: []string{"n@example.com"}}},
 		{IdPAdminChange(tA, "e1", "idp.user.update", "a", "", when), Audience{Roles: []string{RoleTenantOwner}}},

@@ -169,7 +169,7 @@ func (q *Queries) GetProvisionInstance(ctx context.Context, arg GetProvisionInst
 
 const getProvisionTenant = `-- name: GetProvisionTenant :one
 
-SELECT t.id, t.slug, t.name, t.status, t.deployment_region, t.settings, t.desired_policy_version_id, t.created_at, t.updated_at, t.deleted_at, t.version, p.key AS plan_key, p.limits AS plan_limits, s.overrides AS plan_overrides
+SELECT t.id, t.slug, t.name, t.status, t.deployment_region, t.settings, t.desired_policy_version_id, t.created_at, t.updated_at, t.deleted_at, t.version, t.keys_destroy_after, p.key AS plan_key, p.limits AS plan_limits, s.overrides AS plan_overrides
 FROM tenants t
 LEFT JOIN subscriptions s ON s.tenant_id = t.id AND s.status IN ('trialing', 'active', 'past_due')
 LEFT JOIN subscription_plans p ON p.id = s.plan_id
@@ -200,6 +200,7 @@ func (q *Queries) GetProvisionTenant(ctx context.Context, id uuid.UUID) (GetProv
 		&i.Tenant.UpdatedAt,
 		&i.Tenant.DeletedAt,
 		&i.Tenant.Version,
+		&i.Tenant.KeysDestroyAfter,
 		&i.PlanKey,
 		&i.PlanLimits,
 		&i.PlanOverrides,
@@ -445,13 +446,16 @@ SELECT EXISTS (
     WHERE t.slug = $1 AND t.status = 'deleted'
       AND (EXISTS (SELECT 1 FROM tenant_instances ti WHERE ti.tenant_id = t.id AND ti.status <> 'removed')
            OR EXISTS (SELECT 1 FROM backups b WHERE b.tenant_id = t.id AND b.status <> 'purged')
-           OR EXISTS (SELECT 1 FROM identity_providers i WHERE i.tenant_id = t.id AND i.status <> 'disabled'))
+           OR EXISTS (SELECT 1 FROM identity_providers i WHERE i.tenant_id = t.id AND i.status <> 'disabled')
+           OR EXISTS (SELECT 1 FROM tenant_keys k WHERE k.tenant_id = t.id AND k.state <> 'destroyed'))
 )::boolean AS held
 `
 
 // §11.3 bước 1: slug của tenant đã `deleted` bị từ chối khi còn object của instance cũ trong registry — instance chưa
-// removed (thư mục, network, container), backup chưa purge, IdP chưa vô hiệu (issuer). Hostname của instance chưa
-// removed còn được placement kiểm lại dưới khóa (ErrHostnameInUse).
+// removed (thư mục, network, container), backup chưa purge, IdP chưa vô hiệu (issuer), hoặc DEK chưa hủy (P3-T09: trong
+// grace period trước crypto-shredding, đường restore bản backup cuối và realm IdP mang tên slug còn tồn tại — job
+// tenant.keys_destroy purge realm trước khi hủy DEK). Hostname của instance chưa removed còn được placement kiểm lại
+// dưới khóa (ErrHostnameInUse).
 func (q *Queries) SlugHeldByDeletedTenant(ctx context.Context, slug string) (bool, error) {
 	row := q.db.QueryRow(ctx, slugHeldByDeletedTenant, slug)
 	var held bool

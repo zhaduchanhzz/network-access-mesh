@@ -121,6 +121,12 @@ type LifecycleHandlers interface {
 	ResumePlatformTenant(ctx context.Context, request gen.ResumePlatformTenantRequestObject) (gen.ResumePlatformTenantResponseObject, error)
 }
 
+// DeprovisionHandlers — P3-T09 (`provisioning` deprovision): the deletion of a tenant, always dual control (§11.4,
+// §13.2 DELETE /platform/tenants/{id}).
+type DeprovisionHandlers interface {
+	DeletePlatformTenant(ctx context.Context, request gen.DeletePlatformTenantRequestObject) (gen.DeletePlatformTenantResponseObject, error)
+}
+
 // RelayHandlers — P3-T05c (`relay`): the tenant's relays and the platform's relay regions, read-only in the MVP, each
 // health with its checked_at (§10.6).
 type RelayHandlers interface {
@@ -170,6 +176,7 @@ type Handlers struct {
 	Relay         RelayHandlers        // P3-T05c
 	Reconfigure   ReconfigureHandlers  // P3-T13
 	Backups       BackupHandlers       // P3-T11
+	Deprovision   DeprovisionHandlers  // P3-T09
 	Quarantine    QuarantineHandlers   // P3-T18
 }
 
@@ -177,6 +184,7 @@ func (h Handlers) mounted() bool {
 	return h.Auth != nil || h.Tenants != nil || h.Devices != nil || h.Audit != nil || h.Jobs != nil || h.Monitoring != nil ||
 		h.Notifications != nil || h.Approvals != nil || h.Invitations != nil || h.Hosts != nil || h.IdPConsole != nil ||
 		h.Provisioning != nil || h.Lifecycle != nil || h.Relay != nil || h.Reconfigure != nil || h.Backups != nil ||
+		h.Deprovision != nil ||
 		h.Quarantine != nil
 }
 
@@ -199,13 +207,17 @@ type dispatcher struct {
 	ReconfigureHandlers
 	BackupHandlers
 	QuarantineHandlers
+	DeprovisionHandlers
 }
 
 var _ gen.StrictServerInterface = dispatcher{}
 
 func newDispatcher(h Handlers) dispatcher {
 	d := dispatcher{h.Auth, h.Tenants, h.Devices, h.Audit, h.Jobs, h.Monitoring, h.Notifications, h.Approvals, h.Invitations,
-		h.Hosts, h.IdPConsole, h.Provisioning, h.Lifecycle, h.Relay, h.Reconfigure, h.Backups, h.Quarantine}
+		h.Hosts, h.IdPConsole, h.Provisioning, h.Lifecycle, h.Relay, h.Reconfigure, h.Backups, h.Quarantine, h.Deprovision}
+	if d.DeprovisionHandlers == nil {
+		d.DeprovisionHandlers = NotImplemented{}
+	}
 	if d.BackupHandlers == nil {
 		d.BackupHandlers = NotImplemented{}
 	}
@@ -452,6 +464,10 @@ func (NotImplemented) ListIdpConsoleSessions(context.Context, gen.ListIdpConsole
 
 func (NotImplemented) RequestIdpConsoleSession(context.Context, gen.RequestIdpConsoleSessionRequestObject) (gen.RequestIdpConsoleSessionResponseObject, error) {
 	return nil, problem.NotImplemented("RequestIdpConsoleSession")
+}
+
+func (NotImplemented) DeletePlatformTenant(context.Context, gen.DeletePlatformTenantRequestObject) (gen.DeletePlatformTenantResponseObject, error) {
+	return nil, problem.NotImplemented("DeletePlatformTenant")
 }
 
 func (NotImplemented) BackupPlatformInstance(context.Context, gen.BackupPlatformInstanceRequestObject) (gen.BackupPlatformInstanceResponseObject, error) {

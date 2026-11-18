@@ -472,7 +472,22 @@ export interface paths {
         get: operations["getPlatformTenant"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Xin xóa (deprovision) một tenant — luôn 2P; 202 + Location của yêu cầu phê duyệt
+         * @description §11.4 Deprovision: tạo yêu cầu dual control `platform.tenant.delete` (người yêu cầu step-up; `confirm_slug` phải
+         *     đúng slug của tenant). Payload — đúng thứ người duyệt thấy và đúng đầu vào duy nhất của job — gồm `tenant_id`,
+         *     `slug` và `skip_final_backup`. Người duyệt khác người yêu cầu, step-up, giữ `platform.tenant:delete` (Super
+         *     Admin). Sau khi duyệt, job vòng đời `tenant.deprovision`: backup cuối (`instance.backup` — lỗi ⇒ dừng
+         *     `failed_resumable`, không bao giờ đi tiếp khi thiếu backup trừ khi payload đã duyệt bỏ qua có ghi audit) → policy
+         *     `suspension` → `status=deprovisioning` → expire mọi node + pre-auth key (**điểm không quay lại** — từ đây
+         *     `/rollback` bị từ chối) → thu hồi session Portal, lời mời, phê duyệt mở → gỡ target theo dõi → gỡ edge →
+         *     `compose down` + xóa network → xóa thư mục dữ liệu (đối chiếu archive đã ký của backup cuối) → vô hiệu issuer
+         *     IdP → xóa hàng relay → `status=deleted` (giữ hàng, slug giữ chỗ) → lên lịch hủy DEK sau grace period →
+         *     thông báo. Tenant phải `active`, `suspended` hoặc `failed` (`deleted`/`deprovisioning`/đang provisioning ⇒
+         *     `409`); job vòng đời khác chưa xong ⇒ `409`; instance `quarantined` mà không bỏ qua backup cuối ⇒ `409`; đang có
+         *     yêu cầu mở cho tenant ⇒ `409`.
+         */
+        delete: operations["deletePlatformTenant"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1396,6 +1411,18 @@ export interface components {
         TenantList: {
             items: components["schemas"]["Tenant"][];
             next_cursor: string | null;
+        };
+        /** @description Xin xóa một tenant (luôn cần người thứ hai duyệt — §8.5) */
+        TenantDeletion: {
+            /** @description Slug của tenant, người yêu cầu gõ lại để xác nhận đúng tenant (khác slug ⇒ `422`) */
+            confirm_slug: string;
+            /**
+             * @description Người vận hành bỏ qua bản backup cuối (chỉ khi không lấy được — ví dụ instance quarantined hoặc dữ liệu hỏng): người duyệt thấy cờ này; job ghi audit + `security_event` High `tenant.deprovision_without_backup` và giữ nguyên thư mục dữ liệu (bản duy nhất) thay vì xóa
+             * @default false
+             */
+            skip_final_backup: boolean;
+            /** @description Lý do (yêu cầu của khách hàng, ticket) — người duyệt đọc trước khi duyệt */
+            reason: string;
         };
         /** @description Yêu cầu tạo tenant (§13.3). `identity_provider.driver = keycloak`: realm riêng của tenant trên IdP do nền tảng host (tên realm = slug, client `mg-portal`) — không nhận issuer/client; `external`: issuer + client của tenant (client secret chỉ-ghi). */
         TenantCreate: {
@@ -3281,6 +3308,44 @@ export interface operations {
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    deletePlatformTenant: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TenantDeletion"];
+            };
+        };
+        responses: {
+            /** @description Yêu cầu phê duyệt đã tạo — người thứ hai duyệt ở `Location` */
+            202: {
+                headers: {
+                    Location: components["headers"]["ApprovalLocation"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalRequest"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
             429: components["responses"]["RateLimited"];
             default: components["responses"]["Unexpected"];
         };

@@ -66,11 +66,11 @@ func newWorld(t *testing.T) *world {
 	return w
 }
 
-// liveTenants counts the tenants not deleted (the measure of quota.max_tenants).
+// liveTenants counts the tenants that take a place under quota.max_tenants: neither deleted nor failed (P3-T09).
 func (w *world) liveTenants() int64 {
 	w.t.Helper()
 	var n int64
-	if err := w.su.QueryRow(w.t.Context(), `SELECT count(*) FROM tenants WHERE status <> 'deleted'`).Scan(&n); err != nil {
+	if err := w.su.QueryRow(w.t.Context(), `SELECT count(*) FROM tenants WHERE status NOT IN ('deleted', 'failed')`).Scan(&n); err != nil {
 		w.t.Fatal(err)
 	}
 	return n
@@ -153,9 +153,11 @@ func wantStatus(t *testing.T, what string, got, want tenants.QuotaStatus, err er
 	}
 }
 
-// TestTenantCap — quota.max_tenants (0012: 10) against the tenants not deleted, at the boundaries (relative to the
-// tenants already in the shared database: base); deleted tenants free a slot, failed ones do not; 0 refuses everything;
-// a missing or malformed setting is ErrQuotaUnavailable (never unlimited); the tenant pool cannot read the setting.
+// TestTenantCap — quota.max_tenants (0012: 10) against the tenants that take a place, at the boundaries (relative to the
+// tenants already in the shared database: base); deleted tenants free their slot and failed ones (a provisioning rolled
+// back — P3-T09, the observation of P3-T07) take none, while a tenant being deprovisioned keeps its slot; 0 refuses
+// everything; a missing or malformed setting is ErrQuotaUnavailable (never unlimited); the tenant pool cannot read the
+// setting.
 func TestTenantCap(t *testing.T) {
 	w := newWorld(t)
 	ctx := t.Context()
@@ -166,13 +168,20 @@ func TestTenantCap(t *testing.T) {
 	w.tenant("active", "running")
 	failed, _ := w.tenant("failed", "failed")
 	st, err = w.checker.CheckTenantCreation(ctx)
-	wantStatus(t, "2 of 3", st, tenants.QuotaStatus{Resource: "tenants", Limit: base + 3, Used: base + 2, Requested: 1}, err, false)
+	wantStatus(t, "1 of 3: a failed tenant takes no slot", st,
+		tenants.QuotaStatus{Resource: "tenants", Limit: base + 3, Used: base + 1, Requested: 1}, err, false)
 	w.tenant("provisioning", "allocated")
+	gone, _ := w.tenant("deprovisioning", "running")
 	st, err = w.checker.CheckTenantCreation(ctx)
-	wantStatus(t, "3 of 3", st, tenants.QuotaStatus{Resource: "tenants", Limit: base + 3, Used: base + 3, Requested: 1}, err, true)
-	w.exec(`UPDATE tenants SET status = 'deleted' WHERE id = $1`, failed)
+	wantStatus(t, "3 of 3: a tenant being deprovisioned keeps its slot", st,
+		tenants.QuotaStatus{Resource: "tenants", Limit: base + 3, Used: base + 3, Requested: 1}, err, true)
+	w.exec(`UPDATE tenants SET status = 'deleted', deleted_at = now() WHERE id = $1`, gone)
 	st, err = w.checker.CheckTenantCreation(ctx)
 	wantStatus(t, "a deleted tenant frees its slot", st,
+		tenants.QuotaStatus{Resource: "tenants", Limit: base + 3, Used: base + 2, Requested: 1}, err, false)
+	w.exec(`UPDATE tenants SET status = 'deleted', deleted_at = now() WHERE id = $1`, failed)
+	st, err = w.checker.CheckTenantCreation(ctx)
+	wantStatus(t, "a failed tenant deleted: no change", st,
 		tenants.QuotaStatus{Resource: "tenants", Limit: base + 3, Used: base + 2, Requested: 1}, err, false)
 	w.setCap("0")
 	st, err = w.checker.CheckTenantCreation(ctx)

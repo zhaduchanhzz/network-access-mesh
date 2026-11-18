@@ -173,9 +173,10 @@ func (q *Queries) LatestFinishedPlatformJob(ctx context.Context, kind string) (L
 
 const listHealthProbeTargets = `-- name: ListHealthProbeTargets :many
 
-SELECT id, tenant_id FROM tenant_instances
-WHERE status = 'running'
-ORDER BY id
+SELECT ti.id, ti.tenant_id FROM tenant_instances ti
+JOIN tenants t ON t.id = ti.tenant_id
+WHERE ti.status = 'running' AND t.status IN ('provisioning', 'active', 'suspended')
+ORDER BY ti.id
 `
 
 type ListHealthProbeTargetsRow struct {
@@ -186,7 +187,9 @@ type ListHealthProbeTargetsRow struct {
 // Module monitoring (P2-T13a, §16): health của instance (job health.probe ghi tenant_instances.last_health /
 // last_health_at), Tenant Dashboard (pool tenant) và Platform Health (pool platform). Cột tường minh, không SELECT *.
 // Số liệu thiết bị KHÔNG đọc ở đây: monitoring nhận chúng qua service của devices (§13.6).
-// Pool platform: instance cần health.probe theo lịch (§13.5) — chỉ instance đang chạy.
+// Pool platform: instance cần health.probe theo lịch (§13.5) — chỉ instance đang chạy của tenant còn phục vụ
+// (provisioning, active, suspended): tenant đang deprovision không còn là target (P3-T09, §11.4 "gỡ target
+// scrape/probe của instance").
 func (q *Queries) ListHealthProbeTargets(ctx context.Context) ([]ListHealthProbeTargetsRow, error) {
 	rows, err := q.db.Query(ctx, listHealthProbeTargets)
 	if err != nil {

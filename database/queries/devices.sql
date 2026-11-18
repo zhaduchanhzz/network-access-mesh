@@ -198,10 +198,12 @@ FROM device_inventory_cache
 WHERE tenant_id = sqlc.arg(tenant_id) AND removed_at IS NULL;
 
 -- name: ListRunningInstances :many
--- Pool platform: instance cần inventory.sync theo lịch (§13.5).
-SELECT id, tenant_id FROM tenant_instances
-WHERE status = 'running'
-ORDER BY id;
+-- Pool platform: instance cần inventory.sync theo lịch (§13.5) — instance đang chạy của tenant còn phục vụ (tenant
+-- đang deprovision không còn được đồng bộ — P3-T09).
+SELECT ti.id, ti.tenant_id FROM tenant_instances ti
+JOIN tenants t ON t.id = ti.tenant_id
+WHERE ti.status = 'running' AND t.status IN ('provisioning', 'active', 'suspended')
+ORDER BY ti.id;
 
 -- name: ListExpiringDevices :many
 -- Thông báo "sắp hết hạn" (P3-T05b): thiết bị còn sống, không đang/đã thu hồi, khóa node hết hạn trong (now, before].

@@ -476,6 +476,7 @@ type Tenant struct {
 	UpdatedAt              time.Time
 	DeletedAt              *time.Time
 	Version                int64
+	KeysDestroyAfter       *time.Time
 }
 
 type TenantInstance struct {

@@ -104,9 +104,13 @@ func registered(m map[uuid.UUID]Instance) []reconcile.Registered {
 
 func readRegistry(ctx context.Context, db Querier) (Registry, error) {
 	var r Registry
-	if err := query(ctx, db, `SELECT id, slug, status FROM tenants`, func(rows pgx.Rows) error {
+	if err := query(ctx, db, `SELECT t.id, t.slug, t.status, t.keys_destroy_after,
+			(SELECT count(*) FROM tenant_keys k WHERE k.tenant_id = t.id AND k.state <> 'destroyed')::int,
+			(SELECT count(*) FROM sessions s JOIN identities i ON i.id = s.identity_id
+			 WHERE i.tenant_id = t.id AND s.revoked_at IS NULL)::int
+		FROM tenants t`, func(rows pgx.Rows) error {
 		var t Tenant
-		err := rows.Scan(&t.ID, &t.Slug, &t.Status)
+		err := rows.Scan(&t.ID, &t.Slug, &t.Status, &t.KeysDestroyAfter, &t.LiveDEKs, &t.LiveSessions)
 		r.Tenants = append(r.Tenants, t)
 		return err
 	}); err != nil {
