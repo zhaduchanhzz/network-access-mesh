@@ -85,7 +85,7 @@ func (s *Service) UpdateTenant(ctx context.Context, id uuid.UUID, p TenantPatch,
 			if err != nil {
 				return err
 			}
-			planID, planKey, overrides := sub.PlanID, sub.PlanKey, sub.Overrides
+			planID, overrides := sub.PlanID, sub.Overrides
 			if p.PlanKey != nil && *p.PlanKey != sub.PlanKey {
 				plan, err := q.GetActivePlanByKey(ctx, *p.PlanKey)
 				if errors.Is(err, store.ErrNoRows) {
@@ -94,9 +94,9 @@ func (s *Service) UpdateTenant(ctx context.Context, id uuid.UUID, p TenantPatch,
 				if err != nil {
 					return err
 				}
-				planID, planKey = plan.ID, plan.Key
+				planID = plan.ID
 				changed = append(changed, "plan_key")
-				d["before_plan"], d["after_plan"] = sub.PlanKey, planKey
+				d["before_plan"], d["after_plan"] = sub.PlanKey, plan.Key
 			}
 			if p.LimitsOverride != nil && !bytes.Equal(bytes.TrimSpace(p.LimitsOverride), bytes.TrimSpace(sub.Overrides)) {
 				overrides = p.LimitsOverride

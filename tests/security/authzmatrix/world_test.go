@@ -146,8 +146,25 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 			func(context.Context, *store.Tx, approvals.Execution, deprovision.Payload) (*uuid.UUID, error) {
 				return nil, nil
 			}),
-		// the actions of P4-T03a (Super Admin role, a platform change of a tenant IdP, the tenant's security settings)
-		adminapi.SuperAdminAction(platform.New(w.Store)), adminapi.TenantIdPAction(dir), adminapi.SecuritySettingsAction(dir),
+		// the actions of P4-T03a (apps/internal/runner registers the executing ones — here no-ops): the Super Admin role,
+		// a platform change of a tenant IdP (the approver holds platform.idp:manage under tenant_idp_dual_control), the
+		// tenant's security settings
+		approvals.Typed(approvals.Spec{Name: platform.SuperAdminAction, Scope: authz.ScopePlatform,
+			ResourceType: platform.SuperAdminResourceType, Permission: platform.SuperAdminPermission},
+			func(context.Context, *store.Tx, approvals.Execution, platform.SuperAdminPayload) (*uuid.UUID, error) {
+				return nil, nil
+			}),
+		approvals.Typed(approvals.Spec{Name: tenants.PlatformIdPChangeApprovalAction, Scope: authz.ScopePlatform,
+			ResourceType: "identity_provider", Permission: "platform.idp:manage",
+			ApproverConditions: []string{authz.CondTenantIdPDualControl}},
+			func(context.Context, *store.Tx, approvals.Execution, tenants.PlatformIdPChange) (*uuid.UUID, error) {
+				return nil, nil
+			}),
+		approvals.Typed(approvals.Spec{Name: tenants.SecuritySettingsApprovalAction, Scope: authz.ScopeTenant,
+			ResourceType: "settings", Permission: "tenant.approval:decide"},
+			func(context.Context, *store.Tx, approvals.Execution, tenants.SecuritySettingsPayload) (*uuid.UUID, error) {
+				return nil, nil
+			}),
 	)
 	if err != nil {
 		t.Fatal(err)

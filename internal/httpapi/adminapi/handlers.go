@@ -151,7 +151,7 @@ func ifMatchOf(p *gen.IfMatch) string {
 }
 
 // details are the client texts of the refusals (by reason) — never a submitted value.
-var details = map[string]string{
+var details = map[string]string{ //nolint:gosec // G101: problem texts keyed by refusal reasons, no credential
 	platform.ReasonSuperAdminTarget:  "A Super Admin is changed only through the dual-control super-admin-role operation.",
 	platform.ReasonSelf:              "You cannot change your own platform user.",
 	platform.ReasonAlreadyMember:     "This identity already is a platform user.",

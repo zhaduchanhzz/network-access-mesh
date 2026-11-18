@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -62,7 +63,7 @@ func (f *fakeSecrets) Store(_ context.Context, tenantID, idpID uuid.UUID, secret
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.n++
-	ref := "mgsec://" + tenantID.String() + "/idp-client-secret." + idpID.String() + "#" + string(rune('0'+f.n))
+	ref := "mgsec://" + tenantID.String() + "/idp-client-secret." + idpID.String() + "#" + strconv.Itoa(f.n)
 	f.stored[ref] = append([]byte(nil), secret...)
 	return ref, nil
 }
@@ -93,12 +94,12 @@ func newEnv(t *testing.T) *env {
 		}
 		ten := tenants.New(w.Store, tenants.Options{ClientSecrets: e.sec})
 		plat := platform.New(w.Store)
-		reg, err := approvals.NewRegistry(adminapi.ApprovalActions(plat, ten)...)
+		reg, err := approvals.NewRegistry(adminActions(plat, ten)...)
 		if err != nil {
 			t.Fatal(err)
 		}
 		appr, err := approvals.New(w.Store, approvals.Config{Approvers: authz.New(w.Store), Registry: reg, Security: logger,
-			Logger: slog.New(slog.DiscardHandler), Notify: adminapi.NotifyDeciders})
+			Logger: slog.New(slog.DiscardHandler), Notify: notifyDeciders})
 		if err != nil {
 			t.Fatal(err)
 		}

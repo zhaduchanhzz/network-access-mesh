@@ -146,7 +146,7 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 	}
 	authorizer := authz.New(d.st)
 	appr, err := approvals.New(d.st, approvals.Config{Approvers: authorizer, Registry: actions, Security: auditLog,
-		Logger: log, Notify: adminapi.NotifyDeciders})
+		Logger: log, Notify: notifyDeciders})
 	if err != nil {
 		return nil, err
 	}
@@ -227,7 +227,7 @@ func approvalActions(backups *backup.Service, deprov *deprovision.Requester, mem
 	ten *tenants.Service) (*approvals.Registry, error) {
 	actions := []approvals.Action{consoleSessionAction(), restoreAction(backups), releaseAction(), deprovisionAction(deprov),
 		groupMembersAction(mem)}
-	return approvals.NewRegistry(append(actions, adminapi.ApprovalActions(plat, ten)...)...)
+	return approvals.NewRegistry(append(actions, adminActions(plat, ten)...)...)
 }
 
 // MembershipGuard is authz.GuardMembershipChange as the members module takes it (members does not import authz —
