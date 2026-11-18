@@ -84,8 +84,13 @@ func admin(ctx context.Context, args []string, stdin stdinFile, stdout, stderr i
 		return apikeyRotate(ctx, args[1:], stdout, stderr, apikeyRotateEnv{getenv: getenv, environ: environ,
 			open: openKeyRotator})
 	}
+	if len(args) > 0 && args[0] == "post-restore-reconcile" { // P3-T17 — postrestore.go
+		return postRestore(ctx, args[1:], stdout, stderr, postRestoreEnv{getenv: getenv, environ: environ,
+			open: openPostRestore})
+	}
 	if len(args) == 0 || args[0] != "idp-bootstrap" {
-		_, _ = io.WriteString(stderr, "meshguard-worker admin: unknown command\n"+adminUsage+policyApplyUsage+auditSyncUsage+apikeyRotateUsage)
+		_, _ = io.WriteString(stderr, "meshguard-worker admin: unknown command\n"+adminUsage+policyApplyUsage+auditSyncUsage+
+			apikeyRotateUsage+postRestoreUsage)
 		return 2
 	}
 	fset := flag.NewFlagSet("idp-bootstrap", flag.ContinueOnError)

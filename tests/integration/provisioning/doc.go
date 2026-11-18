@@ -26,4 +26,9 @@
 // The prober of steps 17/18 is a test prober over the public listener of the test edge (real /key of the instance,
 // forbidden paths, /derp/probe; the shared STUN responder is not part of the harness); the IdP driver is an in-memory
 // keycloak driver that stores the client secret in the real SecretStore.
+//
+// postrestore_test.go (E2E-72, P3-T17) uses the same world for the reconcile after PostgreSQL was restored to an older
+// point: a real pg_dump/pg_restore inside <prefix>-pg (docker exec — the only Docker write of the harness), a tenant
+// provisioned, a key rotated and a newer policy applied after the dump, then internal/provisioning/postrestore with
+// the agent client, the rotation of P3-T10 and the policy core on the restored database.
 package provisioning

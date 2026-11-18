@@ -65,6 +65,10 @@ const (
 	TriggerSchedule = "schedule"
 	TriggerAdmin    = "admin"
 	TriggerJob      = "job"
+	// TriggerRestore: the reconcile after a PostgreSQL restore to an older point (P3-T17) — with AllowBootstrap, since a
+	// key refused by its instance is then expected (rotated in the gap the restore lost), not a sign of a replaced
+	// instance database.
+	TriggerRestore = "post_restore"
 )
 
 // Modes and outcomes of a rotation.

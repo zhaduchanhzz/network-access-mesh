@@ -4,7 +4,9 @@
 # THẬT (hardening như compose mg-agent), edge thử và harness: orchestrator thật (River, registry, SecretStore, adapter
 # Headscale) provision tenant dùng-một-lần với image [images.mg-headscale] thật; lỗi vĩnh viễn ở từng bước 3–19 ⇒
 # compensation ⇒ rolled_back (E2E-48), worker bị SIGKILL giữa bước 13 (E2E-49), failed_resumable ⇒ /retry (E2E-50),
-# rolled_back ⇒ /retry job mới từ bước 3 (E2E-51); sau mỗi ca bộ phát hiện tài nguyên mồ côi phải sạch. Không dùng
+# rolled_back ⇒ /retry job mới từ bước 3 (E2E-51); sau mỗi ca bộ phát hiện tài nguyên mồ côi phải sạch; rồi E2E-72
+# (P3-T17): pg_dump → tenant mới, xoay key, policy mới → pg_restore → post-restore-reconcile (mồ côi chỉ báo cáo, key
+# cấp lại qua BootstrapApiKey, policy mới hơn không bị ghi đè). Không dùng
 # secret nào (token, mật khẩu PostgreSQL, KEK sinh trong lần chạy); chỉ action đã pin theo commit SHA. Lọc theo đường dẫn
 # để tiết kiệm phút Actions: chỉ khi orchestrator, khung job, agent, driver, template instance hoặc harness thay đổi.
 name: provisioning-it
@@ -29,12 +31,12 @@ permissions:
 jobs:
   fault-injection:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - name: Tiêm lỗi tại từng bước + bộ phát hiện tài nguyên mồ côi (E2E-48…E2E-51) — agent, Headscale, PostgreSQL thật
+      - name: Tiêm lỗi tại từng bước + bộ phát hiện tài nguyên mồ côi (E2E-48…E2E-51) + đối soát sau restore PostgreSQL (E2E-72) — agent, Headscale, PostgreSQL thật
         run: PIT_OUT="${RUNNER_TEMP}/pit" PIT_KEEP_CACHE=0 bash tests/integration/provisioning/run.sh
       - name: Lưu log (harness, agent, edge, từng tiến trình worker) và snapshot trước/sau
         if: always()

@@ -10,6 +10,7 @@
 #   PIT_IMAGE=<image agent đã build> bash ...                        # bỏ bước build image agent
 #   PIT_WAIT=3600 bash ...                                           # chờ (tối đa N giây) khi dải mạng đang bị giữ
 #   PIT_RUN='^TestProvisioningFaultInjection$/^E2E-49' bash ...      # chỉ một phần các ca (phát triển; PASS cần cả bộ)
+#   PIT_RUN='^TestPostRestoreReconcile$' bash ...                     # chỉ E2E-72 (P3-T17: restore PostgreSQL cũ hơn)
 #   make provisioning-it
 #
 # Dựng (mọi image pin digest trong versions.lock, mọi tài nguyên mang tiền tố $PIT_PREFIX, xóa khi thoát):
@@ -21,7 +22,8 @@
 #   <prefix>-edge   binary test ở vai trò edge (listener admin :8081 + public :8080 như Caddyfile.tmpl), [images.alpine],
 #                   UID 65532 nhóm 20003, rootfs chỉ đọc, cap_drop ALL; gw_priority 1 trên <prefix>-net (như mg-edge);
 #   <prefix>-run    binary test ở vai trò harness, UID 65532 + nhóm 20003 (danh tính của worker) + nhóm của Docker socket
-#                   (bộ phát hiện chỉ ĐỌC Docker), gốc tạm mount chỉ đọc; tự khởi chạy các tiến trình worker con.
+#                   (bộ phát hiện chỉ ĐỌC Docker; E2E-72 chỉ `docker exec` pg_dump/pg_restore trong <prefix>-pg), gốc
+#                   tạm mount chỉ đọc; tự khởi chạy các tiến trình worker con.
 #
 # Dải mạng: network tenant của lần chạy lấy từ PIT_POOL (mặc định 10.250.224.0/24 — trong pool tenant 10.250.0.0/16, không
 # chồng staging 10.250.0.0/24, e2e 10.250.23x, agent-it/contract/isolation 10.250.240.0/20); network điều khiển
@@ -214,10 +216,10 @@ d create --name "$P-run" --label "pit.run=$P" --network "$P-net" --user "$WORKER
   -v "$OUT/workers:/pit/workers" -e PIT_LOG_DIR=/pit/workers --env-file "$WORK/secrets/pg.env" -e TMPDIR=/tmp -e HOME=/tmp -e "PIT_PREFIX=$P" -e "PIT_ROOT=$IT_ROOT" \
   -e "PIT_POOL=$POOL" -e "PIT_RUN_UIDS=$RUN_UIDS" -e "PIT_PUBLIC_IPV4=$PUBLIC_IPV4" -e "PIT_BASE_DOMAIN=$BASE_DOMAIN" \
   -e "PIT_HS_DIGEST=$HS_DIGEST" -e "PIT_HS_VERSION=$HS_VERSION" -e "PIT_EDGE=$P-edge" -e "PIT_EDGE_NETWORK=$P-net" \
-  -e "PIT_EDGE_ADMIN=http://$P-edge:8081" -e "PIT_EDGE_PUBLIC=$P-edge:8080" \
-  --entrypoint /pit/pit.test "$ALPINE_IMAGE" -test.v -test.count=1 -test.timeout=50m \
-  -test.run "${PIT_RUN:-^TestProvisioningFaultInjection\$}" >/dev/null
-log "chạy các ca E2E-48…E2E-51…"
+  -e "PIT_EDGE_ADMIN=http://$P-edge:8081" -e "PIT_EDGE_PUBLIC=$P-edge:8080" -e "PIT_PG_CONTAINER=$P-pg" \
+  --entrypoint /pit/pit.test "$ALPINE_IMAGE" -test.v -test.count=1 -test.timeout=70m \
+  -test.run "${PIT_RUN:-^(TestProvisioningFaultInjection|TestPostRestoreReconcile)\$}" >/dev/null
+log "chạy các ca E2E-48…E2E-51 (P3-T07) và E2E-72 (P3-T17)…"
 rc=0
 d start -a "$P-run" > "$OUT/pit.log" 2>&1 || rc=$?
 d logs "$P-agent" > "$OUT/agent.log" 2>&1 || true
@@ -236,7 +238,8 @@ d run --rm --network none -v "$IT_ROOT:/r" "$ALPINE_IMAGE" sh -c 'rm -rf /r/* /r
 rmdir "$IT_ROOT" || { log "gốc tạm $IT_ROOT không xóa được"; rc=1; }
 snapshot > "$OUT/after.txt"
 
-grep -E '^(=== RUN|--- (PASS|FAIL|SKIP)|PASS|FAIL|ok)|cases_test.go:|summary of the cases|^ +E2E-' "$OUT/pit.log" | grep -v '=== RUN' || true
+grep -E '^(=== RUN|--- (PASS|FAIL|SKIP)|PASS|FAIL|ok)|cases_test.go:|postrestore_test.go:|summary of the cases|^ +E2E-' "$OUT/pit.log" | grep -v '=== RUN' || true
+grep -A 7 'E2E-72 summary:' "$OUT/pit.log" || true
 log "còn lại sau các ca (trước khi gỡ hạ tầng của harness): $(grep -c . "$OUT/leftovers.txt" || true) đối tượng Docker; $dirs thư mục instance (đã kích hoạt — run.sh xóa); $keys_in_agent_log dòng log agent có API key"
 [ -s "$OUT/leftovers.txt" ] && { log "TÀI NGUYÊN CÒN LẠI:"; cat "$OUT/leftovers.txt"; rc=1; }
 [ "$keys_in_agent_log" = 0 ] || { log "API key trong log agent"; rc=1; }
@@ -245,7 +248,8 @@ if ! diff -u "$OUT/before.txt" "$OUT/after.txt" > "$OUT/snapshot.diff"; then
 else
   log "snapshot trước = sau: $(grep -c . "$OUT/before.txt" || true) dòng (đối tượng mang tiền tố $P)"
 fi
-if [ "$rc" = 0 ] && [ -z "${PIT_RUN:-}" ] && grep -q '^--- PASS: TestProvisioningFaultInjection' "$OUT/pit.log"; then
+if [ "$rc" = 0 ] && [ -z "${PIT_RUN:-}" ] && grep -q '^--- PASS: TestProvisioningFaultInjection' "$OUT/pit.log" &&
+  grep -q '^--- PASS: TestPostRestoreReconcile' "$OUT/pit.log"; then
   log "PROVISIONING FAULT INJECTION: PASS"
 else
   log "PROVISIONING FAULT INJECTION: FAIL (log: $OUT/pit.log)"; tail -80 "$OUT/pit.log"; exit 1

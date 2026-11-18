@@ -1,6 +1,6 @@
 # Runbook — Backup và restore PostgreSQL, IdP, edge
 
-> **File viết tay — không sinh từ master.** Runbook của task **P2-T03a** (service `pg-backup`) và **P2-T05b** (dump DB của IdP, sao lưu volume ACME của edge) — §14.4, §16.3, §17.1–§17.3 của [bản master](../planning/implementation-master-plan.md). Bằng chứng và kết quả diễn tập: [P2-T03a](../planning/evidence/P2-T03a.md). Mã nguồn: [`apps/backup`](../../apps/backup/main.go), [`infrastructure/docker/backup`](../../infrastructure/docker/backup/Dockerfile), [`compose.backup.yaml.tmpl`](../../infrastructure/compose/compose.backup.yaml.tmpl), [`tools/render_backup.py`](../../tools/render_backup.py), diễn tập [`tests/backup/drill.sh`](../../tests/backup/drill.sh). Khóa khôi phục: [nghi thức khóa](key-ceremony.md).
+> **File viết tay — không sinh từ master.** Runbook của task **P2-T03a** (service `pg-backup`), **P2-T05b** (dump DB của IdP, sao lưu volume ACME của edge) và **P3-T17** (chế độ bảo trì + đối soát sau khi restore PostgreSQL về thời điểm cũ hơn — mục 6.5) — §14.4, §16.3, §17.1–§17.3 của [bản master](../planning/implementation-master-plan.md). Bằng chứng và kết quả diễn tập: [P2-T03a](../planning/evidence/P2-T03a.md). Mã nguồn: [`apps/backup`](../../apps/backup/main.go), [`infrastructure/docker/backup`](../../infrastructure/docker/backup/Dockerfile), [`compose.backup.yaml.tmpl`](../../infrastructure/compose/compose.backup.yaml.tmpl), [`tools/render_backup.py`](../../tools/render_backup.py), diễn tập [`tests/backup/drill.sh`](../../tests/backup/drill.sh). Khóa khôi phục: [nghi thức khóa](key-ceremony.md).
 
 **Trạng thái:** functional, **chưa lên host**. Kích hoạt trên host ở P2-T16, sau nghi thức khóa P2-T04a (mục 4).
 
@@ -139,7 +139,12 @@ Biến dùng ở dưới: `B=/opt/meshguard/backups/postgres/<id>`, `AGE="sudo i
 
 ### 6.3 Restore vào môi trường đang dùng (rollback sau migration, sự cố dữ liệu)
 
-1. Dừng api và worker (không để ghi vào DB đang thay): `sudo docker compose -p mg-core … stop api worker`.
+Restore vào môi trường đang dùng **luôn** là restore về thời điểm cũ hơn: theo đúng trình tự của mục 6.5 (bảo trì →
+restore → migrate nếu cần → đối soát → rà báo cáo → tắt bảo trì). Các bước 1–4 dưới đây là phần "restore" của trình tự đó.
+
+1. Bật chế độ bảo trì rồi dừng api và worker (không để ghi vào DB đang thay — mục 6.5 bước 1–2):
+   `$APP exec -T api /usr/local/bin/meshguard admin maintenance on --reason pg-restore` rồi `$APP stop api worker`
+   (`APP="sudo docker compose -p mg-app -f /opt/meshguard/core/compose.app.yaml"`).
 2. Giữ DB hiện tại để điều tra (đổi tên, không xóa):
 
    ```bash
@@ -162,17 +167,11 @@ Biến dùng ở dưới: `B=/opt/meshguard/backups/postgres/<id>`, `AGE="sudo i
    sudo cat "$B.pgdump.age" | $AGE | sudo docker exec -i "$PG" pg_restore -U postgres -d postgres --create --exit-on-error
    ```
 
-5. **Thu hồi toàn bộ session** — bắt buộc khi restore vào môi trường đang dùng: quyền/phiên bị thu hồi sau thời điểm backup không được sống lại.
-   - **Phase 2** (trước P3-T17):
-
-     ```bash
-     sudo docker exec -i "$PG" psql -X -v ON_ERROR_STOP=1 -U postgres -d meshguard -c "SET ROLE mg_migrator" \
-       -c "UPDATE sessions SET revoked_at = now() WHERE revoked_at IS NULL" -c "DELETE FROM auth_requests"
-     ```
-
-     Sau đó thông báo người dùng đăng nhập lại; rà audit ngoài host (nếu có) cho các thao tác trong khoảng mất dữ liệu (offboard, đổi role) và làm lại.
-   - **Từ Phase 3:** khởi động api/worker ở **chế độ bảo trì** rồi chạy `meshguard admin post-restore-reconcile` (P3-T17, §17.2): thu hồi session/grant/phê duyệt/lời mời, phát hiện instance mồ côi/đã mất, cấp lại API key đã xoay, không áp policy cũ, `inventory.sync`, ghi `audit.gap` — chỉ tắt bảo trì khi lệnh hoàn tất.
-6. Khởi động api/worker; kiểm `/readyz` (SecretStore mở được DEK trong DB đã restore — KEK không nằm trong backup). Giữ `meshguard_before_restore_*` tới khi chắc chắn, rồi `DROP DATABASE`.
+5. **Đối soát sau restore** — bắt buộc: migrate nếu cần, bật cờ bảo trì trong DB vừa restore, khởi động api/worker ở chế
+   độ bảo trì, `meshguard admin post-restore-reconcile`, rà báo cáo, tắt bảo trì: **mục 6.5 bước 3–9**. Quyền/phiên bị thu
+   hồi sau thời điểm backup không được sống lại; API không mở lại trước khi đối soát xong.
+6. Kiểm `/readyz` của api/worker (SecretStore mở được DEK trong DB đã restore — KEK không nằm trong backup). Giữ
+   `meshguard_before_restore_*` tới khi chắc chắn, rồi `DROP DATABASE`.
 7. Chạy ngay một backup `manual` (mục 5, `--label manual`) để có điểm khôi phục mới.
 
 ### 6.4 Restore lên cụm mới (mất host — DR)
@@ -186,7 +185,110 @@ sudo cat "$B.globals.sql.age" | $AGE | sed '/^CREATE ROLE postgres;$/d' \
 sudo cat "$B.pgdump.age" | $AGE | sudo docker exec -i "$PG" pg_restore -U postgres -d postgres --create --exit-on-error
 ```
 
-Backup **không** chứa mật khẩu role (`--no-role-passwords`): đặt lại verifier cho mọi role đăng nhập từ các file secret (mục 4 bước 3; superuser cho `mg_migrator`/`mg_backup`, `mg_migrator` cho các role còn lại — `database/README.md`). Rồi làm bước 5–7 của mục 6.3 (cụm mới luôn là "restore về thời điểm cũ hơn"). Kiểm tra sau restore: `SELECT count(*)` các bảng chính; `database/checks/partition_grants.sql` trả 0 hàng.
+Backup **không** chứa mật khẩu role (`--no-role-passwords`): đặt lại verifier cho mọi role đăng nhập từ các file secret (mục 4 bước 3; superuser cho `mg_migrator`/`mg_backup`, `mg_migrator` cho các role còn lại — `database/README.md`). Rồi làm bước 5–7 của mục 6.3 — tức mục 6.5 từ bước 3 (cụm mới luôn là "restore về thời điểm cũ hơn"; api/worker chưa
+từng chạy trên cụm này nên bỏ qua bước 1–2 của mục 6.5). Kiểm tra sau restore: `SELECT count(*)` các bảng chính; `database/checks/partition_grants.sql` trả 0 hàng.
+
+### 6.5 Restore về thời điểm cũ hơn — chế độ bảo trì và đối soát (P3-T17, §17.2)
+
+Sau khi restore (dump đêm — RPO 24 giờ tới P6-T03 —, hoặc bộ `pre-migration` khi lùi một migration) registry **cũ hơn**
+trạng thái thật của các instance: session, support grant, phê duyệt, lời mời bị thu hồi trong khoảng mất dữ liệu sống
+lại; tenant tạo trong khoảng đó chỉ còn trên host; API key xoay trong khoảng đó không còn trong SecretStore; policy áp
+trong khoảng đó mới hơn bản DB biết. Headscale vẫn phục vụ client suốt quá trình (§17.4) và **là nguồn đúng** cho node,
+key và policy đang hiệu lực (§6.4). Thiết kế, kết quả diễn tập và giới hạn: [P3-T17](../planning/evidence/P3-T17.md).
+
+**Chế độ bảo trì** (api: `503 maintenance` + `Retry-After: 60` cho mọi request — kể cả cổng console Keycloak — trừ đăng
+nhập platform trên `admin.<domain>`; worker: không job nào của hàng đợi chạy, không lịch nào enqueue) bật khi **một
+trong hai** công tắc bật:
+
+| Công tắc | Đặt bằng | Dùng khi |
+|---|---|---|
+| Cờ lưu `system_settings` khóa `maintenance` | `meshguard admin maintenance on`, `off`, `status` (binary api — `exec` vào api đang chạy, hoặc `run --rm --no-deps` khi api đã dừng; audit `platform.maintenance.enable`/`.disable`, `actor_type=system`); bước đầu của `post-restore-reconcile` cũng đặt nó trong DB vừa restore | mặc định của runbook; mọi tiến trình đọc lại mỗi 5 giây |
+| Biến `MG_MAINTENANCE=1` lúc khởi động | file override `infrastructure/compose/compose.app.maintenance.yaml` (chép sang `/opt/meshguard/core/`) | khi không ghi được DB trước lúc khởi động; thoát chỉ bằng khởi động lại không kèm file override |
+
+`maintenance off` **bị từ chối** khi bản ghi `post_restore` của cờ đang `running` hoặc `failed` (lệnh đối soát chưa
+xong hoặc lỗi — chạy lại nó); `--force` bỏ qua (audit ghi `forced`). Lệnh đối soát xong nhưng `incomplete` không chặn
+(người vận hành đã rà báo cáo) — `status` nhắc lại số mục chưa xong.
+
+```bash
+cd ~/mg && sudo -v
+APP="sudo docker compose -p mg-app -f /opt/meshguard/core/compose.app.yaml"
+B=/opt/meshguard/backups/postgres/<id>            # bộ sẽ restore (mục 6.1)
+
+# 1. bảo trì trên DB đang dùng (sự kiện audit ở lại trong DB cũ — giữ để điều tra); ≤ 10 s sau: api 503, worker dừng job
+$APP exec -T api /usr/local/bin/meshguard admin maintenance on --reason pg-restore
+$APP logs --since 1m worker | grep -c 'stopping the job worker'                     # ≥ 1
+
+# 2. dừng api + worker, rồi restore: mục 6.3 bước 2–4 (hoặc 6.4 cho cụm mới)
+$APP stop api worker
+
+# 3. migrate nếu bộ backup cũ hơn schema của image đang chạy (luôn qua migrate.sh: backup pre-migration trước)
+$APP --profile migrate run --rm -T migrate migrate status  # exit ≠ 0 (schema cũ hơn bản này) ⇒ chạy dòng dưới
+sudo bash infrastructure/host/migrate.sh
+
+# 4. cờ bảo trì trong DB VỪA RESTORE, trước khi api/worker khởi động (DB của bản dump không có cờ)
+$APP run --rm --no-deps -T api admin maintenance on --reason post-restore
+#    (cách khác: thêm -f /opt/meshguard/core/compose.app.maintenance.yaml vào lệnh up ở bước 5)
+
+# 5. khởi động — vẫn ở chế độ bảo trì
+$APP up -d --wait api worker
+curl -sk --resolve "app.$MG_BASE_DOMAIN:443:127.0.0.1" "https://app.$MG_BASE_DOMAIN/api/v1/tenants" | grep -c '"maintenance"'   # 1
+
+# 6. điểm khôi phục = started_at trong manifest của bộ đã restore (RFC 3339)
+RP=$(sudo python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["started_at"])' "$B.manifest.json")
+
+# 7. đối soát: chạy thử (không ghi gì, không đụng instance) rồi chạy thật; báo cáo JSON lưu lại để rà
+TS=$(date -u +%Y%m%dT%H%M%SZ)
+$APP exec -T worker /usr/local/bin/meshguard admin post-restore-reconcile --restore-point "$RP" --dry-run \
+  | sudo tee "/root/post-restore-$TS-dry.json" >/dev/null
+$APP exec -T worker /usr/local/bin/meshguard admin post-restore-reconcile --restore-point "$RP" \
+  | sudo tee "/root/post-restore-$TS.json" >/dev/null; echo "exit ${PIPESTATUS[0]}"
+
+# 8. rà báo cáo (mục dưới) — chạy lại bước 7 sau mỗi lần sửa (lệnh idempotent)
+
+# 9. tắt bảo trì (từ chối nếu lần chạy cuối của bước 7 chưa xong hoặc lỗi), rồi backup manual (mục 6.3 bước 7)
+$APP exec -T api /usr/local/bin/meshguard admin maintenance off
+#    nếu đã khởi động bằng file override: $APP up -d --wait api worker   (tạo lại container không có MG_MAINTENANCE)
+```
+
+Mã thoát của `post-restore-reconcile`: `0` hoàn tất (báo cáo vẫn có thể nêu mục cần rà); `3` chưa đủ — `incomplete` nêu
+bước và đối tượng không làm được (Agent không cấu hình/không tới được, instance không tới được, key không cấp lại được) —
+sửa rồi chạy lại; `1` lỗi (cờ ghi `post_restore.status = failed` ⇒ `maintenance off` bị chặn); `2` sai cú pháp hoặc
+điểm khôi phục ở tương lai. Lệnh dùng quyền của worker (Host Agent — `MG_AGENT_*`, kek-app, policy, lời mời; migration
+0020 cho nó quyền thu hồi session) và **từ chối chạy** nếu schema đã có bảng `support_access_grants` (P4-T05) mà bản này
+chưa biết thu hồi.
+
+Các bước của lệnh (`cutoff` = đồng hồ DB lúc lệnh bắt đầu; mọi bước idempotent; `--dry-run` chỉ đọc và đếm):
+
+| # | Bước | Ghi gì | Báo cáo (khóa JSON) |
+|---|---|---|---|
+| 1 | Cờ bảo trì ON + bản ghi `post_restore` (`running`) trong DB vừa restore | `system_settings`, audit `platform.restore.reconcile.requested` (+ `platform.maintenance.enable` nếu cờ chưa bật) | `maintenance` |
+| 2 | Thu hồi mọi session tạo trước `cutoff` (kể cả đã hết hạn), xóa `auth_requests` của bản dump; yêu cầu phê duyệt `pending`/`approved` ⇒ `expired`; phiên console Keycloak đã thực thi còn trong cửa sổ ⇒ `expired`; lời mời `pending` ⇒ `revoked` | `sessions.revoked_at`, `approval_requests.status`, `tenant_invitations.status` | `sessions`, `approvals`, `invitations`, `support_grants` (`not_in_schema`) |
+| 3 | Inventory của Host Agent so với registry: instance trên host không có trong registry ⇒ **mồ côi** — chỉ báo cáo (không xóa, không adopt; `security_event` `reconcile.unknown_instance`); instance trong registry không còn gì trên host ⇒ **mất** — `failed` (audit `platform.instance.lost`), không provision lại | `tenant_instances.status` | `instances.orphans`, `instances.lost` |
+| 4 | API key mỗi instance đang chạy: phép xoay của P3-T10 dưới khóa `instance.apikey`, `AllowBootstrap`, trigger `post_restore` — key đang lưu dùng được và chưa tới hạn ⇒ không đổi; bị từ chối (đã xoay trong khoảng mất dữ liệu) hoặc mất ⇒ Agent `BootstrapApiKey` cấp key mới, expire mọi key khác | SecretStore, `tenant_instances.api_key_*`, audit `instance.apikey.rotate.*` | `api_keys` |
+| 5 | `GetPolicy` so với lần áp dụng hiện hành: khác ⇒ **không bao giờ áp bản cũ**: ghi chuỗi đang chạy thành lần áp dụng hiện hành (`trigger=restore`), nhập thành version `user` trạng thái `validated` (lint lỗi ⇒ `draft`) làm desired, cờ rà soát `policy.restore_review_required` (tenant thấy được); user `mg-<uuid>` không còn membership được liệt kê | `policy_versions`, `policy_applications`, `tenants.desired_policy_version_id`, audit `policy.restore_adopted` | `policies` |
+| 6 | `inventory.sync` cho mọi instance đang chạy (chạy khi worker ra khỏi bảo trì) | `provisioning_jobs` (queued) | `inventory_sync` |
+| 7 | Job còn mở trong bản dump — chỉ liệt kê (worker sẽ chạy tiếp chúng khi tắt bảo trì) | — | `open_jobs` |
+| 8 | `audit.gap` (một sự kiện platform + một mỗi tenant, `from`/`to` = điểm khôi phục/`cutoff`, một lần mỗi điểm khôi phục), `post_restore.status = reconciled`, audit `.succeeded` | `audit_events`, `system_settings` | `audit_gap`, `status`, `incomplete`, `review_required` |
+
+**Rà báo cáo trước khi tắt bảo trì:**
+
+- `review_required[]` — mỗi tenant/instance kèm lý do: `orphan_instance_on_host` (tenant tạo trong khoảng mất dữ liệu:
+  quyết định 2P — adopt bằng `meshguard admin adopt-instance` với key mới tạo bằng CLI, hoặc deprovision; lệnh **không**
+  tự làm), `instance_lost` (đã bị deprovision trong khoảng đó: xác nhận rồi xử lý tenant),
+  `policy_differs_from_restored_database` (Owner/Admin rà version `validated` mới — policy đang chạy giữ nguyên tới khi
+  được duyệt), `instance_runs_no_policy` (instance không lưu policy — allow-all ở lần khởi động sau: áp lại baseline sau
+  khi rà), `api_key_not_reissued`, `policy_names_unknown_members` (token không ánh xạ được về membership).
+- `incomplete[]` không rỗng ⇒ sửa nguyên nhân (Agent, edge, instance) và chạy lại bước 7. Không có Host Agent (stack
+  dev/CI, host chưa nối socket agent): key bị từ chối không cấp lại được qua Agent — cách thủ công của Phase 1–2 là giao
+  một key tạo bằng CLI qua `adopt-instance` (mục "Đưa tenant A/B vào registry" của
+  [RUNBOOK](../../infrastructure/host/RUNBOOK.md), chỉ `--host`), rồi chạy lại bước 7.
+- `open_jobs[]` — job `queued`/`running`/`failed_resumable` của bản dump (ví dụ thông báo đã gửi sau thời điểm backup sẽ
+  gửi lại): xem từng job; `/cancel` sau khi API mở lại nếu không muốn nó chạy tiếp.
+- Khi chưa có bản sao audit ngoài host (P6-T02): thông báo Owner của mọi tenant tự rà lại thành viên, thiết bị và policy
+  (offboard, đổi role, hủy DEK trong khoảng `gap` không khôi phục được).
+
+Diễn tập: E2E-70, E2E-71 trên stack dev/CI (`make e2e-functional` — không có Host Agent) và E2E-72 với Host Agent,
+Headscale và PostgreSQL thật (`make provisioning-it`): [P3-T17](../planning/evidence/P3-T17.md).
 
 ## 7. Restore IdP (Keycloak)
 
@@ -202,7 +304,12 @@ Backup **không** chứa mật khẩu role (`--no-role-passwords`): đặt lại
    ```
 
 3. Kiểm: discovery của `platform`, `tenant-a`, `tenant-b` trả issuer `https://auth.<domain>/realms/<realm>`; đăng nhập thử một tài khoản có TOTP; IdP driver (P2-T05a) gọi được Admin API.
-4. Hệ quả của restore về thời điểm cũ hơn: user, mật khẩu, đăng ký MFA, client secret được xoay sau thời điểm backup bị mất — client secret phải khớp lại với SecretStore; đăng xuất mọi session của từng realm (Admin Console → Sessions → Sign out all) và, nếu PostgreSQL không được restore cùng lúc, thu hồi session Portal như mục 6.3 bước 5.
+4. Hệ quả của restore về thời điểm cũ hơn: user, mật khẩu, đăng ký MFA, client secret được xoay sau thời điểm backup bị mất — client secret phải khớp lại với SecretStore; đăng xuất mọi session của từng realm (Admin Console → Sessions → Sign out all) và, nếu PostgreSQL không được restore cùng lúc (khi có: mục 6.5 đã thu hồi), thu hồi mọi session Portal:
+
+   ```bash
+   sudo docker exec -i "$PG" psql -X -v ON_ERROR_STOP=1 -U postgres -d meshguard -c "SET ROLE mg_migrator" \
+     -c "UPDATE sessions SET revoked_at = now(), id_token_hint_enc = NULL WHERE revoked_at IS NULL" -c "DELETE FROM auth_requests"
+   ```
 
 ## 8. Restore volume ACME của edge
 

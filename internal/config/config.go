@@ -73,6 +73,12 @@ type Config struct {
 	SMTP SMTP
 	// Provisioning (MG_PROVISION_*, MG_PROBER_URL, worker, optional): the Tenant Orchestrator — LoadProvisioning (P3-T05).
 	Provisioning Provisioning
+	// Maintenance (MG_MAINTENANCE: 1/true/on, default off — P3-T17, §17.2): the process starts in maintenance mode
+	// whatever the database says — the api answers 503 except the platform sign-in on admin.<domain>, the worker runs no
+	// job and no schedule. It is the startup switch of a PostgreSQL restore (the restored database does not hold the
+	// persisted flag of system_settings `maintenance`, platform.MaintenanceKey); either one on ⇒ maintenance. Leaving it
+	// takes a restart without the variable.
+	Maintenance bool
 }
 
 // SMTP is the notification relay of the worker (MG_SMTP_*). The password is a file secret (MG_SMTP_PASSWORD_FILE), never
@@ -216,6 +222,13 @@ func Load(service string, getenv func(string) string, environ []string) (Config,
 	errs = append(errs, provErrs...)
 	if cfg.Provisioning.Enabled() && !cfg.Agent.Configured() {
 		errs = append(errs, errors.New("MG_PROVISION_*: the Tenant Orchestrator needs the Host Agent (MG_AGENT_SOCKET, MG_AGENT_TOKEN_FILE)"))
+	}
+	switch strings.ToLower(strings.TrimSpace(getenv("MG_MAINTENANCE"))) {
+	case "", "0", "false", "off":
+	case "1", "true", "on":
+		cfg.Maintenance = true
+	default:
+		errs = append(errs, errors.New("MG_MAINTENANCE must be 1/true/on or 0/false/off (empty = off)"))
 	}
 	cfg.Wired = cfg.Env != "dev" || strings.TrimSpace(getenv("MG_DB_URL")) != ""
 	if cfg.Wired && services[service] {

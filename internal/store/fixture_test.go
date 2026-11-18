@@ -5,11 +5,18 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io/fs"
 	"math/big"
+	"path"
+	"slices"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/zhaduchanhzz/network-access-mesh/database"
 )
 
 // fixture holds one row per scope (tenant A, tenant B, platform) in every table of migrations 0001–0014, inserted
@@ -67,15 +74,37 @@ var fixtureSteps = map[int64]func(f *fixture, t *testing.T, c *pgx.Conn){
 	1: (*fixture).step1, 2: (*fixture).step2, 3: (*fixture).step3, 4: (*fixture).step4, 5: (*fixture).step5, 6: (*fixture).step6,
 	7: (*fixture).step7, 8: (*fixture).step8, 9: (*fixture).step9, 10: (*fixture).step10, 11: (*fixture).step11,
 	12: (*fixture).step12, 13: (*fixture).step13, 14: (*fixture).step14, 15: (*fixture).step15,
+	20: (*fixture).step20,
 }
 
 // latestMigration is the number of the last migration of database/migrations (TestMigrationsUpWithData,
-// TestMigrationsShareClusterRoles).
-const latestMigration = 15
+// TestMigrationsShareClusterRoles). P3-T17's 0020 carries a provisional number (the coordinator renumbers the
+// migrations of the parallel Phase 3 tasks at merge): the sequence may have a gap, so the loops walk
+// migrationVersions, never 1…latestMigration.
+const latestMigration = 20
+
+// migrationVersions are the versions of the embedded migrations, in order.
+func migrationVersions(t testing.TB) []int64 {
+	t.Helper()
+	names, err := fs.Glob(database.Migrations, "migrations/*.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := make([]int64, 0, len(names))
+	for _, n := range names {
+		v, err := strconv.ParseInt(strings.SplitN(path.Base(n), "_", 2)[0], 10, 64)
+		if err != nil {
+			t.Fatalf("migration %s: %v", n, err)
+		}
+		out = append(out, v)
+	}
+	slices.Sort(out)
+	return out
+}
 
 func (f *fixture) insertAll(t *testing.T, c *pgx.Conn) {
 	t.Helper()
-	for v := int64(1); v <= latestMigration; v++ {
+	for _, v := range migrationVersions(t) {
 		fixtureSteps[v](f, t, c)
 	}
 }
@@ -324,3 +353,7 @@ func (f *fixture) step14(t *testing.T, c *pgx.Conn) {
 func (f *fixture) step15(t *testing.T, c *pgx.Conn) {
 	exec(t, c, `UPDATE provisioning_jobs SET cancel_requested_at = now() WHERE id = $1`, f.a.job)
 }
+
+// step20 (0020 — provisional number, P3-T17): no table, no column — a grant (UPDATE (revoked_at, id_token_hint_enc) ON
+// sessions TO mg_worker_platform), exercised by TestMigration0020WorkerRevokesSessions.
+func (f *fixture) step20(*testing.T, *pgx.Conn) {}

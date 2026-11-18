@@ -74,6 +74,9 @@ type Options struct {
 	// the client address are in the context) but never behind Authz or Audit — the handler decides and audits itself.
 	// The edge never routes them on a public site (only /api/* reaches the api) and the listener answers the edge only.
 	Internal map[string]http.Handler
+	// Maintenance answers 503 maintenance while its gate is on (P3-T17), after the per-IP limit and before the session
+	// is resolved; the zero value never does.
+	Maintenance Maintenance
 }
 
 type server struct {
@@ -150,7 +153,7 @@ func New(opts Options) (http.Handler, error) {
 
 	var h http.Handler = mux
 	for _, mw := range []func(http.Handler) http.Handler{ // innermost first
-		opts.Hooks.CSRF, s.limit(byIdentity), opts.Hooks.Session, s.limitBody, s.limit(byIP),
+		opts.Hooks.CSRF, s.limit(byIdentity), opts.Hooks.Session, s.limitBody, opts.Maintenance.middleware, s.limit(byIP),
 		s.recoverer, s.accessLog, s.requestID,
 	} {
 		if mw != nil {

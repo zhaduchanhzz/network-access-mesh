@@ -1008,11 +1008,13 @@ export interface components {
          *     `not_found` (404, kể cả ID chéo tenant) · `conflict` (409) · `precondition_failed` (412) ·
          *     `precondition_required` (428, thiếu `If-Match`) · `validation_failed`, `idempotency_key_reuse` (422) ·
          *     `rate_limited` (429) · `upstream_rejected` (502, upstream từ chối, không tới được hoặc trả lời bất thường —
-         *     Headscale của tenant, IdP ở luồng đăng nhập) · `instance_unavailable` (503) · `internal_error` (500) ·
+         *     Headscale của tenant, IdP ở luồng đăng nhập) · `instance_unavailable` (503) · `maintenance` (503, nền tảng ở
+         *     chế độ bảo trì — sau khi restore PostgreSQL, tới khi đối soát xong và người vận hành tắt bảo trì; chỉ đăng nhập
+         *     platform trên admin. còn được phục vụ — P3-T17, §17.2; kèm `Retry-After`) · `internal_error` (500) ·
          *     `not_implemented` (501, operation chưa có handler).
          * @enum {string}
          */
-        ProblemCode: "unauthenticated" | "reauth_required" | "forbidden" | "tenant_suspended" | "quota_exceeded" | "not_found" | "conflict" | "precondition_failed" | "precondition_required" | "validation_failed" | "idempotency_key_reuse" | "rate_limited" | "upstream_rejected" | "instance_unavailable" | "internal_error" | "not_implemented";
+        ProblemCode: "unauthenticated" | "reauth_required" | "forbidden" | "tenant_suspended" | "quota_exceeded" | "not_found" | "conflict" | "precondition_failed" | "precondition_required" | "validation_failed" | "idempotency_key_reuse" | "rate_limited" | "upstream_rejected" | "instance_unavailable" | "maintenance" | "internal_error" | "not_implemented";
         FieldError: {
             /** @description Đường dẫn tới trường lỗi, ví dụ `given_name` */
             field: string;

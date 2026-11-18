@@ -4,7 +4,8 @@
 // ceremony drill (P2-T04a); admin idp-bootstrap, the bootstrap of the keycloak IdP driver (P2-T05a/P2-T16 — admin.go);
 // admin policy-apply, the internal command of the policy core (P3-T08a — policyapply.go); admin idp-audit-sync, one pass
 // of idp.audit_sync (P3-T15 — auditsync.go); admin apikey-rotate, the rotation of a tenant's instance API key now
-// (P3-T10 — apikeyrotate.go); healthcheck, the container healthcheck.
+// (P3-T10 — apikeyrotate.go); admin post-restore-reconcile, the reconcile after PostgreSQL was restored to an older
+// point (P3-T17 — postrestore.go); healthcheck, the container healthcheck.
 package main
 
 import (
@@ -47,6 +48,7 @@ func dispatch(args []string, stdout, stderr io.Writer, run func() int) int {
 		"       meshguard-worker admin policy-apply --tenant <uuid|slug> [--kind baseline|suspension] --file - < policy.hujson\n"+
 		"       meshguard-worker admin idp-audit-sync   (one pass of idp.audit_sync now — P3-T15)\n"+
 		"       meshguard-worker admin apikey-rotate --tenant <uuid|slug> [--force] [--allow-bootstrap]\n"+
+		"       meshguard-worker admin post-restore-reconcile --restore-point <RFC 3339> [--dry-run]\n"+
 		"       meshguard-worker healthcheck   (container healthcheck: /readyz of this process)\n")
 	return 2
 }

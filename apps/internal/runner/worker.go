@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
@@ -54,6 +54,8 @@ const partitionRole = "mg_partition_maint"
 //	                 from the SecretStore — platform_ops) + external (hardened client) — P2-T05a; idp.audit_sync every
 //	                 minute over the keycloak driver (admin + login events of every realm → audit_events, security
 //	                 events, notifications — P3-T15, internal/idp/auditsync)
+//	maintenance      the gate of P3-T17 (MG_MAINTENANCE OR system_settings maintenance, polled): the job worker and the
+//	                 schedules run only while it is off (workControl — started when it opens, stopped when it closes)
 //	readiness        postgres, secretstore, edge_admin (§16.2)
 func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg prometheus.Registerer) (_ *component, err error) {
 	d, err := openDeps(ctx, cfg, log, nil) // nil: idp.PlatformDriverPaths (public OIDC + Admin REST API)
@@ -152,35 +154,32 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 			"idp-bootstrap` (RUNBOOK), then restart the worker — no Phase 2 job uses the driver")
 	}
 
-	var wg sync.WaitGroup
-	sched, cancel := context.WithCancel(context.Background())
-	c := &component{probes: d.probes(), close: d.close}
-	c.start = func(ctx context.Context) error {
-		if err := w.Start(ctx); err != nil {
-			cancel()
-			return err
-		}
-		for name, run := range map[string]func(context.Context) error{
+	gate, err := newMaintenanceGate(ctx, cfg, d.st, log, reg) // P3-T17: no job, no schedule in maintenance
+	if err != nil {
+		return nil, err
+	}
+	ctl := &workControl{gate: gate, w: w, log: log, check: 2 * time.Second, stopWait: stopTimeout - 5*time.Second,
+		schedules: map[string]func(context.Context) error{
 			"inventory.sync": dev.NewScheduler(devices.SchedulerConfig{}).Run,
 			"health.probe":   mon.NewScheduler(monitoring.SchedulerConfig{}).Run,
 			"reconcile":      rec.NewScheduler(reconcile.SchedulerConfig{}).Run,
 			"apikey.rotate":  keys.NewScheduler(apikey.SchedulerConfig{}).Run,
-		} {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				if err := run(sched); err != nil && !errors.Is(err, context.Canceled) {
-					log.Error("schedule stopped", "schedule", name, "error", err.Error())
-				}
-			}()
+		}}
+	var bg []*background
+	c := &component{probes: d.probes(), close: d.close}
+	c.start = func(ctx context.Context) error {
+		if gate.On() {
+			log.Warn("maintenance mode: the job worker and the schedules are not started (P3-T17 — " +
+				"`meshguard admin maintenance off` once the post-restore reconcile was reviewed)")
+		} else if err := ctl.startWork(ctx); err != nil {
+			return err
 		}
+		bg = append(bg, startBackground(func(ctx context.Context) { _ = gate.Run(ctx) }), startBackground(ctl.run))
 		return nil
 	}
-	c.stop = func(ctx context.Context) {
-		cancel()
-		wg.Wait()
-		if err := w.Stop(ctx); err != nil {
-			log.Warn("job worker stop", "error", err.Error())
+	c.stop = func(context.Context) {
+		for i := len(bg) - 1; i >= 0; i-- { // the control loop first: it stops the job worker gracefully
+			bg[i].stop()
 		}
 	}
 	return c, nil

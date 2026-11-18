@@ -29,7 +29,7 @@ func TestMigrationsUpWithData(t *testing.T) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	defer e.lockCluster(t)()
-	for v := int64(1); v <= latestMigration; v++ {
+	for _, v := range migrationVersions(t) {
 		if err := MigrateTo(ctx, mig, v); err != nil {
 			t.Fatalf("migration %04d on a database with data: %v", v, err)
 		}
@@ -240,5 +240,59 @@ func TestMigrationsShareClusterRoles(t *testing.T) {
 		if err != nil || v != latestMigration {
 			t.Errorf("%s: schema version %d (err %v), want %d", db, v, err, latestMigration)
 		}
+	}
+}
+
+// TestMigration0020WorkerRevokesSessions — P3-T17, migration 0020 (provisional number; a grant only): before it the
+// worker's platform role (session.gc: SELECT, DELETE) cannot revoke a session; after it it revokes one — revoked_at and
+// the logout hint, exactly the columns of the identity module's revocation — and still cannot touch any other column
+// (the expiry, the identity) nor insert one; the api's role is unchanged.
+func TestMigration0020WorkerRevokesSessions(t *testing.T) {
+	e := requireDB(t)
+	ctx := ctxT(t)
+	db := e.newDatabase(t, 15)
+	su := e.connectAdmin(t, db)
+	mig, err := OpenMigrator(e.storeURL(db), e.creds(t, "mg_migrator"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = mig.Close() }()
+	f := newFixture()
+	for v := int64(1); v <= 15; v++ {
+		fixtureSteps[v](f, t, su)
+	}
+	hash := "session-" + f.sfx // the 0002 fixture session
+	revoke := `UPDATE sessions SET revoked_at = now(), id_token_hint_enc = NULL
+		WHERE id_hash = sha256(convert_to($1, 'UTF8')) AND revoked_at IS NULL`
+	worker := e.connectAs(t, db, "mg_worker_platform")
+	_, err = worker.Exec(ctx, revoke, hash)
+	wantSQLState(t, "mg_worker_platform revokes a session before 0020", err, "42501")
+	_ = worker.Close(ctx)
+	if err := MigrateTo(ctx, mig, 20); err != nil {
+		t.Fatalf("0020: %v", err)
+	}
+	if v, err := SchemaVersion(ctx, mig); err != nil || v != 20 {
+		t.Fatalf("schema version = %d (%v), want 20", v, err)
+	}
+	worker = e.connectAs(t, db, "mg_worker_platform")
+	if tag, err := worker.Exec(ctx, revoke, hash); err != nil || tag.RowsAffected() != 1 {
+		t.Fatalf("mg_worker_platform revokes a session after 0020: %v (%d rows)", err, tag.RowsAffected())
+	}
+	for name, sql := range map[string]string{
+		"extends a session":             `UPDATE sessions SET absolute_expires_at = now() + interval '1 day' WHERE id_hash = sha256(convert_to($1, 'UTF8'))`,
+		"un-revokes via another column": `UPDATE sessions SET last_seen_at = now() WHERE id_hash = sha256(convert_to($1, 'UTF8'))`,
+		"moves a session":               `UPDATE sessions SET identity_id = identity_id WHERE id_hash = sha256(convert_to($1, 'UTF8'))`,
+	} {
+		_, err := worker.Exec(ctx, sql, hash)
+		wantSQLState(t, "mg_worker_platform "+name, err, "42501")
+	}
+	_, err = worker.Exec(ctx, `INSERT INTO sessions (id_hash, identity_id, idp_id, origin, auth_time, idle_expires_at,
+		absolute_expires_at) SELECT sha256(convert_to('x' || $1, 'UTF8')), identity_id, idp_id, origin, auth_time,
+		idle_expires_at, absolute_expires_at FROM sessions WHERE id_hash = sha256(convert_to($1, 'UTF8'))`, hash)
+	wantSQLState(t, "mg_worker_platform inserts a session", err, "42501")
+	var revoked bool
+	if err := su.QueryRow(ctx, `SELECT revoked_at IS NOT NULL FROM sessions WHERE id_hash = sha256(convert_to($1, 'UTF8'))`,
+		hash).Scan(&revoked); err != nil || !revoked {
+		t.Fatalf("the fixture session is not revoked: %v %v", revoked, err)
 	}
 }

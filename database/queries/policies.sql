@@ -84,3 +84,21 @@ SELECT * FROM policy_applications
 WHERE tenant_id = sqlc.arg(tenant_id)
 ORDER BY created_at DESC, id DESC
 LIMIT sqlc.arg(row_limit);
+
+-- name: InsertImportedPolicyVersion :one
+-- P3-T17 (§17.2 bước 4): chuỗi policy ĐANG CHẠY trên Headscale, mới hơn bản DB vừa restore biết, nhập lại thành version
+-- kind user ở trạng thái validated (lint đạt) hoặc draft (lint không đạt) — không bao giờ approved: chỉ Owner/Admin
+-- duyệt được nó (§7.3), nên không job nào áp nó thay người. content_sha256 = sha256 của đúng chuỗi source_hujson (DB
+-- kiểm); parent = version mong muốn trước đó.
+INSERT INTO policy_versions (tenant_id, version, kind, source_hujson, content_sha256, state, validation_report,
+                             parent_version_id)
+VALUES (sqlc.arg(tenant_id), sqlc.arg(version), 'user', sqlc.arg(source_hujson), sqlc.arg(content_sha256),
+        sqlc.arg(state), sqlc.arg(validation_report), sqlc.narg(parent_version_id))
+RETURNING *;
+
+-- name: ListActiveHeadscaleUsernames :many
+-- P3-T17: những tên Headscale user `mg-<membership_uuid>` nêu trong policy đang chạy còn ánh xạ được về membership đang
+-- hoạt động của tenant (tên không có ở đây ⇒ liệt kê trong báo cáo).
+SELECT headscale_username FROM tenant_memberships
+WHERE tenant_id = sqlc.arg(tenant_id) AND status = 'active' AND headscale_username = ANY(sqlc.arg(usernames)::text[])
+ORDER BY headscale_username;

@@ -31,6 +31,7 @@ import dualcontrol  # noqa: E402 — E2E-37 … E2E-39 (P3-T05a, P3-T04a)
 import idpadmin  # noqa: E402 — E2E-40 … E2E-43 (P3-T15)
 import lifecycle  # noqa: E402 — E2E-56 … E2E-58 (P3-T08)
 import phase3  # noqa: E402 — E2E-32 … E2E-36 (P3-T14a, P3-T03a, P3-T08a)
+import postrestore  # noqa: E402 — E2E-70, E2E-71 (P3-T17)
 from stack import CLIENTS, SECRET_RE, TENANTS, Stack, StackError, log  # noqa: E402
 
 PHASES: dict[str, float] = {}
@@ -189,6 +190,9 @@ def test(st: Stack, r: checks.Results) -> None:
         idpadmin.run_all(r, st, guarded)
     with timed("ca E2E-56 … E2E-58 (Phase 3: suspend/resume P3-T08 — policy suspension, TCP thật, 403 tenant_suspended)"):
         lifecycle.run_all(r, st, guarded)
+    # last: E2E-71 replaces the stack's database by an older dump (restore runbook) — nothing may run after it
+    with timed("ca E2E-70, E2E-71 (Phase 3: chế độ bảo trì + đối soát sau restore PostgreSQL P3-T17 — pg_dump/pg_restore thật)"):
+        postrestore.run_all(r, st, guarded)
 
 
 def versions(st: Stack) -> dict[str, str]:
