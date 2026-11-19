@@ -37,7 +37,7 @@ const (
 	StatusClaimed          = "claimed"
 	StatusRegistered       = "registered"
 	StatusVerified         = "verified"
-	StatusCredentialIssued = "credential_issued"
+	StatusCredentialIssued = "credential_issued" //nolint:gosec // a status name, not a credential
 	StatusConsumed         = "consumed"
 	StatusExpired          = "expired"
 	StatusRevoked          = "revoked"
@@ -304,7 +304,7 @@ func view(r sqlcdb.EnrollmentRequest, loginServer string) Request {
 // Credential kinds (EnrollmentCredential.kind).
 const (
 	CredentialEnrollCode = "enroll_code"
-	CredentialPreauthKey = "preauth_key"
+	CredentialPreauthKey = "preauth_key" //nolint:gosec // a kind name, not a credential
 )
 
 // Credential is a credential shown once (schema EnrollmentCredential). The secrets are headscale.Secret: every
@@ -354,8 +354,6 @@ func codeHash(code string) []byte { return digest("enroll-code:" + code) }
 
 // authIDHash is the stored hash of an Auth ID (enrollment_requests.auth_id_hash).
 func authIDHash(authID string) []byte { return digest("auth-id:" + authID) }
-
-func ptr[T any](v T) *T { return &v }
 
 // settingsOf reads the typed TenantSettings of a stored document (lenient: defaults for missing keys).
 func settingsOf(raw []byte) config.TenantSettings {

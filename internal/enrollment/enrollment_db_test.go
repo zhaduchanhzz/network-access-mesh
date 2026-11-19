@@ -99,13 +99,13 @@ func TestEnrollment(t *testing.T) {
 		keys := a.hs.Keys()
 		node := a.hs.UseKey(keys[len(keys)-1].ID, devicestest.Node{MachineKey: "mkey:consumed", Hostname: "srv-1"})
 		f.exec(t, `INSERT INTO device_inventory_cache (tenant_id, instance_id, headscale_node_id, machine_key, name)
-			VALUES ($1, $2, $3, $4, 'srv-1')`, a.id, a.instance, int64(node.ID), node.MachineKey)
+			VALUES ($1, $2, $3, $4, 'srv-1')`, a.id, a.instance, int64(node.ID), node.MachineKey) //nolint:gosec // small test ids
 		rep, err := f.wrk.Reconcile(t.Context(), a.id)
 		if err != nil || rep.Consumed != 1 || rep.Linked != 1 {
 			t.Fatalf("reconcile %+v %v", rep, err)
 		}
 		r, err := f.api.Get(t.Context(), a.id, out.Request.ID, owner)
-		if err != nil || r.Status != StatusConsumed || r.NodeID == nil || *r.NodeID != int64(node.ID) {
+		if err != nil || r.Status != StatusConsumed || r.NodeID == nil || *r.NodeID != int64(node.ID) { //nolint:gosec // small test ids
 			t.Fatalf("consumed: %+v %v", r, err)
 		}
 		if n := f.count(t, `SELECT count(*) FROM device_inventory_cache WHERE enrollment_request_id = $1`, out.Request.ID); n != 1 {
@@ -148,7 +148,7 @@ func TestEnrollment(t *testing.T) {
 		if err != nil || r.Status != StatusVerified || r.NodeID == nil {
 			t.Fatalf("claim: %+v %v", r, err)
 		}
-		n, _ := a.hs.Node(uint64(*r.NodeID))
+		n, _ := a.hs.Node(uint64(*r.NodeID)) //nolint:gosec // small test ids
 		if n.GivenName != label || n.UserName != un(user) {
 			t.Fatalf("node %+v", n)
 		}
@@ -194,7 +194,7 @@ func TestEnrollment(t *testing.T) {
 		if err != nil || r.Status != StatusFailed || r.FailureCode == nil || *r.FailureCode != FailureNodeMismatch {
 			t.Fatalf("mismatch: %+v %v", r, err)
 		}
-		if _, ok := a.hs.Node(uint64(*r.NodeID)); ok {
+		if _, ok := a.hs.Node(uint64(*r.NodeID)); ok { //nolint:gosec // small test ids
 			t.Fatal("the mismatching node was not deleted")
 		}
 		if k := f.count(t, `SELECT count(*) FROM security_events WHERE tenant_id = $1 AND kind = $2`, a.id, EventNodeMismatch); k != 1 {

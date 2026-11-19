@@ -89,8 +89,6 @@ type person struct {
 	role                 string
 }
 
-func (p person) username() string { return "mg-" + p.membership.String() }
-
 type tenantFx struct {
 	id, instance, idp uuid.UUID
 	slug              string
