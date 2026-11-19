@@ -23,6 +23,13 @@ import { NotFoundPage } from "../../pages/StatusPages";
 import { APPROVAL_ACTION_PERMISSION, invalidatePlatform, platformKeys, useApproval, type ApprovalRequest } from "../api";
 import { usePlatformRole } from "../PlatformScope";
 
+/** resource_type của yêu cầu ⇒ màn hình chi tiết của tài nguyên (P4-T02 tenant; P4-T03 instance, IdP). */
+const RESOURCE_ROUTE: Readonly<Record<string, string>> = {
+  tenant: "tenants",
+  instance: "instances",
+  identity_provider: "identity-providers",
+};
+
 /** Tên thao tác đã dịch (thao tác đã biết) kèm mã máy. */
 export function ActionLabel({ action }: { action: string }) {
   const { t } = useTranslation();
@@ -81,8 +88,8 @@ function ApprovalDetail({ approvalId }: { approvalId: string }) {
               <StatusBadge status={a.status}>{t(`status.approval.${a.status}`)}</StatusBadge>
             </Field>
             <Field label={t("platform.approvals.col.resource")}>
-              {a.resource_type === "tenant" && a.resource_id && isUuid(a.resource_id) ? (
-                <Link to={`/platform/tenants/${a.resource_id}`} className="link font-mono text-xs">
+              {a.resource_id && isUuid(a.resource_id) && RESOURCE_ROUTE[a.resource_type] ? (
+                <Link to={`/platform/${RESOURCE_ROUTE[a.resource_type] ?? ""}/${a.resource_id}`} className="link font-mono text-xs">
                   {a.resource_type}
                   {":"}
                   {a.resource_id}

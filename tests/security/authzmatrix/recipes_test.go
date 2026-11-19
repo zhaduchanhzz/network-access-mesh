@@ -91,6 +91,8 @@ var recipes = map[string]recipe{
 	"listPlatformTenantJobs":         {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
 	"listPlatformTenantInstances":    {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
 	"listPlatformTenantRelayRegions": {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
+	// instance detail of the Platform Console (P4-T03 — tenantsapi as PlatformInstanceViewHandlers)
+	"listPlatformInstanceConfigVersions": {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
 	// dual control (P3-T04a, approvalsapi — mounted with the matrix's actions, world_test.go): granted deciders race
 	// on the same request (one executes, the others get 409) — any answer that is not a refusal
 	"listPlatformApprovals":   {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
@@ -244,6 +246,10 @@ var recipes = map[string]recipe{
 		ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
 	"applyTenantPolicy":    {idempotent: true, ok: answer{http.StatusConflict, gen.ProblemCodeConflict}},
 	"rollbackTenantPolicy": {idempotent: true, ok: answer{http.StatusConflict, gen.ProblemCodeConflict}},
+	// HuJSON translator of the editor (P4-T11, policiesapi — mounted): pure functions over the tenant's names, nothing
+	// stored — a granted import or export answers 200 (the import of an empty grants list passes).
+	"importTenantPolicy": {body: `{"hujson":"{\"grants\": []}"}`, ok: answer{status: http.StatusOK}},
+	"exportTenantPolicy": {body: `{"source":{"grants":[]}}`, ok: answer{status: http.StatusOK}},
 	// enrollment (P4-T06, enrollmentapi — mounted; the matrix's tenants allow self-enrolment, so the End User's
 	// conditional grant passes and the handler enforces the condition): a web-auth request is issued without Headscale
 	// (201); a privileged key reaches Headscale behind the unreachable edge (503); a claim without a request pending in

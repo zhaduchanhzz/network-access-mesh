@@ -62,6 +62,7 @@ var operations = []struct {
 	{http.MethodGet, "/api/v1/platform/tenants/" + tenantID + "/instances", "", "ListPlatformTenantInstances", nil},
 	{http.MethodGet, "/api/v1/platform/tenants/" + tenantID + "/relay-regions", "", "ListPlatformTenantRelayRegions", nil},
 	{http.MethodGet, "/api/v1/platform/instances/" + itemID, "", "GetPlatformInstance", nil},
+	{http.MethodGet, "/api/v1/platform/instances/" + itemID + "/config-versions?limit=5", "", "ListPlatformInstanceConfigVersions", nil},
 	// instance.reconfigure (P3-T13)
 	{http.MethodPost, "/api/v1/platform/instances/" + itemID + "/reconfigure", `{"node_expiry_days":30}`, "ReconfigurePlatformInstance", []func(*http.Request){idempotency}},
 	// instance.restart, instance.upgrade (P3-T13a)
@@ -108,6 +109,8 @@ var operations = []struct {
 	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/policies/" + itemID + "/apply", "", "ApplyTenantPolicy", []func(*http.Request){idempotency}},
 	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/policies/" + itemID + "/rollback", "", "RollbackTenantPolicy", []func(*http.Request){idempotency}},
 	{http.MethodGet, "/api/v1/tenants/" + tenantID + "/policies/" + itemID + "/diff", "", "DiffTenantPolicy", nil},
+	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/policies/import", `{"hujson":"{}"}`, "ImportTenantPolicy", nil},
+	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/policies/export", `{"source":{"grants":[]}}`, "ExportTenantPolicy", nil},
 	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/invitations/" + itemID + "/resend", "", "ResendTenantInvitation", nil},
 	// administration (P4-T03a)
 	{http.MethodPatch, "/api/v1/platform/tenants/" + tenantID, `{"name":"Acme 2"}`, "UpdatePlatformTenant", nil},

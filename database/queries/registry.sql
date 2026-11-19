@@ -47,6 +47,19 @@ RETURNING *;
 SELECT * FROM tenant_instances
 WHERE id = sqlc.arg(id);
 
+-- name: ListInstanceConfigVersionsPage :many
+-- GET /platform/instances/{instanceId}/config-versions (P4-T03 — chi tiết instance của Platform Console; pool platform):
+-- version giảm dần, con trỏ = version của hàng cuối trang; `current` = hàng mà tenant_instances.config_version_id trỏ
+-- tới. Không đọc rendered_config (nội dung thật nằm trên host — §6.3).
+SELECT v.id, v.version, v.status, v.template_version, v.params, v.config_sha256, v.created_by, v.created_at,
+       v.applied_at, (ti.config_version_id IS NOT DISTINCT FROM v.id)::boolean AS is_current
+FROM instance_config_versions v
+JOIN tenant_instances ti ON ti.tenant_id = v.tenant_id AND ti.id = v.instance_id
+WHERE v.instance_id = sqlc.arg(instance_id)
+  AND (sqlc.narg(before_version)::integer IS NULL OR v.version < sqlc.narg(before_version)::integer)
+ORDER BY v.version DESC
+LIMIT sqlc.arg(row_limit);
+
 -- name: GetLiveInstanceForTenant :one
 -- Registry.ForTenant (§5.4): instance chưa removed của tenant (MVP: tối đa một).
 SELECT * FROM tenant_instances

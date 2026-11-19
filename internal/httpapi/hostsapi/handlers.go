@@ -282,7 +282,8 @@ func toHost(v platform.HostView) gen.Host {
 		TenantNetPool: v.TenantNetPool.String(), LastHeartbeatAt: v.LastHeartbeatAt, CreatedAt: v.CreatedAt.UTC(),
 		UpdatedAt: v.UpdatedAt.UTC(), Etag: v.ETag,
 		Usage: gen.HostUsage{LiveInstances: v.Usage.LiveInstances, ByStatus: gen.StatusCounts{},
-			RunUidsFree: v.Usage.RunUIDsFree, NetSlotsFree: v.Usage.NetSlotsFree},
+			RunUidsFree: v.Usage.RunUIDsFree, NetSlotsFree: v.Usage.NetSlotsFree,
+			StunPortsFree: v.Usage.STUNPortsFree},
 	}
 	for s, n := range v.Usage.ByStatus {
 		out.Usage.ByStatus[s] = n

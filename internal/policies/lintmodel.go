@@ -41,7 +41,9 @@ type Finding struct {
 	Severity string `json:"severity"`
 	Code     string `json:"code"`
 	Path     string `json:"path,omitempty"`
-	Message  string `json:"message"`
+	// Line is the line of the HuJSON text a finding of an import points at (P4-T11); 0 otherwise.
+	Line    int    `json:"line,omitempty"`
+	Message string `json:"message"`
 	// RequiresAck: the finding needs an acknowledgement of its rule in the source (§7.2 "cần xác nhận"); unacknowledged
 	// it is an error. OwnerOnly: the acknowledgement counts only when a Tenant Owner approves the version (L4, L12).
 	RequiresAck  bool `json:"requires_ack,omitempty"`

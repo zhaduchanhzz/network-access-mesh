@@ -876,6 +876,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/platform/instances/{instanceId}/config-versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Version cấu hình của một instance — mới nhất trước
+         * @description Chi tiết instance của Platform Console (§12.2): các hàng `instance_config_versions` của instance theo `version` giảm dần, mỗi hàng đánh dấu `current` (hàng `tenant_instances.config_version_id` trỏ tới). Không trả `rendered_config`. Instance không tồn tại ⇒ `404`.
+         */
+        get: operations["listPlatformInstanceConfigVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/platform/instances/{instanceId}/reconfigure": {
         parameters: {
             query?: never;
@@ -2398,6 +2418,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tenants/{tenantId}/policies/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dịch HuJSON của admin sang mô hình có kiểu (không lưu, không gọi Headscale)
+         * @description Bộ dịch HuJSON ↔ `PolicySource` của editor (P4-T11, §7.2 — chạy phía server: chỉ server biết mọi tên, kể cả tài
+         *     nguyên mạng). Văn bản được parse bằng parser của Headscale (`tailscale/hujson`) rồi dịch tên ⇒ id: `group:<tên>`,
+         *     `tag:<tên>` của danh mục, e-mail của thành viên hoặc `mg-<membership>@` ⇒ `user`, tên tài nguyên (alias `hosts`) ⇒
+         *     `resource`, `autogroup:<x>`, `*`/IP/prefix ⇒ `cidr`. Chỉ nhận `grants` (bắt buộc — thiếu, `null` hay không phải
+         *     mảng ⇒ L1), `ssh`, `autoApprovers`; `groups`/`hosts`/`tagOwners` (render từ bảng), `acls`, `nodeAttrs`, `tests`,
+         *     khóa lạ ⇒ L3; khóa `#…`, khóa trùng hoặc sai hoa thường, `null` ⇒ `decoder_guard`; văn bản rỗng ⇒ L2; tên không
+         *     tồn tại ⇒ L6. `200` cả khi không dịch được (`result: failed` kèm `errors` có `path`/`line`); `source` chỉ có khi
+         *     `passed` — editor đặt nó vào form và lưu bằng `PATCH /policies/{versionId}` như mọi lần sửa. Xác nhận
+         *     (`acknowledgements`) không nằm trong văn bản.
+         */
+        post: operations["importTenantPolicy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/policies/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Viết một PolicySource thành HuJSON có tên (không lưu)
+         * @description Chiều ngược của `import` (P4-T11): thành viên viết bằng e-mail khi e-mail đó là duy nhất trong tenant (không thì
+         *     `mg-<membership>@`), group/tag/tài nguyên bằng tên; tham chiếu không còn tồn tại ⇒ chỗ giữ chỗ không dịch ngược
+         *     được + cảnh báo L6. Tất định (cùng nguồn + cùng bảng ⇒ cùng văn bản). `principals` = tên của mọi principal được
+         *     tham chiếu (editor dùng để hiển thị). `source` được kiểm như bản nháp (sai ⇒ `422`). Là POST vì nhận nội dung đang
+         *     soạn (chưa lưu); không đổi gì.
+         */
+        post: operations["exportTenantPolicy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -3050,6 +3122,36 @@ export interface components {
             items: components["schemas"]["Instance"][];
             next_cursor: string | null;
         };
+        /** @description Một version cấu hình của instance (`instance_config_versions`, §6.3) — bản ghi do orchestrator (bước 8 của §11.3) và job reconfigure (P3-T13) viết. Không có `rendered_config` (nội dung thật nằm trên host, đối chiếu bằng `config_sha256`); `params` là tham số render như đã lưu — không chứa secret (§6.3). */
+        InstanceConfigVersion: {
+            /** Format: uuid */
+            id: string;
+            /** Format: int64 */
+            version: number;
+            /** @description `rendered` (orchestrator đã ghi), `pending` (reconfigure đã ghi, chưa áp dụng), `applied` (đang hoặc đã từng hiệu lực), `superseded` (đã bị version sau thay), `failed` (đã lùi về version trước); tập giá trị chỉ được bổ sung */
+            status: string;
+            /** @description Version mà instance đang trỏ tới (`tenant_instances.config_version_id`) */
+            current: boolean;
+            template_version: string;
+            config_sha256: string;
+            /** @description Tham số render (không secret) như đã lưu */
+            params: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            applied_at: string | null;
+            /**
+             * Format: uuid
+             * @description Actor đã yêu cầu (identity; null với bản do orchestrator ghi)
+             */
+            created_by: string | null;
+        };
+        InstanceConfigVersionList: {
+            items: components["schemas"]["InstanceConfigVersion"][];
+            next_cursor: string | null;
+        };
         /** @description Xin restore một instance từ một bản backup (luôn cần người thứ hai duyệt — §8.5) */
         InstanceRestoreCreate: {
             /**
@@ -3181,7 +3283,7 @@ export interface components {
             /** Format: int64 */
             last: number;
         };
-        /** @description Mức dùng của host lúc đọc: `live_instances` = instance chưa `removed` (so với `capacity.max_instances`), `by_status` = số instance chưa `removed` theo trạng thái, `run_uids_free` = UID của `run_uid_range` chưa từng được cấp (UID không tái sử dụng, kể cả sau `removed`; không tính UID/GID của service core), `net_slots_free` = số /29 của `tenant_net_pool` chưa thuộc instance chưa `removed` */
+        /** @description Mức dùng của host lúc đọc: `live_instances` = instance chưa `removed` (so với `capacity.max_instances`), `by_status` = số instance chưa `removed` theo trạng thái, `run_uids_free` = UID của `run_uid_range` chưa từng được cấp (UID không tái sử dụng, kể cả sau `removed`; không tính UID/GID của service core), `net_slots_free` = số /29 của `tenant_net_pool` chưa thuộc instance chưa `removed`, `stun_ports_free` = số cổng của `stun_port_range` chưa thuộc instance chưa `removed` (`null` khi host không có `stun_port_range` — STUN chung, MVP; P4-T03) */
         HostUsage: {
             live_instances: number;
             by_status: components["schemas"]["StatusCounts"];
@@ -3189,6 +3291,8 @@ export interface components {
             run_uids_free: number;
             /** Format: int64 */
             net_slots_free: number;
+            /** Format: int64 */
+            stun_ports_free: number | null;
         };
         /** @description Host chạy instance (`hosts`, §6.3) — không chứa secret */
         Host: {
@@ -3771,6 +3875,8 @@ export interface components {
             severity: "error" | "warning" | "info";
             code: string;
             path?: string;
+            /** @description Dòng của văn bản HuJSON (chỉ ở kết quả `import`) */
+            line?: number;
             message: string;
             requires_ack?: boolean;
             owner_only?: boolean;
@@ -3905,6 +4011,33 @@ export interface components {
             grants_added: string[];
             grants_removed: string[];
             report_blocking: boolean;
+        };
+        /** @description Tên HuJSON của một principal có kiểu (`import`/`export` — P4-T11) */
+        PolicyPrincipalName: {
+            /** @enum {string} */
+            type: "user" | "group" | "tag" | "resource" | "autogroup" | "cidr";
+            ref: string;
+            name: string;
+        };
+        PolicyImportRequest: {
+            /** @description Văn bản HuJSON của admin (chú thích và dấu phẩy cuối được phép) */
+            hujson: string;
+        };
+        PolicyImport: {
+            /** @enum {string} */
+            result: "passed" | "failed";
+            source?: components["schemas"]["PolicySource"];
+            errors: components["schemas"]["PolicyFinding"][];
+            warnings: components["schemas"]["PolicyFinding"][];
+            principals: components["schemas"]["PolicyPrincipalName"][];
+        };
+        PolicyExportRequest: {
+            source: components["schemas"]["PolicySource"];
+        };
+        PolicyExport: {
+            hujson: string;
+            warnings: components["schemas"]["PolicyFinding"][];
+            principals: components["schemas"]["PolicyPrincipalName"][];
         };
         TagList: {
             items: components["schemas"]["Tag"][];
@@ -6153,6 +6286,39 @@ export interface operations {
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    listPlatformInstanceConfigVersions: {
+        parameters: {
+            query?: {
+                /** @description Số phần tử tối đa của trang */
+                limit?: components["parameters"]["Limit"];
+                /** @description Con trỏ mờ lấy từ `next_cursor` của trang trước */
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: never;
+            path: {
+                instanceId: components["parameters"]["InstanceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Một trang version cấu hình */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstanceConfigVersionList"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationFailed"];
             429: components["responses"]["RateLimited"];
             default: components["responses"]["Unexpected"];
         };
@@ -8933,6 +9099,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PolicyDiff"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    importTenantPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyImportRequest"];
+            };
+        };
+        responses: {
+            /** @description Kết quả dịch */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyImport"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    exportTenantPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyExportRequest"];
+            };
+        };
+        responses: {
+            /** @description HuJSON có tên */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyExport"];
                 };
             };
             401: components["responses"]["Unauthenticated"];

@@ -247,6 +247,8 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 		Quarantine: quarantineapi.New(quarantine.NewRequester(w.Store), appr),
 		// Tenant detail of the Platform Console (P4-T02): jobs, instances and relay regions of one tenant, reads only
 		TenantView: httpapi.PlatformTenantView{Jobs: jobsH, Instances: registry, Relay: relayH},
+		// Instance detail of the Platform Console (P4-T03): the configuration versions of an instance, a read only
+		InstanceView: registry,
 		// Tags (P4-T15): the tag catalog and PUT /devices/{id}/tags (delegated to the device handlers)
 		Tags: tagsapi.New(tagSvc, devicesapi.New(dev)),
 		// Members (P4-T09): membership writes under authz.GuardMembershipChange, groups (no worker: jobs stay queued)
@@ -259,6 +261,8 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 		Admin: adminapi.New(platform.New(w.Store), dir, appr),
 		// Policies (P4-T10): the policy lifecycle over the production registry (validate's dry run — unreachable)
 		Policies: policiesapi.New(versions),
+		// PolicyHuJSON (P4-T11): the HuJSON translator of the editor, the same handler set
+		PolicyHuJSON: policiesapi.New(versions),
 	}
 }
 

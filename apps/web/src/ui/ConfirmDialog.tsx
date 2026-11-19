@@ -59,7 +59,6 @@ function ConfirmBody({
   descId,
 }: ConfirmDialogProps & { descId: string }) {
   const { t } = useTranslation();
-  const stepUp = useStepUp();
   const inputId = useId();
   const [typed, setTyped] = useState("");
   const typedOk = !typedConfirmation || typed === typedConfirmation.expected;
@@ -94,13 +93,7 @@ function ConfirmBody({
           <p className="hint">{t("confirm.typeHint", { value: typedConfirmation.expected })}</p>
         </div>
       ) : null}
-      {error ? <ProblemAlert error={error} /> : null}
-      {error instanceof ApiError && error.code === "reauth_required" ? (
-        // lời nhắc step-up chung nằm sau lớp modal: cho xác thực lại ngay từ hộp
-        <button type="button" className="btn-secondary" onClick={stepUp}>
-          {t("stepUp.action")}
-        </button>
-      ) : null}
+      <DialogProblem error={error} />
       <div className="flex justify-end gap-2 pt-2">
         <button
           type="button"
@@ -119,5 +112,23 @@ function ConfirmBody({
         </button>
       </div>
     </form>
+  );
+}
+
+/** Lỗi của server trong hộp thoại đang mở + nút xác thực lại khi 401 reauth_required (lời nhắc step-up chung nằm sau
+ * lớp modal). Dùng chung cho ConfirmDialog và FormDialog (ui/FormDialog.tsx). */
+export function DialogProblem({ error }: { error: unknown }) {
+  const { t } = useTranslation();
+  const stepUp = useStepUp();
+  if (!error) return null;
+  return (
+    <>
+      <ProblemAlert error={error} />
+      {error instanceof ApiError && error.code === "reauth_required" ? (
+        <button type="button" className="btn-secondary" onClick={stepUp}>
+          {t("stepUp.action")}
+        </button>
+      ) : null}
+    </>
   );
 }

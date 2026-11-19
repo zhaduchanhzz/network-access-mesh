@@ -89,7 +89,8 @@
       "settings": "Thiết lập",
       "identityProvider": "Identity Provider",
       "usage": "Mức sử dụng",
-      "billing": "Gói và thanh toán"
+      "billing": "Gói và thanh toán",
+      "tags": "Danh mục tag"
     },
     "platform": {
       "health": "Platform Health",
@@ -230,6 +231,28 @@
       "pending": "Chờ",
       "active": "Hoạt động",
       "disabled": "Tắt"
+    },
+    "host": {
+      "active": "Hoạt động",
+      "draining": "Đang rút (không nhận mới)",
+      "disabled": "Ngừng"
+    },
+    "platformUser": {
+      "active": "Hoạt động",
+      "disabled": "Đã khóa"
+    },
+    "idp": {
+      "pending": "Chờ kích hoạt",
+      "active": "Hoạt động",
+      "retiring": "Đang thay thế",
+      "disabled": "Ngừng"
+    },
+    "configVersion": {
+      "rendered": "Đã render",
+      "pending": "Chờ áp dụng",
+      "applied": "Đang hiệu lực",
+      "superseded": "Đã thay",
+      "failed": "Lỗi (đã lùi)"
     }
   },
   "platform": {
@@ -434,7 +457,9 @@
       "platform_tenant_delete": "Xóa tenant",
       "platform_instance_restore": "Restore instance",
       "platform_instance_release": "Gỡ cách ly instance",
-      "platform_idp_console_session": "Phiên console quản trị Keycloak"
+      "platform_idp_console_session": "Phiên console quản trị Keycloak",
+      "platform_user_super_admin": "Gán/gỡ Super Admin",
+      "platform_idp_update_tenant": "Sửa IdP của tenant (do nền tảng khởi xướng)"
     },
     "approvals": {
       "title": "Chờ phê duyệt (2P)",
@@ -486,6 +511,360 @@
       "rejectDesc": "Yêu cầu bị đóng; người yêu cầu phải tạo yêu cầu mới nếu cần.",
       "typeSlug": "Gõ lại slug của tenant sẽ bị xóa",
       "hashLabel": "payload_sha256:"
+    },
+    "instances": {
+      "title": "Instance",
+      "status": "Trạng thái",
+      "caption": "Headscale instance của mọi tenant",
+      "empty": "Chưa có instance nào.",
+      "emptyFiltered": "Không có instance khớp bộ lọc.",
+      "pagination": "Phân trang instance",
+      "onHost": "Chỉ instance trên host",
+      "clearHost": "Bỏ lọc host",
+      "col": {
+        "hostname": "Control hostname",
+        "status": "Trạng thái",
+        "health": "Sức khỏe",
+        "version": "Phiên bản Headscale",
+        "tenant": "Tenant",
+        "host": "Host"
+      }
+    },
+    "instance": {
+      "title": "Chi tiết instance",
+      "back": "← Danh sách instance",
+      "summary": "Instance",
+      "actions": "Thao tác vận hành",
+      "digest": "Image digest",
+      "serverUrl": "Server URL",
+      "runUid": "UID chạy",
+      "noiseKey": "Fingerprint Noise key",
+      "rowVersion": "Phiên bản bản ghi",
+      "config": "Version cấu hình",
+      "noConfig": "Instance chưa có version cấu hình do orchestrator ghi (instance được adopt) — reconfigure/upgrade sẽ bị từ chối (409).",
+      "currentConfig": "Đang hiệu lực: version {{version}}",
+      "noCurrentConfig": "Chưa có version nào đang hiệu lực.",
+      "current": "Hiện hành",
+      "params": "Tham số render của version {{version}} (không chứa secret)",
+      "configPagination": "Phân trang version cấu hình",
+      "cv": {
+        "version": "Version",
+        "status": "Trạng thái",
+        "template": "Template",
+        "sha": "SHA-256 cấu hình",
+        "created": "Tạo lúc",
+        "applied": "Áp dụng lúc"
+      },
+      "backups": "Backup gần đây (thành công)",
+      "noBackups": "Chưa có bản backup thành công nào.",
+      "bk": {
+        "started": "Bắt đầu",
+        "method": "Cách chụp",
+        "size": "Kích thước",
+        "version": "Phiên bản Headscale",
+        "verified": "Kiểm manifest lúc"
+      },
+      "act": {
+        "restart": "Restart",
+        "reconfigure": "Đổi cấu hình…",
+        "backup": "Backup ngay",
+        "upgrade": "Nâng cấp…",
+        "restore": "Xin restore…",
+        "quarantine": "Quarantine…",
+        "release": "Xin gỡ quarantine…"
+      },
+      "restartTitle": "Restart instance {{host}}?",
+      "restartDesc": "Restart có kiểm soát: start guard của Host Agent, health gate, kiểm policy sau khi chạy lại. Client của tenant mất kết nối control plane trong giây lát. Theo dõi ở timeline của job.",
+      "backupTitle": "Backup instance {{host}} ngay?",
+      "backupDesc": "Tạo job instance.backup (VACUUM INTO khi đang chạy, cold copy khi dừng); bản backup được mã hóa và kiểm manifest ký trước khi thành công.",
+      "reconfigureTitle": "Đổi cấu hình instance {{host}}",
+      "reconfigureDesc": "Render version cấu hình mới từ version đang hiệu lực + thay đổi dưới đây, configtest, ghi, restart và health gate; lỗi ⇒ tự lùi về version trước. Để trống = giữ nguyên.",
+      "logLevel": "Log level",
+      "unchanged": "Giữ nguyên",
+      "nodeExpiry": "Hạn node (ngày)",
+      "nodeExpiryHint": "1–3650 ngày.",
+      "nameservers": "Nameserver",
+      "nameserversHint": "1–8 địa chỉ, cách nhau bằng dấu phẩy hoặc khoảng trắng.",
+      "derpRegion": "DERP region",
+      "derpRegionHint": "900–999.",
+      "upgradeTitle": "Nâng cấp instance {{host}}",
+      "upgradeDesc": "Preflight (phiên bản cho phép, configtest bản đích), cold backup, đổi image, health gate, contract smoke; lỗi sau khi đổi image ⇒ tự restore bản backup trên image cũ. Digest phải nằm trong allowlist của Host Agent.",
+      "currentDigest": "Image hiện tại:",
+      "targetDigest": "Image digest đích",
+      "targetDigestHint": "Dạng sha256:<64 ký tự hex>.",
+      "restoreTitle": "Xin restore instance {{host}}",
+      "restoreDesc": "Khôi phục Headscale của tenant từ một bản backup: mọi API key/pre-auth key của bản backup hết hiệu lực, node đã thu hồi sau thời điểm backup bị expire lại.",
+      "twoPerson": "Đây là thao tác 2P: yêu cầu cần một người thứ hai duyệt ở hàng chờ phê duyệt, cả hai phải vừa xác thực trong 15 phút.",
+      "chooseBackup": "Bản backup",
+      "olderRestorePoint": "PostgreSQL đã được khôi phục về thời điểm CŨ HƠN bản backup này",
+      "olderRestorePointHint": "Giữ policy trong bản backup làm version cần rà soát và đánh dấu tenant cần Owner rà soát.",
+      "requestRestore": "Gửi yêu cầu restore",
+      "quarantineTitle": "Quarantine instance {{host}}?",
+      "quarantineDesc": "Cô lập ngay instance nghi bị chiếm: gỡ edge (hostname của tenant trả 404), dừng container (giữ dữ liệu và log), tạo security event Critical. Chỉ gỡ được bằng yêu cầu 2P.",
+      "typeHostname": "Gõ lại control hostname để xác nhận",
+      "releaseTitle": "Xin gỡ quarantine instance {{host}}",
+      "releaseDesc": "Sau khi được duyệt: Host Agent start lại qua start guard, kiểm policy đang áp dụng, gắn lại edge; lỗi bất kỳ ⇒ cô lập lại.",
+      "requestRelease": "Gửi yêu cầu gỡ",
+      "errors": {
+        "nodeExpiry": "Hạn node phải là số nguyên 1–3650.",
+        "nameservers": "1–8 nameserver khác nhau, mỗi cái 2–45 ký tự.",
+        "derpRegion": "DERP region phải là số nguyên 900–999.",
+        "nothing": "Chưa có thay đổi nào.",
+        "digest": "Digest phải có dạng sha256:<64 ký tự hex thường>.",
+        "sameDigest": "Instance đang chạy đúng image này."
+      },
+      "submit": {
+        "reconfigure": "Áp dụng cấu hình",
+        "upgrade": "Nâng cấp",
+        "quarantine": "Quarantine"
+      }
+    },
+    "hosts": {
+      "title": "Host",
+      "status": "Trạng thái",
+      "caption": "Host chạy instance",
+      "empty": "Chưa có host nào.",
+      "emptyFiltered": "Không có host khớp bộ lọc.",
+      "pagination": "Phân trang host",
+      "capacityValue": "{{live}} / {{max}} instance",
+      "noNew": "Không nhận instance mới (capacity 0).",
+      "sharedStun": "STUN chung (không có dải riêng)",
+      "col": {
+        "name": "Tên",
+        "region": "Region",
+        "status": "Trạng thái",
+        "capacity": "Capacity",
+        "stunFree": "Cổng STUN còn trống",
+        "netFree": "Slot /29 còn trống",
+        "heartbeat": "Heartbeat gần nhất"
+      }
+    },
+    "host": {
+      "title": "Chi tiết host",
+      "back": "← Danh sách host",
+      "summary": "Placement và mức dùng",
+      "stunRange": "Dải cổng STUN",
+      "netPool": "Pool mạng tenant",
+      "uidFree": "UID còn cấp được",
+      "uidRange": "Dải UID",
+      "publicEntry": "Điểm vào công khai",
+      "noEntry": "Chưa có IPv4 công khai (placement bỏ qua host này)",
+      "entryModes": {
+        "direct": "Trực tiếp",
+        "vps_gateway": "Qua VPS gateway"
+      },
+      "byStatus": "Instance theo trạng thái",
+      "instances": "Instance trên host",
+      "noInstances": "Host chưa có instance.",
+      "instancesPagination": "Phân trang instance của host"
+    },
+    "health": {
+      "tenants": "Tenant",
+      "instances": "Instance (chưa removed)",
+      "jobs": "Job chưa kết thúc",
+      "none": "Không có.",
+      "unhealthy_other": "{{count}} instance lỗi health",
+      "failed24h_other": "{{count}} job lỗi/lùi trong 24 giờ",
+      "byHealth": "Theo health",
+      "byVersion": "Theo phiên bản Headscale",
+      "components": "Thành phần nền tảng",
+      "noComponents": "Server không báo thành phần nào.",
+      "noReason": "Không có lý do kèm theo.",
+      "openTenants": "Mở danh sách tenant",
+      "openInstances": "Mở danh sách instance",
+      "openJobs": "Mở danh sách job"
+    },
+    "relayRegions": {
+      "readOnly": "Chỉ đọc ở MVP: relay nhúng (DERP) đi theo instance của từng tenant; thêm/sửa region riêng thuộc Phase 7.",
+      "empty": "Chưa có relay region nào.",
+      "owner": "Tenant sở hữu",
+      "shared": "Dùng chung",
+      "assignments": "Instance được gán",
+      "pagination": "Phân trang relay region"
+    },
+    "settings": {
+      "intro": "Tập khóa đóng: chỉ các khóa dưới đây tồn tại. Sửa cần Super Admin và xác thực lại trong 15 phút; mọi thay đổi có audit (trước/sau).",
+      "readOnlyRole": "Role của bạn chỉ xem được thiết lập.",
+      "col": {
+        "key": "Khóa",
+        "value": "Giá trị",
+        "updated": "Cập nhật",
+        "actions": "Thao tác"
+      },
+      "desc": {
+        "approval_ttl_hours": "Thời hạn của một yêu cầu phê duyệt mới (giờ, 1–168).",
+        "quota_max_tenants": "Số tenant tối đa chưa xóa/lỗi (hạn mức tạo tenant).",
+        "maintenance": "Cờ bảo trì bền — chỉ lệnh trên host ghi."
+      },
+      "unset": "chưa đặt",
+      "default": "mặc định {{value}}",
+      "version": "phiên bản {{version}}",
+      "readOnly": "Chỉ đọc (lệnh host)",
+      "edit": "Sửa {{key}}",
+      "editTitle": "Sửa thiết lập {{key}}",
+      "editDesc": "Giá trị mới có hiệu lực ở lần đọc kế tiếp của thành phần dùng khóa này. Nếu người khác vừa sửa, bạn sẽ thấy giá trị mới nhất trước khi quyết định lại.",
+      "value": "Giá trị (JSON)",
+      "rangeHint": "Số nguyên {{min}}–{{max}}.",
+      "jsonHint": "Giá trị JSON.",
+      "save": "Lưu",
+      "latest": "Giá trị mới nhất trên server:",
+      "useLatest": "Dùng bản mới nhất rồi sửa lại",
+      "errors": {
+        "integer": "Phải là số nguyên.",
+        "range": "Nằm ngoài miền cho phép.",
+        "json": "Không phải JSON hợp lệ."
+      }
+    },
+    "users": {
+      "intro": "Role platform gán ở đây luôn dưới Super Admin; gán hoặc gỡ Super Admin luôn cần một Super Admin khác duyệt (2P). Không ai tự sửa chính mình.",
+      "create": "Thêm nhân sự",
+      "status": "Trạng thái",
+      "role": "Role",
+      "empty": "Không có nhân sự nào khớp.",
+      "pagination": "Phân trang nhân sự nền tảng",
+      "col": {
+        "name": "Người dùng",
+        "role": "Role",
+        "status": "Trạng thái",
+        "lastLogin": "Đăng nhập gần nhất",
+        "actions": "Thao tác"
+      },
+      "identityStatus": "identity: {{status}}",
+      "selfNote": "Không tự sửa chính mình",
+      "rowActions": "Thao tác với {{name}}",
+      "act": {
+        "edit": "Sửa…",
+        "disable": "Khóa…",
+        "grantSA": "Gán Super Admin…",
+        "revokeSA": "Gỡ Super Admin…"
+      },
+      "actLabel": {
+        "edit": "Sửa {{name}}",
+        "disable": "Khóa {{name}}",
+        "grantSA": "Gán Super Admin cho {{name}}",
+        "revokeSA": "Gỡ Super Admin của {{name}}"
+      },
+      "createTitle": "Thêm nhân sự nền tảng",
+      "createDesc": "Người đó phải có tài khoản ở IdP platform trước; lần đăng nhập đầu khớp theo sub, không theo email. Cần xác thực lại trong 15 phút.",
+      "subject": "Subject (sub) ở IdP platform",
+      "subjectHint": "Keycloak: id của user (UUID chữ thường).",
+      "roleHint": "Không gán được Super Admin ở đây (dùng yêu cầu 2P).",
+      "displayName": "Tên hiển thị (tùy chọn)",
+      "editTitle": "Sửa {{name}}",
+      "editDesc": "Đổi role hoặc khóa thu hồi mọi phiên của người đó ngay.",
+      "save": "Lưu",
+      "disableTitle": "Khóa {{name}}?",
+      "disableDesc": "Thu hồi mọi phiên của người đó; bản ghi được giữ cho audit, mở lại bằng Sửa → Hoạt động.",
+      "grantTitle": "Xin gán Super Admin cho {{name}}",
+      "grantDesc": "Super Admin có toàn quyền nền tảng, gồm role và IdP. Sau khi được duyệt, mọi phiên của người đó bị thu hồi.",
+      "revokeTitle": "Xin gỡ Super Admin của {{name}}",
+      "revokeDesc": "Hệ thống không cho gỡ Super Admin cuối cùng. Sau khi được duyệt, mọi phiên của người đó bị thu hồi.",
+      "roleAfter": "Role sau khi gỡ",
+      "reason": "Lý do (người duyệt sẽ đọc)",
+      "twoPerson": "Thao tác 2P: một Super Admin khác phải duyệt ở hàng chờ phê duyệt; cả hai phải vừa xác thực trong 15 phút.",
+      "requestApproval": "Gửi yêu cầu phê duyệt"
+    },
+    "idps": {
+      "intro": "Issuer, client ID và driver bất biến; chỉ ràng buộc claim sửa được. IdP của tenant: thay đổi cần Super Admin thứ hai duyệt, ghi vào audit của tenant và báo Tenant Owner.",
+      "scope": "Phạm vi",
+      "scopes": {
+        "platform": "Nền tảng",
+        "tenant": "Tenant"
+      },
+      "empty": "Không có IdP nào.",
+      "pagination": "Phân trang IdP",
+      "col": {
+        "issuer": "Issuer",
+        "scope": "Phạm vi",
+        "driver": "Driver",
+        "status": "Trạng thái",
+        "updated": "Cập nhật"
+      }
+    },
+    "idp": {
+      "title": "Identity Provider",
+      "back": "← Danh sách IdP",
+      "edit": "Sửa ràng buộc claim…",
+      "identity": "Định danh (chỉ đọc)",
+      "immutable": "Issuer, client ID, driver và phạm vi không đổi được (§8.2) — đổi IdP là luồng di trú riêng.",
+      "clientId": "Client ID",
+      "secret": "Client secret",
+      "secretSet": "Đã đặt (không bao giờ hiển thị)",
+      "secretUnset": "Chưa đặt",
+      "emailVerified": "Bắt buộc email đã xác minh",
+      "yes": "Có",
+      "no": "Không",
+      "claims": "Ràng buộc claim",
+      "mapping": "Ánh xạ claim",
+      "defaultMapping": "Mặc định (email, email_verified, name)",
+      "mapField": "Trường {{field}} ← claim",
+      "domains": "Domain email được phép",
+      "anyDomain": "Không giới hạn",
+      "requiredClaims": "Claim bắt buộc (JSON)",
+      "requiredClaimsHint": "Object tối đa 16 claim; giá trị là chuỗi/số/bool hoặc mảng các giá trị chấp nhận. Không dùng sub, iss, aud.",
+      "domainsHint": "Tối đa 32 domain, cách nhau bằng dấu phẩy hoặc xuống dòng.",
+      "editTitle": "Sửa ràng buộc claim",
+      "editDesc": "Chỉ gửi trường đã đổi. Cần xác thực lại trong 15 phút.",
+      "tenantTwoPerson": "IdP của tenant: thay đổi tạo yêu cầu phê duyệt (Super Admin thứ hai) và CHƯA có hiệu lực cho tới khi được duyệt; Tenant Owner được thông báo, audit của tenant ghi lại.",
+      "requestChange": "Gửi yêu cầu thay đổi",
+      "save": "Lưu",
+      "errors": {
+        "mapping": "Tên claim chỉ gồm chữ, số, _ . : / - (tối đa 128).",
+        "requiredClaims": "Claim bắt buộc không hợp lệ (xem gợi ý).",
+        "domains": "Có domain không hợp lệ hoặc quá 32 domain."
+      }
+    },
+    "plans": {
+      "intro": "Khóa của gói bất biến; mỗi gói có đủ bốn hạn mức quota. Gói đóng không nhận tenant mới, tenant đang dùng giữ gói. Hạn mức mới có hiệu lực ở lần kiểm quota kế tiếp.",
+      "create": "Tạo gói",
+      "empty": "Chưa có gói nào.",
+      "open": "Đang mở",
+      "closed": "Đã đóng",
+      "col": {
+        "key": "Gói",
+        "status": "Trạng thái",
+        "tenants": "Tenant đang dùng",
+        "limits": "Hạn mức",
+        "updated": "Cập nhật"
+      },
+      "limit": {
+        "max_devices": "Thiết bị tối đa",
+        "max_users": "Người dùng tối đa",
+        "max_tagged_devices": "Thiết bị gắn tag tối đa",
+        "max_live_enrollment_credentials": "Mã enrollment còn hiệu lực tối đa",
+        "backup_interval_minutes": "Chu kỳ backup (phút)",
+        "cpus": "CPU của instance",
+        "memory_mb": "Bộ nhớ instance (MB)",
+        "pids": "PID tối đa của instance"
+      },
+      "edit": "Sửa",
+      "editLabel": "Sửa gói {{key}}",
+      "createTitle": "Tạo gói dịch vụ",
+      "createDesc": "Bốn hạn mức quota là bắt buộc; các ô khác để trống = gói không đặt giới hạn đó.",
+      "editTitle": "Sửa gói {{key}}",
+      "editDesc": "Hạn mức gửi đi thay toàn bộ tài liệu hạn mức của gói.",
+      "key": "Khóa gói",
+      "keyHint": "Chữ thường, số, _ hoặc -, bắt đầu bằng chữ (tối đa 63).",
+      "keyImmutable": "Khóa gói không đổi được.",
+      "name": "Tên gói",
+      "limitsRequired": "Hạn mức",
+      "limitsOptional": "Override hạn mức (để trống = không override)",
+      "active": "Đang mở (nhận tenant mới)",
+      "activeHint": "Đóng gói không ảnh hưởng tenant đang dùng.",
+      "save": "Lưu",
+      "errors": {
+        "limit": "Giá trị không hợp lệ cho hạn mức này.",
+        "limits": "Hạn mức không hợp lệ.",
+        "name": "Tên gói 1–200 ký tự."
+      }
+    },
+    "tenantEdit": {
+      "edit": "Sửa…",
+      "title": "Sửa tenant {{slug}}",
+      "desc": "Đổi tên, gói hoặc override hạn mức. Hạ hạn mức dưới mức đang dùng không xóa gì — chỉ chặn lần thêm tiếp theo.",
+      "override": "Thay toàn bộ override hạn mức",
+      "overrideHint": "API chỉ trả hạn mức hiệu lực (gói + override): giá trị gửi đi thay toàn bộ override hiện có; để trống mọi ô ⇒ gỡ hết override.",
+      "save": "Lưu"
     }
   },
   "ui": {
@@ -574,7 +953,12 @@
       "never_checked": "Chưa từng được kiểm.",
       "stale": "Kết quả kiểm đã cũ.",
       "instance_not_running": "Instance không ở trạng thái chạy.",
-      "invalid_record": "Bản ghi kết quả không hợp lệ."
+      "invalid_record": "Bản ghi kết quả không hợp lệ.",
+      "no_heartbeat": "Chưa nhận heartbeat nào.",
+      "heartbeat_stale": "Heartbeat đã cũ.",
+      "heartbeat_failed": "Heartbeat báo lỗi.",
+      "no_probe": "Chưa có probe cho thành phần này.",
+      "not_deployed": "Thành phần chưa được triển khai."
     }
   },
   "devices": {
@@ -739,5 +1123,575 @@
     "checkFailed": "Không đạt",
     "duration": "{{ms}} ms (đo từ prober)",
     "httpStatus": "HTTP {{status}}"
+  },
+  "people": {
+    "you": "(bạn)",
+    "col": {
+      "name": "Tên",
+      "email": "Email",
+      "role": "Role",
+      "status": "Trạng thái",
+      "actions": "Thao tác"
+    },
+    "status": {
+      "active": "Hoạt động",
+      "locked": "Đã khóa",
+      "offboarded": "Đã offboard"
+    },
+    "invitationStatus": {
+      "pending": "Đang chờ",
+      "accepted": "Đã nhận",
+      "revoked": "Đã thu hồi",
+      "expired": "Hết hạn"
+    },
+    "users": {
+      "filters": "Lọc thành viên",
+      "search": "Tìm theo tên hoặc email",
+      "empty": "Tenant chưa có thành viên.",
+      "emptyFiltered": "Không có thành viên khớp bộ lọc.",
+      "back": "← Danh sách thành viên"
+    },
+    "user": {
+      "info": "Thông tin",
+      "noEmail": "IdP không cung cấp email",
+      "headscaleUser": "Headscale user",
+      "profileSource": "Hồ sơ",
+      "profileFromIdp": "Tên và email đến từ IdP ở mỗi lần đăng nhập — không sửa ở đây.",
+      "ruleNoActions": "Bạn không thao tác được trên thành viên này: chỉ tác động lên role thấp hơn hẳn role của bạn (quy tắc 3a — Tenant Admin không khóa, offboard, đổi role của Owner hay Admin khác).",
+      "selfNoActions": "Đây là tài khoản của bạn: không tự khóa, offboard hay đổi role của chính mình ở đây."
+    },
+    "access": {
+      "title": "Truy cập Portal",
+      "description": "Khóa chặn đăng nhập Portal và thu hồi mọi session (mở lại được); thiết bị vẫn trong mạng — cắt mạng là offboard.",
+      "lock": "Khóa",
+      "unlock": "Mở khóa",
+      "lockTitle": "Khóa {{name}}?",
+      "unlockTitle": "Mở khóa {{name}}?",
+      "lockDesc": "Người này bị đăng xuất ngay và không đăng nhập Portal được tới khi được mở khóa. Node và pre-auth key không bị đụng tới.",
+      "unlockDesc": "Người này đăng nhập lại được nếu IdP còn cho phép.",
+      "revokeSessions": "Thu hồi session",
+      "sessionsTitle": "Thu hồi mọi session của {{name}}?",
+      "sessionsDesc": "Mọi session Portal của người này kết thúc ngay; họ đăng nhập lại được nếu membership và IdP còn cho phép.",
+      "sessionsRevoked": "Đã thu hồi mọi session."
+    },
+    "role": {
+      "title": "Role",
+      "description": "Chỉ hiện role bạn được gán theo quy tắc 3a. Role Owner chỉ được cấp bằng chuyển quyền sở hữu.",
+      "newRole": "Role mới",
+      "submit": "Đổi role",
+      "confirmTitle": "Đổi role của {{name}}?",
+      "sessionsNote": "Mọi session của người này bị thu hồi (quyền đổi).",
+      "adminHint": "Thay đổi chạm role Tenant Admin hoặc một Owner chỉ do Owner thực hiện và cần đăng nhập lại gần đây (step-up).",
+      "done": "Đã đổi role."
+    },
+    "owner": {
+      "title": "Chuyển quyền sở hữu",
+      "description": "Cấp role Tenant Owner cho thành viên này. Mặc định bạn trở thành Tenant Admin.",
+      "open": "Chuyển quyền sở hữu…",
+      "confirmTitle": "Chuyển quyền sở hữu cho {{name}}?",
+      "confirmDesc": "Người này trở thành Tenant Owner. Session của cả hai người bị thu hồi — bạn sẽ phải đăng nhập lại.",
+      "stepUp": "Cần đăng nhập lại gần đây (step-up).",
+      "typeLabel": "Gõ lại email (hoặc tên) của người nhận để xác nhận",
+      "keep": "Tôi vẫn giữ role Owner (tenant có hai Owner)",
+      "submit": "Chuyển quyền"
+    },
+    "offboard": {
+      "title": "Offboard",
+      "description": "Kết thúc quyền truy cập vĩnh viễn: thu hồi session, rời mọi group, expire mọi node và pre-auth key, vô hiệu tài khoản ở IdP do nền tảng host.",
+      "open": "Offboard…",
+      "confirmTitle": "Offboard {{name}}?",
+      "confirmDesc": "Thao tác hai pha:",
+      "effects": {
+        "sessions": "Ngay lập tức: membership chuyển offboarded, mọi session Portal bị thu hồi, danh tính bị vô hiệu.",
+        "groups": "Ngay lập tức: rời mọi group (policy được áp lại).",
+        "nodes": "Job member.offboard: expire mọi node và pre-auth key của người này rồi đọc lại để xác minh.",
+        "idp": "Job member.offboard: vô hiệu tài khoản ở IdP do nền tảng host (IdP của tenant: không áp dụng)."
+      },
+      "final": "Offboard là trạng thái cuối — không kích hoạt lại được ở đây.",
+      "typeLabel": "Gõ lại email (hoặc tên) của thành viên để xác nhận",
+      "submit": "Offboard",
+      "retryTitle": "Offboard chưa xong",
+      "retryDescription": "Job offboard kết thúc lỗi: node hoặc pre-auth key có thể vẫn còn hiệu lực. Chạy lại tạo một job mới.",
+      "retry": "Offboard lại…",
+      "job": "Job",
+      "state": {
+        "pending": "Đang offboard",
+        "applied": "Offboard đã áp dụng",
+        "failed": "Offboard lỗi"
+      },
+      "explain": {
+        "pending": "Đang thực hiện pha 2 — node và pre-auth key CHƯA chắc đã hết hạn cho tới khi job xác minh xong.",
+        "applied": "Đã áp dụng và xác minh: node, pre-auth key đã hết hạn; tài khoản IdP do nền tảng host đã bị vô hiệu.",
+        "failed": "Job kết thúc lỗi — node hoặc key có thể còn hiệu lực. Offboard lại để tạo job mới."
+      }
+    },
+    "invite": {
+      "open": "Mời thành viên",
+      "title": "Mời thành viên",
+      "description": "Người được mời đăng nhập lần đầu qua IdP của tenant với đúng email này (đã xác minh) và nhận role đã chọn.",
+      "email": "Email",
+      "emailInvalid": "Email không hợp lệ.",
+      "roleHint": "Chỉ hiện role bạn được mời (thấp hơn role của bạn — quy tắc 3a).",
+      "hours": "Hạn lời mời (giờ, 1–720)",
+      "hoursInvalid": "Hạn phải là số nguyên từ 1 đến 720.",
+      "summary": "Mời",
+      "submit": "Gửi lời mời",
+      "noRoles": "Role của bạn không mời được ai."
+    },
+    "invitations": {
+      "intro": "Lời mời người chưa từng đăng nhập. Với IdP do nền tảng host, job member.idp_invite tạo (hoặc tìm) tài khoản và gửi thư thiết lập.",
+      "watching": "Đã gửi lời mời — trạng thái IdP (job member.idp_invite) tự cập nhật trong bảng.",
+      "empty": "Không có lời mời.",
+      "expires": "Hết hạn",
+      "invitedBy": "Người mời",
+      "idp": "IdP",
+      "noJob": "chưa có job",
+      "resend": "Gửi lại",
+      "revoke": "Thu hồi",
+      "resendTitle": "Gửi lại lời mời cho {{email}}?",
+      "resendDesc": "Lời mời nhận link và hạn mới (7 ngày); link cũ mất hiệu lực.",
+      "revokeTitle": "Thu hồi lời mời của {{email}}?",
+      "revokeDesc": "Link trong thư mời không còn dùng được."
+    },
+    "groups": {
+      "intro": "Group được biên dịch vào policy thành group:<tên>. Đổi thành viên áp lại policy (job policy.apply).",
+      "create": "Tạo group",
+      "createTitle": "Tạo group",
+      "createSubmit": "Tạo",
+      "search": "Tìm theo tên group",
+      "empty": "Chưa có group.",
+      "emptyFiltered": "Không có group khớp.",
+      "name": "Tên",
+      "nameHint": "Chữ thường, số, gạch nối; bắt đầu bằng chữ; tối đa 50 ký tự.",
+      "description": "Mô tả",
+      "members": "Thành viên",
+      "source": "Nguồn",
+      "sources": {
+        "portal": "Portal",
+        "idp": "IdP"
+      },
+      "updated": "Cập nhật",
+      "sensitive": "Sensitive",
+      "sensitiveLabel": "Nhạy cảm",
+      "notSensitive": "Không",
+      "sensitiveExplain": "Group nhạy cảm: đổi thành viên cần một Owner/Admin khác duyệt (cờ đặt ở thiết lập bảo mật của Tenant Owner).",
+      "back": "← Danh sách group",
+      "info": "Thông tin",
+      "policyName": "(policy: group:{{name}})",
+      "membersTitle": "Thành viên",
+      "noMembers": "Group chưa có thành viên.",
+      "editMembers": "Sửa thành viên",
+      "sensitiveEditNote": "Group nhạy cảm: lưu sẽ KHÔNG đổi ngay mà tạo yêu cầu phê duyệt (cần đăng nhập lại gần đây); người thứ hai duyệt thì tập này mới được áp dụng.",
+      "draftTitle_other": "Thành viên sau khi lưu ({{count}})",
+      "draftEmpty": "Không còn thành viên nào.",
+      "draftList": "Thành viên sau khi lưu",
+      "remove": "Bỏ",
+      "removeMember": "Bỏ {{name}}",
+      "findMembers": "Tìm thành viên để thêm",
+      "findForm": "Tìm thành viên",
+      "onlyActive": "Chỉ thành viên đang hoạt động thêm được vào group.",
+      "candidates": "Kết quả tìm",
+      "noCandidates": "Không có thành viên hoạt động khớp.",
+      "add": "Thêm",
+      "added": "Đã thêm",
+      "addMember": "Thêm {{name}}",
+      "tooMany": "Tối đa {{max}} thành viên trong một lần lưu.",
+      "staleReloaded": "Group vừa bị người khác đổi — đã tải lại bản mới; kiểm tra rồi lưu lại.",
+      "saveMembers": "Lưu thành viên",
+      "requestApproval": "Gửi yêu cầu phê duyệt",
+      "editTitle": "Sửa group",
+      "renameNote": "Đổi tên đổi group:<tên> trong policy — policy được áp lại.",
+      "save": "Lưu",
+      "saved": "Đã lưu.",
+      "deleteTitle": "Xóa group",
+      "deleteDesc": "Group còn được network resource dùng làm owner thì không xóa được.",
+      "deleteSensitive": "Group nhạy cảm còn thành viên không xóa được — bỏ thành viên qua phê duyệt trước.",
+      "delete": "Xóa group",
+      "deleteConfirmTitle": "Xóa group {{name}}?",
+      "deleteConfirmDesc_other": "{{count}} thành viên rời group; policy được áp lại.",
+      "typeName": "Gõ lại tên group để xác nhận"
+    },
+    "approval": {
+      "pendingTitle": "Yêu cầu đổi thành viên đang chờ duyệt",
+      "requestedBy": "yêu cầu bởi {{name}}",
+      "memberCount_other": "{{count}} thành viên",
+      "expires": "Hết hạn",
+      "id": "Mã yêu cầu",
+      "payload": "Tập thành viên đề xuất",
+      "requester": "Người yêu cầu",
+      "queue": "Mở hàng chờ phê duyệt của tenant",
+      "explain": {
+        "pending": "Đã tạo yêu cầu phê duyệt — thành viên CHƯA đổi. Một Owner/Admin khác cần duyệt.",
+        "approved": "Đã duyệt, đang thực thi.",
+        "executed": "Đã duyệt và áp dụng đúng tập thành viên đã đề xuất.",
+        "rejected": "Yêu cầu bị từ chối — thành viên không đổi.",
+        "expired": "Yêu cầu hết hạn — thành viên không đổi."
+      }
+    }
+  },
+  "policies": {
+    "intro": "Policy được soạn trên mô hình có kiểu (thành viên, group, tag, tài nguyên chọn theo id), kiểm bằng lint L1–L13 và CheckPolicy trên instance, duyệt rồi mới áp dụng. Groups, hosts và tagOwners được render từ bảng của tenant lúc áp dụng.",
+    "newVersion": "Soạn version mới",
+    "history": "Lịch sử version",
+    "noVersions": "Tenant chưa có version policy nào.",
+    "versionN": "Version {{n}}",
+    "desiredBadge": "Đang mong muốn",
+    "rollbackBadge": "Rollback",
+    "backToList": "← Danh sách version",
+    "col": {
+      "version": "Version",
+      "state": "Trạng thái",
+      "kind": "Loại",
+      "createdBy": "Người soạn",
+      "review": "Gửi / duyệt",
+      "updated": "Cập nhật",
+      "submitted": "Gửi: {{name}}",
+      "approved": "Duyệt: {{name}}",
+      "rejected": "Từ chối: {{name}}"
+    },
+    "states": {
+      "draft": "Bản nháp",
+      "validated": "Đã kiểm tra",
+      "pending_approval": "Chờ duyệt",
+      "approved": "Đã duyệt",
+      "rejected": "Bị từ chối",
+      "superseded": "Đã thay thế"
+    },
+    "kinds": {
+      "user": "Do admin soạn",
+      "baseline": "Nền tảng (baseline)",
+      "suspension": "Nền tảng (tạm ngưng)"
+    },
+    "reviewModes": {
+      "peer": "người khác duyệt",
+      "self": "tự xác nhận"
+    },
+    "ptype": {
+      "user": "thành viên",
+      "group": "group",
+      "tag": "tag",
+      "resource": "tài nguyên",
+      "autogroup": "autogroup",
+      "cidr": "địa chỉ"
+    },
+    "severity": {
+      "error": "Lỗi",
+      "warning": "Cảnh báo",
+      "info": "Thông tin"
+    },
+    "editor": {
+      "noPrincipal": "Chưa có principal nào.",
+      "removePrincipal": "Gỡ {{name}} khỏi {{list}}",
+      "principalType": "Kiểu principal — {{list}}",
+      "principalValue": "Giá trị — {{list}}",
+      "cidrHint": "* hoặc địa chỉ IP / prefix (ví dụ 10.0.0.0/24).",
+      "noResources": "Danh mục tài nguyên mạng chưa có API đọc (P4-T12): chỉ tài nguyên đã được tham chiếu mới chọn được; dùng chế độ HuJSON với tên alias.",
+      "noChoices": "Không có mục nào để chọn.",
+      "choose": "— chọn —",
+      "addTo": "Thêm vào {{list}}",
+      "add": "Thêm",
+      "grants": "Luật truy cập (grants)",
+      "addGrant": "Thêm luật",
+      "denyAll": "Không có luật nào: policy này chặn mọi kết nối (deny-all).",
+      "ssh": "Luật SSH",
+      "addSsh": "Thêm luật SSH",
+      "sshHint": "Mặc định không có. accept luôn cho phép port forwarding và không ghi phiên (L10 — cần xác nhận); check bị chặn.",
+      "grantN": "Luật {{n}}",
+      "removeGrant": "Gỡ luật {{n}}",
+      "remove": "Gỡ",
+      "srcN": "Nguồn (src) của luật {{n}}",
+      "dstN": "Đích (dst) của luật {{n}}",
+      "ipN": "Giao thức/cổng (ip) của luật {{n}}",
+      "ipHint": "Cách nhau bởi dấu phẩy, ví dụ tcp:443, udp:53, * (mọi cổng).",
+      "viaN": "Qua (via — chỉ tag) của luật {{n}}",
+      "app": "Capability ứng dụng (app)",
+      "appHint": "Chỉ hiển thị ở biểu mẫu — sửa trong chế độ HuJSON.",
+      "sshN": "Luật SSH {{n}}",
+      "removeSsh": "Gỡ luật SSH {{n}}",
+      "sshAction": "Hành động",
+      "sshActions": {
+        "accept": "accept (cần xác nhận L10)",
+        "check": "check (bị chặn — sau MVP)"
+      },
+      "sshSrcN": "Nguồn của luật SSH {{n}}",
+      "sshDstN": "Đích của luật SSH {{n}}",
+      "sshUsersN": "Tài khoản đăng nhập của luật SSH {{n}}",
+      "sshUsersHint": "Ví dụ root, autogroup:nonroot, ubuntu.",
+      "autoApprovers": "Tự duyệt route (autoApprovers)",
+      "autoApproversHint": "Mặc định không có. Chỉ tag router/exit của nền tảng không cần xác nhận (L7); autoApprovers chạy lại ở mọi lần áp dụng.",
+      "routeApprovers": "Người tự duyệt route {{prefix}}",
+      "removeRoute": "Gỡ route {{prefix}}",
+      "routePrefix": "Route (prefix)",
+      "addRoute": "Thêm route",
+      "exitApprovers": "Người tự duyệt exit node"
+    },
+    "ack": {
+      "title": "Xác nhận luật",
+      "hint": "Luật cần xác nhận chỉ qua kiểm tra khi có xác nhận kèm lý do (≥ 5 ký tự). Xác nhận không nằm trong văn bản HuJSON.",
+      "rule": "Xác nhận {{rule}}",
+      "desc": {
+        "L4": "* hoặc route mặc định làm đích (gồm subnet route và exit node).",
+        "L7": "autogroup:internet không kèm via, hoặc autoApprovers ngoài tag nền tảng.",
+        "L10": "luật SSH accept (port forwarding luôn bật).",
+        "L12": "tagOwners có owner (nền tảng luôn render owner rỗng).",
+        "L13": "autogroup:member khi tenant dùng danh tính headscale_oidc."
+      },
+      "ownerOnly": "chỉ Tenant Owner duyệt",
+      "needed": "báo cáo yêu cầu",
+      "reason": "Lý do xác nhận {{rule}}",
+      "reasonHint": "5–500 ký tự; được ghi vào nội dung version và người duyệt thấy."
+    },
+    "report": {
+      "findings": "Phát hiện",
+      "line": "dòng {{line}}",
+      "acknowledged": "đã xác nhận",
+      "needsAck": "cần xác nhận",
+      "title": "Kết quả kiểm tra",
+      "none": "Version này chưa được kiểm tra.",
+      "result": "Kết quả",
+      "results": {
+        "passed": "Đạt",
+        "failed": "Không đạt"
+      },
+      "check": "CheckPolicy trên instance",
+      "checks": {
+        "passed": "Headscale chấp nhận",
+        "failed": "Headscale từ chối",
+        "skipped": "Bỏ qua (lint chặn)"
+      },
+      "rendered": "sha256 của bản đã render",
+      "at": "Kiểm lúc",
+      "stale": "Báo cáo của một revision cũ — kiểm tra lại.",
+      "errors": "Lỗi",
+      "warnings": "Cảnh báo",
+      "info": "Thông tin",
+      "clean": "Không có phát hiện nào.",
+      "testsNote": "tests/sshTests chưa được sinh (PL-04); kiểm tác động dựa vào CheckPolicy và diff — không phải mô phỏng quyền hiệu lực."
+    },
+    "finding": {
+      "wildcard_destination": "* hoặc route mặc định làm đích — bị chặn trừ khi Tenant Owner xác nhận kèm lý do (L4).",
+      "danger_all_source": "autogroup:danger-all làm nguồn — luôn bị chặn (L5).",
+      "undeclared_group": "Group được tham chiếu không tồn tại trong tenant (L6).",
+      "undeclared_tag": "Tag không có trong danh mục tag của tenant (L6).",
+      "undeclared_user": "Thành viên không tồn tại, đã offboard, hoặc e-mail không thuộc thành viên nào (L6).",
+      "undeclared_resource": "Không có tài nguyên mạng nào mang tên (alias) này (L6).",
+      "unresolved_reference": "Tham chiếu không còn tồn tại trong tenant — sửa trước khi lưu.",
+      "ambiguous_user": "Nhiều thành viên có e-mail này — viết thành viên dạng mg-<membership>@.",
+      "ambiguous_resource": "Nhiều tài nguyên mạng có tên này.",
+      "internet_without_via": "autogroup:internet không kèm via tag (exit node) — cần xác nhận L7.",
+      "auto_approver_not_platform": "autoApprovers ngoài tag router/exit của nền tảng — cần xác nhận L7.",
+      "ssh_check": "SSH check bị chặn (V-26 — sau MVP).",
+      "ssh_accept": "SSH accept luôn cho phép port forwarding và không ghi phiên — cần xác nhận L10.",
+      "self_large_tenant": "autogroup:self ở tenant lớn tốn chi phí ở mọi thay đổi (L8).",
+      "member_oidc": "autogroup:member ở chế độ headscale_oidc gồm mọi user của IdP — cần xác nhận L13.",
+      "tag_owners": "tagOwners có owner (L12).",
+      "user_token": "Token user của đầu ra không đúng dạng mg-<membership>@ (L11).",
+      "acls_legacy": "Có phần acls (legacy — L9).",
+      "check_rejected": "Headscale từ chối chuỗi đã render (CheckPolicy).",
+      "missing_grants": "Thiếu khóa grants — Headscale sẽ cho phép mọi kết nối (L1). Dùng \"grants\": [] cho deny-all.",
+      "null_grants": "\"grants\": null nghĩa là cho phép tất cả (L1) — dùng mảng tường minh.",
+      "grants_not_array": "grants phải là mảng (L1).",
+      "empty": "Văn bản policy rỗng — Headscale sẽ lưu và cho phép mọi kết nối ở lần khởi động sau (L2). Không gửi.",
+      "managed_key": "Khóa này được render từ bảng của tenant (groups, tài nguyên, danh mục tag) — gỡ khỏi văn bản và quản lý ở trang tương ứng (L3).",
+      "acls_unsupported": "acls là định dạng cũ — viết luật bằng grants (L3).",
+      "node_attrs": "nodeAttrs bị từ chối ở MVP (L3, HS-22).",
+      "tests_generated": "tests/sshTests được sinh lúc áp dụng, không viết tay (L3).",
+      "unsupported_key": "Khóa này không thuộc policy của tenant (L3).",
+      "unknown_key": "Khóa không hợp lệ ở vị trí này (L3).",
+      "misspelled_key": "Tên khóa sai hoa/thường — Headscale so khớp không phân biệt hoa thường nên khóa này bị từ chối.",
+      "comment_key": "Khóa bắt đầu bằng # bị Headscale lặng lẽ bỏ qua — bị từ chối.",
+      "duplicate_key": "Khóa lặp lại (so sánh không phân biệt hoa thường).",
+      "null_value": "null không được phép ở đây (có thể che giấu luật).",
+      "invalid_hujson": "Không phải HuJSON hợp lệ.",
+      "invalid_json": "Không phải HuJSON hợp lệ.",
+      "not_an_object": "Cần một object.",
+      "not_an_array": "Cần một mảng.",
+      "not_a_string": "Cần một chuỗi.",
+      "unknown_autogroup": "Autogroup không tồn tại.",
+      "invalid_cidr": "Prefix còn bit host.",
+      "invalid_prefix": "Route phải là prefix IP chuẩn.",
+      "empty_principal": "Principal rỗng."
+    },
+    "hujson": {
+      "label": "Văn bản HuJSON",
+      "hint": "Chú thích và dấu phẩy cuối được phép. Thành viên viết bằng e-mail hoặc mg-<membership>@; group:, tag: theo tên; tài nguyên theo alias. Thay đổi chỉ có hiệu lực sau khi bấm \"Dịch sang biểu mẫu\" và lưu.",
+      "readOnlyHint": "Chỉ xem — version này không sửa được.",
+      "exportWarnings": "Cảnh báo khi xuất",
+      "import": "Dịch sang biểu mẫu",
+      "failed_other": "Không dịch được: {{count}} lỗi. Nội dung của biểu mẫu không đổi.",
+      "errors": "Lỗi của văn bản HuJSON",
+      "imported": "Đã dịch sang biểu mẫu — xem lại rồi lưu."
+    },
+    "diff": {
+      "title": "Diff",
+      "against": "So với",
+      "desired": "Version mong muốn hiện tại",
+      "blocking": "Báo cáo kiểm tra của version này đang có lỗi chặn.",
+      "grantsAdded_other": "Grants thêm ({{count}})",
+      "grantsRemoved_other": "Grants bớt ({{count}})",
+      "omitted": "Tài liệu quá lớn: bỏ diff dòng (diff grants vẫn có).",
+      "lines": "Diff dòng của chuỗi đã render",
+      "note": "Cả hai bên render với bảng hiện tại ({{from}} → {{to}}).",
+      "empty": "rỗng"
+    },
+    "applied": {
+      "states": {
+        "pending": "Đang áp dụng",
+        "applied": "Đã áp dụng",
+        "failed": "Áp dụng lỗi",
+        "unknown": "Chưa rõ kết quả"
+      },
+      "triggers": {
+        "bootstrap": "khởi tạo",
+        "manual": "áp dụng thủ công",
+        "group_change": "đổi thành viên group",
+        "resource_change": "đổi tài nguyên",
+        "tag_change": "đổi danh mục tag",
+        "suspend": "tạm ngưng",
+        "resume": "khôi phục",
+        "restore": "khôi phục từ backup",
+        "drift_repair": "sửa drift",
+        "rollback": "rollback"
+      },
+      "version": "Xem version",
+      "at": "Đã áp dụng lên Headscale lúc",
+      "sha": "sha256 đã gửi và đọc lại khớp:",
+      "error": "Mã lỗi:"
+    },
+    "current": {
+      "title": "Trạng thái hiện hành",
+      "desired": "Version mong muốn",
+      "noDesired": "Chưa có",
+      "applied": "Đang áp dụng trên Headscale",
+      "notApplied": "Chưa có lần áp dụng nào",
+      "latest": "Lần áp dụng gần nhất",
+      "converged": "Client đã hội tụ",
+      "convergedUnknown": "Không quan sát được từ Headscale — mỗi client nhận policy mới ở lần cập nhật kế tiếp (T-18).",
+      "review": "Duyệt",
+      "fourEyesOn": "4-eyes: bật",
+      "fourEyesOff": "4-eyes: tắt (tự xác nhận)",
+      "stepUp": "Áp dụng/rollback cần đăng nhập lại trong 15 phút"
+    },
+    "job": {
+      "title": "Job policy.apply",
+      "final": "trạng thái cuối",
+      "polling": "đang tự cập nhật",
+      "steps": "Các bước của job",
+      "succeeded": "Đã áp dụng: Headscale giữ đúng chuỗi đã gửi (đọc lại khớp sha256)."
+    },
+    "stale": {
+      "title": "Version đã thay đổi ở nơi khác (412)",
+      "body": "Bản bạn đang xem đã cũ (revision khác). Tải lại bản mới nhất rồi thao tác lại — thay đổi chưa lưu sẽ bị bỏ.",
+      "reload": "Tải lại bản mới nhất"
+    },
+    "meta": {
+      "title": "Thông tin version",
+      "revision": "Revision (If-Match)",
+      "content": "content_sha256",
+      "createdBy": "Người soạn",
+      "submittedBy": "Người gửi duyệt",
+      "approvedBy": "Người duyệt",
+      "rejectedBy": "Người từ chối",
+      "parent": "Dựa trên",
+      "staleBase": "base đã cũ",
+      "rollbackOf": "Rollback từ"
+    },
+    "actions": {
+      "title": "Vòng đời",
+      "saveFirst": "Có thay đổi chưa lưu — lưu trước khi kiểm tra hoặc duyệt.",
+      "fourEyesSelf": "4-eyes đang bật: bạn là người soạn hoặc người gửi nên không duyệt được — cần một Owner/Admin khác duyệt.",
+      "ownerOnly": "Version có xác nhận chỉ Tenant Owner được chấp nhận (L4/L12) — cần Tenant Owner duyệt.",
+      "validate": "Kiểm tra",
+      "submit": "Gửi duyệt",
+      "approve": "Duyệt",
+      "selfApprove": "Xác nhận và duyệt",
+      "reject": "Từ chối",
+      "reapply": "Áp dụng lại",
+      "apply": "Áp dụng",
+      "rollback": "Rollback về nội dung này",
+      "newDraft": "Tạo bản nháp mới từ nội dung này"
+    },
+    "staleBase": {
+      "title": "Base đã cũ (409 stale_base)",
+      "body": "Version này được soạn trên một version mong muốn cũ; version mong muốn đã đổi từ đó. Tạo bản nháp mới từ nội dung này (dựa trên version mong muốn hiện tại), kiểm tra và duyệt lại."
+    },
+    "content": {
+      "title": "Nội dung",
+      "mode": "Chế độ soạn",
+      "form": "Biểu mẫu",
+      "hujson": "HuJSON",
+      "platformText": "Version của nền tảng (văn bản HuJSON, không có mô hình có kiểu) — chỉ xem.",
+      "save": "Lưu bản nháp",
+      "discard": "Bỏ thay đổi",
+      "unsaved": "Chưa lưu",
+      "localProblems_other": "{{count}} vấn đề cần sửa trước khi lưu",
+      "backToDraft": "Lưu sẽ đưa version về bản nháp và xóa phê duyệt cùng kết quả kiểm tra."
+    },
+    "approve": {
+      "title": "Duyệt version {{n}}?",
+      "peer": "Bạn duyệt với tư cách người thứ hai (4-eyes). Duyệt gắn với đúng nội dung bạn đã xem.",
+      "self": "Tenant không bật 4-eyes: bạn tự xác nhận diff và kết quả kiểm tra của bản đã render (review_mode = self).",
+      "sha": "Nội dung được duyệt (content_sha256):",
+      "reviewed": "Tôi đã xem diff và kết quả kiểm tra của version này."
+    },
+    "reject": {
+      "title": "Từ chối version {{n}}?",
+      "description": "Version sẽ ở trạng thái bị từ chối; người soạn có thể tạo bản nháp mới.",
+      "reason": "Lý do từ chối"
+    },
+    "rollback": {
+      "title": "Rollback về nội dung của version {{n}}?",
+      "description": "Tạo version mới với nội dung này (phê duyệt được kế thừa vì nội dung đã từng được duyệt), đặt làm mong muốn và áp dụng ngay (job policy.apply)."
+    },
+    "apply": {
+      "title": "Áp dụng version {{n}}?",
+      "description": "Version thành mong muốn và job policy.apply render với bảng hiện tại → lint → CheckPolicy → SetPolicy → đọc lại sha256.",
+      "stepUp": "Thao tác cần đăng nhập lại trong 15 phút (step-up) — nếu được yêu cầu, xác thực lại rồi thử lại.",
+      "converged": "\"Đã áp dụng lên Headscale\" không có nghĩa mọi client đã nhận policy mới."
+    },
+    "local": {
+      "principalsRequired": "cần ít nhất một principal.",
+      "badCidr": "không phải địa chỉ/prefix hợp lệ.",
+      "grantsRequired": "grants phải là danh sách.",
+      "ipRequired": "cần ít nhất một giao thức/cổng (ip).",
+      "badIp": "giao thức/cổng không hợp lệ.",
+      "usersRequired": "cần ít nhất một tài khoản.",
+      "badSshUser": "tài khoản SSH không hợp lệ.",
+      "ackReason": "lý do cần 5–500 ký tự."
+    }
+  },
+  "tags": {
+    "intro": "Danh mục tag của tenant: chỉ tag có ở đây mới được gắn cho thiết bị, khóa enrollment hay dùng trong policy. Mọi tag được render vào tagOwners với owner rỗng — chỉ nền tảng gắn tag. Mỗi thay đổi danh mục áp lại policy.",
+    "catalog": "Danh mục",
+    "empty": "Chưa có tag nào.",
+    "col": {
+      "name": "Tên tag",
+      "purpose": "Mục đích",
+      "description": "Mô tả",
+      "updated": "Cập nhật",
+      "actions": "Thao tác"
+    },
+    "purposes": {
+      "router": "router (nền tảng)",
+      "exit": "exit (nền tảng)",
+      "server": "server",
+      "custom": "tùy chỉnh"
+    },
+    "platformManaged": "nền tảng quản lý",
+    "readOnly": "chỉ đọc",
+    "edit": "Sửa mô tả",
+    "editOf": "Sửa mô tả của {{name}}",
+    "delete": "Xóa",
+    "deleteOf": "Xóa {{name}}",
+    "deleteTitle": "Xóa tag {{name}}?",
+    "deleteDescription": "Tag còn được thiết bị, khóa enrollment, tài nguyên mạng hoặc policy tham chiếu thì không xóa được (409, kèm số lượng).",
+    "inUse": "Tag còn được tham chiếu — gỡ tham chiếu (thiết bị, khóa, tài nguyên, version policy) rồi xóa lại.",
+    "create": "Khai báo tag",
+    "nameHint": "Dạng tag:<chữ thường, số, gạch nối>, tối đa 54 ký tự; không đổi được về sau.",
+    "createAction": "Khai báo",
+    "created": "Đã khai báo {{name}}.",
+    "editTitle": "Mô tả của {{name}}",
+    "stale": "Tag đã được sửa ở nơi khác — đóng hộp và mở lại để sửa bản mới.",
+    "save": "Lưu"
   }
 }

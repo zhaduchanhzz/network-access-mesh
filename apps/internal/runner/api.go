@@ -191,6 +191,7 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 	jobsH := jobsapi.New(jobs.NewService(d.st))
 	relayH := relayapi.New(relays)
 	inbox := notificationsapi.New(notifications.NewReader(d.st)) // P3-T05b list + P4-T04 read state
+	policiesH := policiesapi.New(versions)                       // P4-T10 lifecycle + P4-T11 HuJSON translator
 	public, err := httpapi.New(httpapi.Options{
 		Logger:         log,
 		TrustedProxies: cfg.TrustedProxies,
@@ -202,7 +203,8 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 			Tenants:       tenantsH,
 			Devices:       devicesapi.New(dev),
 			Tags:          tagsapi.New(tags, devicesapi.New(dev)),
-			Policies:      policiesapi.New(versions),
+			Policies:      policiesH,
+			PolicyHuJSON:  policiesH, // P4-T11
 			Audit:         auditapi.New(audit.NewReader(d.st)),
 			Jobs:          jobsH,
 			Monitoring:    monitoringapi.New(mon),
@@ -220,6 +222,7 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 			Deprovision:   deprovisionapi.New(deprov, appr),
 			Quarantine:    quarantineapi.New(quarantine.NewRequester(d.st), appr),
 			TenantView:    httpapi.PlatformTenantView{Jobs: jobsH, Instances: tenantsH, Relay: relayH}, // P4-T02
+			InstanceView:  tenantsH,                                                                    // P4-T03
 			Members:       membersapi.New(mem, appr),
 			Portal:        inbox,                               // P4-T04: POST …/notifications/{id}/read
 			Admin:         adminapi.New(plat, d.tenants, appr), // P4-T03a
