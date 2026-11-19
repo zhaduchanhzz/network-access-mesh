@@ -34,12 +34,26 @@ export const ENROLLMENT_STATUSES: readonly EnrollmentStatus[] = [
 const FINAL: ReadonlySet<EnrollmentStatus> = new Set<EnrollmentStatus>(["rejected", "verified", "consumed", "expired", "revoked", "failed"]);
 /** Yêu cầu còn chờ thiết bị (mã/key đã phát) hoặc đang đăng ký — màn hình poll tới khi kết thúc. */
 const WAITING: ReadonlySet<EnrollmentStatus> = new Set<EnrollmentStatus>(["issued", "claimed", "registered"]);
-/** Thu hồi được (server: yêu cầu chưa kết thúc và không ở giữa một lần claim — 409 claim_in_progress). */
+/** Thu hồi được theo trạng thái (server: yêu cầu chưa kết thúc và không ở giữa một lần claim — 409 claim_in_progress). */
 const REVOCABLE: ReadonlySet<EnrollmentStatus> = new Set<EnrollmentStatus>(["requested", "pending_approval", "approved", "issued"]);
 
 export const isFinal = (s: EnrollmentStatus) => FINAL.has(s);
 export const isWaiting = (s: EnrollmentStatus) => WAITING.has(s);
-export const isRevocable = (s: EnrollmentStatus) => REVOCABLE.has(s);
+
+/**
+ * Thu hồi được: yêu cầu chưa kết thúc, hoặc key reusable đã dùng (`consumed`) nhưng còn hạn — Headscale vẫn nhận key đó cho
+ * node khác tới khi hết hạn (server `liveKey`: `consumed && reusable && credential_expires_at > now` ⇒ revoke expire key).
+ */
+export function isRevocable(r: Pick<EnrollmentRequest, "status" | "method" | "reusable" | "credential_expires_at">, now: number): boolean {
+  if (REVOCABLE.has(r.status)) return true;
+  return (
+    r.status === "consumed" &&
+    r.method === "preauth_key" &&
+    r.reusable &&
+    typeof r.credential_expires_at === "string" &&
+    Date.parse(r.credential_expires_at) > now
+  );
+}
 
 /** Auth ID của Headscale (ID-05) — cùng mẫu với schema `EnrollmentClaim` và regex của edge v10 (P4-T07). */
 export const AUTH_ID_RE = /^hskey-authreq-[A-Za-z0-9_-]{24}$/;

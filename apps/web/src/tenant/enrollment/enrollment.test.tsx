@@ -28,7 +28,7 @@ import {
   T0,
   webIssue,
 } from "../../test/enrollment";
-import { extractAuthId, guessOS, problemReason } from "./model";
+import { extractAuthId, guessOS, isRevocable, problemReason } from "./model";
 import { ApiError } from "../../api/problem";
 
 const base = `/tenants/${TENANT_A}`;
@@ -92,6 +92,18 @@ describe("model", () => {
     expect(problemReason(e)).toBe("no_pending_request");
     expect(problemReason(e, "validation_failed")).toBeNull();
     expect(problemReason(new Error("x"))).toBeNull();
+  });
+
+  it("thu hồi được: yêu cầu chưa kết thúc, hoặc key reusable đã dùng (consumed) còn hạn — như liveKey của server", () => {
+    const now = Date.now();
+    const past = new Date(now - 1_000).toISOString();
+    for (const status of ["requested", "pending_approval", "approved", "issued"] as const) expect(isRevocable(request(REQ_1, { status }), now)).toBe(true);
+    for (const status of ["claimed", "registered", "verified", "rejected", "expired", "revoked", "failed"] as const) expect(isRevocable(request(REQ_1, { status }), now)).toBe(false);
+    const used = request(REQ_2, { method: "preauth_key", status: "consumed", reusable: true });
+    expect(isRevocable(used, now)).toBe(true);
+    expect(isRevocable({ ...used, credential_expires_at: past }, now)).toBe(false);
+    expect(isRevocable({ ...used, credential_expires_at: null }, now)).toBe(false);
+    expect(isRevocable({ ...used, reusable: false }, now)).toBe(false);
   });
 });
 
@@ -392,6 +404,35 @@ describe("Enrollment key + hàng chờ duyệt", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: "Từ chối" }));
     expect(await within(dialog).findByText("Bạn không có quyền thực hiện thao tác này.")).toBeInTheDocument();
     expect(posts(requests, `/enrollment/requests/${REQ_1}/reject`)).toHaveLength(2);
+  });
+
+  it("key reusable đã dùng (consumed) còn hạn ⇒ vẫn có nút Thu hồi ⇒ POST revoke; hết hạn hoặc không reusable ⇒ không có nút", async () => {
+    const past = new Date(Date.now() - 60_000).toISOString();
+    const live = request(REQ_2, { method: "preauth_key", status: "consumed", device_label: "ci-runner", tags: ["tag:ci"], reusable: true, target_membership_id: null });
+    const old = request(REQ_1, { method: "preauth_key", status: "consumed", device_label: "old-runner", reusable: true, credential_expires_at: past, target_membership_id: null });
+    const once = request(REQ_3, { method: "preauth_key", status: "consumed", device_label: "one-shot" });
+    let revoked = false;
+    const { requests } = mockApi(
+      apiFor("tenant_admin", {
+        [`GET ${base}/users`]: users,
+        [`GET ${base}/enrollment/requests`]: (r) => listFor([revoked ? { ...live, status: "revoked" as const } : live, old, once])(r),
+        [`POST ${base}/enrollment/requests/${REQ_2}/revoke`]: () => {
+          revoked = true;
+          return json(200, { ...live, status: "revoked" });
+        },
+      }),
+    );
+    renderApp({ path: `/t/${TENANT_A}/enrollment-keys` });
+    const all = await screen.findByTestId("all-requests");
+    const rows = within(all).getAllByTestId("enroll-row");
+    expect(rows).toHaveLength(3);
+    expect(within(rows[1]!).queryByRole("button", { name: /Thu hồi/ })).toBeNull();
+    expect(within(rows[2]!).queryByRole("button", { name: /Thu hồi/ })).toBeNull();
+    await userEvent.click(within(rows[0]!).getByRole("button", { name: "Thu hồi yêu cầu ci-runner" }));
+    await userEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Thu hồi" }));
+    expect(await screen.findByTestId("enroll-done")).toHaveTextContent("control plane xác nhận");
+    expect(posts(requests, `/enrollment/requests/${REQ_2}/revoke`)).toHaveLength(1);
+    await waitFor(() => expect(within(screen.getByTestId("all-requests")).getAllByTestId("enroll-row")[0]).toHaveAttribute("data-status", "revoked"));
   });
 
   it("thu hồi hai pha: 503 ⇒ 'chưa thu hồi', yêu cầu giữ nguyên; thử lại 200 ⇒ đã thu hồi (đã xác minh)", async () => {

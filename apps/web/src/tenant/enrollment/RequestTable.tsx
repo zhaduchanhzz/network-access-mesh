@@ -1,6 +1,6 @@
 // Bảng yêu cầu enrollment + thao tác (P4-T08): duyệt / từ chối (người quyết khác người yêu cầu — nút ẩn cho chính người
 // yêu cầu, server vẫn trả 403 self_approval), `/start` cho chính người yêu cầu sau khi được duyệt (phát mã/lệnh hoặc key
-// một lần), thu hồi hai pha (POST /revoke expire key ở Headscale + đọc lại rồi mới trả `revoked`: trong lúc chờ hiện
+// một lần), thu hồi hai pha — cả key reusable đã dùng còn hạn (POST /revoke expire key ở Headscale + đọc lại rồi mới trả `revoked`: trong lúc chờ hiện
 // "đang thu hồi"; 502/503 ⇒ yêu cầu giữ nguyên, nói rõ chưa thu hồi). Nút chỉ là UX — server quyết định quyền, own-scope
 // của End User, trạng thái tenant (suspended ⇒ 403 tenant_suspended).
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -12,7 +12,7 @@ import { can } from "../../auth/permissions";
 import { ProblemAlert } from "../../components/ProblemAlert";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
 import { StatusBadge, useCodeText } from "../../ui/Status";
-import { Timestamp } from "../../ui/time";
+import { Timestamp, useNow } from "../../ui/time";
 import { TagList } from "../devices/DeviceBits";
 import { invalidateEnrollment } from "./api";
 import { isRevocable, problemReason, type EnrollmentIssue, type EnrollmentRequest } from "./model";
@@ -40,6 +40,7 @@ export function RequestTable(props: RequestTableProps) {
   const queryClient = useQueryClient();
   const codeText = useCodeText();
   const { tenantId, role, membershipId, readOnly, items, names, wide = false } = props;
+  const now = useNow();
   const [action, setAction] = useState<{ kind: ActionKind; id: string } | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const [startError, setStartError] = useState<{ id: string; error: unknown } | null>(null);
@@ -127,7 +128,7 @@ export function RequestTable(props: RequestTableProps) {
               const mine = r.requested_by_membership_id === membershipId;
               const showDecide = canApprove && r.status === "pending_approval";
               const showStart = canRequest && mine && r.status === "approved";
-              const showRevoke = canRevoke && isRevocable(r.status);
+              const showRevoke = canRevoke && isRevocable(r, now);
               const label = labelOf(r);
               return (
                 <tr key={r.id} data-testid="enroll-row" data-request={r.id} data-status={r.status}>
