@@ -98,7 +98,22 @@ describe.skipIf(!ADMIN || !T || !SECRET)("Enrollment trên stack thật", () => 
       record("pending_seen", (await within(panel).findByTestId("pending-context", {}, { timeout: 90_000 })).textContent.includes(label));
       expect(within(panel).getByRole("button", { name: "Xác nhận thiết bị" })).toBeDisabled();
       await userEvent.click(within(panel).getByLabelText(/Tôi vừa chạy lệnh/));
-      await userEvent.click(within(panel).getByRole("button", { name: "Xác nhận thiết bị" }));
+      // bucket rate limit `enrollment` dùng chung với tab Thêm thiết bị: 429 ⇒ trang báo thời gian chờ và giữ nút — người
+      // dùng bấm lại sau Retry-After (cùng Auth ID; pending registration sống 15 phút)
+      let limited = 0;
+      for (let i = 0; i < 6; i++) {
+        await userEvent.click(within(panel).getByRole("button", { name: "Xác nhận thiết bị" }));
+        const got = await until(() => {
+          const done = screen.queryByTestId("claim-verified") ?? screen.queryByTestId("claim-failed") ?? screen.queryByTestId("claim-phishing");
+          const wait = within(panel).queryByText(/Thử lại sau (\d+) giây/);
+          expect(done ?? wait).toBeTruthy();
+          return done ? null : Number(/(\d+)/.exec(wait?.textContent ?? "")?.[1] ?? "5");
+        }, 120_000);
+        if (got === null) break;
+        limited++;
+        await new Promise((r) => setTimeout(r, (got + 1) * 1000));
+      }
+      record("claim_rate_limited_retries", limited);
       const ok = await screen.findByTestId("claim-verified", {}, { timeout: 120_000 });
       record("claim_result", ok.textContent.includes(label) ? "verified" : ok.textContent);
       record("auth_id_traces", traces(authId, router, queryClient));
