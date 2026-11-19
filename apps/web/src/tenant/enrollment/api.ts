@@ -13,7 +13,7 @@ export const LIST_LIMIT = 100;
 
 /** Bucket `enrollment` (5 + 1/5 s mỗi danh tính) dùng chung giữa các tab: 429 của một lần đọc là chuyện thường ⇒ thử lại tới 5
  * lần theo Retry-After (retryDelay mặc định của queryClient) thay vì hiện lỗi; lỗi khác theo mặc định (502/503/mạng 2 lần). */
-export function enrollmentRetry(failureCount: number, error: unknown): boolean {
+export function enrollmentRetry(failureCount: number, error: Error): boolean {
   if (error instanceof ApiError && error.status === 429) return failureCount < 5;
   return error instanceof ApiError && (error.code === "network_error" || error.status === 502 || error.status === 503) && failureCount < 2;
 }

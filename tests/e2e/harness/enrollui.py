@@ -207,7 +207,9 @@ def check_web(r: checks.Results, st: Stack, state: dict, facts: dict, cases: dic
           and bool(req) and req[0][:3] == ["verified", "web_auth", label] and req[0][4] == state["mid"]
           and node.get("given_name") == label and (node.get("user") or {}).get("name") == f"mg-{state['mid']}"
           and inventory == "1" and len(creates) >= 1 and all(UUID4.match(x[3]) for x in creates)
-          and [x[2] for x in claims] == [200])
+          # 429 của bucket `enrollment` (5 + 1/5 s mỗi danh tính) ⇒ người dùng bấm lại; lần cuối phải 200, đúng một 200
+          and bool(claims) and claims[-1][2] == 200 and [x[2] for x in claims].count(200) == 1
+          and all(x[2] in (200, 429) for x in claims))
     r.add("E2E-119", "P4-T08 web-auth qua SPA: wizard Linux (login_server của tenant) → lệnh mg-<mã> → client chính thức → "
           "link qua edge v10 ⇒ 302 ⇒ trang claim (gỡ auth_id, yêu cầu đang chờ, xác nhận tường minh) ⇒ verified; client "
           "Running, node đổi tên theo nhãn dưới mg-<membership>; sổ thiết bị có liên kết; không dấu vết mã/Auth ID", ok,
@@ -230,11 +232,13 @@ def check_key(r: checks.Results, st: Stack, state: dict, facts: dict, cases: dic
                           "'%hskey-auth-%') + (SELECT count(*) FROM idempotency_keys WHERE row_to_json(idempotency_keys)::text "
                           "LIKE '%hskey-auth-%')")
     creates = [x for x in admin.seen if x[0] == "POST" and x[1].endswith("/enrollment/requests")]
+    made = [x for x in creates if x[2] == 201]
     ok = (cases.get("UI-15") and facts.get("key_shape") is True and facts.get("key_command_without_key") is True
           and facts.get("key_not_stored") == [] and facts.get("key_traces_after_close") == [] and running
           and (node.get("user") or {}).get("name") == f"mg-{state['mid']}" and facts.get("key_row_status") == "consumed"
           and bool(req) and req[0][:3] == ["consumed", "preauth_key", label] and leaked == "0"
-          and len(creates) >= 2 and all(UUID4.match(x[3]) for x in creates))
+          and len(made) == 2 and all(x[2] in (201, 429) for x in creates) and all(UUID4.match(x[3]) for x in creates)
+          and len({x[3] for x in creates}) == 2)    # lần bấm lại sau 429 dùng lại đúng Idempotency-Key của ý định đó
     r.add("E2E-120", "P4-T08 pre-auth key qua SPA: tạo key một lần 5 phút ở Enrollment key ⇒ hiển thị một lần (lệnh không "
           "chứa key) ⇒ client chính thức Running dưới mg-<membership>; đóng hộp ⇒ không dấu vết; reconcile ⇒ consumed (bảng "
           "của SPA thấy); DB không chứa key", ok,

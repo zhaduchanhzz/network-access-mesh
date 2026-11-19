@@ -144,7 +144,21 @@ describe.skipIf(!ADMIN || !T || !SECRET)("Enrollment trên stack thật", () => 
       const ttl = within(dialog).getByLabelText("Hạn của key (phút)");
       await userEvent.clear(ttl);
       await userEvent.type(ttl, "5");
-      await userEvent.click(within(dialog).getByRole("button", { name: "Tạo key" }));
+      // cùng bucket `enrollment` với UI-14 vừa xong: 429 ⇒ hộp báo thời gian chờ, người dùng bấm lại (cùng Idempotency-Key)
+      let limited = 0;
+      for (let i = 0; i < 6; i++) {
+        await userEvent.click(within(dialog).getByRole("button", { name: "Tạo key" }));
+        const wait = await until(() => {
+          const shown = screen.queryByRole("dialog", { name: "Pre-auth key (hiển thị một lần)" });
+          const w = within(dialog).queryByText(/Thử lại sau (\d+) giây/);
+          expect(shown ?? w).toBeTruthy();
+          return shown ? null : Number(/(\d+)/.exec(w?.textContent ?? "")?.[1] ?? "5");
+        }, 60_000);
+        if (wait === null) break;
+        limited++;
+        await new Promise((r) => setTimeout(r, (wait + 1) * 1000));
+      }
+      record("key_rate_limited_retries", limited);
       const reveal = await screen.findByRole("dialog", { name: "Pre-auth key (hiển thị một lần)" }, { timeout: 30_000 });
       const key = within(reveal).getByTestId("secret-value").textContent.trim();
       record("key_shape", /^hskey-auth-/.test(key));
