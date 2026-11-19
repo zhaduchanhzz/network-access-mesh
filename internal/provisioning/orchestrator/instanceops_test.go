@@ -416,6 +416,10 @@ type opsPolicies struct {
 	reqs []policies.ApplyRequest
 }
 
+func (p *opsPolicies) ApplyDesired(context.Context, policies.DesiredRequest) (policies.Result, error) {
+	return policies.Result{}, errors.New("not used by these tests")
+}
+
 func (p *opsPolicies) Apply(_ context.Context, req policies.ApplyRequest) (policies.Result, error) {
 	p.reqs = append(p.reqs, req)
 	if p.err != nil {

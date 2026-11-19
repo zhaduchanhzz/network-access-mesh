@@ -37,6 +37,7 @@ import members  # noqa: E402 — E2E-92, E2E-93 (P4-T09: offboard V-23, quy tắ
 import monitoring  # noqa: E402 — E2E-76 … E2E-78 (P3-T16)
 import phase3  # noqa: E402 — E2E-32 … E2E-36 (P3-T14a, P3-T03a, P3-T08a)
 import portal  # noqa: E402 — E2E-87 (P4-T04: hộp thông báo, lọc rà soát tagged node)
+import policylife  # noqa: E402 — E2E-96 … E2E-98 (P4-T10: vòng đời policy, pipeline, drift)
 import postrestore  # noqa: E402 — E2E-70, E2E-71 (P3-T17)
 import restore  # noqa: E402 — E2E-59, E2E-60 (P3-T11: V-11)
 import spa  # noqa: E402 — E2E-85, E2E-86 (P4-T01a: SPA sau edge template v9)
@@ -231,6 +232,9 @@ def test(st: Stack, r: checks.Results) -> None:
     with timed("ca E2E-94, E2E-95 (P4-T03a: IdP của tenant do nền tảng sửa ⇒ 2P + audit tenant, role Super Admin qua 2P, "
                "thiết lập bảo mật — tắt 4-eyes qua phê duyệt trong tenant, yêu cầu xóa tenant)"):
         admin.run_all(r, st, guarded)
+    with timed("ca E2E-96 … E2E-98 (P4-T10: policy có kiểu — vòng đời, pipeline với Headscale thật, 4-eyes + step-up, drift, "
+               "ErrNoPolicy, db.sqlite bị thay)"):
+        policylife.run_all(r, st, guarded)
     with timed("ca E2E-105 … E2E-107 (P4-T13: Support Access Grant — hành động của support trong audit tenant, break-glass "
                "cần Super Admin thứ hai, grant hết hạn tự vô hiệu + grant.expire)"):
         supportgrant.run_all(r, st, guarded)

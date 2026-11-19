@@ -225,6 +225,23 @@ type AdminHandlers interface {
 	UpdatePlatformPlan(ctx context.Context, request gen.UpdatePlatformPlanRequestObject) (gen.UpdatePlatformPlanResponseObject, error)
 }
 
+// PolicyHandlers — P4-T10 (`policies`): the lifecycle of a policy version (§7.3) — typed source, render + lint +
+// dry run, review (4-eyes), apply and rollback (202 + policy.apply), diff, the desired state and its application.
+type PolicyHandlers interface {
+	ListTenantPolicies(ctx context.Context, request gen.ListTenantPoliciesRequestObject) (gen.ListTenantPoliciesResponseObject, error)
+	GetCurrentTenantPolicy(ctx context.Context, request gen.GetCurrentTenantPolicyRequestObject) (gen.GetCurrentTenantPolicyResponseObject, error)
+	GetTenantPolicy(ctx context.Context, request gen.GetTenantPolicyRequestObject) (gen.GetTenantPolicyResponseObject, error)
+	CreateTenantPolicy(ctx context.Context, request gen.CreateTenantPolicyRequestObject) (gen.CreateTenantPolicyResponseObject, error)
+	UpdateTenantPolicy(ctx context.Context, request gen.UpdateTenantPolicyRequestObject) (gen.UpdateTenantPolicyResponseObject, error)
+	ValidateTenantPolicy(ctx context.Context, request gen.ValidateTenantPolicyRequestObject) (gen.ValidateTenantPolicyResponseObject, error)
+	SubmitTenantPolicy(ctx context.Context, request gen.SubmitTenantPolicyRequestObject) (gen.SubmitTenantPolicyResponseObject, error)
+	ApproveTenantPolicy(ctx context.Context, request gen.ApproveTenantPolicyRequestObject) (gen.ApproveTenantPolicyResponseObject, error)
+	RejectTenantPolicy(ctx context.Context, request gen.RejectTenantPolicyRequestObject) (gen.RejectTenantPolicyResponseObject, error)
+	ApplyTenantPolicy(ctx context.Context, request gen.ApplyTenantPolicyRequestObject) (gen.ApplyTenantPolicyResponseObject, error)
+	RollbackTenantPolicy(ctx context.Context, request gen.RollbackTenantPolicyRequestObject) (gen.RollbackTenantPolicyResponseObject, error)
+	DiffTenantPolicy(ctx context.Context, request gen.DiffTenantPolicyRequestObject) (gen.DiffTenantPolicyResponseObject, error)
+}
+
 // Handlers is the extension point of the API: one handler set per building task. A nil set answers every operation
 // of its interface with 501 not_implemented. A set may also implement only part of its interface by embedding
 // NotImplemented. Handlers return a *problem.Error for an expected failure (not_found, conflict…); any other error
@@ -316,6 +333,7 @@ type Handlers struct {
 	Portal        PortalHandlers             // P4-T04
 	Admin         AdminHandlers              // P4-T03a
 	TenantView    PlatformTenantViewHandlers // P4-T02
+	Policies      PolicyHandlers             // P4-T10
 	Support       SupportHandlers            // P4-T13
 }
 
@@ -324,7 +342,7 @@ func (h Handlers) mounted() bool {
 		h.Notifications != nil || h.Approvals != nil || h.Invitations != nil || h.Hosts != nil || h.IdPConsole != nil ||
 		h.Provisioning != nil || h.Lifecycle != nil || h.Relay != nil || h.Reconfigure != nil || h.Backups != nil ||
 		h.InstanceOps != nil || h.Quarantine != nil || h.Deprovision != nil || h.Tags != nil || h.Members != nil ||
-		h.Portal != nil || h.Admin != nil || h.TenantView != nil || h.Support != nil
+		h.Portal != nil || h.Admin != nil || h.TenantView != nil || h.Policies != nil || h.Support != nil
 }
 
 // dispatcher implements gen.StrictServerInterface by promotion from the disjoint interfaces.
@@ -353,6 +371,7 @@ type dispatcher struct {
 	PortalHandlers
 	AdminHandlers
 	PlatformTenantViewHandlers
+	PolicyHandlers
 	SupportHandlers
 }
 
@@ -361,12 +380,15 @@ var _ gen.StrictServerInterface = dispatcher{}
 func newDispatcher(h Handlers) dispatcher {
 	d := dispatcher{h.Auth, h.Tenants, h.Devices, h.Audit, h.Jobs, h.Monitoring, h.Notifications, h.Approvals, h.Invitations,
 		h.Hosts, h.IdPConsole, h.Provisioning, h.Lifecycle, h.Relay, h.Reconfigure, h.Backups, h.InstanceOps,
-		h.Quarantine, h.Deprovision, h.Tags, h.Members, h.Portal, h.Admin, h.TenantView, h.Support}
+		h.Quarantine, h.Deprovision, h.Tags, h.Members, h.Portal, h.Admin, h.TenantView, h.Policies, h.Support}
 	if d.SupportHandlers == nil {
 		d.SupportHandlers = NotImplemented{}
 	}
 	if d.AdminHandlers == nil {
 		d.AdminHandlers = NotImplemented{}
+	}
+	if d.PolicyHandlers == nil {
+		d.PolicyHandlers = NotImplemented{}
 	}
 	if d.TagHandlers == nil {
 		d.TagHandlers = NotImplemented{}
@@ -908,4 +930,52 @@ func (NotImplemented) ApproveSupportGrantBreakglass(context.Context, gen.Approve
 
 func (NotImplemented) RevokePlatformSupportGrant(context.Context, gen.RevokePlatformSupportGrantRequestObject) (gen.RevokePlatformSupportGrantResponseObject, error) {
 	return nil, problem.NotImplemented("RevokePlatformSupportGrant")
+}
+
+func (NotImplemented) ListTenantPolicies(context.Context, gen.ListTenantPoliciesRequestObject) (gen.ListTenantPoliciesResponseObject, error) {
+	return nil, problem.NotImplemented("ListTenantPolicies")
+}
+
+func (NotImplemented) GetCurrentTenantPolicy(context.Context, gen.GetCurrentTenantPolicyRequestObject) (gen.GetCurrentTenantPolicyResponseObject, error) {
+	return nil, problem.NotImplemented("GetCurrentTenantPolicy")
+}
+
+func (NotImplemented) GetTenantPolicy(context.Context, gen.GetTenantPolicyRequestObject) (gen.GetTenantPolicyResponseObject, error) {
+	return nil, problem.NotImplemented("GetTenantPolicy")
+}
+
+func (NotImplemented) CreateTenantPolicy(context.Context, gen.CreateTenantPolicyRequestObject) (gen.CreateTenantPolicyResponseObject, error) {
+	return nil, problem.NotImplemented("CreateTenantPolicy")
+}
+
+func (NotImplemented) UpdateTenantPolicy(context.Context, gen.UpdateTenantPolicyRequestObject) (gen.UpdateTenantPolicyResponseObject, error) {
+	return nil, problem.NotImplemented("UpdateTenantPolicy")
+}
+
+func (NotImplemented) ValidateTenantPolicy(context.Context, gen.ValidateTenantPolicyRequestObject) (gen.ValidateTenantPolicyResponseObject, error) {
+	return nil, problem.NotImplemented("ValidateTenantPolicy")
+}
+
+func (NotImplemented) SubmitTenantPolicy(context.Context, gen.SubmitTenantPolicyRequestObject) (gen.SubmitTenantPolicyResponseObject, error) {
+	return nil, problem.NotImplemented("SubmitTenantPolicy")
+}
+
+func (NotImplemented) ApproveTenantPolicy(context.Context, gen.ApproveTenantPolicyRequestObject) (gen.ApproveTenantPolicyResponseObject, error) {
+	return nil, problem.NotImplemented("ApproveTenantPolicy")
+}
+
+func (NotImplemented) RejectTenantPolicy(context.Context, gen.RejectTenantPolicyRequestObject) (gen.RejectTenantPolicyResponseObject, error) {
+	return nil, problem.NotImplemented("RejectTenantPolicy")
+}
+
+func (NotImplemented) ApplyTenantPolicy(context.Context, gen.ApplyTenantPolicyRequestObject) (gen.ApplyTenantPolicyResponseObject, error) {
+	return nil, problem.NotImplemented("ApplyTenantPolicy")
+}
+
+func (NotImplemented) RollbackTenantPolicy(context.Context, gen.RollbackTenantPolicyRequestObject) (gen.RollbackTenantPolicyResponseObject, error) {
+	return nil, problem.NotImplemented("RollbackTenantPolicy")
+}
+
+func (NotImplemented) DiffTenantPolicy(context.Context, gen.DiffTenantPolicyRequestObject) (gen.DiffTenantPolicyResponseObject, error) {
+	return nil, problem.NotImplemented("DiffTenantPolicy")
 }

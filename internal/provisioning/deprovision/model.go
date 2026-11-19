@@ -174,6 +174,8 @@ type IdPDrivers interface {
 // PolicyApplier is the policy core (*policies.Service) over a Headscale registry that reaches ReachableStatuses.
 type PolicyApplier interface {
 	Apply(ctx context.Context, req policies.ApplyRequest) (policies.Result, error)
+	// ApplyDesired renders the desired version (a typed one — P4-T10) and applies it.
+	ApplyDesired(ctx context.Context, req policies.DesiredRequest) (policies.Result, error)
 }
 
 var _ PolicyApplier = (*policies.Service)(nil)

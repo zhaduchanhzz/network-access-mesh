@@ -103,3 +103,144 @@ RETURNING *;
 SELECT headscale_username FROM tenant_memberships
 WHERE tenant_id = sqlc.arg(tenant_id) AND status = 'active' AND headscale_username = ANY(sqlc.arg(usernames)::text[])
 ORDER BY headscale_username;
+
+-- ---------------------------------------------------------------------------------------------------- P4-T10
+-- Đầu vào của render (§7.2): đọc trong một transaction tenant (api: validate/diff; worker: policy.apply).
+
+-- name: ListPolicyGroups :many
+SELECT id, name FROM groups
+WHERE tenant_id = sqlc.arg(tenant_id)
+ORDER BY name;
+
+-- name: ListPolicyGroupMembers :many
+-- Thành viên group được render: membership chưa offboarded (locked vẫn giữ mạng — 0024).
+SELECT gm.group_id, gm.membership_id FROM group_members gm
+JOIN tenant_memberships m ON m.tenant_id = gm.tenant_id AND m.id = gm.membership_id
+WHERE gm.tenant_id = sqlc.arg(tenant_id) AND m.status <> 'offboarded'
+ORDER BY gm.group_id, gm.membership_id;
+
+-- name: ListPolicyMemberships :many
+SELECT id, status FROM tenant_memberships
+WHERE tenant_id = sqlc.arg(tenant_id);
+
+-- name: ListPolicyTags :many
+SELECT id, name, platform_managed FROM tenant_tags
+WHERE tenant_id = sqlc.arg(tenant_id)
+ORDER BY name;
+
+-- name: ListPolicyResources :many
+SELECT id, name, address::text AS address FROM network_resources
+WHERE tenant_id = sqlc.arg(tenant_id)
+ORDER BY name;
+
+-- name: GetTenantPolicySettings :one
+-- TenantSettings (§13.3) mà vòng đời policy đọc: identity_mode (L13), policy.four_eyes (duyệt peer + step-up khi apply)
+-- — chỉ đọc; đường ghi là PUT /settings/security (P4-T03a) — và số thiết bị chưa removed (L8).
+SELECT COALESCE(t.settings -> 'enrollment' ->> 'identity_mode', 'portal')::text AS identity_mode,
+       COALESCE(jsonb_typeof(t.settings -> 'policy' -> 'four_eyes') = 'boolean'
+                AND (t.settings -> 'policy' ->> 'four_eyes')::boolean, false)::boolean AS four_eyes,
+       (SELECT count(*) FROM device_inventory_cache d WHERE d.tenant_id = t.id AND d.removed_at IS NULL)::bigint AS devices
+FROM tenants t WHERE t.id = sqlc.arg(tenant_id);
+
+-- name: ListPolicyVersions :many
+-- GET /tenants/{t}/policies: mới nhất trước; con trỏ = số version cuối của trang trước (0 = trang đầu).
+SELECT * FROM policy_versions
+WHERE tenant_id = sqlc.arg(tenant_id) AND (sqlc.arg(before_version)::integer = 0 OR version < sqlc.arg(before_version)::integer)
+ORDER BY version DESC
+LIMIT sqlc.arg(page_limit);
+
+-- name: LockTenantDesiredPolicy :one
+-- Khóa hàng tenant trong transaction đặt version mong muốn (stale base — §7.3): hai lần apply đồng thời nối tiếp nhau.
+SELECT desired_policy_version_id FROM tenants
+WHERE id = sqlc.arg(tenant_id)
+FOR UPDATE;
+
+-- name: LockPolicyVersion :one
+SELECT * FROM policy_versions
+WHERE tenant_id = sqlc.arg(tenant_id) AND id = sqlc.arg(id)
+FOR UPDATE;
+
+-- name: InsertTypedPolicyVersion :one
+-- Version kind user có nội dung kiểu (source — §13.3): bản nháp (state draft) hoặc bản rollback kế thừa phê duyệt
+-- (state approved, các trường duyệt chép từ version đã duyệt cùng nội dung — §7.3).
+INSERT INTO policy_versions (tenant_id, version, kind, source, content_sha256, state, parent_version_id, rollback_of,
+                             created_by, submitted_by, submitted_at, approved_by, approved_at, approved_content_sha256,
+                             review_mode, validation_report)
+VALUES (sqlc.arg(tenant_id), sqlc.arg(version), 'user', sqlc.arg(source), sqlc.arg(content_sha256), sqlc.arg(state),
+        sqlc.narg(parent_version_id), sqlc.narg(rollback_of), sqlc.narg(created_by), sqlc.narg(submitted_by),
+        sqlc.narg(submitted_at), sqlc.narg(approved_by), sqlc.narg(approved_at), sqlc.narg(approved_content_sha256),
+        sqlc.narg(review_mode), sqlc.narg(validation_report))
+RETURNING *;
+
+-- name: UpdatePolicyVersionSource :one
+-- PATCH (§6.3): mọi sửa đổi đưa version về draft và xóa phê duyệt, báo cáo lint; revision tăng (ETag).
+UPDATE policy_versions
+SET source = sqlc.arg(source), content_sha256 = sqlc.arg(content_sha256), state = 'draft', validation_report = NULL,
+    submitted_by = NULL, submitted_at = NULL, approved_by = NULL, approved_at = NULL, approved_content_sha256 = NULL,
+    review_mode = NULL, revision = revision + 1, updated_at = now()
+WHERE tenant_id = sqlc.arg(tenant_id) AND id = sqlc.arg(id) AND revision = sqlc.arg(revision)
+RETURNING *;
+
+-- name: SetPolicyVersionValidation :one
+-- validate: draft|validated → validated (lint + render + CheckPolicy đạt) hoặc draft (báo cáo có lỗi).
+UPDATE policy_versions
+SET state = sqlc.arg(state), validation_report = sqlc.arg(validation_report), revision = revision + 1, updated_at = now()
+WHERE tenant_id = sqlc.arg(tenant_id) AND id = sqlc.arg(id) AND revision = sqlc.arg(revision)
+  AND state IN ('draft', 'validated')
+RETURNING *;
+
+-- name: SubmitPolicyVersion :one
+UPDATE policy_versions
+SET state = 'pending_approval', submitted_by = sqlc.arg(submitted_by), submitted_at = now(), revision = revision + 1,
+    updated_at = now()
+WHERE tenant_id = sqlc.arg(tenant_id) AND id = sqlc.arg(id) AND revision = sqlc.arg(revision) AND state = 'validated'
+RETURNING *;
+
+-- name: ApprovePolicyVersion :one
+-- approved_content_sha256 = content_sha256 (CHECK của 0013) — người duyệt đã xác nhận đúng nội dung này.
+UPDATE policy_versions
+SET state = 'approved', approved_by = sqlc.arg(approved_by), approved_at = now(), approved_content_sha256 = content_sha256,
+    review_mode = sqlc.arg(review_mode), revision = revision + 1, updated_at = now()
+WHERE tenant_id = sqlc.arg(tenant_id) AND id = sqlc.arg(id) AND revision = sqlc.arg(revision)
+  AND state IN ('validated', 'pending_approval')
+RETURNING *;
+
+-- name: RejectPolicyVersion :one
+UPDATE policy_versions
+SET state = 'rejected', rejected_by = sqlc.arg(rejected_by), rejected_at = now(), rejected_reason = sqlc.arg(rejected_reason),
+    revision = revision + 1, updated_at = now()
+WHERE tenant_id = sqlc.arg(tenant_id) AND id = sqlc.arg(id) AND revision = sqlc.arg(revision) AND state = 'pending_approval'
+RETURNING *;
+
+-- name: SupersedePolicyVersion :exec
+-- Version mong muốn cũ khi version khác trở thành desired (§7.3 approved → superseded).
+UPDATE policy_versions
+SET state = 'superseded', revision = revision + 1, updated_at = now()
+WHERE tenant_id = sqlc.arg(tenant_id) AND id = sqlc.arg(id) AND state IN ('approved', 'validated');
+
+-- name: LatestApprovalOfContent :one
+-- Rollback (§7.3): phê duyệt chỉ được kế thừa khi nội dung trùng một nội dung đã từng được duyệt.
+SELECT * FROM policy_versions
+WHERE tenant_id = sqlc.arg(tenant_id) AND kind = 'user' AND approved_content_sha256 = sqlc.arg(content_sha256)
+  AND approved_by IS NOT NULL AND review_mode IS NOT NULL
+ORDER BY approved_at DESC, version DESC
+LIMIT 1;
+
+-- name: GetLatestPolicyApplication :one
+SELECT * FROM policy_applications
+WHERE tenant_id = sqlc.arg(tenant_id)
+ORDER BY created_at DESC, id DESC
+LIMIT 1;
+
+-- name: GetMembershipRoleKey :one
+-- Role của người duyệt (L4/L12 cần Tenant Owner — §7.2).
+SELECT r.key FROM tenant_memberships m
+JOIN roles r ON r.id = m.role_id AND r.scope = m.role_scope
+WHERE m.tenant_id = sqlc.arg(tenant_id) AND m.identity_id = sqlc.arg(identity_id) AND m.status = 'active';
+
+-- name: ListPolicyDriftTargets :many
+-- policy.drift_check theo lịch (§13.5): instance running của tenant active/suspended có version mong muốn (pool platform).
+SELECT i.id AS instance_id, i.tenant_id FROM tenant_instances i
+JOIN tenants t ON t.id = i.tenant_id
+WHERE i.status = 'running' AND t.status IN ('active', 'suspended') AND t.desired_policy_version_id IS NOT NULL
+ORDER BY i.id;

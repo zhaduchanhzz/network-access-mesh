@@ -173,14 +173,18 @@ func (a *attempt) undoPolicy(ctx context.Context, s jobs.CompensationStep) error
 	if res.RestoreVersionID == nil {
 		return jobs.Permanent("no_policy_to_restore", errors.New("the tenant had no desired policy version"))
 	}
-	var text string
+	var (
+		text  string
+		typed bool
+	)
 	err := a.h.cfg.Store.WithTenantTx(ctx, a.in.TenantID, func(q *sqlcdb.Queries) error {
 		v, err := q.GetPolicyVersion(ctx, sqlcdb.GetPolicyVersionParams{TenantID: a.in.TenantID, ID: *res.RestoreVersionID})
 		if err != nil {
 			return err
 		}
 		if v.SourceHujson == nil {
-			return jobs.Permanent("desired_not_hujson", fmt.Errorf("version %s has no HuJSON source", v.ID))
+			typed = true // a typed version (P4-T10): rendered by the policy module — it is still the desired one
+			return nil
 		}
 		text = *v.SourceHujson
 		return nil
@@ -190,6 +194,11 @@ func (a *attempt) undoPolicy(ctx context.Context, s jobs.CompensationStep) error
 	}
 	if err != nil {
 		return dbErr("read the desired policy", err)
+	}
+	if typed {
+		_, err = a.h.cfg.Policies.ApplyDesired(ctx, policies.DesiredRequest{TenantID: a.in.TenantID,
+			Trigger: policies.TriggerResume, Actor: Kind + " (rollback)", Suspended: true})
+		return applyErr(err)
 	}
 	_, err = a.h.cfg.Policies.Apply(ctx, policies.ApplyRequest{TenantID: a.in.TenantID, Kind: policies.KindBaseline,
 		HuJSON: text, Trigger: policies.TriggerResume, Actor: Kind + " (rollback)"})
