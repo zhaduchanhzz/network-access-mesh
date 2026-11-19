@@ -3,7 +3,8 @@
 //
 //	request    POST /enrollment/requests — the caller's own device. One tenant transaction locks the tenant's
 //	           subscription row and checks the quota (devices of the inventory PLUS unfinished requests ≤ max_devices,
-//	           live credentials ≤ max_live_enrollment_credentials — usage.EnrollmentTx). When the tenant requires an
+//	           for a key with tags tagged devices PLUS unfinished requests with tags ≤ max_tagged_devices, live
+//	           credentials ≤ max_live_enrollment_credentials — usage.EnrollmentTx). When the tenant requires an
 //	           approval (TenantSettings.enrollment.requires_approval) and the caller cannot approve, the request stops at
 //	           pending_approval; otherwise it is issued at once: web_auth ⇒ a one-time enrollment code (hostname
 //	           mg-<code>) bound to the caller's Portal session, valid 10 minutes; preauth_key ⇒ a single-use, non-

@@ -50,6 +50,22 @@ WHERE tenant_id = sqlc.arg(tenant_id)
   AND status IN ('requested', 'pending_approval', 'approved', 'awaiting_device', 'claimed', 'registered',
                  'credential_issued');
 
+-- name: CountTenantTaggedDevices :one
+-- PlanLimits.max_tagged_devices (P4-T06): thiết bị gắn tag đang có trong sổ của instance chưa removed — tag và chủ sở
+-- hữu loại trừ nhau (HS-10, PL-09) nên tags khác rỗng ⇔ tagged node. Đếm dưới khóa hàng subscription của người gọi.
+SELECT count(*) FROM device_inventory_cache d
+JOIN tenant_instances i ON i.tenant_id = d.tenant_id AND i.id = d.instance_id
+WHERE d.tenant_id = sqlc.arg(tenant_id) AND d.removed_at IS NULL AND i.status <> 'removed'
+  AND cardinality(d.tags) > 0;
+
+-- name: CountOpenTaggedEnrollmentRequests :one
+-- Yêu cầu enrollment chưa kết thúc mang tag (pre-auth key gắn tag — §7.4 phương thức B): còn có thể sinh một tagged
+-- node, tính vào max_tagged_devices như CountOpenEnrollmentRequests tính vào max_devices.
+SELECT count(*) FROM enrollment_requests
+WHERE tenant_id = sqlc.arg(tenant_id) AND cardinality(requested_tags) > 0
+  AND status IN ('requested', 'pending_approval', 'approved', 'awaiting_device', 'claimed', 'registered',
+                 'credential_issued');
+
 -- name: CountLiveEnrollmentCredentials :one
 -- Credential enrollment còn hạn (PlanLimits.max_live_enrollment_credentials): mã/lệnh web-auth và pre-auth key đã phát
 -- chưa dùng, cộng key reusable đã dùng nhưng còn hạn.

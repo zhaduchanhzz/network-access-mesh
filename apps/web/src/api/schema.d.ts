@@ -2014,7 +2014,9 @@ export interface paths {
          *     (`target_membership_id`) hoặc key chỉ-tag (không chủ — phải có `tags`). `tags` chỉ nhận tag có trong danh mục
          *     của tenant (P4-T15 — ngoài danh mục ⇒ `422`), khóa chia sẻ tới hết transaction. Luôn có hạn ≤ 15 phút
          *     (`ttl_minutes`, không vượt `enrollment.preauth_key_ttl_max`), `expiration` tường minh; plaintext hiển thị một lần
-         *     (`x-secret-once`). Không qua bước duyệt (đã cần quyền đặc quyền); quota như `POST /enrollment/requests`.
+         *     (`x-secret-once`). Không qua bước duyệt (đã cần quyền đặc quyền); quota như `POST /enrollment/requests`, và key
+         *     có `tags` còn tính vào `max_tagged_devices` (thiết bị gắn tag trong sổ + yêu cầu chưa kết thúc có tag, đếm dưới
+         *     cùng khóa hàng `subscriptions` — vượt ⇒ `403 quota_exceeded`).
          */
         post: operations["createEnrollmentKey"];
         delete?: never;

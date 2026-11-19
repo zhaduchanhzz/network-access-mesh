@@ -209,7 +209,9 @@ func (s *Service) createOnce(ctx context.Context, tenantID uuid.UUID, a Actor, p
 		// approval before the device step (§7.4): a member who cannot approve waits for a decider; privileged keys
 		// already need issue_privileged
 		issue = p.privileged || !set.RequiresApproval || a.CanApprove
-		if _, err := usage.EnrollmentTx(ctx, q, tenantID, true, issue); err != nil {
+		// under the subscription lock: devices, tagged devices (a key with tags — max_tagged_devices), credentials
+		if _, err := usage.EnrollmentTx(ctx, q, tenantID, usage.Enrollment{NewRequest: true, Issuing: issue,
+			Tagged: len(tags) > 0}); err != nil {
 			return err
 		}
 		status := StatusRequested
@@ -551,7 +553,8 @@ func (s *Service) start(ctx context.Context, tenantID, id uuid.UUID, a Actor) (I
 		if r.Method == MethodWebAuth && !tc.settings.Enrollment.WebAuthEnabled {
 			return invalid("method", "web_auth_disabled", "This tenant does not accept web-auth enrollment any more.")
 		}
-		if _, err := usage.EnrollmentTx(ctx, q, tenantID, false, true); err != nil {
+		if _, err := usage.EnrollmentTx(ctx, q, tenantID, usage.Enrollment{Issuing: true,
+			Tagged: len(r.RequestedTags) > 0}); err != nil {
 			return err
 		}
 		ev := audit.Event{Action: ActionStart, TenantID: &tenantID, ResourceType: resourceType, ResourceID: id.String(),

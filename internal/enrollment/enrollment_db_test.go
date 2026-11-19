@@ -2,8 +2,10 @@ package enrollment
 
 import (
 	"crypto/sha256"
+	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -463,6 +465,76 @@ func TestEnrollment(t *testing.T) {
 		if n := f.count(t, `SELECT count(*) FROM enrollment_requests WHERE tenant_id = $1`, b.id); n != 1 {
 			t.Fatalf("a refused request was written: %d", n)
 		}
+	})
+
+	t.Run("TaggedDevicesQuota", func(t *testing.T) {
+		// PlanLimits.max_tagged_devices (P4-T06 follow-up): tagged devices of the inventory + open requests with tags,
+		// counted under the subscription's row lock in the transaction that creates the key
+		b := f.b
+		admin := b.actor("admin", uuid.New())
+		ctx := ctxOf(admin, b.id, ActionKeyCreate)
+		f.exec(t, `UPDATE subscriptions SET overrides = '{"max_devices": 50, "max_live_enrollment_credentials": 50,
+			"max_tagged_devices": 3}' WHERE tenant_id = $1`, b.id)
+		f.exec(t, `INSERT INTO device_inventory_cache (tenant_id, instance_id, headscale_node_id, machine_key, name, tags)
+			VALUES ($1, $2, 11, 'mkey:tagged', 'tagged-1', '{tag:server}'), ($1, $2, 12, 'mkey:personal', 'personal-1', '{}')`,
+			b.id, b.instance)
+		tagged := NewKey{Tags: []string{"tag:server"}}
+		k1, err := f.api.CreateKey(ctx, b.id, admin, tagged, idem("k-t-1", "1"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		k2, err := f.api.CreateKey(ctx, b.id, admin, tagged, idem("k-t-2", "2")) // 1 device + 1 open + 1 = 3
+		if err != nil {
+			t.Fatal(err)
+		}
+		keysBefore := len(b.hs.Keys())
+		if _, err := f.api.CreateKey(ctx, b.id, admin, tagged, idem("k-t-3", "3")); codeOf(err) != "quota_exceeded:tagged_devices" {
+			t.Fatalf("tagged quota: %v", err)
+		}
+		if n := len(b.hs.Keys()); n != keysBefore {
+			t.Fatalf("a refused key reached Headscale: %d keys", n)
+		}
+		// a key without tags is not a tagged device; the personal device of the inventory did not count either
+		target := b.people["user"].membership
+		if _, err := f.api.CreateKey(ctx, b.id, admin, NewKey{Target: &target}, idem("k-t-4", "4")); err != nil {
+			t.Fatalf("untagged key under a full tagged quota: %v", err)
+		}
+		if n := f.count(t, `SELECT count(*) FROM enrollment_requests WHERE tenant_id = $1 AND cardinality(requested_tags) > 0`, b.id); n != 2 {
+			t.Fatalf("tagged requests written %d", n)
+		}
+		// revoked keys free their place; concurrent creations serialise on the subscription row: with 2 places left,
+		// exactly 2 of 6 pass
+		for _, k := range []Issue{k1, k2} {
+			if _, err := f.api.Revoke(ctxOf(admin, b.id, ActionRevoke), b.id, k.Request.ID, admin); err != nil {
+				t.Fatalf("revoke: %v", err)
+			}
+		}
+		var (
+			wg        sync.WaitGroup
+			mu        sync.Mutex
+			ok, quota int
+			others    []string
+		)
+		for i := range 6 {
+			wg.Go(func() {
+				_, err := f.api.CreateKey(ctx, b.id, admin, tagged, idem(fmt.Sprintf("k-t-c%d", i), fmt.Sprint(i)))
+				mu.Lock()
+				defer mu.Unlock()
+				switch c := codeOf(err); c {
+				case "":
+					ok++
+				case "quota_exceeded:tagged_devices":
+					quota++
+				default:
+					others = append(others, c)
+				}
+			})
+		}
+		wg.Wait()
+		if ok != 2 || quota != 4 || len(others) > 0 {
+			t.Fatalf("concurrent tagged keys: %d ok, %d refused, others %v; want 2 and 4", ok, quota, others)
+		}
+		f.noKeyMaterial(t)
 	})
 
 	t.Run("ListAndInstructions", func(t *testing.T) {

@@ -99,21 +99,33 @@ func DevicesTx(ctx context.Context, q *sqlcdb.Queries, tenantID uuid.UUID, addin
 	return st, st.Exceeded()
 }
 
+// Enrollment says what an enrollment operation adds (EnrollmentTx).
+type Enrollment struct {
+	// NewRequest: the request being created counts (false: it already counts — /start of an approved request).
+	NewRequest bool
+	// Issuing: a credential (code or key) is issued now.
+	Issuing bool
+	// Tagged: the request is for a tagged device — a pre-auth key with tags (§7.4 method B).
+	Tagged bool
+}
+
 // EnrollmentTx is the quota of an enrollment request (§7.4 step 3 — P4-T06) inside the caller's TENANT transaction
 // (store.WithTenantTx of tenantID): it locks the tenant's subscription row (`SELECT … FOR UPDATE`) and only then
 // counts, so two concurrent requests serialise there and cannot both pass a limit.
 //   - devices: the devices of the inventory PLUS the enrollment requests that can still bring one (not finished) must stay
-//     within PlanLimits.max_devices; newRequest adds the request being created (false: the request already counts —
-//     /start of an approved request);
-//   - credentials (issuing = true): the live enrollment credentials (codes and keys issued and not yet used or expired,
+//     within PlanLimits.max_devices; op.NewRequest adds the request being created;
+//   - tagged devices (op.Tagged): the tagged devices of the inventory PLUS the open requests with tags (and the new one
+//     when op.NewRequest) must stay within PlanLimits.max_tagged_devices;
+//   - credentials (op.Issuing): the live enrollment credentials (codes and keys issued and not yet used or expired,
 //     reusable keys still valid) plus the one being issued must stay within PlanLimits.max_live_enrollment_credentials.
 //
-// The first limit exceeded is returned as a *tenants.QuotaExceededError (Resource QuotaDevices or
-// QuotaEnrollmentCredentials).
-func EnrollmentTx(ctx context.Context, q *sqlcdb.Queries, tenantID uuid.UUID, newRequest, issuing bool) (tenants.QuotaStatus, error) {
+// The first limit exceeded is returned as a *tenants.QuotaExceededError (Resource QuotaDevices, QuotaTaggedDevices or
+// QuotaEnrollmentCredentials). A reusable key with tags counts once: it is checked when it is issued (≤ 15 minutes).
+func EnrollmentTx(ctx context.Context, q *sqlcdb.Queries, tenantID uuid.UUID, op Enrollment) (tenants.QuotaStatus, error) {
 	if tenantID == uuid.Nil {
 		return tenants.QuotaStatus{}, ErrInvalid
 	}
+	newRequest, issuing := op.NewRequest, op.Issuing
 	r, err := q.LockTenantSubscriptionLimits(ctx, tenantID)
 	live := err == nil
 	if err != nil && !errors.Is(err, store.ErrNoRows) {
@@ -138,8 +150,31 @@ func EnrollmentTx(ctx context.Context, q *sqlcdb.Queries, tenantID uuid.UUID, ne
 		return dev, err
 	}
 	dev.Used = devices + open
-	if err := dev.Exceeded(); err != nil || !issuing {
+	if err := dev.Exceeded(); err != nil {
 		return dev, err
+	}
+	if op.Tagged {
+		tagged := tenants.QuotaStatus{Resource: tenants.QuotaTaggedDevices, Requested: dev.Requested, Plan: dev.Plan}
+		if live {
+			if tagged.Limit, err = effectiveLimit(r.Limits, r.Overrides, "max_tagged_devices"); err != nil {
+				return tagged, fmt.Errorf("%w: plan %s: %s", ErrQuotaUnavailable, r.PlanKey, err.Error())
+			}
+		}
+		inInventory, err := q.CountTenantTaggedDevices(ctx, tenantID)
+		if err != nil {
+			return tagged, err
+		}
+		openTagged, err := q.CountOpenTaggedEnrollmentRequests(ctx, tenantID)
+		if err != nil {
+			return tagged, err
+		}
+		tagged.Used = inInventory + openTagged
+		if err := tagged.Exceeded(); err != nil {
+			return tagged, err
+		}
+	}
+	if !issuing {
+		return dev, nil
 	}
 	cred := tenants.QuotaStatus{Resource: tenants.QuotaEnrollmentCredentials, Requested: 1, Plan: dev.Plan}
 	if live {
