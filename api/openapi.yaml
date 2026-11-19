@@ -84,6 +84,8 @@ tags:
     description: Danh mục tag của tenant — nguồn render `tagOwners`, đổi danh mục ⇒ `policy.apply` (§6.3, §7.2) — P4-T15
   - name: policies
     description: Vòng đời policy — mô hình có kiểu, render tất định, lint L1–L13, duyệt (4-eyes), apply/rollback (§7.2, §7.3) — P4-T10
+  - name: support
+    description: Support Access Grant phía tenant — minh bạch, duyệt, từ chối, thu hồi (§8.7) — P4-T13
 paths:
   # ---------------------------------------------------------------- auth (P2-T06)
   /auth/login:
@@ -1427,6 +1429,7 @@ paths:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/ActorFilter'
+        - $ref: '#/components/parameters/ActorTypeFilter'
         - $ref: '#/components/parameters/ActionFilter'
         - $ref: '#/components/parameters/OutcomeFilter'
         - $ref: '#/components/parameters/FromFilter'
@@ -2824,6 +2827,7 @@ paths:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/ActorFilter'
+        - $ref: '#/components/parameters/ActorTypeFilter'
         - $ref: '#/components/parameters/ActionFilter'
         - $ref: '#/components/parameters/OutcomeFilter'
         - $ref: '#/components/parameters/FromFilter'
@@ -4017,6 +4021,311 @@ paths:
           $ref: '#/components/responses/NotFound'
         '422':
           $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  # ---------------------------------------------------------------- support grants (P4-T13, §8.7)
+  /tenants/{tenantId}/support-grants:
+    get:
+      tags: [support]
+      operationId: listTenantSupportGrants
+      summary: Support Access Grant vào tenant này (minh bạch — §8.7)
+      description: >-
+        Mọi yêu cầu truy cập hỗ trợ của nhân sự nền tảng vào tenant trong path, mới nhất trước. `status` là trạng thái
+        hiệu lực (`approved` đã quá `expires_at` là `expired`, kể cả trước khi job `grant.expire` ghi lại); `active` =
+        grant đang cho phép truy cập lúc trả lời. Hành động của nhân sự dưới grant nằm trong `GET /audit`
+        (`actor.type = support`, `actor.support_grant_id`).
+      x-permission: tenant.support_grant:read
+      x-task: P4-T13
+      x-audit-action: support_grant.list
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/SupportGrantStatusFilter'
+      responses:
+        '200':
+          description: Một trang grant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupportGrantList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/support-grants/{grantId}/approve:
+    post:
+      tags: [support]
+      operationId: approveTenantSupportGrant
+      summary: Tenant duyệt một yêu cầu truy cập hỗ trợ (step-up) — chỉ role Support Operator
+      description: |-
+        §8.7 bước 2: Tenant Owner/Admin duyệt trong Portal; người duyệt step-up (`auth_time` ≤ 15 phút, nếu không ⇒
+        `401 reauth_required`). Trần role hiệu lực khi tenant duyệt là `support_operator` (cột Staff, ô **G** của §8.6);
+        grant `support_admin` chỉ được cấp qua break-glass của hai Super Admin ⇒ ở đây `403`. Role Owner không bao giờ là
+        role hiệu lực (schema chỉ có hai role support). Chỉ grant `pending` còn trong cửa sổ thời gian (hết cửa sổ hoặc
+        đã quyết định ⇒ `409`). Cửa sổ không đổi khi duyệt. Audit `support_grant.approve` cùng transaction.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.support_grant:decide
+      x-task: P4-T13
+      x-audit-action: support_grant.approve
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/GrantId'
+      responses:
+        '200':
+          description: Grant sau khi duyệt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupportGrant'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/support-grants/{grantId}/reject:
+    post:
+      tags: [support]
+      operationId: rejectTenantSupportGrant
+      summary: Tenant từ chối một yêu cầu truy cập hỗ trợ đang chờ
+      description: >-
+        Chỉ grant `pending` (đã quyết định, đã hết cửa sổ ⇒ `409`). Từ chối là trạng thái cuối. Audit
+        `support_grant.reject`.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.support_grant:decide
+      x-task: P4-T13
+      x-audit-action: support_grant.reject
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/GrantId'
+      responses:
+        '200':
+          description: Grant sau khi từ chối
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupportGrant'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/support-grants/{grantId}/revoke:
+    post:
+      tags: [support]
+      operationId: revokeTenantSupportGrant
+      summary: Tenant thu hồi một grant (đang chờ hoặc đang hiệu lực, kể cả grant break-glass)
+      description: >-
+        §8.7 bước 4: có hiệu lực ở request kế tiếp của nhân sự (mọi request dưới grant kiểm grant còn hiệu lực ở lớp 1
+        và trong transaction của tenant). Grant đã ở trạng thái cuối ⇒ `409`. Không cần step-up (thu hồi chỉ thu hẹp
+        quyền). Audit `support_grant.revoke`.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.support_grant:decide
+      x-task: P4-T13
+      x-audit-action: support_grant.revoke
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/GrantId'
+      responses:
+        '200':
+          description: Grant sau khi thu hồi
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupportGrant'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /platform/support-grants:
+    get:
+      tags: [platform]
+      operationId: listPlatformSupportGrants
+      summary: Support Access Grant của mọi tenant
+      description: >-
+        Mới nhất trước; `status` hiệu lực như `GET /tenants/{tenantId}/support-grants`. Không lộ dữ liệu nội bộ tenant
+        (chỉ metadata của grant + slug của tenant).
+      x-permission: platform.support_grant:read
+      x-task: P4-T13
+      x-audit-action: platform.support_grant.list
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/SupportGrantStatusFilter'
+      responses:
+        '200':
+          description: Một trang grant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupportGrantList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+    post:
+      tags: [platform]
+      operationId: createSupportGrant
+      summary: Nhân sự nền tảng xin truy cập hỗ trợ vào một tenant (grant `pending`)
+      description: |-
+        §8.7 bước 1: tenant, role hiệu lực (`support_operator`; `support_admin` chỉ được duyệt qua break-glass), lý do,
+        mã ticket, thời lượng 1–480 phút (≤ 8 giờ — CHECK của bảng). Người xin là grantee. Step-up. Tenant phải `active`
+        hoặc `suspended` (tenant đang/đã gỡ ⇒ `409`, không tồn tại ⇒ `404`); người xin đã có một grant còn mở (đang chờ
+        hoặc đang hiệu lực) vào tenant đó ⇒ `409`. Cửa sổ tính từ lúc xin; grant chưa được duyệt khi hết cửa sổ thành
+        `expired` (job `grant.expire`). Ghi audit platform `platform.support_grant.request`, audit của tenant
+        `support_grant.request` và thông báo `support.grant_requested` cho người giữ `tenant.support_grant:decide`.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: platform.support_grant:request
+      x-task: P4-T13
+      x-audit-action: platform.support_grant.request
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SupportGrantCreate'
+      responses:
+        '201':
+          description: Grant đã tạo (`pending`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupportGrant'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /platform/support-grants/{grantId}/approve-breakglass:
+    post:
+      tags: [platform]
+      operationId: approveSupportGrantBreakglass
+      summary: Break-glass — Super Admin thứ hai duyệt grant khi không liên lạc được tenant (2P)
+      description: |-
+        §8.7 bước 2, ô 2P của §8.5: dual control nằm ngay trong grant — người yêu cầu là một Super Admin đang hoạt động
+        (người xin grant), người gọi là Super Admin **thứ hai** (khác người yêu cầu và khác grantee — CHECK + trigger
+        `mg_support_grant_guard` của 0023), người gọi step-up (`401 reauth_required`; người xin đã step-up lúc xin).
+        Người gọi chính là người xin ⇒ `403`; người xin không phải Super Admin đang hoạt động ⇒ `409`. Chỉ grant
+        `pending` còn trong cửa sổ (`409`). Nhận cả `support_operator` lẫn `support_admin`. Cùng transaction: grant
+        `approved` (`approval_kind = breakglass`) + audit platform `platform.support_grant.breakglass`; sau đó trong
+        transaction của tenant: audit `support_grant.breakglass` hiển thị cho tenant, `security_event` mức `high`
+        (`support.break_glass`) và thông báo `support.break_glass` cho mọi Tenant Owner (không tắt được).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: platform.support_grant:breakglass
+      x-dual-control: true
+      x-task: P4-T13
+      x-audit-action: platform.support_grant.breakglass
+      parameters:
+        - $ref: '#/components/parameters/GrantId'
+      responses:
+        '200':
+          description: Grant sau khi duyệt break-glass
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupportGrant'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /platform/support-grants/{grantId}/revoke:
+    post:
+      tags: [platform]
+      operationId: revokePlatformSupportGrant
+      summary: Super Admin thu hồi một grant bất kỳ (đang chờ hoặc đang hiệu lực)
+      description: >-
+        §8.7 bước 4: có hiệu lực ở request kế tiếp. Grant đã ở trạng thái cuối ⇒ `409`. Audit platform
+        `platform.support_grant.revoke` + audit của tenant `support_grant.revoke` (minh bạch).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: platform.support_grant:revoke
+      x-task: P4-T13
+      x-audit-action: platform.support_grant.revoke
+      parameters:
+        - $ref: '#/components/parameters/GrantId'
+      responses:
+        '200':
+          description: Grant sau khi thu hồi
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupportGrant'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '429':
           $ref: '#/components/responses/RateLimited'
         default:
@@ -5479,6 +5788,30 @@ components:
       required: false
       schema:
         $ref: '#/components/schemas/JobKind'
+    # support grants (P4-T13)
+    GrantId:
+      name: grantId
+      in: path
+      required: true
+      description: ID của Support Access Grant (`support_access_grants.id`)
+      schema:
+        type: string
+        format: uuid
+    SupportGrantStatusFilter:
+      name: status
+      in: query
+      required: false
+      description: Lọc theo trạng thái hiệu lực
+      schema:
+        $ref: '#/components/schemas/SupportGrantStatus'
+    ActorTypeFilter:
+      name: actor_type
+      in: query
+      required: false
+      description: Lọc theo loại actor — `support` = hành động của nhân sự nền tảng dưới Support Access Grant (§8.7, P4-T13)
+      schema:
+        type: string
+        enum: [identity, system, support]
     # dual control (P3-T04a) + lời mời (P3-T05a)
     ApprovalId:
       name: approvalId
@@ -8425,6 +8758,108 @@ components:
           items:
             type: string
             pattern: '^tag:[a-z][a-z0-9-]{0,49}$'
+    # ------------------------------------------------------------ Support Access Grant (§8.7, §6.3 — P4-T13)
+    SupportGrantRole:
+      type: string
+      description: >-
+        Role hiệu lực phạm vi support (cột Staff của §8.6) — `support_operator` (ô G), `support_admin` (thêm ô G (Admin),
+        chỉ qua break-glass). Không bao giờ là role của tenant (Owner…).
+      enum: [support_operator, support_admin]
+    SupportGrantStatus:
+      type: string
+      description: Trạng thái hiệu lực — `approved` đã quá `expires_at` được trả là `expired`
+      enum: [pending, approved, rejected, revoked, expired]
+    SupportGrantCreate:
+      type: object
+      description: Yêu cầu truy cập hỗ trợ (§8.7 bước 1)
+      required: [tenant_id, effective_role, reason, ticket_ref, duration_minutes]
+      additionalProperties: false
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+          description: Tenant đích (tài nguyên của thao tác platform — không phải ngữ cảnh tenant của API)
+        effective_role:
+          $ref: '#/components/schemas/SupportGrantRole'
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        ticket_ref:
+          type: string
+          minLength: 1
+          maxLength: 200
+        duration_minutes:
+          type: integer
+          minimum: 1
+          maximum: 480
+          description: Thời lượng cửa sổ (≤ 8 giờ), tính từ lúc xin
+    SupportGrantPerson:
+      type: object
+      description: Một người của grant — tên hiển thị (với grantee là ảnh chụp lúc xin)
+      required: [display_name]
+      properties:
+        display_name:
+          type: string
+    SupportGrant:
+      type: object
+      description: >-
+        Support Access Grant (§6.3 `support_access_grants`). `decided_by` là thành viên tenant đã duyệt/từ chối (kiểu
+        `tenant`) hoặc Super Admin thứ hai (kiểu `breakglass` — tên chỉ trả cho phía platform; tenant thấy
+        `approval_kind = breakglass` và được thông báo).
+      required: [id, tenant_id, tenant_slug, effective_role, reason, ticket_ref, status, active, grantee, starts_at, expires_at, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        tenant_slug:
+          type: string
+        effective_role:
+          $ref: '#/components/schemas/SupportGrantRole'
+        reason:
+          type: string
+        ticket_ref:
+          type: string
+        status:
+          $ref: '#/components/schemas/SupportGrantStatus'
+        active:
+          type: boolean
+          description: Grant đang cho phép truy cập lúc trả lời (`approved` ∧ `starts_at` ≤ now < `expires_at`)
+        approval_kind:
+          type: string
+          enum: [tenant, breakglass]
+        grantee:
+          $ref: '#/components/schemas/SupportGrantPerson'
+        decided_by:
+          $ref: '#/components/schemas/SupportGrantPerson'
+        decided_at:
+          type: string
+          format: date-time
+        starts_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        revoked_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+    SupportGrantList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SupportGrant'
+        next_cursor:
+          type: [string, 'null']
     # ------------------------------------------------------------ P4-T03a: sửa tenant, thiết lập, IdP, platform users, settings, plans
     TenantUpdate:
       type: object

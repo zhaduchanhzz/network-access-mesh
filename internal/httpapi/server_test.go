@@ -112,6 +112,15 @@ var operations = []struct {
 	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/policies/import", `{"hujson":"{}"}`, "ImportTenantPolicy", nil},
 	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/policies/export", `{"source":{"grants":[]}}`, "ExportTenantPolicy", nil},
 	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/invitations/" + itemID + "/resend", "", "ResendTenantInvitation", nil},
+	// support access grants (P4-T13)
+	{http.MethodGet, "/api/v1/tenants/" + tenantID + "/support-grants?status=pending&limit=5", "", "ListTenantSupportGrants", nil},
+	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/support-grants/" + itemID + "/approve", "", "ApproveTenantSupportGrant", nil},
+	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/support-grants/" + itemID + "/reject", "", "RejectTenantSupportGrant", nil},
+	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/support-grants/" + itemID + "/revoke", "", "RevokeTenantSupportGrant", nil},
+	{http.MethodGet, "/api/v1/platform/support-grants?status=approved", "", "ListPlatformSupportGrants", nil},
+	{http.MethodPost, "/api/v1/platform/support-grants", `{"tenant_id":"` + tenantID + `","effective_role":"support_operator","reason":"ticket","ticket_ref":"T-1","duration_minutes":60}`, "CreateSupportGrant", []func(*http.Request){idempotency}},
+	{http.MethodPost, "/api/v1/platform/support-grants/" + itemID + "/approve-breakglass", "", "ApproveSupportGrantBreakglass", nil},
+	{http.MethodPost, "/api/v1/platform/support-grants/" + itemID + "/revoke", "", "RevokePlatformSupportGrant", nil},
 	// administration (P4-T03a)
 	{http.MethodPatch, "/api/v1/platform/tenants/" + tenantID, `{"name":"Acme 2"}`, "UpdatePlatformTenant", nil},
 	{http.MethodGet, "/api/v1/tenants/" + tenantID + "/settings", "", "GetTenantSettings", nil},

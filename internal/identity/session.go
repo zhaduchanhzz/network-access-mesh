@@ -182,6 +182,16 @@ type SessionView struct {
 	Session      *Session
 	PlatformRole string // "" when the identity has no active platform role
 	Memberships  []Membership
+	// SupportGrants: the live Support Access Grants of platform staff (§8.7, P4-T13) — display only.
+	SupportGrants []SupportGrantSummary
+}
+
+// SupportGrantSummary is one live Support Access Grant of the session's platform user.
+type SupportGrantSummary struct {
+	ID        uuid.UUID
+	TenantID  uuid.UUID
+	Role      string // support_operator, support_admin
+	ExpiresAt time.Time
 }
 
 // View loads the display data of a session.
@@ -189,7 +199,7 @@ func (s *Service) View(ctx context.Context, sess *Session) (*SessionView, error)
 	if sess == nil {
 		return nil, ErrUnauthenticated
 	}
-	v := &SessionView{Session: sess, Memberships: []Membership{}}
+	v := &SessionView{Session: sess, Memberships: []Membership{}, SupportGrants: []SupportGrantSummary{}}
 	var err error
 	switch sess.Scope {
 	case ScopePlatform:
@@ -198,7 +208,15 @@ func (s *Service) View(ctx context.Context, sess *Session) (*SessionView, error)
 			if errors.Is(err, store.ErrNoRows) {
 				return nil
 			}
+			if err != nil {
+				return err
+			}
 			v.PlatformRole = key
+			grants, err := q.ListSessionSupportGrants(ctx, sess.IdentityID)
+			for _, g := range grants {
+				v.SupportGrants = append(v.SupportGrants, SupportGrantSummary{ID: g.ID, TenantID: g.TenantID,
+					Role: g.EffectiveRoleKey, ExpiresAt: g.ExpiresAt.UTC()})
+			}
 			return err
 		})
 	case ScopeTenant:

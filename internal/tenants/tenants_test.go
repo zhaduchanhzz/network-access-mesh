@@ -36,13 +36,14 @@ type fixture struct {
 	svc  *tenants.Service
 	host uuid.UUID
 	n    int
+	db   string // the test database (P4-T13: a second store with the worker roles)
 }
 
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	pg := storetest.Require(t)
 	db := pg.NewDatabase(t)
-	f := &fixture{t: t, su: pg.Admin(t, db), st: pg.OpenStore(t, db, "mg_api_tenant", "mg_api_platform", 8)}
+	f := &fixture{t: t, su: pg.Admin(t, db), st: pg.OpenStore(t, db, "mg_api_tenant", "mg_api_platform", 8), db: db}
 	f.svc = tenants.New(f.st, tenants.Options{BaseDomain: "mg.test"})
 	f.host = uuid.Must(uuid.NewV7())
 	f.exec(`INSERT INTO hosts (id, name, region, run_uid_range, tenant_net_pool)
