@@ -58,10 +58,11 @@ func (s *Service) Claim(ctx context.Context, tenantID uuid.UUID, a Actor, in Cla
 	}
 	hash := authIDHash(in.AuthID)
 	var (
-		r    sqlcdb.EnrollmentRequest
-		tc   tenantContext
-		user member
-		op   audit.Operation
+		r     sqlcdb.EnrollmentRequest
+		tc    tenantContext
+		user  member
+		op    audit.Operation
+		known = map[uuid.UUID]bool{} // the member's live inventory rows when the claim begins
 	)
 	err := s.inTx(ctx, tenantID, func(q *sqlcdb.Queries) error {
 		var err error
@@ -117,6 +118,15 @@ func (s *Service) Claim(ctx context.Context, tenantID uuid.UUID, a Actor, in Cla
 		if user, err = loadMember(ctx, q, tenantID, a.MembershipID, "membership"); err != nil {
 			return err
 		}
+		// before AuthRegister: a row of the node it answers proves the node existed only when it was there already
+		ids, err := q.LiveDeviceIDsOfMember(ctx, sqlcdb.LiveDeviceIDsOfMemberParams{TenantID: tenantID,
+			InstanceID: tc.instance, Member: &a.MembershipID})
+		if err != nil {
+			return err
+		}
+		for _, id := range ids {
+			known[id] = true
+		}
 		now := s.now().UTC()
 		p := stateOf(r)
 		p.Status, p.AuthIDHash, p.ClaimedAt = StatusClaimed, hash, &now
@@ -134,7 +144,7 @@ func (s *Service) Claim(ctx context.Context, tenantID uuid.UUID, a Actor, in Cla
 	if err != nil {
 		return Request{}, err
 	}
-	return s.register(ctx, tenantID, a, r, user, tc, in.AuthID, op)
+	return s.register(ctx, tenantID, a, r, user, tc, known, in.AuthID, op)
 }
 
 func (s *Service) securityEvent(tenantID uuid.UUID, kind, severity string, a Actor, d audit.Details) audit.SecurityEvent {
@@ -153,14 +163,16 @@ func (s *Service) securityEvent(tenantID uuid.UUID, kind, severity string, a Act
 //
 // New or existing is decided by the node itself, never by its machine key alone: AuthRegister on a machine key that
 // already has a node of ANOTHER user creates a new node for the claiming member (V-28), so a row of that other node in
-// the inventory says nothing about the node answered. The node is new (rule a: checked, deleted on mismatch) when it
-// was created since the claim began — it can only be this AuthRegister's — or since the request was created while the
-// inventory has no row of this very node (same id, same machine key). Otherwise it existed before (rule b: never
-// deleted): accepted as a re-authentication only when it is the member's untagged node, every live row of its machine
-// belongs to the member, and no earlier claim rejected it; anything else is expired. A node an earlier claim rejected
-// as a mismatch (its delete did not go through) is deleted now instead.
+// the inventory says nothing about the node answered. The node existed before the claim (rule b: never deleted) only
+// when it was created before the claim began and either the inventory had a row of this very node (same id, same
+// machine key) when the claim began — known, read in the claimed transaction: a row a concurrent inventory.sync
+// inserts for the new node does not count, whatever the clock of the instance says — or, without such a row, it was
+// created before the request. Anything else is new (rule a: checked, deleted on mismatch). An existing node is
+// accepted as a re-authentication only when it is the member's untagged node, every live row of its machine belongs
+// to the member, and no earlier claim rejected it; anything else is expired. A node an earlier claim rejected as a
+// mismatch (its delete did not go through) is deleted now instead.
 func (s *Service) register(ctx context.Context, tenantID uuid.UUID, a Actor, r sqlcdb.EnrollmentRequest, user member,
-	tc tenantContext, authID string, op audit.Operation,
+	tc tenantContext, known map[uuid.UUID]bool, authID string, op audit.Operation,
 ) (Request, error) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), claimBudget)
 	defer cancel()
@@ -259,7 +271,8 @@ func (s *Service) register(ctx context.Context, tenantID uuid.UUID, a Actor, r s
 			"node_id", node.ID, "deleted", deleted, "expired", expired, "sqlstate", store.SQLState(err))
 		return fail(fmt.Errorf("enrollment: record the registered node: %w", err), "record_failed")
 	}
-	isNew := createdSince(node, claimedAt) || own == nil && createdSince(node, r.CreatedAt)
+	ownKnown := own != nil && known[own.ID]
+	isNew := createdSince(node, claimedAt) || !ownKnown && createdSince(node, r.CreatedAt)
 	ownUser := node.User != nil && node.User.Name == user.user
 	if !isNew {
 		if prior.WasMismatch {

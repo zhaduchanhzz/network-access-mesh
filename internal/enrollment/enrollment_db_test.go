@@ -366,6 +366,58 @@ func TestEnrollment(t *testing.T) {
 		}
 	})
 
+	t.Run("NewNodeAgainstTheInventory", func(t *testing.T) {
+		// C0: a row of the node AuthRegister answers proves that the node existed only when the inventory had it when the
+		// claim began. An inventory.sync whose snapshot lists the new node commits its row (owner: the claimer, from the
+		// user name) before the claim reads the inventory: the node is still new — checked, deleted on mismatch —
+		// whatever the clock of the instance says. A new node that gets the id of a row known before (an instance
+		// restored from an older backup) is new as well.
+		admin := a.actor("admin", uuid.New())
+		ctx := ctxOf(admin, a.id, ActionClaim)
+		row := func(id uint64, mkey string) {
+			f.exec(t, `INSERT INTO device_inventory_cache (tenant_id, instance_id, headscale_node_id, machine_key, name,
+				owner_membership_id) VALUES ($1, $2, $3, $4, 'synced', $5)`, a.id, a.instance, int64(id), mkey, //nolint:gosec // small
+				admin.MembershipID)
+		}
+		claim := func(what, key string, n devicestest.Node, setup func(request uuid.UUID)) {
+			t.Helper()
+			out, err := f.api.Create(ctx, a.id, admin, NewRequest{Method: MethodWebAuth}, idem(key, key))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if setup != nil {
+				setup(out.Request.ID)
+			}
+			authID := "hskey-authreq-" + strings.Repeat("V", 20) + key[len(key)-4:]
+			a.hs.PutPending(authID, n)
+			r, err := f.api.Claim(ctx, a.id, admin, Claim{AuthID: authID})
+			if err != nil || r.Status != StatusFailed || failureOf(r) != FailureNodeMismatch || r.NodeID == nil ||
+				uint64(*r.NodeID) != n.ID { //nolint:gosec // small test ids
+				t.Errorf("%s: %s/%s node %v %v, want failed/%s node %d", what, r.Status, failureOf(r), r.NodeID, err,
+					FailureNodeMismatch, n.ID)
+			}
+			if _, ok := a.hs.Node(n.ID); ok {
+				t.Errorf("%s: the new node was left registered", what)
+			}
+		}
+		syncDuring := func(id uint64, mkey string) func(uuid.UUID) {
+			return func(uuid.UUID) {
+				a.hs.After(devicestest.OpAuthRegister, func(uint64) { row(id, mkey) })
+			}
+		}
+		claim("sync during the claim", "k-c0s-0001", devicestest.Node{ID: 4501, MachineKey: "mkey:c0-sync",
+			Hostname: "evil-sync"}, syncDuring(4501, "mkey:c0-sync"))
+		// the clock of the instance runs 10 s behind the database's; the requester took 5 minutes to sign in
+		claim("sync during the claim, instance clock behind", "k-c0s-0002", devicestest.Node{ID: 4502,
+			MachineKey: "mkey:c0-skew", Hostname: "evil-skew", CreatedAt: time.Now().Add(-10 * time.Second)},
+			func(request uuid.UUID) {
+				f.exec(t, `UPDATE enrollment_requests SET created_at = now() - interval '5 minutes' WHERE id = $1`, request)
+				syncDuring(4502, "mkey:c0-skew")(request)
+			})
+		claim("node id of a row known before", "k-c0s-0003", devicestest.Node{ID: 4503, MachineKey: "mkey:c0-reuse",
+			Hostname: "evil-reuse"}, func(uuid.UUID) { row(4503, "mkey:c0-reuse") })
+	})
+
 	t.Run("ClaimRunsToItsVerdict", func(t *testing.T) {
 		// C1: once AuthRegister may have registered a node, the claim runs to its verdict whatever happens to the request
 		// or to the answer — a node is never left registered under the member without the checks of step 8.

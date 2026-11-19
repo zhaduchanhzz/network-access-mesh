@@ -110,6 +110,15 @@ WHERE tenant_id = sqlc.arg(tenant_id) AND instance_id = sqlc.arg(instance_id) AN
   AND removed_at IS NULL
 ORDER BY first_seen_at DESC, id DESC;
 
+-- name: LiveDeviceIDsOfMember :many
+-- Claim (§7.4 bước 8), trong transaction ghi claimed — TRƯỚC AuthRegister: các hàng sống của thành viên trên instance.
+-- Hàng của node AuthRegister trả về chỉ chứng minh node có từ trước claim khi nó có trong tập này: hàng một
+-- inventory.sync đồng thời chèn sau đó (snapshot liệt kê node vừa tạo) không làm node mới thành "đã có" — không phụ
+-- thuộc đồng hồ của Headscale (created_at của node).
+SELECT id FROM device_inventory_cache
+WHERE tenant_id = sqlc.arg(tenant_id) AND instance_id = sqlc.arg(instance_id)
+  AND owner_membership_id = sqlc.arg(member) AND removed_at IS NULL;
+
 -- name: ClaimRejectionsOfNode :one
 -- Claim (§7.4 bước 8): node này (id + machine key) đã bị một claim trước từ chối SAU khi được tạo — node_mismatch (lẽ ra
 -- đã bị xóa: DeleteNode không thành) hay foreign_node (đã expire). Node như vậy không bao giờ được chấp nhận như một

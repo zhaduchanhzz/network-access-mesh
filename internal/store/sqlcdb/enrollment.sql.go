@@ -576,6 +576,42 @@ func (q *Queries) ListOpenEnrollmentRequests(ctx context.Context, tenantID uuid.
 	return items, nil
 }
 
+const liveDeviceIDsOfMember = `-- name: LiveDeviceIDsOfMember :many
+SELECT id FROM device_inventory_cache
+WHERE tenant_id = $1 AND instance_id = $2
+  AND owner_membership_id = $3 AND removed_at IS NULL
+`
+
+type LiveDeviceIDsOfMemberParams struct {
+	TenantID   uuid.UUID
+	InstanceID uuid.UUID
+	Member     *uuid.UUID
+}
+
+// Claim (§7.4 bước 8), trong transaction ghi claimed — TRƯỚC AuthRegister: các hàng sống của thành viên trên instance.
+// Hàng của node AuthRegister trả về chỉ chứng minh node có từ trước claim khi nó có trong tập này: hàng một
+// inventory.sync đồng thời chèn sau đó (snapshot liệt kê node vừa tạo) không làm node mới thành "đã có" — không phụ
+// thuộc đồng hồ của Headscale (created_at của node).
+func (q *Queries) LiveDeviceIDsOfMember(ctx context.Context, arg LiveDeviceIDsOfMemberParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, liveDeviceIDsOfMember, arg.TenantID, arg.InstanceID, arg.Member)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const liveDevicesOfMachineKey = `-- name: LiveDevicesOfMachineKey :many
 SELECT id, tenant_id, instance_id, headscale_node_id, machine_key, node_key, name, given_name, ip_addresses, headscale_user_id, owner_membership_id, tags, register_method, online, last_seen, expiry, approved_routes, available_routes, subnet_routes, hs_created_at, first_seen_at, last_synced_at, sync_generation, removed_at, enrollment_request_id, revocation_state, revocation_kind, revocation_requested_at, revocation_verified_at, revocation_job_id FROM device_inventory_cache
 WHERE tenant_id = $1 AND instance_id = $2 AND machine_key = $3
