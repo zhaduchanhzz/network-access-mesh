@@ -183,15 +183,7 @@ func (e *pgEnv) newDB(t *testing.T) string {
 }
 
 func (e *pgEnv) dropAll() {
-	ctx := context.Background()
-	c, err := pgx.Connect(ctx, e.adminURL("postgres"))
-	if err != nil {
-		return
-	}
-	defer func() { _ = c.Close(ctx) }()
-	for _, n := range e.dbs {
-		_, _ = c.Exec(ctx, "DROP DATABASE IF EXISTS "+pgx.Identifier{n}.Sanitize()+" WITH (FORCE)")
-	}
+	pgcluster.DropDatabases("secrets", e.adminURL("postgres"), e.dbs)
 }
 
 // syncBuffer collects log output from concurrent goroutines.

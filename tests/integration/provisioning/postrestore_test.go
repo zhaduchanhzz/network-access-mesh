@@ -259,9 +259,7 @@ func TestPostRestoreReconcile(t *testing.T) {
 	if _, err := adm.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{restored}.Sanitize()+" TEMPLATE template0 OWNER mg_migrator"); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		_, _ = adm.Exec(context.Background(), "DROP DATABASE IF EXISTS "+pgx.Identifier{restored}.Sanitize()+" WITH (FORCE)")
-	})
+	t.Cleanup(func() { h.pg.DropDatabase(restored) })
 	h.pgExec(t, "pg_restore", "-U", "postgres", "-d", restored, "--exit-on-error", dumpFile)
 	h.pgExec(t, "rm", "-f", dumpFile)
 	r := h.openRestored(t, restored)

@@ -48,7 +48,7 @@ func TestHarnessesShareTheClusterRules(t *testing.T) {
 		}
 		harness := strings.HasSuffix(path, "_test.go") ||
 			strings.Contains(filepath.ToSlash(path), "/internal/store/storetest/")
-		if !strings.HasSuffix(path, ".go") || !harness || path == self {
+		if !strings.HasSuffix(path, ".go") || !harness || filepath.Dir(path) == filepath.Dir(self) {
 			return nil
 		}
 		b, err := os.ReadFile(path) //nolint:gosec // a file of this repository, found by walking it
@@ -56,7 +56,8 @@ func TestHarnessesShareTheClusterRules(t *testing.T) {
 			return err
 		}
 		src := string(b)
-		if strings.Contains(src, "pg_advisory_lock(") || strings.Contains(src, `"meshguard-test|"`) {
+		if strings.Contains(src, "pg_advisory_lock(") || strings.Contains(src, `"meshguard-test|"`) ||
+			strings.Contains(src, `"DROP DATABASE`) {
 			rel, _ := filepath.Rel(root, path)
 			offenders = append(offenders, filepath.ToSlash(rel))
 		}
@@ -66,10 +67,8 @@ func TestHarnessesShareTheClusterRules(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, f := range offenders {
-		if f == "internal/store/storetest/pgcluster/pgcluster_test.go" {
-			continue // this test names the patterns it looks for
-		}
-		t.Errorf("%s takes an advisory lock or derives role passwords itself — use pgcluster.Lock and pgcluster.RolePassword", f)
+		t.Errorf("%s takes an advisory lock, derives role passwords or drops databases itself — use pgcluster.Lock, "+
+			"pgcluster.RolePassword and pgcluster.DropDatabases", f)
 	}
 }
 

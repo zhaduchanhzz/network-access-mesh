@@ -268,15 +268,7 @@ func (e *pgEnv) sharedDB(t *testing.T) string {
 }
 
 func (e *pgEnv) dropAll() {
-	ctx := context.Background()
-	c, err := pgx.Connect(ctx, e.adminURL("postgres"))
-	if err != nil {
-		return
-	}
-	defer func() { _ = c.Close(ctx) }()
-	for _, n := range e.created {
-		_, _ = c.Exec(ctx, "DROP DATABASE IF EXISTS "+pgx.Identifier{n}.Sanitize()+" WITH (FORCE)")
-	}
+	pgcluster.DropDatabases("store", e.adminURL("postgres"), e.created)
 }
 
 // openStore opens a Store on db with the given tenant and platform login roles.
