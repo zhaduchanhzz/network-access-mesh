@@ -82,6 +82,14 @@ for f in sorted([*staging.rglob("*.json"), ROOT / "infrastructure" / "host" / "m
     hard = [v for v in literals if v in text]
     check(not hard, f"{f.relative_to(ROOT).as_posix()}: no hard-coded environment value", str(hard))
 
+# the host firewall template renders with the staging env file into exactly what apply-firewall.sh accepts: it refuses
+# any rendered text that still holds "${MG_" — comments included (deploy rehearsal P4, F-1: a comment of the template
+# naming the placeholder syntax made the documented `mgenv.py render … | bash apply-firewall.sh` always refuse)
+fw = mgenv.expand_text((ROOT / "infrastructure" / "host" / "mg-staging-firewall.nft").read_text(encoding="utf-8"), env)
+guard = re.search(r"grep -q '([^']+)'", (ROOT / "infrastructure" / "host" / "apply-firewall.sh").read_text(encoding="utf-8"))
+check(guard is not None and guard.group(1) == "${MG_", "apply-firewall.sh: refuses rendered text holding '${MG_'")
+check("${MG_" not in fw, "mg-staging-firewall.nft rendered with staging.env: no '${MG_' left (apply-firewall.sh accepts it)")
+
 # public outputs of the key ceremony (P2-T04a): present in every env file (empty until the ceremony is done), and when
 # filled, an age X25519 recipient and an Ed25519 SubjectPublicKeyInfo — never a private key pasted by mistake.
 AGE_RECIPIENT = re.compile(r"^age1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{58}$")

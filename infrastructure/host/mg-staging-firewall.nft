@@ -1,4 +1,5 @@
-# TEMPLATE — giá trị ${MG_*} lấy từ env file của môi trường (tools/mgenv.py). Áp:
+# TEMPLATE — placeholder MG_* (dạng đô-la + ngoặc nhọn) lấy từ env file của môi trường (tools/mgenv.py). Chú thích
+# không được chứa chính chuỗi placeholder: apply-firewall.sh từ chối mọi bản render còn chuỗi đó (tools/test_mgenv.py). Áp:
 #   python3 tools/mgenv.py render infrastructure/host/mg-staging-firewall.nft infrastructure/environments/staging/staging.env | bash infrastructure/host/apply-firewall.sh
 #!/usr/sbin/nft -f
 # Firewall của host LAN staging (P1-T02, §14.1, V-35, AC-20).
