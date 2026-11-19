@@ -87,6 +87,10 @@ var recipes = map[string]recipe{
 	// relay (P3-T05c, relayapi — mounted; reads only the database)
 	"getTenantRelay":           {ok: answer{status: http.StatusOK}},
 	"listPlatformRelayRegions": {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
+	// tenant detail of the Platform Console (P4-T02 — httpapi.PlatformTenantView over jobsapi, tenantsapi, relayapi)
+	"listPlatformTenantJobs":         {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
+	"listPlatformTenantInstances":    {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
+	"listPlatformTenantRelayRegions": {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
 	// dual control (P3-T04a, approvalsapi — mounted with the matrix's actions, world_test.go): granted deciders race
 	// on the same request (one executes, the others get 409) — any answer that is not a refusal
 	"listPlatformApprovals":   {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
@@ -221,6 +225,25 @@ var recipes = map[string]recipe{
 	"deleteTenantTag": {ok: answer{http.StatusConflict, gen.ProblemCodeConflict}},
 	"setDeviceTags": {body: `{"tags":["tag:server"]}`,
 		ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
+	// policy lifecycle (P4-T10, policiesapi — mounted): the matrix's object of each tenant is a typed DRAFT version (never
+	// approved), so every granted transition without If-Match answers 428 before any change, a granted apply answers 409
+	// not_approved and a granted rollback 409 never_approved (the object stays a draft for every caller); a create
+	// answers 201 (a new draft each time — never applied); the reads answer 200 (the diff renders over the tables).
+	"listTenantPolicies":     {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
+	"getCurrentTenantPolicy": {ok: answer{status: http.StatusOK}},
+	"getTenantPolicy":        {ok: answer{status: http.StatusOK}},
+	"diffTenantPolicy":       {ok: answer{status: http.StatusOK}},
+	"createTenantPolicy":     {idempotent: true, body: `{"source":{"grants":[]}}`, ok: answer{status: http.StatusCreated}},
+	"updateTenantPolicy": {body: `{"source":{"grants":[]}}`,
+		ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
+	"validateTenantPolicy": {ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
+	"submitTenantPolicy":   {ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
+	"approveTenantPolicy": {body: `{"content_sha256":"` + matrixPolicySHA + `"}`,
+		ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
+	"rejectTenantPolicy": {body: `{"reason":"matrix"}`,
+		ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
+	"applyTenantPolicy":    {idempotent: true, ok: answer{http.StatusConflict, gen.ProblemCodeConflict}},
+	"rollbackTenantPolicy": {idempotent: true, ok: answer{http.StatusConflict, gen.ProblemCodeConflict}},
 	// enrollment (P4-T06, enrollmentapi — mounted; the matrix's tenants allow self-enrolment, so the End User's
 	// conditional grant passes and the handler enforces the condition): a web-auth request is issued without Headscale
 	// (201); a privileged key reaches Headscale behind the unreachable edge (503); a claim without a request pending in
@@ -260,6 +283,7 @@ const (
 	objPlatformUser objectKind = "platform-user"
 	objSetting      objectKind = "setting"
 	objPlan         objectKind = "plan"
+	objPolicy       objectKind = "policy" // /tenants/{t}/policies/{versionId} (P4-T10)
 	// P4-T06: /tenants/{t}/enrollment/requests/{enrollmentRequestId} — End User: own on read/revoke
 	objEnrollment objectKind = "enrollment"
 )
@@ -270,4 +294,5 @@ var paramObjects = map[string]objectKind{
 	"tenantId": objTenant, "sessionId": objSession, "idpId": objIdP, "approvalId": objApproval, "invitationId": objInvitation,
 	"hostId": objHost, "tagId": objTag, "notificationId": objNotification, "groupId": objGroup,
 	"platformUserId": objPlatformUser, "settingKey": objSetting, "planId": objPlan, "enrollmentRequestId": objEnrollment,
+	"versionId": objPolicy,
 }

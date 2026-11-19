@@ -14,9 +14,9 @@ import { can } from "../../auth/permissions";
 import { Loading, Page } from "../../components/Page";
 import { ProblemAlert } from "../../components/ProblemAlert";
 import { NotFoundPage } from "../../pages/StatusPages";
+import { callWithResponse } from "../../api/client";
+import { useIdempotencyKey } from "../../api/idempotency";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
-import { callWithResponse } from "../../ui/http";
-import { useIdempotencyKey } from "../../ui/idempotency";
 import { ObservedAt, Timestamp } from "../../ui/time";
 import { useTenant } from "../TenantScope";
 import { ExpiryText, OnlineBadge, OwnerText, RevocationBadge, TagList } from "./DeviceBits";
@@ -291,20 +291,25 @@ function Revocations({
         ) : null}
       </div>
       <ConfirmDialog
-        open={confirm !== null}
+        isOpen={confirm !== null}
+        onOpenChange={(o) => {
+          if (!o) close();
+        }}
         title={confirm === "delete" ? t("devices.revoke.confirmDeleteTitle", { name: device.given_name }) : t("devices.revoke.confirmExpireTitle", { name: device.given_name })}
+        description={
+          <div className="space-y-2">
+            <p>{confirm === "delete" ? t("devices.revoke.confirmDelete") : t("devices.revoke.confirmExpire")}</p>
+            <p className="text-muted">{t("devices.revoke.twoPhase")}</p>
+          </div>
+        }
         confirmLabel={confirm === "delete" ? t("devices.revoke.delete") : t("devices.revoke.expire")}
         destructive
-        busy={revoke.isPending}
-        onCancel={close}
+        pending={revoke.isPending}
+        error={revoke.isError ? revoke.error : undefined}
         onConfirm={() => {
           if (confirm) revoke.mutate(confirm);
         }}
-      >
-        <p>{confirm === "delete" ? t("devices.revoke.confirmDelete") : t("devices.revoke.confirmExpire")}</p>
-        <p className="text-muted">{t("devices.revoke.twoPhase")}</p>
-        {revoke.isError ? <ProblemAlert error={revoke.error} /> : null}
-      </ConfirmDialog>
+      />
     </section>
   );
 }

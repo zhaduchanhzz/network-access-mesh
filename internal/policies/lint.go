@@ -55,9 +55,14 @@ func (e *LintError) Code() string {
 	case RuleDecoderGuard:
 		return "lint_decoder_guard"
 	case RuleL6:
-		return "lint_l6_undeclared_tag"
+		if len(e.Tags) > 0 || strings.Contains(e.Detail, "tag catalog") {
+			return "lint_l6_undeclared_tag"
+		}
+		return "lint_l6_undeclared_reference"
+	case RuleSyntax:
+		return "lint_syntax"
 	}
-	return "lint_syntax"
+	return "lint_" + strings.ToLower(e.Rule)
 }
 
 // IsLint reports whether err is a lint refusal and returns it.

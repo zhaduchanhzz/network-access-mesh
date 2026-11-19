@@ -52,12 +52,13 @@ ORDER BY a.priority, a.created_at, a.id;
 
 -- name: ListRelayRegionsPage :many
 -- Pool platform (GET /platform/relay-regions): một trang region của mọi tenant (và region dùng chung — Phase 7), thứ tự
--- ổn định (created_at, id).
+-- ổn định (created_at, id); GET /platform/tenants/{t}/relay-regions (P4-T02) lọc theo tenant_id của region.
 SELECT r.id, r.code, r.name, r.kind, r.derp_region_id, r.hostname, r.ipv4, r.ipv6, r.stun_port, r.derp_port, r.verify_mode,
        r.host_id, r.tenant_id, r.status, r.last_probe, r.last_probe_at, r.created_at, r.updated_at, r.version
 FROM relay_regions r
-WHERE sqlc.narg(after_created_at)::timestamptz IS NULL
-   OR (r.created_at, r.id) > (sqlc.narg(after_created_at)::timestamptz, sqlc.narg(after_id)::uuid)
+WHERE (sqlc.narg(tenant_id)::uuid IS NULL OR r.tenant_id = sqlc.narg(tenant_id)::uuid)
+  AND (sqlc.narg(after_created_at)::timestamptz IS NULL
+       OR (r.created_at, r.id) > (sqlc.narg(after_created_at)::timestamptz, sqlc.narg(after_id)::uuid))
 ORDER BY r.created_at, r.id
 LIMIT sqlc.arg(row_limit);
 

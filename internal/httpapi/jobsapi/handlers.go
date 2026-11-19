@@ -41,6 +41,7 @@ type Service interface {
 	GetTenantJob(ctx context.Context, tenantID, jobID uuid.UUID) (jobs.Job, error)
 	ListPlatformJobs(ctx context.Context, f jobs.ListFilter) (jobs.JobList, error)
 	GetPlatformJob(ctx context.Context, jobID uuid.UUID) (jobs.PlatformJob, error)
+	ListPlatformTenantJobs(ctx context.Context, tenantID uuid.UUID, f jobs.ListFilter) (jobs.JobList, error)
 }
 
 var _ Service = (*jobs.Service)(nil)
@@ -121,6 +122,31 @@ func (h *Handlers) ListPlatformJobs(ctx context.Context, req gen.ListPlatformJob
 		return nil, serviceError(err, p.Cursor != nil)
 	}
 	return gen.ListPlatformJobs200JSONResponse(jobList(list)), nil
+}
+
+// ListPlatformTenantJobs implements GET /platform/tenants/{tenantId}/jobs (P4-T02 — the recent jobs of the tenant
+// detail of the Platform Console; mounted through httpapi.PlatformTenantView). A platform route: the {tenantId} of the
+// path filters the platform registry, it is not a tenant context (the decision carries no tenant). Every job returned
+// must carry the tenant of the path, otherwise 500 — a job of another tenant is never sent.
+func (h *Handlers) ListPlatformTenantJobs(ctx context.Context, req gen.ListPlatformTenantJobsRequestObject) (gen.ListPlatformTenantJobsResponseObject, error) {
+	if err := platformDecision(ctx); err != nil {
+		return nil, err
+	}
+	p := req.Params
+	f, err := filter(p.Limit, p.Cursor, p.Status, p.Kind)
+	if err != nil {
+		return nil, err
+	}
+	list, err := h.svc.ListPlatformTenantJobs(ctx, req.TenantId, f)
+	if err != nil {
+		return nil, serviceError(err, p.Cursor != nil)
+	}
+	for _, j := range list.Items {
+		if j.TenantID == nil || *j.TenantID != req.TenantId {
+			return nil, problem.Internal(errForeignJob)
+		}
+	}
+	return gen.ListPlatformTenantJobs200JSONResponse(jobList(list)), nil
 }
 
 // GetPlatformJob implements GET /platform/jobs/{jobId}.

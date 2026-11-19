@@ -58,9 +58,10 @@ const partitionRole = "mg_partition_maint"
 //	                 the same agent client as reconcile); instance.reconfigure (P3-T13: MG_AGENT_* — prober optional)
 //	lifecycle        tenant.suspend + tenant.resume (P3-T08, §11.4) over a Headscale registry of their own that reaches a
 //	                 suspended tenant's instance (lifecycle.go), always wired — no Host Agent needed
-//	policies         policy.apply (P4-T15 first form: the desired version again with the tag catalog rendered — trigger
-//	                 tag_change from the catalog API, group_change from members, P4-T09) over the shared registry; full
-//	                 pipeline P4-T10
+//	policies         policy.apply (P4-T09/P4-T15/P4-T10: ONE handler — the desired version rendered with the groups,
+//	                 resources, tag catalog and memberships of now, the suspension policy of a tenant being suspended)
+//	                 and policy.drift_check + its schedule (P4-T10) over the shared registry, the reachable registry of
+//	                 suspended tenants and, with the Host Agent, the edge detach of an instance without policy
 //	deprovision      tenant.deprovision (P3-T09, §11.4: the final backup in-process, 15 steps, 2P upstream) over a
 //	                 registry that reaches a deprovisioning tenant (deprovision.go); tenant.keys_destroy every hour after
 //	                 MG_DEPROVISION_KEY_GRACE (crypto-shredding — §6.1)
@@ -133,18 +134,21 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 	if err := life.Register(w); err != nil {
 		return nil, err
 	}
-	// P4-T15 + P4-T09: policy.apply, ONE handler (level-triggered — the desired policy with the tag catalog rendered;
-	// trigger tag_change from the catalog API, group_change from members) over the shared registry: a tenant that is
-	// not active is skipped (the suspension policy stays; resume renders it)
-	pol, err := policies.New(d.st, policies.Config{Registry: d.headscale, Logger: log})
+	agent, err := newAgent(cfg, d) // one client of the Host Agent: reconcile + orchestrator + policies (edge detach)
+	if err != nil {
+		return nil, err
+	}
+	// P4-T10 (+ P4-T09/P4-T15): policy.apply, ONE handler (level-triggered — the desired version rendered with the
+	// tables of now; the suspension policy of a tenant being suspended) and policy.drift_check (its schedule in
+	// workerSchedules)
+	pol, err := newPolicies(cfg, d, agent)
 	if err != nil {
 		return nil, err
 	}
 	if err := pol.Register(w); err != nil {
 		return nil, err
 	}
-	agent, err := newAgent(cfg, d) // one client of the Host Agent: reconcile + orchestrator
-	if err != nil {
+	if err := pol.RegisterDrift(w); err != nil {
 		return nil, err
 	}
 	rec, err := newReconcile(d, agent, reg) // P3-T12: instance.reconcile + host.reconcile, report only
@@ -266,7 +270,7 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 	}
 	ctl := &workControl{gate: gate, w: w, log: log, check: 2 * time.Second, stopWait: stopTimeout - 5*time.Second,
 		schedules: workerSchedules(schedulers{devices: dev, monitor: mon, reconcile: rec, keys: keys, relays: relays,
-			backups: bk, backupsOn: backupsEnabled(cfg, agent), enrollment: enr})}
+			backups: bk, backupsOn: backupsEnabled(cfg, agent), policies: pol, enrollment: enr})}
 	var bg []*background
 	c := &component{probes: d.probes(), close: d.close}
 	c.start = func(ctx context.Context) error {
@@ -300,6 +304,7 @@ type schedulers struct {
 	relays     *relay.Service // nil without a prober (MG_PROBER_URL): relay.probe then runs nothing
 	backups    *backup.Service
 	backupsOn  bool                // backupsEnabled: a Host Agent and a manifest key
+	policies   *policies.Service   // policy.drift_check (P4-T10)
 	enrollment *enrollment.Service // P4-T06: enrollment.reconcile for tenants with open requests
 }
 
@@ -314,6 +319,7 @@ func workerSchedules(s schedulers) map[string]func(context.Context) error {
 		"reconcile":            s.reconcile.NewScheduler(reconcile.SchedulerConfig{}).Run,
 		"apikey.rotate":        s.keys.NewScheduler(apikey.SchedulerConfig{}).Run,
 		"relay.probe":          relaySchedule(s.relays),
+		"policy.drift":         s.policies.NewScheduler(policies.DriftSchedulerConfig{}).Run, // P4-T10
 		"enrollment.reconcile": s.enrollment.NewScheduler(enrollment.SchedulerConfig{}).Run,
 	}
 	if s.backupsOn {

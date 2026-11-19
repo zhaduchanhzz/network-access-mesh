@@ -1,24 +1,26 @@
 // Banner toàn cục: step-up (401 reauth_required), rate limit (429 + Retry-After), bảo trì (503 maintenance).
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation } from "react-router";
 import { useConsole } from "../app/console";
 import { useNotices } from "../app/notices";
-import { startLogin, useSession } from "../auth/session";
+import { queryKeys } from "../api/queryClient";
+import { startLogin, type Session } from "../auth/session";
 
 const TENANT_ROUTE_RE = /^\/t\/([0-9a-f-]{36})(?:\/|$)/i;
 
-export function StepUpPrompt() {
-  const { t } = useTranslation();
-  const notices = useNotices();
+/** Step-up (401 reauth_required): đăng nhập lại với reauth=true rồi quay về đúng trang hiện tại. Dùng ở lời nhắc chung
+ * và trong hộp thoại đang mở (hộp modal che lời nhắc ở đầu trang — P4-T02). */
+export function useStepUp(): () => void {
   const kind = useConsole();
   const location = useLocation();
-  const session = useSession().data;
-  if (!notices.stepUp) return null;
-  const tenantId = TENANT_ROUTE_RE.exec(location.pathname)?.[1];
-  const slug =
-    session?.memberships.find((m) => m.tenant_id === tenantId)?.tenant_slug ?? session?.memberships[0]?.tenant_slug;
-  const reauth = () => {
+  const queryClient = useQueryClient();
+  return () => {
+    const session = queryClient.getQueryData<Session | null>(queryKeys.session());
+    const tenantId = TENANT_ROUTE_RE.exec(location.pathname)?.[1];
+    const slug =
+      session?.memberships.find((m) => m.tenant_id === tenantId)?.tenant_slug ?? session?.memberships[0]?.tenant_slug;
     startLogin({
       console: kind,
       tenantSlug: kind === "tenant" ? (slug ?? null) : null,
@@ -26,6 +28,13 @@ export function StepUpPrompt() {
       reauth: true,
     });
   };
+}
+
+export function StepUpPrompt() {
+  const { t } = useTranslation();
+  const notices = useNotices();
+  const reauth = useStepUp();
+  if (!notices.stepUp) return null;
   return (
     <div role="alertdialog" aria-labelledby="stepup-title" aria-describedby="stepup-desc" className="banner banner-warn">
       <div>

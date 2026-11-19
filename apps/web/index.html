@@ -10,6 +10,8 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- react-aria (usePress) chỉ tự chèn quy tắc CSS inline khi chưa có phần tử id này — CSP chặn CSS inline; quy tắc ở styles.css -->
+    <template id="react-aria-pressable-style"></template>
     <noscript>MeshGuard cần JavaScript. · MeshGuard requires JavaScript.</noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>

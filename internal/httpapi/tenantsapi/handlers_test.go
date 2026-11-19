@@ -180,10 +180,11 @@ func TestRegistryReadsThroughTheChain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	registry := tenantsapi.New(tenants.New(st, tenants.Options{BaseDomain: "mg.test"}), platform.New(st))
 	h, err := httpapi.New(httpapi.Options{
 		Logger: logx.New(&strings.Builder{}, slog.LevelInfo, "api"),
-		Handlers: httpapi.Handlers{Auth: identityapi.New(svc),
-			Tenants: tenantsapi.New(tenants.New(st, tenants.Options{BaseDomain: "mg.test"}), platform.New(st))},
+		Handlers: httpapi.Handlers{Auth: identityapi.New(svc), Tenants: registry,
+			TenantView: httpapi.PlatformTenantView{Instances: registry}}, // P4-T02
 		Hooks: unaudited(authzhook.Hooks(svc, authz.New(st))),
 	})
 	if err != nil {
@@ -280,6 +281,20 @@ func TestRegistryReadsThroughTheChain(t *testing.T) {
 	if ib := decode[gen.Instance](t, "GET instance B", staff.get(admin+"/platform/instances/"+instB.String())); ib.TenantId != b {
 		t.Fatalf("GET /platform/instances/B = %+v", ib)
 	}
+	// P4-T02: the instances of one tenant (tenant detail of the Platform Console) — only that tenant's, same schema
+	rec = staff.get(admin + "/platform/tenants/" + b.String() + "/instances")
+	ofB := decode[gen.InstanceList](t, "GET /platform/tenants/B/instances", rec)
+	if len(ofB.Items) != 1 || ofB.Items[0].Id != instB || ofB.Items[0].TenantId != b || ofB.NextCursor != nil ||
+		strings.Contains(rec.Body.String(), "mgsec://") || strings.Contains(rec.Body.String(), instA.String()) {
+		t.Fatalf("GET /platform/tenants/B/instances = %s", rec.Body)
+	}
+	if none := decode[gen.InstanceList](t, "B stopped", staff.get(admin+"/platform/tenants/"+b.String()+"/instances?status=stopped")); len(none.Items) != 0 {
+		t.Fatalf("GET /platform/tenants/B/instances?status=stopped = %+v", none)
+	}
+	problemOf(t, "instances of an unknown tenant", staff.get(admin+"/platform/tenants/"+uuid.NewString()+"/instances"), 404,
+		gen.ProblemCodeNotFound)
+	problemOf(t, "tenant instances, bad limit", staff.get(admin+"/platform/tenants/"+b.String()+"/instances?limit=0"), 422,
+		gen.ProblemCodeValidationFailed)
 	// instance health: the rule of the dashboards (monitoring.HealthOf, P2-T13a) at the database clock of the read
 	if h := insts.Items[0].Health; h.CheckedAt != nil || h.Reason == nil || *h.Reason != "never_checked" {
 		t.Fatalf("never probed: %+v", h)

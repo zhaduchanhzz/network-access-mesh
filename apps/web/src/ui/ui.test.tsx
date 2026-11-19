@@ -1,13 +1,10 @@
-// Hạ tầng UI dùng chung (P4-T04): Location của job, Idempotency-Key, thời gian tương đối, hộp xác nhận (a11y, bàn phím).
-import { render, renderHook, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { useState } from "react";
-import { describe, expect, it, vi } from "vitest";
+// Hạ tầng UI dùng chung (P4-T04, hợp nhất với P4-T02): Location của job phạm vi tenant, Idempotency-Key tường minh,
+// trạng thái cuối của job, thời gian tương đối. Hộp xác nhận: ui/ConfirmDialog.test.tsx.
+import { renderHook } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+import { newIdempotencyKey, useIdempotencyKey } from "../api/idempotency";
+import { isSettled, tenantJobFromLocation } from "../api/jobs";
 import { TENANT_A, TENANT_B } from "../test/helpers";
-import { ConfirmDialog } from "./ConfirmDialog";
-import { tenantJobFromLocation } from "./http";
-import { newIdempotencyKey, useIdempotencyKey } from "./idempotency";
-import { isTerminalJob } from "./jobs";
 import { formatRelative } from "./time";
 
 const JOB = "0190a200-0000-7000-8000-000000000001";
@@ -42,10 +39,10 @@ describe("idempotency", () => {
 });
 
 describe("jobs + time", () => {
-  it("trạng thái kết thúc của job", () => {
-    expect(["succeeded", "failed", "cancelled", "rolled_back"].every((s) => isTerminalJob(s as never))).toBe(true);
-    expect(["queued", "running", "failed_resumable", "compensating"].some((s) => isTerminalJob(s as never))).toBe(false);
-    expect(isTerminalJob(undefined)).toBe(false);
+  it("trạng thái cuối của job (ngừng poll) — failed_resumable chỉ đổi khi người vận hành /retry, /rollback (§11.3)", () => {
+    expect(["succeeded", "failed", "cancelled", "rolled_back", "failed_resumable"].every((s) => isSettled(s as never))).toBe(true);
+    expect(["queued", "running", "compensating"].some((s) => isSettled(s as never))).toBe(false);
+    expect(isSettled(undefined)).toBe(false);
   });
 
   it("thời gian tương đối theo locale", () => {
@@ -54,45 +51,5 @@ describe("jobs + time", () => {
     expect(formatRelative("2026-11-19T00:55:00Z", "en", now)).toBe("5 minutes ago");
     expect(formatRelative("2026-11-22T01:00:00Z", "en", now)).toBe("in 3 days");
     expect(formatRelative("không-phải", "vi", now)).toBe("");
-  });
-});
-
-describe("ConfirmDialog", () => {
-  function Harness({ onConfirm }: { onConfirm: () => void }) {
-    const [open, setOpen] = useState(false);
-    return (
-      <>
-        <button type="button" onClick={() => setOpen(true)}>
-          open
-        </button>
-        <ConfirmDialog open={open} title="T" confirmLabel="OK" destructive onConfirm={onConfirm} onCancel={() => setOpen(false)}>
-          <p>mô tả</p>
-        </ConfirmDialog>
-      </>
-    );
-  }
-
-  it("alertdialog có tên + mô tả, focus vào Hủy, Tab giữ trong hộp, Escape đóng và trả focus", async () => {
-    const onConfirm = vi.fn();
-    render(<Harness onConfirm={onConfirm} />);
-    const opener = screen.getByRole("button", { name: "open" });
-    await userEvent.click(opener);
-    const dialog = screen.getByRole("alertdialog", { name: "T" });
-    expect(dialog).toHaveAttribute("aria-modal", "true");
-    expect(dialog).toHaveAccessibleDescription("mô tả");
-    expect(screen.getByRole("button", { name: "Hủy" })).toHaveFocus();
-    await userEvent.tab();
-    expect(screen.getByRole("button", { name: "OK" })).toHaveFocus();
-    await userEvent.tab();
-    expect(screen.getByRole("button", { name: "Hủy" })).toHaveFocus();
-    await userEvent.tab({ shift: true });
-    expect(screen.getByRole("button", { name: "OK" })).toHaveFocus();
-    await userEvent.keyboard("{Escape}");
-    expect(screen.queryByRole("alertdialog")).toBeNull();
-    expect(opener).toHaveFocus();
-    expect(onConfirm).not.toHaveBeenCalled();
-    await userEvent.click(opener);
-    await userEvent.click(screen.getByRole("button", { name: "OK" }));
-    expect(onConfirm).toHaveBeenCalledOnce();
   });
 });

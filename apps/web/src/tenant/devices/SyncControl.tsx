@@ -3,12 +3,11 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { api } from "../../api/client";
+import { api, callWithResponse } from "../../api/client";
 import { queryKeys } from "../../api/queryClient";
 import { ProblemAlert } from "../../components/ProblemAlert";
-import { callWithResponse, tenantJobFromLocation } from "../../ui/http";
-import { useIdempotencyKey } from "../../ui/idempotency";
-import { isTerminalJob, useTenantJob } from "../../ui/jobs";
+import { useIdempotencyKey } from "../../api/idempotency";
+import { isSettled, tenantJobFromLocation, useTenantJob } from "../../api/jobs";
 import { StatusBadge } from "../../ui/Status";
 import { useTenant } from "../TenantScope";
 
@@ -30,7 +29,7 @@ export function SyncControl() {
   });
   const job = useTenantJob(tenantId, jobId);
   const status = job.data?.status;
-  const done = isTerminalJob(status);
+  const done = isSettled(status);
 
   useEffect(() => {
     if (status === "succeeded") {

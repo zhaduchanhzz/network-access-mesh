@@ -30,6 +30,8 @@ var ReachableStatuses = []string{tenants.StatusActive, tenants.StatusSuspended}
 // tenants.
 type PolicyApplier interface {
 	Apply(ctx context.Context, req policies.ApplyRequest) (policies.Result, error)
+	// ApplyDesired renders the desired version (typed or HuJSON — P4-T10) with the tables of now and applies it.
+	ApplyDesired(ctx context.Context, req policies.DesiredRequest) (policies.Result, error)
 }
 
 var _ PolicyApplier = (*policies.Service)(nil)
@@ -238,7 +240,7 @@ func (h *Handler) resume(ctx context.Context, run *jobs.Run) error {
 	run.SetResource("tenant", t.ID.String())
 	var version uuid.UUID
 	if err := h.step(ctx, run, StepPolicyResume, func(ctx context.Context, s *jobs.StepRun) error {
-		v, text, err := h.desired(ctx, t.ID)
+		v, err := h.desired(ctx, t.ID)
 		if err != nil {
 			return err
 		}
@@ -246,9 +248,10 @@ func (h *Handler) resume(ctx context.Context, run *jobs.Run) error {
 		if err := record(ctx, s, policyResources{VersionID: v}); err != nil {
 			return err
 		}
-		// the core reuses the desired version (same content): no new version, the desired one stays (P3-T08a)
-		res, err := h.cfg.Policies.Apply(ctx, policies.ApplyRequest{TenantID: t.ID, Kind: policies.KindBaseline,
-			HuJSON: text, Trigger: policies.TriggerResume, Actor: KindResume})
+		// the desired version rendered with the tables of now (typed or HuJSON — P4-T10), applied as it is: no new
+		// version, the desired one stays; the tenant is still suspended here (Suspended registry)
+		res, err := h.cfg.Policies.ApplyDesired(ctx, policies.DesiredRequest{TenantID: t.ID, Trigger: policies.TriggerResume,
+			Actor: KindResume, Suspended: true})
 		setDetail(s, applied(res, map[string]any{"desired_version_id": v, "requested_version_id": in.RestoreVersionID,
 			"version_created": res.VersionCreated}))
 		return applyErr(err)
@@ -460,22 +463,17 @@ func (h *Handler) closeFailed(ctx context.Context, in Input, cause error, job uu
 
 // applyDesired applies the tenant's desired version again (the compensation of policy.suspend).
 func (h *Handler) applyDesired(ctx context.Context, tenantID uuid.UUID, trigger, actor string) error {
-	_, text, err := h.desired(ctx, tenantID)
-	if err != nil {
+	if _, err := h.desired(ctx, tenantID); err != nil {
 		return err
 	}
-	_, err = h.cfg.Policies.Apply(ctx, policies.ApplyRequest{TenantID: tenantID, Kind: policies.KindBaseline,
-		HuJSON: text, Trigger: trigger, Actor: actor})
+	_, err := h.cfg.Policies.ApplyDesired(ctx, policies.DesiredRequest{TenantID: tenantID, Trigger: trigger, Actor: actor,
+		Suspended: true})
 	return applyErr(err)
 }
 
-// desired reads the tenant's desired policy version and its HuJSON (the versions the core stores — P3-T08a; a typed
-// version of P4-T10 is rendered by its module, not here).
-func (h *Handler) desired(ctx context.Context, tenantID uuid.UUID) (uuid.UUID, string, error) {
-	var (
-		id   uuid.UUID
-		text string
-	)
+// desired reads the tenant's desired policy version (typed or HuJSON — the policy module renders it, P4-T10).
+func (h *Handler) desired(ctx context.Context, tenantID uuid.UUID) (uuid.UUID, error) {
+	var id uuid.UUID
 	err := h.cfg.Store.WithTenantTx(ctx, tenantID, func(q *sqlcdb.Queries) error {
 		d, err := q.GetTenantPolicyState(ctx, tenantID)
 		if err != nil {
@@ -488,22 +486,19 @@ func (h *Handler) desired(ctx context.Context, tenantID uuid.UUID) (uuid.UUID, s
 		if err != nil {
 			return err
 		}
-		if v.SourceHujson == nil {
-			return jobs.Permanent("desired_not_hujson", fmt.Errorf("desired version %s has no HuJSON source", v.ID))
-		}
-		id, text = v.ID, *v.SourceHujson
+		id = v.ID
 		return nil
 	})
 	var je *jobs.Error
 	switch {
 	case errors.As(err, &je):
-		return id, text, err
+		return id, err
 	case errors.Is(err, store.ErrNoRows):
-		return id, text, jobs.Permanent("registry_state", fmt.Errorf("tenant %s or its desired version not found", tenantID))
+		return id, jobs.Permanent("registry_state", fmt.Errorf("tenant %s or its desired version not found", tenantID))
 	case err != nil:
-		return id, text, dbErr("read the desired policy", err)
+		return id, dbErr("read the desired policy", err)
 	}
-	return id, text, nil
+	return id, nil
 }
 
 // ---------------------------------------------------------------------------------------------------- helpers
@@ -648,6 +643,12 @@ func applyErr(err error) error {
 	switch {
 	case errors.Is(err, policies.ErrNoInstance):
 		return jobs.Permanent(policies.CodeNoInstance, err)
+	case errors.Is(err, policies.ErrNoDesired):
+		return jobs.Permanent("no_policy_to_restore", err)
+	case errors.Is(err, policies.ErrDesiredNotApproved):
+		return jobs.Permanent("desired_not_approved", err)
+	case errors.Is(err, policies.ErrDesiredChanged):
+		return jobs.Transient("desired_changed", err)
 	case errors.Is(err, policies.ErrInvalidRequest):
 		return jobs.Permanent("invalid_request", err)
 	case errors.Is(err, store.ErrLockTimeout):

@@ -65,3 +65,16 @@ describe("CSP", () => {
     expect(webCaddy).toMatch(/header -Server/);
   });
 });
+
+describe("component nền (react-aria — P4-T02) không cần style inline", () => {
+  it("index.html có sẵn phần tử id react-aria-pressable-style (usePress không chèn <style>), quy tắc nằm trong styles.css", () => {
+    expect(html).toMatch(/<template id="react-aria-pressable-style"><\/template>/);
+    const css = read("../styles.css");
+    expect(css).toMatch(/\[data-react-aria-pressable\]\s*\{\s*touch-action: pan-x pan-y pinch-zoom;/);
+    // tên id/attribute đúng với bản react-aria đang cài (đổi phiên bản ⇒ test này báo)
+    const press = read("../../node_modules/react-aria/dist/private/interactions/usePress.mjs");
+    expect(press).toContain("'react-aria-pressable-style'");
+    expect(press).toContain("'data-react-aria-pressable'");
+    expect(press).toMatch(/getElementById\(\$[0-9a-f]+\$var\$STYLE_ID\)\) return;/);
+  });
+});
