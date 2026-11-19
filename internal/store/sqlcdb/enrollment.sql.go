@@ -301,23 +301,53 @@ func (q *Queries) InsertEnrollmentRequest(ctx context.Context, arg InsertEnrollm
 	return i, err
 }
 
-const linkConsumedEnrollmentDevices = `-- name: LinkConsumedEnrollmentDevices :execrows
+const linkConsumedEnrollmentDevices = `-- name: LinkConsumedEnrollmentDevices :many
 UPDATE device_inventory_cache d
 SET enrollment_request_id = r.id
 FROM enrollment_requests r
 WHERE d.tenant_id = $1 AND r.tenant_id = $1 AND d.instance_id = r.instance_id
   AND d.headscale_node_id = r.consumed_node_id AND d.removed_at IS NULL AND d.enrollment_request_id IS NULL
   AND r.status IN ('consumed', 'verified') AND r.updated_at > now() - interval '7 days'
+RETURNING d.id, d.owner_membership_id, d.name, d.given_name, d.hs_created_at, r.method
 `
 
+type LinkConsumedEnrollmentDevicesRow struct {
+	ID                uuid.UUID
+	OwnerMembershipID *uuid.UUID
+	Name              *string
+	GivenName         *string
+	HsCreatedAt       *time.Time
+	Method            string
+}
+
 // worker: thiết bị đăng ký bằng key một lần (consumed) hoặc web-auth (verified) mà sổ đã có nhưng chưa có liên kết
-// enrollment — gắn liên kết (dữ liệu authoritative, §6.3). Chỉ yêu cầu kết thúc trong 7 ngày gần nhất.
-func (q *Queries) LinkConsumedEnrollmentDevices(ctx context.Context, tenantID uuid.UUID) (int64, error) {
-	result, err := q.db.Exec(ctx, linkConsumedEnrollmentDevices, tenantID)
+// enrollment — gắn liên kết (dữ liệu authoritative, §6.3). Chỉ yêu cầu kết thúc trong 7 ngày gần nhất. Trả hàng vừa
+// gắn kèm phương thức của yêu cầu: hàng của pre-auth key được thông báo device.new đúng lần gắn này (P4-T06).
+func (q *Queries) LinkConsumedEnrollmentDevices(ctx context.Context, tenantID uuid.UUID) ([]LinkConsumedEnrollmentDevicesRow, error) {
+	rows, err := q.db.Query(ctx, linkConsumedEnrollmentDevices, tenantID)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	return result.RowsAffected(), nil
+	defer rows.Close()
+	items := []LinkConsumedEnrollmentDevicesRow{}
+	for rows.Next() {
+		var i LinkConsumedEnrollmentDevicesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.OwnerMembershipID,
+			&i.Name,
+			&i.GivenName,
+			&i.HsCreatedAt,
+			&i.Method,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const linkDeviceEnrollment = `-- name: LinkDeviceEnrollment :exec
@@ -377,6 +407,70 @@ func (q *Queries) ListEnrollmentRequestsPage(ctx context.Context, arg ListEnroll
 		arg.AfterID,
 		arg.RowLimit,
 	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []EnrollmentRequest{}
+	for rows.Next() {
+		var i EnrollmentRequest
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.InstanceID,
+			&i.RequestedByMembershipID,
+			&i.Method,
+			&i.TargetMembershipID,
+			&i.DeviceLabel,
+			&i.RequestedTags,
+			&i.Ephemeral,
+			&i.Reusable,
+			&i.Status,
+			&i.ApproverMembershipID,
+			&i.ApprovedAt,
+			&i.IssuedAt,
+			&i.HeadscalePreauthkeyID,
+			&i.AuthIDHash,
+			&i.SessionIDHash,
+			&i.EnrollCodeHash,
+			&i.ClaimedAt,
+			&i.ClaimedFromIp,
+			&i.RegisteredMachineKey,
+			&i.ReportedHostname,
+			&i.CredentialExpiresAt,
+			&i.ConsumedNodeID,
+			&i.FailureCode,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Version,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listLiveReusableEnrollmentKeys = `-- name: ListLiveReusableEnrollmentKeys :many
+SELECT id, tenant_id, instance_id, requested_by_membership_id, method, target_membership_id, device_label, requested_tags, ephemeral, reusable, status, approver_membership_id, approved_at, issued_at, headscale_preauthkey_id, auth_id_hash, session_id_hash, enroll_code_hash, claimed_at, claimed_from_ip, registered_machine_key, reported_hostname, credential_expires_at, consumed_node_id, failure_code, created_at, updated_at, version FROM enrollment_requests
+WHERE tenant_id = $1 AND status = 'consumed' AND reusable AND headscale_preauthkey_id IS NOT NULL
+  AND credential_expires_at > $2::timestamptz
+ORDER BY created_at, id
+`
+
+type ListLiveReusableEnrollmentKeysParams struct {
+	TenantID     uuid.UUID
+	ExpiredAfter time.Time
+}
+
+// worker (enrollment.reconcile): key reusable đã dùng (consumed) chưa hết hạn trước expired_after (= lúc chạy trừ thời
+// gian ân hạn) — node mà key đó đăng ký thêm được đưa vào sổ thiết bị và thông báo device.new (lịch reconcile chạy cả
+// khi chỉ còn các key này).
+func (q *Queries) ListLiveReusableEnrollmentKeys(ctx context.Context, arg ListLiveReusableEnrollmentKeysParams) ([]EnrollmentRequest, error) {
+	rows, err := q.db.Query(ctx, listLiveReusableEnrollmentKeys, arg.TenantID, arg.ExpiredAfter)
 	if err != nil {
 		return nil, err
 	}

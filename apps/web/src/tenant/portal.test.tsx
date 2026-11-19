@@ -422,4 +422,21 @@ describe("notifications", () => {
     renderApp({ path: `/t/${TENANT_A}/notifications` });
     expect(await screen.findByTestId("notification")).toHaveTextContent("Device laptop-1 expires at");
   });
+
+  it("follow-up P4-T06: quyết định về yêu cầu enrollment có câu riêng, không dẫn tới thiết bị", async () => {
+    mockApi(
+      routes("tenant_owner", {
+        [`GET ${base}/notifications`]: list([
+          notification(N1, { kind: "enrollment.approved", payload: { request_id: JOB_1, method: "web_auth", device_label: "phone-1", expires_at: "2026-11-20T08:00:00Z" } }),
+          notification(N2, { kind: "enrollment.rejected", payload: { request_id: JOB_1, method: "preauth_key" } }),
+        ]),
+      }),
+    );
+    renderApp({ path: `/t/${TENANT_A}/notifications` });
+    const rows = await screen.findAllByTestId("notification");
+    expect(rows[0]).toHaveTextContent("Yêu cầu thêm thiết bị của bạn (phone-1) đã được duyệt — bấm Bắt đầu trước");
+    expect(rows[1]).toHaveTextContent("Yêu cầu thêm thiết bị của bạn (—) đã bị từ chối.");
+    expect(within(rows[0]!).queryByRole("link", { name: "Xem thiết bị" })).toBeNull();
+    expect(within(rows[1]!).queryByRole("link", { name: "Xem thiết bị" })).toBeNull();
+  });
 });

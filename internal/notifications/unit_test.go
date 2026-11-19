@@ -52,6 +52,8 @@ func samples() []Event {
 		SecuritySettingsChanged(tA, `"abc"`, "policy.four_eyes", "Alice", nil),
 		TenantDeletionRequested(tA, "Alice", when),
 		PlatformTenantDeletionRequested(tA, "tenant-a", "Alice", when),
+		EnrollmentApproved(tA, idX, owner, "web_auth", "laptop-1", "Alice", when),
+		EnrollmentRejected(tA, idX, owner, "preauth_key", "", ""),
 	}
 }
 
@@ -99,6 +101,8 @@ func TestRecipientRules(t *testing.T) {
 			Audience{PlatformRoles: []string{RoleSuperAdmin, RolePlatformOperator}}},
 		{InstanceQuarantined(idX, "acme", idX, OutcomeIncomplete), Audience{PlatformRoles: []string{RoleSuperAdmin, RolePlatformOperator}}},
 		{InstanceReleased(idX, "acme", idX, OutcomeRefused), Audience{PlatformRoles: []string{RoleSuperAdmin, RolePlatformOperator}}},
+		{EnrollmentApproved(tA, idX, owner, "web_auth", "", "", when), Audience{Members: []uuid.UUID{owner}}},
+		{EnrollmentRejected(tA, idX, owner, "web_auth", "", ""), Audience{Members: []uuid.UUID{owner}}},
 	}
 	for _, c := range cases {
 		a := c.ev.To
@@ -106,6 +110,22 @@ func TestRecipientRules(t *testing.T) {
 			!slices.Equal(a.Emails, c.want.Emails) || !slices.Equal(a.PlatformRoles, c.want.PlatformRoles) {
 			t.Errorf("%s: audience %+v, want %+v", c.ev.Kind, a, c.want)
 		}
+	}
+}
+
+// TestEnrollmentPayloads: the follow-up kinds of P4-T06 — one ref per decision, and a display name or a device label
+// that the no-secret rule refuses is dropped instead of failing the event.
+func TestEnrollmentPayloads(t *testing.T) {
+	req := uuid.New()
+	member := uuid.New()
+	if a, r := EnrollmentApproved(tA, req, member, "web_auth", "", "", when), EnrollmentRejected(tA, req, member, "web_auth", "", ""); a.Ref == r.Ref ||
+		a.Ref != "enrollment:"+req.String()+":approved" {
+		t.Fatalf("enrollment refs %q %q", a.Ref, r.Ref)
+	}
+	ev := EnrollmentApproved(tA, req, member, "web_auth", "lap\ntop", "https://evil.example/x", when)
+	p, err := ev.validate()
+	if err != nil || p["decided_by"] != nil || p["device_label"] != nil || p["expires_at"] != when.Format(time.RFC3339) {
+		t.Fatalf("enrollment payload %v %v", p, err)
 	}
 }
 

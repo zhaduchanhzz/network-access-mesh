@@ -9,7 +9,8 @@
 //	           mg-<code>) bound to the caller's Portal session, valid 10 minutes; preauth_key ⇒ a single-use, non-
 //	           ephemeral pre-auth key of the caller's own Headscale user mg-<membership>, ≤ 15 minutes, always with an
 //	           explicit expiration (V-06).
-//	approval   /approve, /reject (tenant.enrollment:approve — the decider is never the requester), then /start by the
+//	approval   /approve, /reject (tenant.enrollment:approve — the decider is never the requester; the requester is
+//	           notified — enrollment.approved / enrollment.rejected — in the decision's transaction), then /start by the
 //	           requester in its own Portal session issues the code or the key (§7.4 "Phê duyệt enrollment").
 //	keys       POST /enrollment/keys (tenant.enrollment:issue_privileged): tagged, reusable, ephemeral keys, keys for
 //	           another member and tag-only keys; requested_tags only from the tenant's catalog (policies.RequireTags in
@@ -23,10 +24,12 @@
 //	           synced (inventory.sync clamps its expiry).
 //	revoke     POST /…/revoke: an unfinished request ends revoked; an issued pre-auth key is expired at Headscale and
 //	           read back first (audit pair enrollment.revoke.requested → .succeeded/.failed).
-//	reconcile  job enrollment.reconcile (worker, per tenant, scheduled while the tenant has open requests): requests
-//	           waiting for a decision or for /start for 24 hours, codes and keys past their expiry ⇒ expired; used
-//	           single-use keys ⇒ consumed with the node that used them; claims or issuances that never finished ⇒
-//	           failed; inventory rows of consumed/verified requests get their enrollment link.
+//	reconcile  job enrollment.reconcile (worker, per tenant, scheduled while the tenant has open requests or a live
+//	           reusable key): requests waiting for a decision or for /start for 24 hours, codes and keys past their
+//	           expiry ⇒ expired; used keys ⇒ consumed with the node that used them; claims or issuances that never
+//	           finished ⇒ failed; inventory rows of consumed/verified requests get their enrollment link. The nodes a
+//	           pre-auth key registered enter the inventory (or get their link when inventory.sync came first) and are
+//	           notified once each (device.new) — at the consumed transition, then for a reusable key while it is live.
 //
 // Plaintext pre-auth keys, enrollment codes and Auth IDs are never stored nor logged (only SHA-256 hashes and the key's
 // numeric id); a credential is shown once — the response of an Idempotency-Key replay gets it back from the SecretStore

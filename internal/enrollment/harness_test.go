@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -205,6 +206,47 @@ func (f *fixture) str(t *testing.T, sql string, args ...any) string {
 	var s string
 	f.scan(t, sql, args, &s)
 	return s
+}
+
+// list returns the one text column of a query, row by row.
+func (f *fixture) list(t *testing.T, sql string, args ...any) []string {
+	t.Helper()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	rows, err := f.su.Query(context.Background(), sql, args...)
+	if err != nil {
+		t.Fatalf("superuser query: %v\n%s", err, sql)
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, s)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// deviceNew lists the recipients (membership ids, sorted) of the device.new notifications of one device.
+func (f *fixture) deviceNew(t *testing.T, ten *tenantFx, device uuid.UUID) []string {
+	t.Helper()
+	return f.list(t, `SELECT recipient_membership_id::text FROM notification_outbox WHERE tenant_id = $1 AND kind = 'device.new'
+		AND payload->>'device_id' = $2 ORDER BY 1`, ten.id, device.String())
+}
+
+// sortedIDs is the text of membership ids, sorted (to compare with deviceNew).
+func sortedIDs(ids ...uuid.UUID) []string {
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, id.String())
+	}
+	slices.Sort(out)
+	return out
 }
 
 // setting writes one key of TenantSettings.enrollment (or a top-level path) directly (PUT /settings/security is

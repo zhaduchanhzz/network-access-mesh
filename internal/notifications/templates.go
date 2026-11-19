@@ -205,6 +205,22 @@ var catalog = map[Kind]map[string]mailTemplate{
 				"{{if eq .outcome \"incomplete\"}} — the instance MAY STILL SERVE: isolate it by hand following the RUNBOOK now{{end}}.\n\n" +
 				"Only a release approved by a second person lifts it. See the job and the security events in the Platform Console: {{.console_url}}\n\nInstance ID: {{.instance_id}} · job: {{.job_id}}"},
 	},
+	KindEnrollmentApproved: {
+		LocaleVI: {"[MeshGuard] Yêu cầu thêm thiết bị trong tenant {{.tenant_name}} đã được duyệt",
+			"Yêu cầu thêm thiết bị{{with .device_label}} {{.}}{{end}} của bạn trong tenant {{.tenant_name}} (phương thức {{.method}}) đã được duyệt{{with .decided_by}} bởi {{.}}{{end}}.\n\n" +
+				"Đăng nhập Portal và bấm \"Bắt đầu\" ở yêu cầu này trước {{.expires_at}} (UTC) để nhận mã hoặc key — sau thời điểm đó yêu cầu hết hạn. Mã/key chỉ hiển thị trong Portal, không bao giờ gửi qua email.\n\nMã yêu cầu: {{.request_id}}"},
+		LocaleEN: {"[MeshGuard] Your device request in tenant {{.tenant_name}} was approved",
+			"Your request to add a device{{with .device_label}} {{.}}{{end}} in tenant {{.tenant_name}} (method {{.method}}) was approved{{with .decided_by}} by {{.}}{{end}}.\n\n" +
+				"Sign in to the Portal and choose \"Start\" on this request before {{.expires_at}} (UTC) to receive the code or key — the request expires after that. Codes and keys are shown in the Portal only, never sent by e-mail.\n\nRequest ID: {{.request_id}}"},
+	},
+	KindEnrollmentRejected: {
+		LocaleVI: {"[MeshGuard] Yêu cầu thêm thiết bị trong tenant {{.tenant_name}} bị từ chối",
+			"Yêu cầu thêm thiết bị{{with .device_label}} {{.}}{{end}} của bạn trong tenant {{.tenant_name}} (phương thức {{.method}}) đã bị từ chối{{with .decided_by}} bởi {{.}}{{end}}. Không có mã hay key nào được phát.\n\n" +
+				"Nếu bạn vẫn cần thêm thiết bị, hãy liên hệ quản trị viên của tenant.\n\nMã yêu cầu: {{.request_id}}"},
+		LocaleEN: {"[MeshGuard] Your device request in tenant {{.tenant_name}} was rejected",
+			"Your request to add a device{{with .device_label}} {{.}}{{end}} in tenant {{.tenant_name}} (method {{.method}}) was rejected{{with .decided_by}} by {{.}}{{end}}. No code or key was issued.\n\n" +
+				"If you still need the device, contact the tenant's administrators.\n\nRequest ID: {{.request_id}}"},
+	},
 	KindInstanceReleased: {
 		LocaleVI: {"[MeshGuard] Release instance {{.tenant_slug}}: {{.outcome}}",
 			"Release (đã được người thứ hai duyệt) của instance Headscale thuộc tenant {{.tenant_slug}} kết thúc: {{.outcome}}" +

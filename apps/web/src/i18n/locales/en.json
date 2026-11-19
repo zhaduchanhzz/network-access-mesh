@@ -911,6 +911,8 @@
       "approval_requested": "A new approval request is waiting: {{action}}.",
       "idp_admin_change": "Administrative change at the Identity Provider: {{action}} (by {{actor}}).",
       "instance_restored": "The tenant's control plane was restored from the backup of {{backup_created_at}}.",
+      "enrollment_approved": "Your device request ({{device_label}}) was approved — choose Start before {{expires_at}}.",
+      "enrollment_rejected": "Your device request ({{device_label}}) was rejected.",
       "unknown": "Notification {{kind}}."
     }
   },

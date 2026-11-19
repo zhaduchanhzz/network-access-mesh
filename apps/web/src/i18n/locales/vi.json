@@ -906,6 +906,8 @@
       "approval_requested": "Có yêu cầu phê duyệt mới: {{action}}.",
       "idp_admin_change": "Thay đổi quản trị tại Identity Provider: {{action}} (bởi {{actor}}).",
       "instance_restored": "Control plane của tenant đã được khôi phục từ bản backup lúc {{backup_created_at}}.",
+      "enrollment_approved": "Yêu cầu thêm thiết bị của bạn ({{device_label}}) đã được duyệt — bấm Bắt đầu trước {{expires_at}}.",
+      "enrollment_rejected": "Yêu cầu thêm thiết bị của bạn ({{device_label}}) đã bị từ chối.",
       "unknown": "Thông báo {{kind}}."
     }
   },

@@ -21,6 +21,9 @@ export const NOTIFICATION_KINDS = [
   "approval.requested",
   "idp.admin_change",
   "instance.restored",
+  // follow-up P4-T06: người yêu cầu nhận quyết định về yêu cầu enrollment
+  "enrollment.approved",
+  "enrollment.rejected",
 ] as const;
 
 const KNOWN: ReadonlySet<string> = new Set(NOTIFICATION_KINDS);
@@ -46,7 +49,7 @@ export function notificationText(t: TFunction, lng: string, kind: string, payloa
   for (const [k, v] of Object.entries(payload)) values[k] = text(v, lng);
   values.tenant = text(payload.tenant_name ?? payload.tenant_slug, lng);
   for (const f of ["device_name", "expires_at", "version", "trigger", "staff", "approver", "action", "actor", "role",
-    "backup_created_at", "keys_destroy_after"]) {
+    "backup_created_at", "keys_destroy_after", "device_label"]) {
     values[f] ??= "—";
   }
   return KNOWN.has(kind) ? t(i18nKeyOfKind(kind), values) : t("notif.kinds.unknown", values);

@@ -142,12 +142,23 @@ WHERE tenant_id = sqlc.arg(tenant_id)
                  'credential_issued')
 ORDER BY created_at, id;
 
--- name: LinkConsumedEnrollmentDevices :execrows
+-- name: ListLiveReusableEnrollmentKeys :many
+-- worker (enrollment.reconcile): key reusable đã dùng (consumed) chưa hết hạn trước expired_after (= lúc chạy trừ thời
+-- gian ân hạn) — node mà key đó đăng ký thêm được đưa vào sổ thiết bị và thông báo device.new (lịch reconcile chạy cả
+-- khi chỉ còn các key này).
+SELECT * FROM enrollment_requests
+WHERE tenant_id = sqlc.arg(tenant_id) AND status = 'consumed' AND reusable AND headscale_preauthkey_id IS NOT NULL
+  AND credential_expires_at > sqlc.arg(expired_after)::timestamptz
+ORDER BY created_at, id;
+
+-- name: LinkConsumedEnrollmentDevices :many
 -- worker: thiết bị đăng ký bằng key một lần (consumed) hoặc web-auth (verified) mà sổ đã có nhưng chưa có liên kết
--- enrollment — gắn liên kết (dữ liệu authoritative, §6.3). Chỉ yêu cầu kết thúc trong 7 ngày gần nhất.
+-- enrollment — gắn liên kết (dữ liệu authoritative, §6.3). Chỉ yêu cầu kết thúc trong 7 ngày gần nhất. Trả hàng vừa
+-- gắn kèm phương thức của yêu cầu: hàng của pre-auth key được thông báo device.new đúng lần gắn này (P4-T06).
 UPDATE device_inventory_cache d
 SET enrollment_request_id = r.id
 FROM enrollment_requests r
 WHERE d.tenant_id = sqlc.arg(tenant_id) AND r.tenant_id = sqlc.arg(tenant_id) AND d.instance_id = r.instance_id
   AND d.headscale_node_id = r.consumed_node_id AND d.removed_at IS NULL AND d.enrollment_request_id IS NULL
-  AND r.status IN ('consumed', 'verified') AND r.updated_at > now() - interval '7 days';
+  AND r.status IN ('consumed', 'verified') AND r.updated_at > now() - interval '7 days'
+RETURNING d.id, d.owner_membership_id, d.name, d.given_name, d.hs_created_at, r.method;

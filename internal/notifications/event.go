@@ -44,6 +44,9 @@ const (
 	KindSecuritySettingsChanged       Kind = "tenant.security_settings_changed"   // PUT /settings/security wrote the security settings (§8.6)
 	KindTenantDeletionRequested       Kind = "tenant.deletion_requested"          // a Tenant Owner asked the platform to delete the tenant
 	KindPlatformTenantDeletionRequest Kind = "platform.tenant_deletion_requested" // platform: the same request, for Super Admins / Platform Operators
+	// P4-T06 follow-up: the decision on an enrollment request that waited for approval (§7.4 "thông báo cho người yêu cầu")
+	KindEnrollmentApproved Kind = "enrollment.approved"
+	KindEnrollmentRejected Kind = "enrollment.rejected"
 )
 
 // Tenant and platform role keys of the default recipient rules (§6.3, roles of §8.4).
@@ -131,6 +134,10 @@ var specs = map[Kind]spec{
 		"outcome": fString}, required: []string{"instance_id", "tenant_slug", "job_id", "outcome"}, platform: true},
 	KindInstanceReleased: {fields: map[string]fieldType{"instance_id": fUUID, "tenant_slug": fString, "job_id": fUUID,
 		"outcome": fString}, required: []string{"instance_id", "tenant_slug", "job_id", "outcome"}, platform: true},
+	KindEnrollmentApproved: {fields: map[string]fieldType{"request_id": fUUID, "method": fString, "device_label": fString,
+		"decided_by": fString, "expires_at": fTime}, required: []string{"request_id", "method", "expires_at"}},
+	KindEnrollmentRejected: {fields: map[string]fieldType{"request_id": fUUID, "method": fString, "device_label": fString,
+		"decided_by": fString}, required: []string{"request_id", "method"}},
 }
 
 // Kinds returns every kind, sorted.
@@ -639,6 +646,44 @@ func TenantDeletionRequested(tenantID uuid.UUID, requestedBy string, at time.Tim
 		ev.Payload["requested_by"] = requestedBy
 	}
 	return ev
+}
+
+// textOr returns s when it passes the no-secret rule of a payload text (checkText), else fallback: a display name or a
+// device name a producer copies from elsewhere never makes the event — and so the operation that writes it — fail.
+func textOr(s, fallback string) string {
+	if s = strings.TrimSpace(s); s != "" && checkText(s) == nil {
+		return s
+	}
+	return fallback
+}
+
+// EnrollmentApproved — §7.4 "Phê duyệt enrollment" (TO/TA/TP gọi /approve … thông báo cho người yêu cầu): the member who
+// made the request, and only them; they start it (POST …/start) before startBy — the approval expires 24 hours after
+// it was given. One per request (a request is decided once).
+func EnrollmentApproved(tenantID, requestID, requester uuid.UUID, method, deviceLabel, decidedBy string, startBy time.Time) Event {
+	ev := Event{Kind: KindEnrollmentApproved, TenantID: tenantPtr(tenantID), Ref: "enrollment:" + requestID.String() + ":approved",
+		Payload: map[string]any{"request_id": requestID, "method": method, "expires_at": startBy},
+		To:      Audience{Members: []uuid.UUID{requester}}}
+	enrollmentOptional(ev.Payload, deviceLabel, decidedBy)
+	return ev
+}
+
+// EnrollmentRejected — the same decision, rejected: the requester only. One per request.
+func EnrollmentRejected(tenantID, requestID, requester uuid.UUID, method, deviceLabel, decidedBy string) Event {
+	ev := Event{Kind: KindEnrollmentRejected, TenantID: tenantPtr(tenantID), Ref: "enrollment:" + requestID.String() + ":rejected",
+		Payload: map[string]any{"request_id": requestID, "method": method},
+		To:      Audience{Members: []uuid.UUID{requester}}}
+	enrollmentOptional(ev.Payload, deviceLabel, decidedBy)
+	return ev
+}
+
+func enrollmentOptional(p map[string]any, deviceLabel, decidedBy string) {
+	if s := textOr(deviceLabel, ""); s != "" {
+		p["device_label"] = s
+	}
+	if s := textOr(decidedBy, ""); s != "" {
+		p["decided_by"] = s
+	}
 }
 
 // PlatformTenantDeletionRequested — platform notification of the same request: Super Admins and Platform Operators

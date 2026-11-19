@@ -1923,7 +1923,8 @@ export interface paths {
          * Duyệt yêu cầu đang chờ (trước bước thiết bị)
          * @description Chỉ yêu cầu `pending_approval` (khác ⇒ `409`); người duyệt khác người yêu cầu (⇒ `403`). Phê duyệt gắn với
          *     **request** (người yêu cầu, nhãn, phương thức) — không với Auth ID; sau đó chính người yêu cầu gọi `/start`.
-         *     Chưa dùng sau 24 giờ ⇒ `expired` (job `enrollment.reconcile`).
+         *     Chưa dùng sau 24 giờ ⇒ `expired` (job `enrollment.reconcile`). Người yêu cầu nhận thông báo
+         *     `enrollment.approved` (cùng transaction).
          */
         post: operations["approveEnrollmentRequest"];
         delete?: never;
@@ -1943,7 +1944,8 @@ export interface paths {
         put?: never;
         /**
          * Từ chối yêu cầu đang chờ
-         * @description Chỉ yêu cầu `pending_approval` (khác ⇒ `409`); người quyết định khác người yêu cầu (⇒ `403`).
+         * @description Chỉ yêu cầu `pending_approval` (khác ⇒ `409`); người quyết định khác người yêu cầu (⇒ `403`). Người yêu cầu
+         *     nhận thông báo `enrollment.rejected` (cùng transaction).
          */
         post: operations["rejectEnrollmentRequest"];
         delete?: never;

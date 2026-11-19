@@ -14,6 +14,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/audit"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/config"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/headscale"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/notifications"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store/sqlcdb"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/usage"
@@ -386,6 +387,24 @@ func (s *Service) inTx(ctx context.Context, tenantID uuid.UUID, fn func(q *sqlcd
 	return after
 }
 
+// inJobTx is inTx on a transaction that may also enqueue jobs and notifications (store.WithTenantJobTx).
+func (s *Service) inJobTx(ctx context.Context, tenantID uuid.UUID, fn func(tx *store.Tx) error) error {
+	var after error
+	err := s.st.WithTenantJobTx(ctx, tenantID, func(tx *store.Tx) error {
+		err := fn(tx)
+		var c errCommitted
+		if errors.As(err, &c) {
+			after = c.err
+			return nil
+		}
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	return after
+}
+
 // expireStale ends a request whose decision window passed (§7.4: 24 hours waiting for a decision or for /start).
 func (s *Service) expireStale(ctx context.Context, q *sqlcdb.Queries, r sqlcdb.EnrollmentRequest) (bool, error) {
 	since := r.CreatedAt
@@ -403,10 +422,12 @@ func (s *Service) expireStale(ctx context.Context, q *sqlcdb.Queries, r sqlcdb.E
 	return true, nil
 }
 
-// decide is /approve and /reject.
+// decide is /approve and /reject: the decision, its audit event and the requester's notification (§7.4 "ghi
+// approver_membership_id, audit, thông báo cho người yêu cầu") commit in one transaction.
 func (s *Service) decide(ctx context.Context, tenantID, id uuid.UUID, a Actor, approve bool) (Request, error) {
 	var out Request
-	err := s.inTx(ctx, tenantID, func(q *sqlcdb.Queries) error {
+	err := s.inJobTx(ctx, tenantID, func(tx *store.Tx) error {
+		q := tx.Q
 		r, err := q.LockEnrollmentRequest(ctx, sqlcdb.LockEnrollmentRequestParams{TenantID: tenantID, ID: id})
 		if errors.Is(err, store.ErrNoRows) {
 			return notFound("no_request")
@@ -442,6 +463,18 @@ func (s *Service) decide(ctx context.Context, tenantID, id uuid.UUID, a Actor, a
 		if err := audit.Record(ctx, q, audit.Event{Action: action, TenantID: &tenantID, ResourceType: resourceType,
 			ResourceID: id.String(), Details: audit.Details{"requested_by": r.RequestedByMembershipID.String(),
 				"method": r.Method}}); err != nil {
+			return err
+		}
+		label := ""
+		if r.DeviceLabel != nil {
+			label = *r.DeviceLabel
+		}
+		ev := notifications.EnrollmentRejected(tenantID, id, r.RequestedByMembershipID, r.Method, label, a.Display)
+		if approve {
+			ev = notifications.EnrollmentApproved(tenantID, id, r.RequestedByMembershipID, r.Method, label, a.Display,
+				now.Add(DecisionWindow))
+		}
+		if _, err := notifications.Enqueue(ctx, tx, ev); err != nil {
 			return err
 		}
 		ls, err := loginServerOf(ctx, q, tenantID)

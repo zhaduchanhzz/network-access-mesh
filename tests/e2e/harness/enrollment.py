@@ -7,6 +7,7 @@ admin listener, official Tailscale clients.
           an official client joins tenant-a with it ⇒ Running, node of mg-<membership> registered by authkey; the same
           key on a second client ⇒ refused (single use); a key of 1 minute after its expiry ⇒ refused; a revoked key
           ⇒ refused (expired at Headscale); enrollment.reconcile (worker schedule) ⇒ the request consumed with its node,
+          the node in the inventory with its enrollment link and device.new written once per recipient (follow-up),
           the short key expired; no table and no pg_dump of the stack holds a key (hskey-auth-) after the case
   E2E-100 web-auth brokered by the Portal (§7.4 flow A): the Tenant Admin asks {web_auth, device_label} ⇒ code + command
           (hostname mg-<code>, 10 minutes); an official client runs `tailscale up --hostname mg-<code>` and prints its
@@ -17,8 +18,8 @@ admin listener, official Tailscale clients.
           hostname is not mg-<code> ⇒ failed node_mismatch, the node deleted at once, security event
   E2E-101 approval before the device step and tenant isolation (IT-13): tenant-a requires approval and allows
           self-enrolment; an invited End User asks a pre-auth key ⇒ pending_approval, no key; /start ⇒ 409, a claim ⇒
-          409; the Owner approves ⇒ /start by the End User ⇒ the key once (again ⇒ 409); the End User lists only its own
-          requests. The key of tenant-a is refused by tenant-b's Headscale; tenant-b's Owner reading tenant-a's request
+          409; the Owner approves ⇒ the End User (only) gets enrollment.approved (follow-up) ⇒ /start by the End User ⇒
+          the key once (again ⇒ 409); the End User lists only its own requests. The key of tenant-a is refused by tenant-b's Headscale; tenant-b's Owner reading tenant-a's request
           through tenant-b's path ⇒ 404, claiming the Auth ID of a client of tenant-a through tenant-b ⇒ 409 and no node
           appears in either tenant
 
@@ -214,6 +215,15 @@ def check_preauth(r, st: Stack, state: dict) -> None:
                           f"d.tenant_id = r.tenant_id AND d.headscale_node_id = r.consumed_node_id WHERE r.id = '{rid}'")
         cond("reconciled", s1 == "consumed" and s2 == "expired",
              f"request {s1} (node in the inventory: {linked}), short key {s2}, revoked {_request_status(st, rev_id)}")
+        # follow-up P4-T06: at the consumed transition the key's node enters the inventory with its enrollment link and
+        # device.new is written once per recipient (the device's owner + the Tenant Owners)
+        new_dev = psql_one(st, "SELECT count(*) || '/' || count(DISTINCT n.recipient_membership_id) || '/' || "
+                           "count(DISTINCT n.payload->>'ref') FROM device_inventory_cache d JOIN notification_outbox n ON "
+                           "n.tenant_id = d.tenant_id AND n.kind = 'device.new' AND n.payload->>'device_id' = d.id::text "
+                           f"WHERE d.enrollment_request_id = '{rid}' AND d.removed_at IS NULL")
+        rows_, recips, refs = (new_dev.split("/") + ["", "", ""])[:3]
+        cond("device_new", s1 == "consumed" and refs == "1" and rows_ == recips and rows_ not in ("", "0"),
+             f"device.new of the key's device: {rows_} row(s), {recips} recipient(s), {refs} event(s)")
         # no key material in the platform's database (§13.1, §20 P4-T06)
         leaked = psql_one(st, "SELECT (SELECT count(*) FROM enrollment_requests x WHERE x::text LIKE '%hskey-%') + "
                           "(SELECT count(*) FROM idempotency_keys x WHERE x::text LIKE '%hskey-%') + "
@@ -328,6 +338,12 @@ def check_approval_isolation(r, st: Stack, state: dict) -> None:
              and key.startswith("hskey-auth-") and again.status == 409 and lst and all(x.get("id") == rid for x in lst),
              f"approve {appr.status}; /start {start.status} key once; again {again.status}; End User list {lres.status}: {len(lst)} "
              "own request(s)")
+        # follow-up P4-T06 (§7.4 "thông báo cho người yêu cầu"): exactly one notification, to the requester (End User)
+        told = psql_one(st, "SELECT string_agg(n.kind || ' ' || ro.key, ',') FROM notification_outbox n "
+                        "JOIN tenant_memberships m ON m.tenant_id = n.tenant_id AND m.id = n.recipient_membership_id "
+                        "JOIN roles ro ON ro.id = m.role_id "
+                        f"WHERE n.tenant_id = '{a_id}' AND n.payload->>'request_id' = '{rid}'")
+        cond("requester_notified", told == "enrollment.approved end_user", f"notifications of the request: {told}")
         # IT-13: the key of tenant-a is refused by tenant-b's Headscale
         rc, stb, _ = checks.probe_enroll(st, _key_file(st, "e2e101", key), "tenant-b", "e2e101-cross")
         cond("key_cross_tenant", rc != 0 and stb != "Running", f"key of tenant-a on tenant-b: rc={rc} state={stb}")
