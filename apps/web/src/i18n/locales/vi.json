@@ -2279,6 +2279,7 @@
       "cautionNever": "Nếu ai đó gửi link này cho bạn (e-mail, chat), đừng xác nhận — đó có thể là lừa đảo để đưa thiết bị lạ vào mạng.",
       "noPendingSeen": "Không thấy yêu cầu thêm thiết bị nào của bạn đang chờ. Nếu bạn không vừa tạo yêu cầu ở trang Thêm thiết bị, đừng xác nhận.",
       "pendingOne": "Yêu cầu đang chờ: {{label}} — hết hạn",
+      "pendingSeveral": "Bạn có nhiều yêu cầu đang chờ — hệ thống dùng yêu cầu đã tạo trong phiên trình duyệt này; nếu phiên này có nhiều yêu cầu, bạn sẽ được hỏi chọn.",
       "pick": "Bạn có nhiều yêu cầu đang chờ: chọn yêu cầu của thiết bị vừa chạy lệnh",
       "ack": "Tôi vừa chạy lệnh trên thiết bị của chính tôi và muốn thêm thiết bị đó.",
       "confirm": "Xác nhận thiết bị",

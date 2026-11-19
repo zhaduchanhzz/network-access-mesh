@@ -1,13 +1,14 @@
 // Xác nhận một đăng ký web-auth (P4-T08, §7.4 bước 6–8; T-06) — dùng chung cho trang claim (link client in ra, edge v10
 // chuyển hướng — P4-T07) và ô "dán link hoặc Auth ID". Cảnh báo chống phishing + xác nhận TƯỜNG MINH trước khi gọi
 // POST /enrollment/web-auth/claim {auth_id[, request_id]}; server mới là nơi quyết định (yêu cầu `issued` của chính thành
-// viên trong cùng phiên, mã trong hostname, kiểm node sau AuthRegister). Kết quả theo lý do ổn định của Problem.errors[0]
-// (P4-T08): `no_pending_request` ⇒ trang cảnh báo phishing KHÔNG có nút xác nhận; `auth_id_already_claimed` ⇒ link đã
-// dùng hoặc hết hạn; `auth_id_not_pending` và `502 upstream_rejected` / `503 instance_unavailable` ⇒ yêu cầu ĐÃ KẾT THÚC
-// (server đã claim rồi đánh `failed` khi AuthRegister lỗi, giữ hash Auth ID — gửi lại cùng Auth ID chỉ nhận 409 replay,
-// chạy lại lệnh cũ ⇒ 409 no_pending_request) ⇒ tạo yêu cầu mới; 200 `failed` ⇒ `failure_code`; 200 `verified` ⇒ tên
-// thiết bị + link. Thử lại cùng Auth ID chỉ với lỗi trước bước claim: 429, 503 `maintenance`, lỗi mạng/edge, 401
-// `reauth_required`.
+// viên trong cùng phiên, mã trong hostname, kiểm node sau AuthRegister). `request_id` chỉ gửi sau `422 request_id_required`:
+// danh sách của client gồm cả yêu cầu của phiên Portal khác (API không cho biết phiên) — server tự chọn khi phiên này chỉ có
+// một. Kết quả theo lý do ổn định của Problem.errors[0] (P4-T08): `no_pending_request` ⇒ trang cảnh báo phishing KHÔNG có
+// nút xác nhận; `auth_id_already_claimed` ⇒ link đã dùng hoặc hết hạn; `auth_id_not_pending` và `502 upstream_rejected` /
+// `503 instance_unavailable` ⇒ yêu cầu ĐÃ KẾT THÚC (server đã claim rồi đánh `failed` khi AuthRegister lỗi, giữ hash Auth
+// ID — gửi lại cùng Auth ID chỉ nhận 409 replay, chạy lại lệnh cũ ⇒ 409 no_pending_request) ⇒ tạo yêu cầu mới; 200
+// `failed` ⇒ `failure_code`; 200 `verified` ⇒ tên thiết bị + link. Thử lại cùng Auth ID chỉ với lỗi trước bước claim: 429,
+// 503 `maintenance`, lỗi mạng/edge, 401 `reauth_required`.
 // Auth ID chỉ nằm trong props của màn hình (không useMutation — biến của mutation sẽ ở lại cache), được bỏ khi có kết quả
 // cuối (`onSpent`), không bao giờ hiển thị.
 import { useQueryClient } from "@tanstack/react-query";
@@ -56,9 +57,9 @@ export function ClaimPanel({ tenantId, membershipId, authId, readOnly, onSpent }
   const [retryable, setRetryable] = useState<unknown>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
 
-  const several = pending.length > 1 || mustPick;
-  const requestId = several ? picked : null;
-  const canConfirm = ack && !busy && !readOnly && (!several || requestId !== null);
+  // bộ chọn chỉ sau 422 request_id_required: chọn trước theo danh sách client có thể trỏ vào yêu cầu của phiên khác ⇒ 409
+  const requestId = mustPick ? picked : null;
+  const canConfirm = ack && !busy && !readOnly && (!mustPick || requestId !== null);
 
   const finish = (o: Outcome) => {
     setOutcome(o);
@@ -124,7 +125,12 @@ export function ClaimPanel({ tenantId, membershipId, authId, readOnly, onSpent }
           <Timestamp iso={pending[0]?.credential_expires_at} />
         </p>
       ) : null}
-      {several ? (
+      {pending.length > 1 && !mustPick ? (
+        <p className="text-sm" data-testid="pending-several">
+          {t("enroll.claim.pendingSeveral")}
+        </p>
+      ) : null}
+      {mustPick ? (
         <fieldset className="space-y-1 text-sm" data-testid="pick-request">
           <legend className="font-medium">{t("enroll.claim.pick")}</legend>
           {pending.map((r) => (

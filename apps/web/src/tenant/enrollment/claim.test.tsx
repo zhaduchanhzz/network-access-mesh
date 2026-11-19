@@ -146,24 +146,19 @@ describe("trang claim /enroll/claim", () => {
     expect(await screen.findByTestId("claim-failed")).toHaveTextContent(text);
   });
 
-  it("nhiều yêu cầu đang chờ: bắt chọn ⇒ body có request_id; 422 request_id_required ⇒ hiện bộ chọn rồi gửi lại", async () => {
+  it("nhiều yêu cầu đang chờ (có thể của phiên Portal khác): không bắt chọn trước — POST {auth_id}, server chọn yêu cầu của phiên này", async () => {
+    // REQ_1 tạo ở trình duyệt khác (server không tính), REQ_3 tạo ở phiên này — API không cho client biết phiên
     const two = [request(REQ_1), request(REQ_3, { device_label: "desktop-an" })];
-    let n = 0;
     const { requests } = mockApi(
-      apiFor(
-        { [`POST ${base}/enrollment/web-auth/claim`]: () => (++n === 1 ? json(200, request(REQ_3, { status: "verified", device_label: "desktop-an" })) : problem(500, "internal_error")) },
-        { pending: two },
-      ),
+      apiFor({ [`POST ${base}/enrollment/web-auth/claim`]: json(200, request(REQ_3, { status: "verified", device_label: "desktop-an" })) }, { pending: two }),
     );
     renderApp({ path: claimUrl() });
-    const pick = await screen.findByTestId("pick-request");
-    await userEvent.click(within(screen.getByTestId("claim-confirm")).getByLabelText(/Tôi vừa chạy lệnh/));
-    const button = screen.getByRole("button", { name: "Xác nhận thiết bị" });
-    expect(button).toBeDisabled(); // chưa chọn yêu cầu
-    await userEvent.click(within(pick).getByLabelText(/desktop-an/));
-    await userEvent.click(button);
+    expect(await screen.findByTestId("pending-several")).toHaveTextContent("phiên trình duyệt này");
+    expect(screen.queryByTestId("pick-request")).toBeNull();
+    await confirmClaim();
     expect(await screen.findByTestId("claim-verified")).toHaveTextContent("desktop-an");
-    expect(await claims(requests)[0]!.json()).toEqual({ auth_id: AUTH_ID, request_id: REQ_3 });
+    expect(claims(requests)).toHaveLength(1);
+    expect(await claims(requests)[0]!.json()).toEqual({ auth_id: AUTH_ID });
   });
 
   it("422 request_id_required (danh sách cũ chỉ thấy một) ⇒ bộ chọn xuất hiện, gửi lại với request_id", async () => {

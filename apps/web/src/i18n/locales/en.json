@@ -2292,6 +2292,7 @@
       "cautionNever": "If someone sent you this link (e-mail, chat), do not confirm — it may be a trick to put a foreign device on the network.",
       "noPendingSeen": "None of your device requests is waiting. If you did not just create one on Add device, do not confirm.",
       "pendingOne": "Waiting request: {{label}} — expires",
+      "pendingSeveral": "You have several waiting requests — the one created in this browser session is used; if this session has several, you will be asked to choose.",
       "pick": "You have several waiting requests: choose the one of the device that ran the command",
       "ack": "I just ran the command on my own device and want to add it.",
       "confirm": "Confirm device",
