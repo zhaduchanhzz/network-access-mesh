@@ -57,13 +57,13 @@ note = "Bản vá bảo mật — dưới 14 ngày tuổi, chấp nhận"
 [images.keycloak]   # IdP (D-3: Keycloak tự host, realm platform/tenant-a/tenant-b — P2-T05); base của image mg-idp
 image = "quay.io/keycloak/keycloak"
 tag = "26.8.2"
-index = "sha256:c68e286cacd87b942ac1939a0a1481461109d6acd3a57dc496969a319a76bbf0"
-amd64 = "sha256:4da21f9a53bcbac1026a0d654b740a81e98e5de4c45457076acc74b4d94b1551"
+index = "sha256:7e66a96e4739239070aeaf72e4c5decf0f7f682cfc725b9f7ea2b336eaba38b3"
+amd64 = "sha256:75b5c435a83b530caba5923922f93d47b2e3f8b4ad9e79200581122996653e55"
 user = "1000"
 run_as = "1000:1000 — chạy qua image mg-idp (build tối ưu từ base này: infrastructure/docker/idp), rootfs chỉ đọc"
-released = "2026-11-05"
+released = "2026-11-19"
 revision = "e514445f9dcdabc5bdcf67cab56c1e49655de067"   # commit của tag 26.8.2 trong keycloak/keycloak (GitHub API)
-note = "Bản vá bảo mật (~30 CVE, gồm stored XSS trang login và chiếm tài khoản qua race xác thực) — dưới 14 ngày tuổi, chấp nhận. Digest kiểm qua Registry API v2 của quay.io ngày 2026-11-17 (sha256 của index, manifest amd64 và config blob khớp Docker-Content-Digest; config build 2026-11-12). Tag 26.8.2 đã bị push lại khi rebuild base (05/11, 09/11, 12/11) — chỉ dùng theo digest. grype báo Critical CVE-2026-91403 trên java-21-openjdk-headless 1:21.0.13.0.9-1.2.el9 (Red Hat 'Will not fix' — sửa qua ca-certificates): base đã có ca-certificates 2026.2.92_v9.0.319-90.3.el9_8 (RHSA-2026:88459); image mg-idp gỡ thêm root emSign Root CA - G1 khỏi kho CA của JVM và chỉ image đó có ngoại lệ grype, hết hạn 2027-02-16 (infrastructure/docker/idp/grype.yaml; P2-T05 mục 7). Còn 5 High chưa có bản vá trong base (sqlite-libs ×4, guava 33.6.0-jre) — không cần ngoại lệ, gate chỉ chặn Critical"
+note = "2026-11-19: base đổi sang 26.8.2-3 (tag 26.8.2 push lại 2026-11-19 07:42 UTC; index 7e66a96e…, amd64 75b5c435…, Docker-Content-Digest khớp qua Registry API v2 của quay.io) — chỉ đổi java-21-openjdk-headless 1:21.0.13.0.9-1.2.el9 → 1:21.0.13.1.2-1.2.el9 (RHSA-2026:100567: CVE-2026-114938 \"Java4Shell\" Critical — tràn heap ở intrinsic Base64 decode AVX-512 VBMI của C2, RCE pre-auth trên Keycloak theo Calif; + CVE-2026-114939…114946); cacerts giữ nguyên 118 mục; bản vá bảo mật dưới 14 ngày tuổi, chấp nhận (chủ dự án duyệt 2026-11-19). Phần cứng hiện tại (Xeon E5-2696 v3, không AVX-512) không khai thác được — kiểm /proc/cpuinfo 2026-11-19. Trước đó: Bản vá bảo mật (~30 CVE, gồm stored XSS trang login và chiếm tài khoản qua race xác thực) — dưới 14 ngày tuổi, chấp nhận. Digest kiểm qua Registry API v2 của quay.io ngày 2026-11-17 (sha256 của index, manifest amd64 và config blob khớp Docker-Content-Digest; config build 2026-11-12). Tag 26.8.2 đã bị push lại khi rebuild base (05/11, 09/11, 12/11) — chỉ dùng theo digest. grype báo Critical CVE-2026-91403 trên java-21-openjdk-headless 1:21.0.13.0.9-1.2.el9 (Red Hat 'Will not fix' — sửa qua ca-certificates): base đã có ca-certificates 2026.2.92_v9.0.319-90.3.el9_8 (RHSA-2026:88459); image mg-idp gỡ thêm root emSign Root CA - G1 khỏi kho CA của JVM và chỉ image đó có ngoại lệ grype, hết hạn 2027-02-16 (infrastructure/docker/idp/grype.yaml; P2-T05 mục 7). Còn 5 High chưa có bản vá trong base (sqlite-libs ×4, guava 33.6.0-jre) — không cần ngoại lệ, gate chỉ chặn Critical"
 
 [images.haproxy]   # l4proxy trên VPS (§14.9)
 image = "docker.io/library/haproxy"

@@ -4,8 +4,9 @@
 # feature) thì tự build lại lúc khởi động và ghi vào /opt/keycloak/lib/quarkus — cần rootfs ghi được.
 # Không thêm gói, provider hay theme nào: so với base chỉ khác thư mục `kc.sh build` sinh ra, kho CA của JVM đã gỡ
 # một root (stage truststore — CVE-2026-91403) và danh sách mật khẩu cấm (stage blocklist — G2 vòng 2, A-3).
-# Base pin theo digest (versions.lock [images.keycloak]); tag 26.8.2 trên quay.io đã bị push lại khi rebuild base.
-ARG KEYCLOAK=quay.io/keycloak/keycloak:26.8.2@sha256:c68e286cacd87b942ac1939a0a1481461109d6acd3a57dc496969a319a76bbf0
+# Base pin theo digest (versions.lock [images.keycloak]); tag 26.8.2 trên quay.io đã bị push lại khi rebuild base —
+# 2026-11-19: 26.8.2-3 (JDK 21.0.13.1 vá CVE-2026-114938 "Java4Shell", RHSA-2026:100567).
+ARG KEYCLOAK=quay.io/keycloak/keycloak:26.8.2@sha256:7e66a96e4739239070aeaf72e4c5decf0f7f682cfc725b9f7ea2b336eaba38b3
 
 FROM ${KEYCLOAK} AS build
 # impersonation — §8.2 (2): tắt ở mức server ⇒ không realm nào có role/endpoint impersonation, kể cả admin master.
