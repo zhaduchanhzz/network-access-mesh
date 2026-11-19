@@ -21,6 +21,7 @@
 | k | Cập nhật sau G2 vòng 2 (OWASP ASVS): network `mg-idp`, image idp mới, `realm-update.sh`, migration `0008`, api/worker mới | **[CHỦ DỰ ÁN DUYỆT]** từng bước | Xem bảng của mục k |
 | l | P3-T15 — kiểm soát quản trị IdP: api/worker mới (job `idp.audit_sync`, cổng console), `realm-update.sh` (`frontendUrl` của master, `view-events` của danh tính provisioning), Caddyfile **v8** | Ủy quyền Phase 3 (người điều phối) + **thông báo trước reload edge** | Xem bảng của mục l |
 | m | P4-T01a — SPA sau edge: service `web` trong `mg-app`, Caddyfile **v9** (`app.`/`admin.` ngoài `/api/*` ⇒ `web:8080`) | **[CHỦ DỰ ÁN/NGƯỜI ĐIỀU PHỐI DUYỆT]** + **thông báo trước reload edge** | Xem mục m |
+| n | P4-T07 — Caddyfile **v10**: `/register/<auth_id>` không `via=portal` ⇒ 302 tới trang claim của Portal; chỉ sau khi API claim (P4-T06) và trang `/enroll/claim` (P4-T08) đã chạy | **[CHỦ DỰ ÁN DUYỆT]** + **thông báo trước reload edge** | Xem mục n |
 
 Lệch thứ tự so với danh sách của brief: **idp-bootstrap và đăng nhập thử nằm sau (h)** — worker chỉ tới được Admin API của Keycloak qua site `auth.` mới của edge, đăng nhập cần site `app.`/`admin.`. Adopt, client secret, bootstrap SA/seed (e, f) không cần edge mới.
 
@@ -318,3 +319,15 @@ Không migration của riêng task này, không đổi image edge hay compose c�
 Hoàn tác: cài lại Caddyfile v8 đã sao lưu + `validate` + reload (Portal về 404 như trước); `web` để chạy vô hại hoặc `$APP stop web`.
 
 Ghi vào `current.md` (digest api/worker/web, giờ reload edge v9) và bằng chứng P4-T01a (mục staging).
+
+## n. P4-T07 — chuyển hướng web-auth (Caddyfile v10)
+
+Chỉ Caddyfile ⇒ **reload** (§14.6 (a)); không migration, không image mới của edge. **Thứ tự bắt buộc**: api/worker có `POST /tenants/{tenantId}/enrollment/web-auth/claim` (P4-T06) và `web` có trang `/enroll/claim` (P4-T08) **trước** v10 — v10 đưa mọi link `/register/<auth_id>` (không `via=portal`) tới trang đó. Bằng chứng và thiết kế: [P4-T07](../planning/evidence/P4-T07.md); lệnh chi tiết: RUNBOOK mục "Template v9 → v10".
+
+| # | Bước | Ảnh hưởng tới đang chạy |
+|---|---|---|
+| n1 | Xác nhận api/worker/web đang chạy là bản có P4-T06 + P4-T08 (digest trong `current.md`) | Không |
+| n2 | Caddyfile **v9 → v10**: render, `diff` compose (chỉ dòng `template_version`), sao lưu, cài, `caddy validate`, reload | **Reload** — báo trước: stream upgrade đóng sau `stream_close_delay` (5 phút), client tự nối lại |
+| n3 | Kiểm: `run_staging.sh` (nhóm `public`: chuyển hướng, Auth ID sai ⇒ 404, `via=portal`) PASS; `/key?v=113` A/B/C 200; **V-07**: client thật từng OS hoàn tất đăng ký sau claim (link in ra ⇒ `app.<domain>/enroll/claim` ⇒ claim ⇒ `Running`) | Không |
+
+Hoàn tác: cài lại Caddyfile v9 đã sao lưu + `validate` + reload. Ghi vào `current.md` (giờ reload edge v10) và bằng chứng P4-T07 (mục staging — V-07).

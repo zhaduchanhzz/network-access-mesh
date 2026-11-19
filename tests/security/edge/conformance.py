@@ -6,6 +6,8 @@ that reaches "Headscale", so the test can prove that forbidden paths never leave
 are stripped. Subcommands (each prints PASS/FAIL lines; exit code 0 = every check passed):
 
   public      --edge IP --mesh-domain D --echo SLUG --entry-ip IP [--tenants a,b] [--missing SLUG] [--log FILE]
+              [--app-host H]  (also the web-auth redirect of /register/<auth_id> — edge template v10, P4-T07; H defaults
+              to app.<base domain> with mesh domain = mesh.<base domain>)
   stopped     --edge IP --mesh-domain D --slug SLUG                  (tenant container stopped ⇒ uniform 404)
   admin       --edge IP:PORT --token-file F --echo SLUG [--log FILE] [--other-token-file F]
   metrics     --edge IP:PORT --token-file F --echo SLUG [--log FILE] [--other-token-file F]
@@ -39,8 +41,12 @@ import string
 import sys
 import urllib.parse
 
-ALLOWED_PUBLIC = ["/ts2021", "/key", "/machine/ping-response", "/derp", "/derp/*", "/register/*", "/auth/*",
+ALLOWED_PUBLIC = ["/ts2021", "/key", "/machine/ping-response", "/derp", "/derp/*", "/register/confirm/*", "/auth/*",
                   "/oidc/callback"]
+# /register/<auth_id> (ID-05: hskey-authreq- + 24 characters) reaches Headscale only with the query via=portal; without it
+# the edge answers 302 to the Portal's claim page (template v10, P4-T07); any other /register/* path is a 404.
+SLUG_RE = re.compile(r"[a-z][a-z0-9-]{1,30}[a-z0-9]")                       # §14.5 (fullmatch only)
+REGISTER_RE = re.compile(r"/register/(hskey-authreq-[A-Za-z0-9_-]{24})")   # fullmatch only
 FORBIDDEN_PUBLIC = ["/", "/api/v1/apikey", "/api/v1/user", "/api/v1/node", "/api/v1/policy", "/swagger",
                     "/swagger/v1/openapiv2.json", "/verify", "/version", "/health", "/metrics", "/debug/pprof/",
                     "/debug/policy", "/apple", "/apple/macos", "/windows", "/windows/tailscale.reg", "/register",
@@ -50,8 +56,9 @@ TRAVERSAL = ["/derp/../api/v1/apikey", "/derp/%2e%2e/api/v1/apikey", "/derp/..%2
              "/auth/..%2f..%2fapi/v1/apikey", "/derp/./../api/v1/apikey", "/derp/probe/../../debug/pprof/",
              "//api/v1/apikey", "/API/v1/apikey", "/%2fapi/v1/apikey", "/derp/..\\api/v1/apikey",
              "/derp/%5c..%5capi/v1/apikey", "/key/.", "/derp/./probe", "/register/..", "/auth/%2e"]
+AUTH_ID = "hskey-authreq-" + "Conf0rmance_-Edge-P4T07x"           # a well-formed Auth ID nobody holds (24 characters)
 ALLOWED_SAMPLES = ["/key?v=113", "/ts2021", "/derp", "/derp/probe", "/derp/latency-check", "/machine/ping-response",
-                   "/register/abc", "/auth/abc", "/oidc/callback"]
+                   "/register/confirm/abc", f"/register/{AUTH_ID}?via=portal", "/auth/abc", "/oidc/callback"]
 MARKER = '"mg-echo": true'
 
 
@@ -95,7 +102,30 @@ def normalized(raw_path: str) -> str:
     return "/" if p in (".", "//") else p
 
 
+def register_upstream_ok(raw_path: str) -> bool:
+    """An upstream request for /register/<auth_id> is legitimate only with the query via=portal (template v10)."""
+    if not REGISTER_RE.fullmatch(normalized(raw_path)):
+        return True
+    query = raw_path.split("?", 1)[1] if "?" in raw_path else ""
+    return "portal" in urllib.parse.parse_qs(query, keep_blank_values=True).get("via", [])
+
+
+# Auth IDs the edge must refuse (404, nothing upstream) — with and without via=portal; raw, as sent on the request line
+BAD_AUTH_IDS = [AUTH_ID[:-1], AUTH_ID + "x", AUTH_ID.replace("authreq", "authrex"), AUTH_ID.upper(),
+                AUTH_ID.replace("hskey-", "hskey_"), AUTH_ID[:-1] + "%2F", AUTH_ID[:-1] + "%40", AUTH_ID[:-1] + ".",
+                AUTH_ID[:-1] + "%25", AUTH_ID[:-1] + "%20", AUTH_ID[:-3] + "%0d%0a", AUTH_ID[:-1] + "%E2%80%AE",
+                AUTH_ID + "/", AUTH_ID + "/x", AUTH_ID + "%2Fx", "hskey-authreq-", "", "x", "%2F%2Fevil.example",
+                "https:%2F%2Fevil.example%2F", "%5c%5cevil.example", "..%2f..%2fapi/v1/apikey",
+                "%3Cscript%3Ealert(1)%3C%2Fscript%3Exxxxxxxxxxxx"]
+# query strings that do NOT opt out of the redirect (the matcher is `query via=portal`, exact and case-sensitive) and
+# that must never be reflected into the Location
+NOT_VIA_PORTAL = ["", "?via=Portal", "?via=", "?via=portalx", "?VIA=portal", "?via=portal%00",
+                  "?tenant=evil&auth_id=x&return_to=https%3A%2F%2Fevil.example&next=//evil.example"]
+
+
 def allowed_public(path: str) -> bool:
+    if REGISTER_RE.fullmatch(path):        # only with via=portal — checked on the raw upstream path by register_upstream_ok
+        return True
     for a in ALLOWED_PUBLIC:
         if a.endswith("/*") and path.startswith(a[:-1]) or path == a:
             return True
@@ -154,7 +184,7 @@ def cmd_public(a) -> int:
         entries = log.new()
         if entries is None:
             return
-        bad = [e["path"] for e in entries if not allowed_public(normalized(e["path"]))]
+        bad = [e["path"] for e in entries if not allowed_public(normalized(e["path"])) or not register_upstream_ok(e["path"])]
         res.check(not bad, f"{name}: no forbidden path reached upstream", f"upstream received {bad}")
 
     for host in hosts:
@@ -179,6 +209,39 @@ def cmd_public(a) -> int:
         if entries is not None:
             res.check(len(entries) == 1 and entries[0]["port"] == 8080 and entries[0]["path"] == path,
                       f"{echo} allowed {path}: exactly this request upstream on :8080", str(entries))
+    # web-auth (template v10, P4-T07; §7.4 flow A step 6, §14.6): /register/<auth_id> without via=portal ⇒ 302 to the
+    # Portal's claim page, Location built from the slug and the Auth ID only (no Host / X-Forwarded-* / query reflected),
+    # on every tenant hostname — existing or not (the edge does not know; no oracle); malformed Auth ID ⇒ 404
+    app_host = a.app_host or "app." + a.mesh_domain.split(".", 1)[1]
+    spoof = {"X-Forwarded-Host": "evil.example", "X-Forwarded-Proto": "http", "Forwarded": "host=evil.example"}
+    for host in hosts:
+        slug = host.split(".", 1)[0]
+        want = f"https://{app_host}/enroll/claim?tenant={slug}&auth_id={AUTH_ID}"
+        for method in ("GET", "HEAD"):
+            for q in NOT_VIA_PORTAL:
+                st, hdr, body = https(a.edge, host, method, f"/register/{AUTH_ID}{q}", headers=spoof)
+                h = {k.lower(): v for k, v in hdr.items()} if st else {}
+                res.check(st == 302 and h.get("location") == want and h.get("cache-control") == "no-store"
+                          and MARKER.encode() not in body, f"{host} {method} /register/<auth_id>{q} ⇒ 302 claim of the Portal",
+                          f"status {st} location {h.get('location')!r} cache-control {h.get('cache-control')!r}")
+        for bad_id in BAD_AUTH_IDS:
+            for q in ("", "?via=portal"):
+                st, hdr, body = https(a.edge, host, "GET", f"/register/{bad_id}{q}")
+                h = {k.lower(): v for k, v in hdr.items()} if st else {}
+                res.check(st == 404 and "location" not in h and MARKER.encode() not in body,
+                          f"{host} malformed Auth ID /register/{bad_id}{q} ⇒ 404", f"status {st} {h.get('location')!r}")
+        no_upstream(f"{host} web-auth redirect / malformed Auth IDs")
+    # with via=portal (ALLOWED_SAMPLES) and the native OIDC confirmation form (POST /register/confirm/*): Headscale
+    path = f"/register/confirm/{AUTH_ID}"
+    st, hdr, body = https(a.edge, echo, "POST", path, body=b"")
+    res.check(st == 200 and MARKER.encode() in body and "Location" not in hdr,
+              f"{echo} POST {path} reaches Headscale (native OIDC confirmation)", f"status {st}")
+    entries = log.new()
+    if entries is not None:
+        res.check(len(entries) == 1 and entries[0]["path"] == path and entries[0]["method"] == "POST",
+                  f"{echo} POST {path}: exactly this request upstream", str(entries))
+    st, _, _ = https(a.edge, f"{a.missing}.{a.mesh_domain}", "GET", f"/register/{AUTH_ID}?via=portal")
+    res.check(st == 404, f"missing tenant {a.missing} /register/<auth_id>?via=portal ⇒ 404", f"status {st}")
     # client-supplied forwarding headers are overwritten (Headscale trusts them from the edge — trusted_proxies)
     spoof = {"True-Client-IP": "6.6.6.6", "X-Real-IP": "6.6.6.6", "X-Forwarded-For": "6.6.6.6"}
     st, _, _ = https(a.edge, echo, "GET", "/key?v=113", headers=spoof)
@@ -214,6 +277,15 @@ def cmd_public(a) -> int:
         host = f"{lab}.{a.mesh_domain}"
         st, _, body = https(a.edge, host, "GET", "/key?v=113")
         res.check(st in (None, 404, 421) and MARKER.encode() not in body, f"fuzz host {host!r}", f"status {st}")
+        # web-auth link: a label of slug form (tenant or not — the edge cannot know) ⇒ the same 302; any other ⇒ never
+        # redirected, and the Location never carries a label that is not of slug form
+        st, hdr, body = https(a.edge, host, "GET", f"/register/{AUTH_ID}")
+        loc = {k.lower(): v for k, v in hdr.items()}.get("location") if st else None
+        if SLUG_RE.fullmatch(lab):
+            ok = st == 302 and loc == f"https://{app_host}/enroll/claim?tenant={lab}&auth_id={AUTH_ID}"
+        else:
+            ok = st in (None, 404, 421) and loc is None
+        res.check(ok and MARKER.encode() not in body, f"fuzz host {host!r} /register/<auth_id>", f"status {st} {loc!r}")
     entries = log.new()
     if entries is not None:
         res.check(not entries, "fuzzed hosts: nothing reached the echo upstream", str(entries[:3]))
@@ -552,6 +624,7 @@ def main() -> int:
     p.add_argument("--tenants", type=lambda s: [x for x in s.split(",") if x], default=[])
     p.add_argument("--missing", default="nope-tenant")
     p.add_argument("--log")
+    p.add_argument("--app-host", help="host of the Portal (default app.<base domain> for mesh domain mesh.<base domain>)")
     p = sub.add_parser("stopped")
     p.add_argument("--edge", required=True)
     p.add_argument("--mesh-domain", required=True)

@@ -524,7 +524,7 @@ class Stack:
             self.compose("--profile", "tools", "--profile", "migrate", "--profile", "bootstrap", "down", "-v",
                          "--remove-orphans", "--timeout", "10", check=False, timeout=180)
         ids = self.docker("ps", "-aq", "--filter", f"label=com.docker.compose.project={self.prefix}", check=False).stdout.split()
-        for extra in ("probe", "caller", "direct", "enroll", "obs-"):
+        for extra in ("probe", "caller", "direct", "enroll", "obs-", "wa-"):   # wa-: clients of webauth.py (P4-T07)
             ids += self.docker("ps", "-aq", "--filter", f"name=^{self.name(extra)}", check=False).stdout.split()
         if ids:
             self.docker("rm", "-f", *ids, check=False)

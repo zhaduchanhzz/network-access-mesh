@@ -26,6 +26,11 @@ From template v9 (P4-T01a) app.<base_domain> and admin.<base_domain> send every 
 outside the Keycloak console) to the static SPA container web:8080 on mg-edge (service `web` of compose project mg-app,
 tools/render_app.py); the edge is the single source of the browser security headers of both origins.
 
+From template v10 (P4-T07) GET /register/<auth_id> on a tenant hostname (auth_id = hskey-authreq- + 24 characters, ID-05)
+without the query via=portal is answered with a 302 to the Portal's claim page
+https://app.<base_domain>/enroll/claim?tenant=<slug>&auth_id=<auth_id> (§7.4 flow A, §14.6); with via=portal it is
+proxied to Headscale as before (native OIDC mode); any other /register/* path except /register/confirm/* is a 404.
+
 Writes <out_dir>/caddy/Caddyfile and <out_dir>/compose.edge.yaml. Output is deterministic — guarded by
 tools/test_render_edge.py (golden files). Standard library only.
 """
@@ -42,7 +47,7 @@ import sys
 import mgenv  # noqa: E402 — tools/mgenv.py: env file of the environment (no secrets)
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-TEMPLATE_VERSION = "9"   # 9: SPA web sau app./admin. (P4-T01a)
+TEMPLATE_VERSION = "10"  # 9: SPA web sau app./admin. (P4-T01a); 10: /register/<auth_id> ⇒ claim của Portal (P4-T07)
 CADDYFILE_TMPL = ROOT / "infrastructure" / "caddy" / "Caddyfile.tmpl"
 COMPOSE_TMPL = ROOT / "infrastructure" / "compose" / "compose.edge.yaml.tmpl"
 

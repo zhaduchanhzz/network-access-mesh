@@ -12,6 +12,8 @@
 # - Console quản trị Keycloak (§8.2 (3), P3-T15 — từ template v8): CHỈ trên admin.${base_domain}, sau forward_auth tới
 #   api (GET /internal/edge/idp-console) — phiên Platform Console + phiên console đã duyệt 2P còn hạn + CIDR nguồn đã
 #   duyệt; impersonation bị chặn ở cả admin. và auth.
+# - Web-auth (§7.4 luồng A, P4-T07 — từ template v10): GET /register/<auth_id> trên hostname tenant không có via=portal
+#   ⇒ 302 tới https://app.${base_domain}/enroll/claim?tenant=<slug>&auth_id=<auth_id> (trang claim của Portal).
 # - Không có giá trị secret nào trong file: token DNS, khóa bouncer, token admin/metrics chỉ được tham chiếu bằng
 #   placeholder {file.*}, Caddy đọc file lúc provision hoặc lúc so khớp (secret dạng file — §14.2).
 # - CrowdSec ở chế độ chỉ-quan-sát (app crowdsec kết nối LAPI, chưa route nào dùng handler crowdsec; mọi site public
@@ -153,9 +155,29 @@ ${tunnel_guard}	import tls_acme
 
 	# Nhãn tenant = capture group của regex slug neo vào hậu tố .${mesh_domain} (không dùng {labels.N} — EG-03).
 	# Allow-list path (§14.6); mọi path khác — gồm /api/*, /swagger*, /verify, /version, /health, /metrics — là 404.
+	# /register/* KHÔNG còn nằm trọn trong allow-list (từ template v10 — P4-T07): chỉ /register/confirm/* (trang xác
+	# nhận OIDC gốc, Headscale chỉ đăng ký khi instance bật OIDC — RT-02) và /register/<auth_id> ở dưới.
 	@tenant {
 		vars_regexp tenant {http.request.host} ^([a-z][a-z0-9-]{1,30}[a-z0-9])\.${mesh_domain_re}$$
-		path /ts2021 /key /machine/ping-response /derp /derp/* /register/* /auth/* /oidc/callback
+		path /ts2021 /key /machine/ping-response /derp /derp/* /register/confirm/* /auth/* /oidc/callback
+	}
+	# Web-auth do Portal môi giới (§7.4 luồng A bước 6, §14.6 — template v10, P4-T07): GET /register/<auth_id> mà client
+	# in ra (auth_id = "hskey-authreq-" + 24 ký tự [A-Za-z0-9_-] — ID-05, so trên path đã giải mã và làm sạch) KHÔNG có
+	# via=portal ⇒ 302 tới trang claim của Portal trên app.${base_domain}. Location chỉ ghép hai capture group đã qua regex
+	# (slug, auth_id) vào một URL cố định: không phản chiếu Host, query hay phần nào khác của request (không open
+	# redirect). Có via=portal (Portal trả browser về đây khi tenant ở chế độ OIDC gốc) ⇒ proxy tới Headscale như trước.
+	# auth_id sai định dạng ⇒ 404 thống nhất (không chạm Headscale). Client không bao giờ tự GET URL này (nó chỉ gửi lại
+	# path trong followup qua Noise) nên chuyển hướng không ảnh hưởng đăng ký (V-07). Tenant không tồn tại vẫn nhận cùng
+	# 302 (edge không biết tenant nào tồn tại — không lộ thông tin); Portal mới kiểm tenant và membership.
+	@register_portal {
+		vars_regexp tenant {http.request.host} ^([a-z][a-z0-9-]{1,30}[a-z0-9])\.${mesh_domain_re}$$
+		path_regexp authid ^/register/(hskey-authreq-[A-Za-z0-9_-]{24})$$
+		not query via=portal
+	}
+	@register_native {
+		vars_regexp tenant {http.request.host} ^([a-z][a-z0-9-]{1,30}[a-z0-9])\.${mesh_domain_re}$$
+		path_regexp authid ^/register/(hskey-authreq-[A-Za-z0-9_-]{24})$$
+		query via=portal
 	}
 	# /bootstrap-dns KHÔNG proxy (RT-15: không xác thực, Headscale tra DNS phía server từ network internal):
 	# trả tĩnh tên tenant → IP điểm vào công khai (V-32). Ngoặc nhọn của JSON được escape cho bộ thay placeholder.
@@ -178,6 +200,16 @@ Disallow: /
 	# ("/./", "/../", "//" — caddyserver/caddy#4407) nhưng không coi "\" là dấu phân cách (P1-T10a).
 	handle @unsafe_path {
 		respond 404
+	}
+	handle @register_portal {
+		header Cache-Control no-store
+		redir https://app.${base_domain}/enroll/claim?tenant={re.tenant.1}&auth_id={re.authid.1} 302
+	}
+	handle @register_native {
+		reverse_proxy hs-{re.tenant.1}.:8080 {
+			header_up True-Client-IP {remote_host}
+			header_up X-Real-IP {remote_host}
+		}
 	}
 	handle @tenant {
 		reverse_proxy hs-{re.tenant.1}.:8080 {
