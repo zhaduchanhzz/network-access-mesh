@@ -321,10 +321,13 @@ def check_approval_isolation(r, st: Stack, state: dict) -> None:
         start = _post(st, ub, usess, f"{api_a}/enrollment/requests/{rid}/start", None)
         again = _post(st, ub, usess, f"{api_a}/enrollment/requests/{rid}/start", None)
         key = (start.json().get("credential") or {}).get("preauth_key", "")
-        lst = ub.get(f"{api_a}/enrollment/requests?limit=50").json().get("items", [])
+        time.sleep(6)   # the End User spent its burst of the enrollment rate-limit class (5 per identity, 1 per 5 s)
+        lres = ub.get(f"{api_a}/enrollment/requests?limit=50")
+        lst = lres.json().get("items", []) if lres.status == 200 else []
         cond("approved", appr.status == 200 and appr.json().get("status") == "approved" and start.status == 200
              and key.startswith("hskey-auth-") and again.status == 409 and lst and all(x.get("id") == rid for x in lst),
-             f"approve {appr.status}; /start {start.status} key once; again {again.status}; End User lists {len(lst)} own request(s)")
+             f"approve {appr.status}; /start {start.status} key once; again {again.status}; End User list {lres.status}: {len(lst)} "
+             "own request(s)")
         # IT-13: the key of tenant-a is refused by tenant-b's Headscale
         rc, stb, _ = checks.probe_enroll(st, _key_file(st, "e2e101", key), "tenant-b", "e2e101-cross")
         cond("key_cross_tenant", rc != 0 and stb != "Running", f"key of tenant-a on tenant-b: rc={rc} state={stb}")
