@@ -476,6 +476,64 @@ func TestEnrollment(t *testing.T) {
 		}
 	})
 
+	t.Run("ClaimMeetsConcurrentSync", func(t *testing.T) {
+		// B2: an inventory.sync whose snapshot already lists the new node inserts the node's row while the claim's
+		// verified transaction runs (not committed yet, so LockLiveDeviceOfNode does not see it). The claim's insert waits
+		// for the sync and meets its row on the live-node key (23505): the claim links that row — a device registered
+		// legitimately is never failed record_failed for it.
+		admin := a.actor("admin", uuid.New())
+		ctx := ctxOf(admin, a.id, ActionClaim)
+		out, err := f.api.Create(ctx, a.id, admin, NewRequest{Method: MethodWebAuth}, idem("k-b2", "b2"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		const node = 4242
+		auth := "hskey-authreq-" + strings.Repeat("R", 24)
+		a.hs.PutPending(auth, devicestest.Node{ID: node, MachineKey: "mkey:b2", Hostname: "mg-" + out.Credential.EnrollCode.Reveal()})
+		sync := f.env.Admin(t, f.db)
+		var pid int
+		if err := sync.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&pid); err != nil {
+			t.Fatal(err)
+		}
+		tx, err := sync.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = tx.Rollback(context.Background()) }()
+		if _, err := tx.Exec(ctx, `INSERT INTO device_inventory_cache (tenant_id, instance_id, headscale_node_id, machine_key,
+			name, owner_membership_id) VALUES ($1, $2, $3, 'mkey:b2', 'synced', $4)`, a.id, a.instance, node,
+			admin.MembershipID); err != nil {
+			t.Fatal(err)
+		}
+		type result struct {
+			r   Request
+			err error
+		}
+		done := make(chan result, 1)
+		go func() {
+			r, err := f.api.Claim(ctx, a.id, admin, Claim{AuthID: auth})
+			done <- result{r, err}
+		}()
+		for deadline := time.Now().Add(20 * time.Second); f.count(t,
+			`SELECT count(*) FROM pg_stat_activity WHERE $1::int = ANY (pg_blocking_pids(pid))`, pid) == 0; {
+			if time.Now().After(deadline) {
+				t.Fatal("the claim's insert never waited for the sync's row")
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+		res := <-done
+		if res.err != nil || res.r.Status != StatusVerified || res.r.NodeID == nil || *res.r.NodeID != node {
+			t.Fatalf("claim during a sync: %+v %v, want verified node %d", res.r, res.err, node)
+		}
+		if k := f.count(t, `SELECT count(*) FROM device_inventory_cache WHERE instance_id = $1 AND headscale_node_id = $2
+			AND removed_at IS NULL AND name = 'synced' AND enrollment_request_id = $3`, a.instance, node, out.Request.ID); k != 1 {
+			t.Fatalf("the sync's row was not linked to the claim (%d)", k)
+		}
+	})
+
 	t.Run("CrossTenantClaim", func(t *testing.T) {
 		// IT-13 (AC-14): an Auth ID of tenant A's instance sent to tenant B's claim endpoint is refused, no node in either
 		ua := a.actor("operator", uuid.New())

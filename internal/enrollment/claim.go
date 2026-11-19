@@ -466,7 +466,7 @@ func (s *Service) verified(ctx context.Context, tenantID uuid.UUID, a Actor, r s
 ) (Request, error) {
 	var out Request
 	nid := int64(node.ID) //nolint:gosec // small positive ids
-	err := s.st.WithTenantJobTx(ctx, tenantID, func(tx *store.Tx) error {
+	record := func(tx *store.Tx) error {
 		q := tx.Q
 		cur, err := q.LockEnrollmentRequest(ctx, sqlcdb.LockEnrollmentRequestParams{TenantID: tenantID, ID: r.ID})
 		if err != nil {
@@ -526,13 +526,22 @@ func (s *Service) verified(ctx context.Context, tenantID uuid.UUID, a Actor, r s
 		}
 		out = view(row, tc.loginServer)
 		return nil
-	})
+	}
+	err := s.st.WithTenantJobTx(ctx, tenantID, record)
+	if store.SQLConstraint(err) == liveNodeKey {
+		// an inventory.sync whose snapshot lists the node inserted the node's row while this transaction ran, unseen by
+		// the lock above: the insert waited for that sync and met its row — once more, the row is linked instead
+		err = s.st.WithTenantJobTx(ctx, tenantID, record)
+	}
 	if err != nil {
 		s.failRequest(ctx, tenantID, r.ID, "record_failed", &op)
 		return Request{}, fmt.Errorf("enrollment: record the verified device: %w", err)
 	}
 	return out, nil
 }
+
+// liveNodeKey is the unique index of the live row of a node (0005): one live device per (instance, node id).
+const liveNodeKey = "device_inventory_cache_node_live_key"
 
 func deviceParams(tenantID, instance uuid.UUID, n headscale.Node, owner, request uuid.UUID) sqlcdb.InsertEnrolledDeviceParams {
 	p := sqlcdb.InsertEnrolledDeviceParams{TenantID: tenantID, InstanceID: instance,

@@ -257,6 +257,9 @@ func (s *Service) apply(ctx context.Context, tenantID, instanceID uuid.UUID, t0 
 			}
 			// revoked: a device of this exact node that an applied revocation deleted.
 			revoked := uuid.Nil
+			if isLive && firstSeenAfter(old, t0) {
+				continue // the row is newer than this snapshot (a verified claim wrote it from AuthRegister): kept
+			}
 			if isLive {
 				// §6.3: same node id, another machine key ⇒ the old device is gone, this is a new one.
 				if err := q.MarkDeviceRemoved(ctx, sqlcdb.MarkDeviceRemovedParams{RemovedAt: &t0, SyncGeneration: gen,
@@ -291,7 +294,7 @@ func (s *Service) apply(ctx context.Context, tenantID, instanceID uuid.UUID, t0 
 			}
 		}
 		for _, r := range live {
-			if seen[r.HeadscaleNodeID] {
+			if seen[r.HeadscaleNodeID] || firstSeenAfter(r, t0) {
 				continue
 			}
 			if err := q.MarkDeviceRemoved(ctx, sqlcdb.MarkDeviceRemovedParams{RemovedAt: &t0, SyncGeneration: gen,
@@ -304,6 +307,16 @@ func (s *Service) apply(ctx context.Context, tenantID, instanceID uuid.UUID, t0 
 			NodeCount: int32(min(len(nodes), 1<<31-1)), TenantID: tenantID, InstanceID: instanceID}) //nolint:gosec // bounded
 	})
 	return clamps, reappeared, err
+}
+
+// firstSeenAfter reports whether row r entered the register at or after t0: a snapshot taken at t0 says nothing about
+// it. A row a sync inserted carries the older snapshot time of that sync, so such a row is the device of a web-auth
+// claim verified after t0 (enrollment's InsertEnrolledDevice, first_seen_at = the database clock of that transaction),
+// whose node Headscale may have created after serving the ListNodes of this snapshot. Removing it, or replacing it
+// with the snapshot's node of the same id, would drop a device just enrolled together with its enrollment link; the
+// next sync (a newer snapshot) settles it.
+func firstSeenAfter(r sqlcdb.DeviceInventoryCache, t0 time.Time) bool {
+	return !r.FirstSeenAt.Before(t0)
 }
 
 // snapshotPredatesRevocation reports whether a snapshot taken at t0 may be older than the revocation of device r: one
