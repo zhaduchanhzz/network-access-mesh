@@ -445,7 +445,7 @@ func (m *matrixWorld) createObjects(t *testing.T) objects {
 		instance: map[string]uuid.UUID{}, devEU: map[string]uuid.UUID{}, devEUTagged: map[string]uuid.UUID{},
 		devOther: map[string]uuid.UUID{}, job: map[string]uuid.UUID{}, platformJob: uuid.Must(uuid.NewV7()),
 		approval: map[string]uuid.UUID{}, invitation: map[string]uuid.UUID{}, platformApproval: uuid.Must(uuid.NewV7()),
-		tag:    map[string]uuid.UUID{}, grant: map[string]uuid.UUID{},
+		tag: map[string]uuid.UUID{}, grant: map[string]uuid.UUID{},
 		target: map[string]uuid.UUID{}, group: map[string]uuid.UUID{}, policy: map[string]uuid.UUID{},
 		notifOwn: map[uuid.UUID]uuid.UUID{}, notifOther: map[string]uuid.UUID{},
 		canaries: []string{m.edgeToken},
