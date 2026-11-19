@@ -311,6 +311,16 @@ amd64 = "sha256:a5a5adfee3013de54504e0e6aff49993acf7daed072e86be75b8818c0f6ac258
 released = "2026-11-10"
 note = "Builder cho web (Active LTS). Bản vá bảo mật — dưới 14 ngày tuổi, chấp nhận"
 
+[images.playwright]   # P4-T14: E2E UI (tests/e2e/harness/playwrightui.py, apps/web/e2e) — CHỈ test, không triển khai
+image = "mcr.microsoft.com/playwright"
+tag = "v1.65.0-noble"
+index = "sha256:9beb546099e11f52d62e505537914870e01a67e0e6b00ae41da4775324e73dbe"
+amd64 = "sha256:f6fe3cf9a493670b9a20f33597a807262abb25c40c31839ba4ac1dbc51fe7366"
+user = "root"
+run_as = "UID:GID của user chạy harness (docker run -u), HOME=/tmp — không ghi vào cây (gắn chỉ-đọc)"
+released = "2026-11-05"
+note = "Image chính thức của Microsoft (MCR): Ubuntu 24.04 + Node 26.13.1 + Chromium/Firefox/WebKit trong /ms-playwright (dùng Chromium 1254). Cùng phiên bản với @playwright/test 1.65.0 trong apps/web/package-lock.json (bản mới nhất đã ≥ 14 ngày; 1.65.1 ngày 2026-11-13 không phải bản vá bảo mật). Image được build lại 2026-11-11 trên cùng tag — luôn dùng digest. Digest đọc bằng `docker buildx imagetools inspect` ngày 2026-11-19, pull theo digest (Docker kiểm sha256 của manifest)"
+
 # ---------------------------------------------------------------- mã nguồn và module
 
 [sources.tailscale]
@@ -495,6 +505,8 @@ go = "1.27.4"
 typescript = "5.9.3"              # 2025-09-30 — peer ^5.x của openapi-typescript 7
 "js-yaml" = "4.3.2"               # 2026-08-26 — trùng bản @redocly/openapi-core dùng; CI so cách nó đọc spec với tools/openapi_lint.py
 overrides = "@redocly/openapi-core 1.34.23, brace-expansion 2.1.7, uri-js-replace 1.0.2 — giữ mọi gói ≥ 14 ngày tuổi (bản mới nhất lúc pin: 1.34.24, 2.1.8, 1.0.3; 2.1.7 đã gồm mọi bản vá GHSA của brace-expansion nhánh 2.x)"
+"@playwright/test" = "1.65.0"     # 2026-11-05 (P4-T14) — cùng phiên bản với [images.playwright]; override playwright-core 1.65.0 (peer của @axe-core/playwright, không để npm kéo 1.65.1)
+"@axe-core/playwright" = "4.14.0" # 2026-10-15 (P4-T14) — dùng chung axe-core 4.14.0 đã có (Vitest)
 
 [toolchains]
 go = "1.27.4"

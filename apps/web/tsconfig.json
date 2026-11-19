@@ -22,5 +22,5 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["src", "scripts/*.d.mts", "eslint-rules/*.d.ts", "vite.config.ts"]
+  "include": ["src", "scripts/*.d.mts", "eslint-rules/*.d.ts", "vite.config.ts", "e2e", "playwright.config.ts"]
 }

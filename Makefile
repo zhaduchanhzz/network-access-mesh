@@ -3,7 +3,7 @@ PYTHON ?= python3
 
 SQLC_VERSION ?= v1.31.1
 
-.PHONY: help docs docs-check render-test monitoring-test lint secret-scan api-lint api-gen agent-gen authz-gen web-check web-image go-test go-lint go-build sqlc sqlc-diff e2e-functional isolation isolation-headscale agent-it provisioning-it
+.PHONY: help docs docs-check render-test monitoring-test lint secret-scan api-lint api-gen agent-gen authz-gen web-check web-image go-test go-lint go-build sqlc sqlc-diff e2e-functional e2e-playwright isolation isolation-headscale agent-it provisioning-it
 
 help: ## Liệt kê các target
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-14s %s\n", $$1, $$2}'
@@ -82,6 +82,12 @@ go-lint: ## golangci-lint (phiên bản pin trong versions.lock)
 
 e2e-functional: ## Stack dev/CI P2-T01a (compose.yaml): tự kiểm harness, dựng, chạy E2E-01…16, gỡ — kết quả chỉ "functional" (cần Docker, openssl; DOCKER="sudo docker" nếu cần)
 	$(PYTHON) tests/e2e/harness/test_stack.py && $(PYTHON) tests/e2e/harness/e2e.py all
+
+e2e-playwright: ## P4-T14: dựng stack dev/CI → Playwright (hai vai trò, hai ngôn ngữ, axe) PW_RUNS lượt (mặc định 2) → báo cáo HTML/trace ở E2E_OUT/playwright → gỡ stack (cần Docker, WEB_NODE_MODULES = node_modules đã cài của apps/web)
+	@test -n "$(WEB_NODE_MODULES)" || { echo "đặt WEB_NODE_MODULES=<đường dẫn tuyệt đối tới apps/web/node_modules đã npm ci>"; exit 2; }
+	$(PYTHON) tests/e2e/harness/e2e.py up; rc=$$?; \
+	if [ $$rc -eq 0 ]; then $(PYTHON) tests/e2e/harness/playwrightui.py all; rc=$$?; fi; \
+	$(PYTHON) tests/e2e/harness/e2e.py down; exit $$rc
 
 go-build: ## Build meshguard api, worker, probe (P3-T03a) và agent (P3-T01) vào bin/
 	CGO_ENABLED=0 go build -trimpath -o bin/meshguard-api ./apps/api && CGO_ENABLED=0 go build -trimpath -o bin/meshguard-worker ./apps/worker && CGO_ENABLED=0 go build -trimpath -o bin/meshguard-probe ./apps/probe && CGO_ENABLED=0 go build -trimpath -o bin/meshguard-agent ./apps/agent
