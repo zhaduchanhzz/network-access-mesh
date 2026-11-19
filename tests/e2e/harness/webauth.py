@@ -16,8 +16,12 @@ the tree (only its tls block differs — stack.ci_tls), the SPA and the api buil
           as the claim page of P4-T08 will. With the enrollment API of P4-T06 on the tree (module enrollment.py): a
           Tenant Admin asks a web-auth request (code → hostname mg-<code>), the client prints its link, the redirect,
           POST /tenants/{id}/enrollment/web-auth/claim ⇒ 200 verified, the client Running, the node renamed to the
-          label. Without it (P4-T07 alone): the claim step is `headscale auth register` of the Auth ID from the Location
-          (CLI of the stack, as in E2E-14) ⇒ the client Running; the control node is deleted afterwards.
+          label; afterwards the node leaves tenant-a through the product (DELETE /tenants/{id}/devices/{id} ⇒ 202, job
+          device.revoke succeeded, no node mg-<code> left at Headscale) and the subscription the case inserted for the
+          quota is deleted again — the cases after this one count a1's peers exactly (E2E-36, E2E-56/58, E2E-96: one
+          peer, a2) and found tenant-a without a subscription before P4-T06. Without it (P4-T07 alone): the claim step is
+          `headscale auth register` of the Auth ID from the Location (CLI of the stack, as in E2E-14) ⇒ the client
+          Running; the control node is deleted afterwards.
 
 Standard library only. Auth IDs, codes, cookies and CSRF tokens join the run's redaction set.
 """
@@ -170,21 +174,67 @@ def _follow(st: Stack, b: Browser, host: str, auth: str) -> tuple[str, str, str]
             (q.get("auth_id") or [""])[0] if ok else "")
 
 
-def _claim_api(st: Stack, cond: _Conds, clients: list[str]) -> None:
-    """Claim through the Portal API of P4-T06 with the parameters of the Location (the claim page of P4-T08)."""
+def _remove_device(st: Stack, cond: _Conds, b: Browser, sess: dict, t_id: str, slug: str, rid: str, host: str) -> None:
+    """The node the claim registered leaves the tenant through the product — DELETE /devices/{id} ⇒ job device.revoke
+    (DeleteNode + read-back, §13.5) —, as a Tenant Admin removes a device; whatever is still left (no inventory row, the
+    job failed) is deleted through the CLI of the stack so that the next cases still find a1 and a2 alone, and the
+    case fails."""
+    from dualcontrol import psql_one, unsafe
+    from members import wait_job
+
+    def left() -> list[dict]:
+        return [n for n in _nodes(st, slug) if n.get("name") == host]
+    dev = psql_one(st, f"SELECT id FROM device_inventory_cache WHERE enrollment_request_id = '{rid}' "
+                   "AND removed_at IS NULL") if rid else ""
+    if not dev and not left():
+        cond("cleanup", True, "no device registered, nothing to remove")
+        return
+    status, job = "no inventory row", ""
+    if dev:
+        resp = b.request("DELETE", f"https://app.{st.domain}/api/v1/tenants/{t_id}/devices/{dev}", b"", unsafe(st, sess))
+        status = str(resp.status)
+        if resp.status == 202 and resp.header("Location"):
+            job, _ = wait_job(st, resp.header("Location").rsplit("/", 1)[-1], 120)
+    gone = bool(checks.wait(lambda: not left(), 30))
+    forced = []
+    if not gone:
+        for n in left():
+            st.headscale(slug, "nodes", "delete", "--identifier", str(n["id"]), "--force", check=False)
+            forced.append(str(n["id"]))
+    cond("cleanup", status == "202" and job == "succeeded" and gone,
+         f"DELETE /devices/<id> ⇒ {status}, job device.revoke {job or '-'}; node mg-<code> gone at Headscale {gone}"
+         + (f"; deleted through the CLI instead: nodes {forced}" if forced else ""))
+
+
+def _drop_subscription(st: Stack, cond: _Conds, sub: str) -> None:
+    """The subscription inserted for the quota (enrollment._ensure_subscription) is deleted again: tenant-a stays as it
+    was adopted for the cases between this one and E2E-99 … E2E-101 (nothing references subscriptions)."""
+    from dualcontrol import psql_one
+    psql_one(st, f"DELETE FROM subscriptions WHERE id = '{sub}'")
+    left = psql_one(st, f"SELECT count(*) FROM subscriptions WHERE id = '{sub}'")
+    cond("subscription", left == "0", f"subscription inserted for the quota deleted again {left == '0'}")
+
+
+def _claim_api(st: Stack, cond: _Conds, clients: list[str], undo: list) -> None:
+    """Claim through the Portal API of P4-T06 with the parameters of the Location (the claim page of P4-T08). What the
+    case adds to tenant-a (the node, the subscription) goes into undo, run by check_v07 once the client is gone."""
     from dualcontrol import tenant_id
     from lifecycle import admin_session
     slug = "tenant-a"
     a_id = tenant_id(st, slug)
-    enrollment._ensure_subscription(st, a_id)
+    sub = enrollment._ensure_subscription(st, a_id)
+    if sub:
+        undo.append(lambda: _drop_subscription(st, cond, sub))
     b, sess = admin_session(st)
     req = enrollment._post(st, b, sess, f"https://app.{st.domain}/api/v1/tenants/{a_id}/enrollment/requests",
                            {"method": "web_auth", "device_label": "e2e118-web"}, "e2e118-" + secrets.token_hex(6))
     cred = (req.json().get("credential") or {})
     code = cred.get("enroll_code", "")
+    rid = (req.json().get("request") or {}).get("id", "")
     cond("request", req.status == 201 and len(code) == 12, f"POST /enrollment/requests web_auth ⇒ {req.status}")
     if not code:
         return
+    undo.append(lambda: _remove_device(st, cond, b, sess, a_id, slug, rid, f"mg-{code}"))
     name = _client(st, "e2e118", slug, f"mg-{code}")
     clients.append(name)
     host, auth = _link(st, name)
@@ -205,7 +255,7 @@ def _claim_api(st: Stack, cond: _Conds, clients: list[str]) -> None:
          f"{node.get('given_name') == 'e2e118-web'}")
 
 
-def _claim_cli(st: Stack, cond: _Conds, clients: list[str]) -> None:
+def _claim_cli(st: Stack, cond: _Conds, clients: list[str], undo: list) -> None:
     """No enrollment API on this tree: the claim step is the CLI of the stack (headscale auth register) with the Auth ID
     of the Location; proves the client completes after the redirect."""
     b = Browser(st)
@@ -230,13 +280,18 @@ def _claim_cli(st: Stack, cond: _Conds, clients: list[str]) -> None:
 
 
 def check_v07(r, st: Stack) -> None:
-    cond, clients = _Conds(), []
+    cond, clients, undo = _Conds(), [], []
     mode = "API P4-T06" if enrollment is not None else "CLI (API P4-T06 chưa có trên cây)"
     try:
-        (_claim_api if enrollment is not None else _claim_cli)(st, cond, clients)
+        (_claim_api if enrollment is not None else _claim_cli)(st, cond, clients, undo)
     finally:
         for c in clients:
             st.docker("rm", "-f", c, check=False)
+        for step in reversed(undo):         # each step records its own condition; one failing does not skip the next
+            try:
+                step()
+            except (StackError, OSError, ValueError, KeyError) as e:
+                cond("cleanup", False, f"cleanup step failed: {type(e).__name__}: {st.redact(str(e))[-200:]}")
     if not cond.conds:
         raise StackError("E2E-118: no step ran")
     cond.report(r, "E2E-118", f"V-07 (functional): client chính thức hoàn tất đăng ký sau claim bắt đầu từ chuyển hướng "
