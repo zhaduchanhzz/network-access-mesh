@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -40,6 +41,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/lifecycleapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/membersapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/monitoringapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/networkapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/notificationsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/policiesapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/provisioningapi"
@@ -55,6 +57,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/kit/requestid"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/members"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/monitoring"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/network"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/notifications"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/platform"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/policies"
@@ -183,6 +186,14 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 	if err != nil {
 		t.Fatal(err)
 	}
+	netw, err := network.New(w.Store, network.Config{Registry: reg, Devices: devices.RouteRegister{}, Tags: policies.RequireTags,
+		ResourceRefs: policies.ResourceReferences, BaseDomain: "mesh.test", Logger: log,
+		Reconfigure: func(context.Context, *store.Tx, network.ReconfigureRequest) (jobs.Job, bool, error) {
+			return jobs.Job{}, false, errors.New("matrix: no reconfiguration")
+		}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	versions, err := policies.NewVersions(w.Store, policies.VersionsConfig{Registry: reg})
 	if err != nil {
 		t.Fatal(err)
@@ -256,6 +267,9 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 		PolicyHuJSON: policiesapi.New(versions),
 		// Support (P4-T13): Support Access Grants, both sides
 		Support: supportapi.New(dir),
+		// Network (P4-T12): routes over the register (Headscale unreachable — every write is refused 428 first), DNS,
+		// the resource catalog with the catalog check of P4-T15 (no worker: jobs stay queued)
+		Network: networkapi.New(netw, appr),
 	}
 }
 
@@ -349,6 +363,7 @@ type objects struct {
 	tag                          map[string]uuid.UUID    // the tenant's catalog tag tag:server (carried by devEUTagged)
 	target, group                map[string]uuid.UUID    // P4-T09: an end-user member no actor is (membership writes), a group
 	policy                       map[string]uuid.UUID    // P4-T10: a typed draft policy version of the tenant (never approved)
+	dnsRecord, resource          map[string]uuid.UUID    // P4-T12: an extra DNS record and a catalog resource of the tenant
 	platformApproval             uuid.UUID               // a pending approval request of scope platform
 	platformUser, plan           uuid.UUID               // P4-T03a: a platform user no actor is, the standard plan
 	grant                        map[string]uuid.UUID    // P4-T13: a pending support grant into the tenant (no actor's)
@@ -451,6 +466,7 @@ func (m *matrixWorld) createObjects(t *testing.T) objects {
 		approval: map[string]uuid.UUID{}, invitation: map[string]uuid.UUID{}, platformApproval: uuid.Must(uuid.NewV7()),
 		tag: map[string]uuid.UUID{}, grant: map[string]uuid.UUID{},
 		target: map[string]uuid.UUID{}, group: map[string]uuid.UUID{}, policy: map[string]uuid.UUID{},
+		dnsRecord: map[string]uuid.UUID{}, resource: map[string]uuid.UUID{},
 		notifOwn: map[uuid.UUID]uuid.UUID{}, notifOther: map[string]uuid.UUID{},
 		canaries: []string{m.edgeToken},
 	}
@@ -525,6 +541,12 @@ func (m *matrixWorld) createObjects(t *testing.T) objects {
 		o.policy[ten.Name] = pol
 		m.Exec(t, `INSERT INTO policy_versions (id, tenant_id, version, kind, source, content_sha256, state)
 			VALUES ($1, $2, 1, 'user', '`+matrixPolicySource+`', '`+matrixPolicySHA+`', 'draft')`, pol, ten.ID)
+		rec, res := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+		o.dnsRecord[ten.Name], o.resource[ten.Name] = rec, res
+		m.Exec(t, `INSERT INTO dns_records (id, tenant_id, name, type, value) VALUES ($1, $2, 'matrix.corp.example', 'A', '100.64.0.9')`,
+			rec, ten.ID)
+		m.Exec(t, `INSERT INTO network_resources (id, tenant_id, name, kind, address) VALUES ($1, $2, 'matrix-db', 'host', '10.9.0.5/32')`,
+			res, ten.ID)
 		inv := uuid.Must(uuid.NewV7())
 		o.invitation[ten.Name] = inv
 		m.Exec(t, `INSERT INTO tenant_invitations (id, tenant_id, idp_id, email, role_id, token_hash, expires_at)

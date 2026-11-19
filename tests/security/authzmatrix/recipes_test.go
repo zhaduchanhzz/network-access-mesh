@@ -267,6 +267,29 @@ var recipes = map[string]recipe{
 		return `{"tenant_id":"` + m.A.ID.String() + `","effective_role":"support_operator","reason":"matrix",` +
 			`"ticket_ref":"MATRIX-1","duration_minutes":30}`
 	}},
+	// network (P4-T12, networkapi — mounted). Every write that needs If-Match is sent without it: a granted caller is
+	// answered 428 before any read or write (the route approvals check it first — the body's device need not exist; the
+	// objects stay for every caller); the reads answer 200 from the register and the tables; a DNS record whose value is
+	// outside the tailnet answers 422 (T-09 lint) for every granted caller; a create of a resource answers 201 the first
+	// time and 409 after (same name).
+	"listTenantRoutes": {ok: answer{status: http.StatusOK}},
+	"approveTenantRoutes": {idempotent: true, body: `{"device_id":"0190a000-0000-7000-8000-0000000000d1","prefixes":["10.0.0.0/24"]}`,
+		ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
+	"revokeTenantRoutes": {body: `{"device_id":"0190a000-0000-7000-8000-0000000000d1","prefixes":["10.0.0.0/24"]}`,
+		ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
+	"getTenantDns": {ok: answer{status: http.StatusOK}},
+	"updateTenantDnsSettings": {body: `{"nameservers":["1.1.1.1"]}`,
+		ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
+	"listTenantDnsRecords": {ok: answer{status: http.StatusOK}},
+	"createTenantDnsRecord": {idempotent: true, body: `{"name":"matrix.corp.example","type":"A","value":"192.0.2.10"}`,
+		ok: answer{http.StatusUnprocessableEntity, gen.ProblemCodeValidationFailed}},
+	"deleteTenantDnsRecord": {ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
+	"listTenantResources":   {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
+	"getTenantResource":     {ok: answer{status: http.StatusOK}},
+	"createTenantResource":  {idempotent: true, body: `{"name":"matrix-new","kind":"host","address":"10.9.9.9"}`},
+	"updateTenantResource": {body: `{"description":"matrix"}`,
+		ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
+	"deleteTenantResource": {ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
 }
 
 // objectKind is what a path parameter (other than the {tenantId} context of a tenant route) designates.
@@ -293,6 +316,9 @@ const (
 	objPlan         objectKind = "plan"
 	objPolicy       objectKind = "policy" // /tenants/{t}/policies/{versionId} (P4-T10)
 	objGrant        objectKind = "grant"  // P4-T13: /tenants/{t}/support-grants/{grantId}, /platform/support-grants/{grantId}
+	// P4-T12: /tenants/{t}/dns/records/{recordId}, /tenants/{t}/resources/{resourceId}
+	objDNSRecord objectKind = "dns-record"
+	objResource  objectKind = "resource"
 )
 
 // paramObjects maps path parameters to object kinds; a new parameter must be added (TestEveryOperationHasAnExpectation).
@@ -301,5 +327,5 @@ var paramObjects = map[string]objectKind{
 	"tenantId": objTenant, "sessionId": objSession, "idpId": objIdP, "approvalId": objApproval, "invitationId": objInvitation,
 	"hostId": objHost, "tagId": objTag, "notificationId": objNotification, "groupId": objGroup,
 	"platformUserId": objPlatformUser, "settingKey": objSetting, "planId": objPlan,
-	"versionId": objPolicy, "grantId": objGrant,
+	"versionId": objPolicy, "grantId": objGrant, "recordId": objDNSRecord, "resourceId": objResource,
 }

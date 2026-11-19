@@ -220,8 +220,36 @@ func operationFinished(ctx context.Context, q *sqlcdb.Queries, op audit.Operatio
 	return s.Finished, nil
 }
 
+// closeOperation writes the outcome event of op through write: an operation of the platform in q (the platform
+// transaction of the change), an operation of a tenant-scope caller — PUT /tenants/{t}/dns/settings (P4-T12) opened it in
+// the tenant's transaction — in a transaction of that tenant once the platform transaction committed (RLS of 0004: a
+// platform transaction writes platform events only, a tenant transaction only its tenant's). A crash between the two
+// leaves the operation open (Logger.OpenOperations reports it), never a change without its event.
+func (d *DBStore) closeOperation(ctx context.Context, op audit.Operation, write func(q *sqlcdb.Queries) error) error {
+	if op.TenantID == nil {
+		return errors.New("orchestrator: closeOperation is for tenant operations")
+	}
+	return d.st.WithTenantTx(ctx, *op.TenantID, func(q *sqlcdb.Queries) error {
+		done, err := operationFinished(ctx, q, op)
+		if err != nil || done {
+			return err
+		}
+		return write(q)
+	})
+}
+
 // ApplyConfig implements ReconfigureStore.
 func (d *DBStore) ApplyConfig(ctx context.Context, r ApplyConfigRequest) error {
+	if err := d.applyConfig(ctx, r); err != nil {
+		return err
+	}
+	if r.Operation.TenantID == nil {
+		return nil
+	}
+	return d.closeOperation(ctx, r.Operation, func(q *sqlcdb.Queries) error { return r.Operation.Succeeded(ctx, q, r.Details) })
+}
+
+func (d *DBStore) applyConfig(ctx context.Context, r ApplyConfigRequest) error {
 	return d.st.WithPlatformTx(ctx, func(q *sqlcdb.Queries) error {
 		inst, err := q.GetTenantInstance(ctx, r.InstanceID)
 		if err != nil {
@@ -258,6 +286,9 @@ func (d *DBStore) ApplyConfig(ctx context.Context, r ApplyConfigRequest) error {
 				FromStatus: []string{ConfigApplied}}); err != nil {
 				return err
 			}
+		}
+		if r.Operation.TenantID != nil {
+			return nil // closed in the tenant's transaction (ApplyConfig)
 		}
 		done, err := operationFinished(ctx, q, r.Operation)
 		if err != nil || done {
@@ -308,6 +339,9 @@ func (d *DBStore) RevertConfig(ctx context.Context, tenantID, instanceID, versio
 
 // RecordUnchanged implements ReconfigureStore.
 func (d *DBStore) RecordUnchanged(ctx context.Context, op audit.Operation, details audit.Details) error {
+	if op.TenantID != nil {
+		return d.closeOperation(ctx, op, func(q *sqlcdb.Queries) error { return op.Succeeded(ctx, q, details) })
+	}
 	return d.st.WithPlatformTx(ctx, func(q *sqlcdb.Queries) error {
 		done, err := operationFinished(ctx, q, op)
 		if err != nil || done {
@@ -319,6 +353,20 @@ func (d *DBStore) RecordUnchanged(ctx context.Context, op audit.Operation, detai
 
 // RecordRollback implements ReconfigureStore.
 func (d *DBStore) RecordRollback(ctx context.Context, r RollbackRecord) error {
+	if r.Operation.TenantID != nil && !r.Failed {
+		if err := d.closeOperation(ctx, r.Operation, func(q *sqlcdb.Queries) error {
+			return r.Operation.Failed(ctx, q, r.Reason, r.Details)
+		}); err != nil {
+			return err
+		}
+		if written, _ := r.Details["config_written"].(bool); !written {
+			return nil
+		}
+		return d.st.WithPlatformTx(ctx, func(q *sqlcdb.Queries) error {
+			return audit.Record(ctx, q, audit.Event{Action: ActionConfigRollback, ActorType: audit.ActorSystem,
+				ActorDisplay: ReconfigureKind, ResourceType: "instance", ResourceID: r.InstanceID.String(), Details: r.Details})
+		})
+	}
 	return d.st.WithPlatformTx(ctx, func(q *sqlcdb.Queries) error {
 		ev := audit.Event{Action: ActionConfigRollback, ActorType: audit.ActorSystem, ActorDisplay: ReconfigureKind,
 			ResourceType: "instance", ResourceID: r.InstanceID.String(), Details: r.Details}

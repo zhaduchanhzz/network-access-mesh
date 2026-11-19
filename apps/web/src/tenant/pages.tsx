@@ -10,6 +10,9 @@ import { AuditPage } from "./audit/AuditPage";
 import { DashboardPage } from "./dashboard/DashboardPage";
 import { DeviceDetailPage } from "./devices/DeviceDetailPage";
 import { DevicesPage } from "./devices/DevicesPage";
+import { DnsPage } from "./network/DnsPage";
+import { ResourcesPage } from "./network/ResourcesPage";
+import { RoutesPage } from "./network/RoutesPage";
 import { NotificationsPage } from "./notifications/NotificationsPage";
 import { GroupDetailPage } from "./people/GroupDetailPage";
 import { GroupsPage } from "./people/GroupsPage";
@@ -23,8 +26,8 @@ import { SettingsPage } from "./settings/SettingsPage";
 import { SupportAccessPage } from "./support/SupportAccessPage";
 import { useTenant } from "./TenantScope";
 
-/** P4-T04: Tổng quan, Devices, Relay, hộp thông báo; P4-T09a: Users, Groups, Invitations; P4-T13: Audit, hàng chờ phê duyệt,
- * Support Access, Settings, IdP. */
+/** P4-T04: Tổng quan, Devices, Relay, hộp thông báo; P4-T09a: Users, Groups, Invitations; P4-T12: Routes, DNS, Tài nguyên mạng; P4-T13: Audit,
+ * hàng chờ phê duyệt, Support Access, Settings, IdP. */
 export const TENANT_PAGES: Readonly<Record<string, ComponentType>> = {
   overview: DashboardPage,
   devices: DevicesPage,
@@ -42,6 +45,10 @@ export const TENANT_PAGES: Readonly<Record<string, ComponentType>> = {
   "support-access": SupportAccessPage,
   settings: SettingsPage,
   "identity-provider": IdentityProviderPage,
+  // P4-T12: Routes, DNS, Tài nguyên mạng
+  routes: RoutesPage,
+  dns: DnsPage,
+  resources: ResourcesPage,
 };
 
 function Guarded({ permission, Screen }: { permission: string; Screen: ComponentType }) {

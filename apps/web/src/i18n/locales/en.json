@@ -1038,7 +1038,8 @@
       "tagsLater": "Changing tags: not available yet (P4-T10).",
       "registerMethod": "Registration method",
       "routesAdvertised": "Advertised routes",
-      "routesApproved": "Approved routes"
+      "routesApproved": "Approved routes",
+      "manageRoutes": "Review and approve routes on the Routes screen"
     },
     "rename": {
       "title": "Rename",
@@ -1914,5 +1915,188 @@
     "save": "Save",
     "saved": "Saved.",
     "readOnlyNote": "Only a Tenant Owner can change the identity provider."
+  },
+  "network": {
+    "job": {
+      "inProgress": "Applying — not in effect until the job succeeds.",
+      "failed": "The job did not succeed — the change was not applied."
+    },
+    "approval": {
+      "title": "Approval request created — nothing has changed yet",
+      "description": "This tenant requires two-person control (4-eyes) for routes: a second person who may approve routes and decide approvals must approve this request. The routes are approved in Headscale only once the request is approved (the tenant approvals screen belongs to P4-T13 — send the request ID to the approver).",
+      "id": "Request ID",
+      "status": "Status",
+      "expires": "Expires at"
+    },
+    "fieldErrors": {
+      "value_not_in_tailnet": "The value must be the tailnet address of one of the tenant's devices or lie inside an approved subnet route.",
+      "type_mismatch": "An A record needs an IPv4 address, an AAAA record an IPv6 address.",
+      "invalid_value": "The value must be a unicast IP address.",
+      "name_platform_domain": "A name under the platform's domain is accepted only inside the tenant's MagicDNS domain.",
+      "duplicate_address": "An address is listed twice.",
+      "ports_with_icmp": "The icmp protocol has no ports.",
+      "service_needs_ports": "A service resource must declare at least one port.",
+      "subnet_prefix": "A subnet must be a prefix (shorter than one address, longer than /0).",
+      "address_not_canonical": "The prefix must have no host bits set (e.g. 10.0.0.0/24).",
+      "single_address": "A host or a service has exactly one address.",
+      "unknown_group": "The owner group must be a group of the tenant.",
+      "invalid_group": "The owner group must be a group of the tenant."
+    },
+    "routes": {
+      "intro": "Advertised and approved routes of the router devices, from the device register (each row with its sync time). Advertised routes that are not approved are not distributed to any client (double opt-in).",
+      "empty": "No device advertises or has approved routes yet.",
+      "col": {
+        "device": "Device",
+        "tags": "Tags",
+        "online": "Online",
+        "advertised": "Advertised routes",
+        "approved": "Approved",
+        "pending": "Pending approval",
+        "exitNode": "Exit node",
+        "syncedAt": "Synced at",
+        "warnings": "Warnings",
+        "actions": "Actions"
+      },
+      "exit": {
+        "approved": "Approved",
+        "approvedNotAdvertised": "Approved (no longer advertised)",
+        "pending": "Advertised, pending approval"
+      },
+      "warningCodes": {
+        "overlap": "Overlap",
+        "untagged_router": "Untagged router",
+        "exit_node": "Exit node"
+      },
+      "warnings": {
+        "overlap": "{{prefix}} overlaps {{otherPrefix}} of device {{other}}.",
+        "untagged_router": "The device is a user's node (not a tagged node): the route would depend on a personal device (T-08).",
+        "exit_node": "The device is an exit node: clients' Internet traffic goes through it."
+      },
+      "approve": "Approve routes",
+      "approveFor": "Approve routes of {{name}}",
+      "approveExit": "Approve exit node",
+      "approveExitFor": "Approve exit node {{name}}",
+      "revoke": "Revoke approval",
+      "revokeFor": "Revoke route approval of {{name}}",
+      "approved": "Approved {{prefixes}} on {{name}} — confirmed by Headscale.",
+      "revoked": "Revoked {{prefixes}} on {{name}} — confirmed by Headscale.",
+      "dialog": {
+        "approveTitle": "Approve routes of {{name}}?",
+        "exitTitle": "Approve {{name}} as an exit node?",
+        "revokeTitle": "Revoke route approval of {{name}}?",
+        "approveDesc": "Approved routes are distributed by Headscale: clients allowed by the policy reach these networks through the device.",
+        "exitRisk": "Risk: all Internet traffic of the clients that pick this exit node goes through the device.",
+        "exitRiskDetail": "The device (and whoever administers it) can see and tamper with that traffic. Approve only devices your organisation manages (tagged nodes), hardened and monitored.",
+        "exitAck": "I understand the risk and want to approve the exit node (0.0.0.0/0 and ::/0).",
+        "revokeDesc": "The device stops routing the selected prefixes: clients lose their path to those networks through this device.",
+        "warningsTitle": "Warnings before approving",
+        "stale": "The device's routes changed: fresh data was loaded — check your selection and confirm again.",
+        "chooseApprove": "Prefixes pending approval",
+        "chooseRevoke": "Choose the routes to revoke",
+        "nothing": "No prefix left to choose.",
+        "exitChoice": "Exit node (0.0.0.0/0 and ::/0)"
+      }
+    },
+    "dns": {
+      "settingsTitle": "MagicDNS and nameservers",
+      "magicDns": "MagicDNS",
+      "alwaysOn": "Always on",
+      "off": "Off",
+      "baseDomain": "MagicDNS domain",
+      "nameservers": "Nameservers in force",
+      "noNameservers": "None yet (the instance has no configuration version written by the orchestrator).",
+      "configVersion": "Configuration version",
+      "records": "Extra records",
+      "pending": "An instance reconfiguration has not finished yet:",
+      "jobLabel": "Applying nameservers (instance.reconfigure):",
+      "applied": "Applied — the instance runs with the new nameservers.",
+      "changeTitle": "Change nameservers",
+      "nsLabel": "Nameservers (1–{{max}} IP addresses, one per line)",
+      "nsHint": "Unicast IPv4 or IPv6 addresses; no duplicates.",
+      "nsCount": "Between 1 and {{max}} nameservers are needed.",
+      "nsDuplicate": "A nameserver is listed twice.",
+      "change": "Change nameservers…",
+      "confirmTitle": "Change the tailnet's nameservers?",
+      "confirmRestart": "The tenant's Headscale instance will restart in a controlled way (behind a health gate, rolling back to the previous configuration if it does not come up).",
+      "confirmRelay": "During the restart the tenant's relay (DERP) sessions are dropped and clients reconnect.",
+      "confirmNew": "New nameservers:",
+      "stale": "The DNS settings changed since you opened the page: fresh data was loaded — check, then confirm again.",
+      "confirm": "Restart and apply",
+      "recordsTitle": "Extra DNS records",
+      "recordsIntro": "A/AAAA records resolved inside the tailnet. A record must point to the tailnet address of one of the tenant's devices or to an IP inside an approved subnet route. Adding or deleting does not restart the instance.",
+      "recordJobCreate": "Writing the records file (add):",
+      "recordJobDelete": "Writing the records file (delete):",
+      "recordWritten": "Records file written — Headscale reloads it without a restart.",
+      "noRecords": "No extra records yet.",
+      "col": {
+        "name": "Name (FQDN)",
+        "type": "Type",
+        "value": "Value",
+        "createdAt": "Created at",
+        "actions": "Actions"
+      },
+      "delete": "Delete",
+      "deleteFor": "Delete {{type}} record {{name}}",
+      "deleteTitle": "Delete {{type}} record {{name}}?",
+      "deleteDesc": "The name will no longer resolve to {{value}} once the records file is written again.",
+      "addTitle": "Add a record",
+      "nameHint": "Lowercase FQDN, at least 2 labels, no wildcard; under the platform's domain only inside {{domain}}.",
+      "nameHintGeneric": "Lowercase FQDN, at least 2 labels, no wildcard.",
+      "typeA": "A (IPv4)",
+      "typeAAAA": "AAAA (IPv6)",
+      "valueHint": "A device's tailnet IP, or an IP inside an approved subnet route.",
+      "add": "Add record"
+    },
+    "resources": {
+      "intro": "The network resource catalog: each resource is an alias (hosts key) the policy can refer to. Every change re-renders and re-applies the policy (policy.apply job).",
+      "empty": "No resources yet.",
+      "add": "Add resource",
+      "addTitle": "Add a resource",
+      "editTitle": "Edit resource {{name}}",
+      "edit": "Edit",
+      "editFor": "Edit resource {{name}}",
+      "delete": "Delete",
+      "deleteFor": "Delete resource {{name}}",
+      "deleteTitle": "Delete resource {{name}}?",
+      "deleteDesc": "The alias leaves the catalog and the policy is applied again; rules referring to this alias must be changed first.",
+      "created": "Resource {{name}} added.",
+      "updated": "Resource {{name}} saved.",
+      "deleted": "Resource {{name}} deleted.",
+      "stale": "The resource was changed by someone else: the list was reloaded — open it again and redo the change.",
+      "pagination": "Resource pages",
+      "allPorts": "All ports",
+      "noTags": "The tag catalog is empty.",
+      "noOwner": "— None —",
+      "description": "Description",
+      "save": "Save",
+      "create": "Add",
+      "nameHint": "Lowercase letters, digits and hyphens, starting with a letter (≤ 63 characters); unique in the tenant.",
+      "addressHintHost": "One IP address (host, service).",
+      "addressHintSubnet": "A prefix without host bits, e.g. 10.0.0.0/24.",
+      "portsHint": "Ports or ranges separated by commas: 443, 8000-8100. Empty = all ports (a service needs ports; icmp has none).",
+      "policyNote": "After saving, the policy is applied again in the background (policy.apply job).",
+      "col": {
+        "name": "Name",
+        "kind": "Kind",
+        "address": "Address",
+        "ports": "Ports",
+        "protocol": "Protocol",
+        "tags": "Tags",
+        "owner": "Owner group",
+        "updatedAt": "Updated at",
+        "actions": "Actions"
+      },
+      "kinds": {
+        "host": "Host",
+        "subnet": "Subnet",
+        "service": "Service"
+      },
+      "protocols": {
+        "any": "Any protocol",
+        "tcp": "TCP",
+        "udp": "UDP",
+        "icmp": "ICMP"
+      }
+    }
   }
 }

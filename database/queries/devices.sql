@@ -222,3 +222,17 @@ WHERE tenant_id = sqlc.arg(tenant_id) AND instance_id = sqlc.arg(instance_id) AN
   AND revocation_state = 'none' AND expiry > now() AND expiry <= sqlc.arg(before)::timestamptz
 ORDER BY expiry, id
 LIMIT 200;
+
+-- name: ListLiveDevicesForRoutes :many
+-- P4-T12 (network, qua devices.RouteRegister — §13.6): sổ thiết bị sống của tenant cho GET /routes (quảng bá vs đã
+-- duyệt) và lint bản ghi DNS (IP tailnet của thiết bị, prefix đã duyệt).
+SELECT * FROM device_inventory_cache
+WHERE tenant_id = sqlc.arg(tenant_id) AND removed_at IS NULL
+ORDER BY COALESCE(given_name, name, ''), id;
+
+-- name: SetDeviceRoutes :exec
+-- P4-T12: route quảng bá/đã duyệt vừa đọc trực tiếp từ Headscale (đọc lại sau SetApprovedRoutes) — hàng đã khóa FOR
+-- UPDATE trong cùng transaction.
+UPDATE device_inventory_cache
+SET approved_routes = sqlc.arg(approved_routes)::cidr[], available_routes = sqlc.arg(available_routes)::cidr[]
+WHERE tenant_id = sqlc.arg(tenant_id) AND id = sqlc.arg(id) AND removed_at IS NULL;

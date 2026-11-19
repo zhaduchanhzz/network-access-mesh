@@ -195,6 +195,25 @@ type MemberHandlers interface {
 	SetTenantGroupMembers(ctx context.Context, request gen.SetTenantGroupMembersRequestObject) (gen.SetTenantGroupMembersResponseObject, error)
 }
 
+// NetworkHandlers — P4-T12 (`network`): subnet routes and exit nodes (approval through a read–check–write on
+// Headscale, 4-eyes through a tenant approval), DNS (nameservers ⇒ instance.reconfigure, extra records ⇒ the records
+// file without restart), the Network Resource Catalog.
+type NetworkHandlers interface {
+	ListTenantRoutes(ctx context.Context, request gen.ListTenantRoutesRequestObject) (gen.ListTenantRoutesResponseObject, error)
+	ApproveTenantRoutes(ctx context.Context, request gen.ApproveTenantRoutesRequestObject) (gen.ApproveTenantRoutesResponseObject, error)
+	RevokeTenantRoutes(ctx context.Context, request gen.RevokeTenantRoutesRequestObject) (gen.RevokeTenantRoutesResponseObject, error)
+	GetTenantDns(ctx context.Context, request gen.GetTenantDnsRequestObject) (gen.GetTenantDnsResponseObject, error)
+	UpdateTenantDnsSettings(ctx context.Context, request gen.UpdateTenantDnsSettingsRequestObject) (gen.UpdateTenantDnsSettingsResponseObject, error)
+	ListTenantDnsRecords(ctx context.Context, request gen.ListTenantDnsRecordsRequestObject) (gen.ListTenantDnsRecordsResponseObject, error)
+	CreateTenantDnsRecord(ctx context.Context, request gen.CreateTenantDnsRecordRequestObject) (gen.CreateTenantDnsRecordResponseObject, error)
+	DeleteTenantDnsRecord(ctx context.Context, request gen.DeleteTenantDnsRecordRequestObject) (gen.DeleteTenantDnsRecordResponseObject, error)
+	ListTenantResources(ctx context.Context, request gen.ListTenantResourcesRequestObject) (gen.ListTenantResourcesResponseObject, error)
+	CreateTenantResource(ctx context.Context, request gen.CreateTenantResourceRequestObject) (gen.CreateTenantResourceResponseObject, error)
+	GetTenantResource(ctx context.Context, request gen.GetTenantResourceRequestObject) (gen.GetTenantResourceResponseObject, error)
+	UpdateTenantResource(ctx context.Context, request gen.UpdateTenantResourceRequestObject) (gen.UpdateTenantResourceResponseObject, error)
+	DeleteTenantResource(ctx context.Context, request gen.DeleteTenantResourceRequestObject) (gen.DeleteTenantResourceResponseObject, error)
+}
+
 // AdminHandlers — P4-T03a (`platform` administration and the tenant's settings): platform users (Super Admin role
 // through 2P), system settings, identity providers (a tenant row through 2P), plans, PATCH of a tenant; the tenant's
 // settings and security settings (lifting a second-person control through a tenant approval), its IdP, the deletion
@@ -346,6 +365,7 @@ type Handlers struct {
 	Portal        PortalHandlers               // P4-T04
 	Admin         AdminHandlers                // P4-T03a
 	TenantView    PlatformTenantViewHandlers   // P4-T02
+	Network       NetworkHandlers              // P4-T12
 	Policies      PolicyHandlers               // P4-T10
 	PolicyHuJSON  PolicyHuJSONHandlers         // P4-T11
 	InstanceView  PlatformInstanceViewHandlers // P4-T03
@@ -357,7 +377,7 @@ func (h Handlers) mounted() bool {
 		h.Notifications != nil || h.Approvals != nil || h.Invitations != nil || h.Hosts != nil || h.IdPConsole != nil ||
 		h.Provisioning != nil || h.Lifecycle != nil || h.Relay != nil || h.Reconfigure != nil || h.Backups != nil ||
 		h.InstanceOps != nil || h.Quarantine != nil || h.Deprovision != nil || h.Tags != nil || h.Members != nil ||
-		h.Portal != nil || h.Admin != nil || h.TenantView != nil || h.Policies != nil || h.PolicyHuJSON != nil ||
+		h.Portal != nil || h.Admin != nil || h.TenantView != nil || h.Network != nil || h.Policies != nil || h.PolicyHuJSON != nil ||
 		h.InstanceView != nil || h.Support != nil
 }
 
@@ -387,6 +407,7 @@ type dispatcher struct {
 	PortalHandlers
 	AdminHandlers
 	PlatformTenantViewHandlers
+	NetworkHandlers
 	PolicyHandlers
 	PolicyHuJSONHandlers
 	PlatformInstanceViewHandlers
@@ -398,13 +419,16 @@ var _ gen.StrictServerInterface = dispatcher{}
 func newDispatcher(h Handlers) dispatcher {
 	d := dispatcher{h.Auth, h.Tenants, h.Devices, h.Audit, h.Jobs, h.Monitoring, h.Notifications, h.Approvals, h.Invitations,
 		h.Hosts, h.IdPConsole, h.Provisioning, h.Lifecycle, h.Relay, h.Reconfigure, h.Backups, h.InstanceOps,
-		h.Quarantine, h.Deprovision, h.Tags, h.Members, h.Portal, h.Admin, h.TenantView, h.Policies, h.PolicyHuJSON,
+		h.Quarantine, h.Deprovision, h.Tags, h.Members, h.Portal, h.Admin, h.TenantView, h.Network, h.Policies, h.PolicyHuJSON,
 		h.InstanceView, h.Support}
 	if d.SupportHandlers == nil {
 		d.SupportHandlers = NotImplemented{}
 	}
 	if d.AdminHandlers == nil {
 		d.AdminHandlers = NotImplemented{}
+	}
+	if d.NetworkHandlers == nil {
+		d.NetworkHandlers = NotImplemented{}
 	}
 	if d.PolicyHandlers == nil {
 		d.PolicyHandlers = NotImplemented{}
@@ -927,6 +951,58 @@ func (NotImplemented) GetPlatformPlan(context.Context, gen.GetPlatformPlanReques
 
 func (NotImplemented) UpdatePlatformPlan(context.Context, gen.UpdatePlatformPlanRequestObject) (gen.UpdatePlatformPlanResponseObject, error) {
 	return nil, problem.NotImplemented("UpdatePlatformPlan")
+}
+
+func (NotImplemented) ListTenantRoutes(context.Context, gen.ListTenantRoutesRequestObject) (gen.ListTenantRoutesResponseObject, error) {
+	return nil, problem.NotImplemented("ListTenantRoutes")
+}
+
+func (NotImplemented) ApproveTenantRoutes(context.Context, gen.ApproveTenantRoutesRequestObject) (gen.ApproveTenantRoutesResponseObject, error) {
+	return nil, problem.NotImplemented("ApproveTenantRoutes")
+}
+
+func (NotImplemented) RevokeTenantRoutes(context.Context, gen.RevokeTenantRoutesRequestObject) (gen.RevokeTenantRoutesResponseObject, error) {
+	return nil, problem.NotImplemented("RevokeTenantRoutes")
+}
+
+func (NotImplemented) GetTenantDns(context.Context, gen.GetTenantDnsRequestObject) (gen.GetTenantDnsResponseObject, error) {
+	return nil, problem.NotImplemented("GetTenantDns")
+}
+
+func (NotImplemented) UpdateTenantDnsSettings(context.Context, gen.UpdateTenantDnsSettingsRequestObject) (gen.UpdateTenantDnsSettingsResponseObject, error) {
+	return nil, problem.NotImplemented("UpdateTenantDnsSettings")
+}
+
+func (NotImplemented) ListTenantDnsRecords(context.Context, gen.ListTenantDnsRecordsRequestObject) (gen.ListTenantDnsRecordsResponseObject, error) {
+	return nil, problem.NotImplemented("ListTenantDnsRecords")
+}
+
+func (NotImplemented) CreateTenantDnsRecord(context.Context, gen.CreateTenantDnsRecordRequestObject) (gen.CreateTenantDnsRecordResponseObject, error) {
+	return nil, problem.NotImplemented("CreateTenantDnsRecord")
+}
+
+func (NotImplemented) DeleteTenantDnsRecord(context.Context, gen.DeleteTenantDnsRecordRequestObject) (gen.DeleteTenantDnsRecordResponseObject, error) {
+	return nil, problem.NotImplemented("DeleteTenantDnsRecord")
+}
+
+func (NotImplemented) ListTenantResources(context.Context, gen.ListTenantResourcesRequestObject) (gen.ListTenantResourcesResponseObject, error) {
+	return nil, problem.NotImplemented("ListTenantResources")
+}
+
+func (NotImplemented) CreateTenantResource(context.Context, gen.CreateTenantResourceRequestObject) (gen.CreateTenantResourceResponseObject, error) {
+	return nil, problem.NotImplemented("CreateTenantResource")
+}
+
+func (NotImplemented) GetTenantResource(context.Context, gen.GetTenantResourceRequestObject) (gen.GetTenantResourceResponseObject, error) {
+	return nil, problem.NotImplemented("GetTenantResource")
+}
+
+func (NotImplemented) UpdateTenantResource(context.Context, gen.UpdateTenantResourceRequestObject) (gen.UpdateTenantResourceResponseObject, error) {
+	return nil, problem.NotImplemented("UpdateTenantResource")
+}
+
+func (NotImplemented) DeleteTenantResource(context.Context, gen.DeleteTenantResourceRequestObject) (gen.DeleteTenantResourceResponseObject, error) {
+	return nil, problem.NotImplemented("DeleteTenantResource")
 }
 
 func (NotImplemented) ListTenantSupportGrants(context.Context, gen.ListTenantSupportGrantsRequestObject) (gen.ListTenantSupportGrantsResponseObject, error) {

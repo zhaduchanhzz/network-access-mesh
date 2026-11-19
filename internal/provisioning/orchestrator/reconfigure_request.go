@@ -172,8 +172,14 @@ func EnqueueReconfigure(ctx context.Context, tx *store.Tx, req ReconfigureReques
 	}
 	details := req.Change.summary()
 	details["tenant_id"], details["instance_id"], details["source"] = inst.TenantID, inst.ID, source
-	op, err := audit.Requested(ctx, tx.Q, audit.Event{Action: action, ResourceType: "instance", ResourceID: inst.ID.String(),
-		Details: details})
+	ev := audit.Event{Action: action, ResourceType: "instance", ResourceID: inst.ID.String(), Details: details}
+	if req.TenantID != uuid.Nil {
+		// a tenant-scope caller (PUT /tenants/{t}/dns/settings — P4-T12): the operation belongs to the tenant's audit
+		// whatever the request scope says; the job closes it in a transaction of the tenant (DBStore.closeOperation)
+		t := inst.TenantID
+		ev.TenantID = &t
+	}
+	op, err := audit.Requested(ctx, tx.Q, ev)
 	if err != nil {
 		return jobs.Job{}, false, err
 	}
@@ -272,6 +278,11 @@ func failCancelledReconfigure(ctx context.Context, tx *store.Tx, rec sqlcdb.Prov
 	var in ReconfigureInput
 	if err := json.Unmarshal(rec.Input, &in); err != nil || in.Operation.ID == uuid.Nil {
 		return nil //nolint:nilerr // an unreadable input has no operation to close
+	}
+	if in.Operation.TenantID != nil {
+		// an operation of a tenant-scope caller (PUT /dns/settings — P4-T12): this platform transaction cannot write the
+		// tenant's event (RLS) — it stays open for reconcile (Logger.OpenOperations), the job itself is cancelled
+		return nil
 	}
 	done, err := operationFinished(ctx, tx.Q, in.Operation)
 	if err != nil || done {

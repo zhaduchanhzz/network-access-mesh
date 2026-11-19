@@ -239,7 +239,7 @@ func (m *matrix) objectCases(op authz.Operation, a *actor, tenantCase string) []
 	switch kind {
 	case objDevice:
 		return []string{"eu-own", "eu-tagged", "other-member", "other-tenant", "missing"}
-	case objMembership, objJob, objApproval, objInvitation, objTag, objGroup, objPolicy, objGrant:
+	case objMembership, objJob, objApproval, objInvitation, objTag, objGroup, objPolicy, objGrant, objDNSRecord, objResource:
 		if op.TenantScoped() {
 			return []string{"own", "other-tenant", "missing"}
 		}
@@ -343,6 +343,10 @@ func (m *matrix) place(t *testing.T, c *call) {
 		c.objectID = m.obj.group[owner.Name]
 	case kind == objPolicy:
 		c.objectID = m.obj.policy[owner.Name]
+	case kind == objDNSRecord:
+		c.objectID = m.obj.dnsRecord[owner.Name]
+	case kind == objResource:
+		c.objectID = m.obj.resource[owner.Name]
 	case kind == objApproval && c.op.TenantScoped():
 		c.objectID = m.obj.approval[owner.Name]
 	case kind == objApproval:
