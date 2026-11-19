@@ -21,6 +21,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/backupapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/deprovisionapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/devicesapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/enrollmentapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/hostsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/identityapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/idpconsoleapi"
@@ -152,6 +153,10 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 		return nil, err
 	}
 	authorizer := authz.New(d.st)
+	enr, err := newEnrollment(d, true) // P4-T06: requests, approval, keys, web-auth claim, instructions
+	if err != nil {
+		return nil, err
+	}
 	appr, err := approvals.New(d.st, approvals.Config{Approvers: authorizer, Registry: actions, Security: auditLog,
 		Logger: log, Notify: notifyDeciders})
 	if err != nil {
@@ -205,6 +210,7 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 			Members:       membersapi.New(mem, appr),
 			Portal:        inbox,                               // P4-T04: POST …/notifications/{id}/read
 			Admin:         adminapi.New(plat, d.tenants, appr), // P4-T03a
+			Enrollment:    enrollmentapi.New(enr, authorizer),  // P4-T06
 		},
 	})
 	if err != nil {

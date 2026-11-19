@@ -82,6 +82,8 @@ tags:
     description: Thiết lập của tenant, thiết lập bảo mật (phê duyệt trong tenant khi nới lỏng), IdP của tenant (§8.2, §8.6, §13.3) — P4-T03a
   - name: tags
     description: Danh mục tag của tenant — nguồn render `tagOwners`, đổi danh mục ⇒ `policy.apply` (§6.3, §7.2) — P4-T15
+  - name: enrollment
+    description: Thêm thiết bị — web-auth do Portal môi giới, pre-auth key ngắn hạn, phê duyệt trước bước thiết bị, hướng dẫn theo OS (§7.4) — P4-T06
 paths:
   # ---------------------------------------------------------------- auth (P2-T06)
   /auth/login:
@@ -3578,6 +3580,440 @@ paths:
           $ref: '#/components/responses/RateLimited'
         default:
           $ref: '#/components/responses/Unexpected'
+  # ---------------------------------------------------------------- enrollment (P4-T06, §7.4, §8.6, §13.2)
+  /tenants/{tenantId}/enrollment/requests:
+    get:
+      tags: [enrollment]
+      operationId: listEnrollmentRequests
+      summary: Yêu cầu enrollment của tenant (End User — của chính mình)
+      description: |-
+        Mới nhất trước (`created_at`, `id`). End User (ô ○ của §8.6) chỉ thấy yêu cầu mình tạo hoặc thiết bị của mình.
+        Không bao giờ chứa pre-auth key, mã enrollment hay Auth ID (§6.3 chỉ lưu hash) — `preauth_key`/`enroll_code`/
+        `command` chỉ có trong response phát credential.
+      x-permission: tenant.enrollment:read
+      x-own-resource: true
+      x-task: P4-T06
+      x-audit-action: enrollment.list
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/EnrollmentStatusFilter'
+      responses:
+        '200':
+          description: Một trang yêu cầu
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentRequestList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+    post:
+      tags: [enrollment]
+      operationId: createEnrollmentRequest
+      summary: Thêm thiết bị của chính mình (web-auth hoặc pre-auth key một lần)
+      description: |-
+        §7.4 bước 3–4. Trong một transaction: khóa hàng `subscriptions` của tenant (`SELECT … FOR UPDATE`) rồi kiểm quota
+        — thiết bị trong sổ **cộng** yêu cầu chưa kết thúc ≤ `max_devices`, credential còn hạn ≤
+        `max_live_enrollment_credentials` (vượt ⇒ `403 quota_exceeded`). End User chỉ gọi được khi tenant bật
+        `enrollment.self_enroll` (điều kiện `self_enroll` của §8.6 — tắt ⇒ `403`). `web_auth` cần
+        `enrollment.web_auth_enabled` (tắt ⇒ `422`).
+
+        Khi `enrollment.requires_approval` bật và người gọi **không** có `tenant.enrollment:approve`: yêu cầu dừng ở
+        `pending_approval`, **chưa** phát mã/key (`201` không có credential). Ngược lại yêu cầu được phát ngay
+        (`issued`): `web_auth` ⇒ `enroll_code` một lần + `command` (`tailscale up --login-server … --hostname
+        mg-<mã>`), hạn 10 phút, gắn với phiên Portal hiện tại; `preauth_key` ⇒ key **một lần**, không ephemeral, của
+        chính người gọi, hạn `ttl_minutes` (mặc định và tối đa 15, không vượt `enrollment.preauth_key_ttl_max`) —
+        `expiration` luôn gửi tường minh tới Headscale (V-06). Plaintext chỉ có trong response này (`x-secret-once`);
+        bảng chỉ giữ hash/ID. Lặp lại cùng `Idempotency-Key` trong hạn credential ⇒ cùng response (secret giữ tạm
+        trong SecretStore với TTL = hạn credential); sau hạn ⇒ `410 secret_no_longer_available` (thu hồi rồi tạo lại).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.enrollment:request
+      x-conditions: [self_enroll]
+      x-task: P4-T06
+      x-audit-action: enrollment.request
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnrollmentRequestCreate'
+      responses:
+        '201':
+          description: Yêu cầu đã tạo — kèm credential khi đã phát (một lần)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentIssue'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/SecretNoLongerAvailable'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '502':
+          $ref: '#/components/responses/UpstreamRejected'
+        '503':
+          $ref: '#/components/responses/InstanceUnavailable'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/enrollment/requests/{enrollmentRequestId}:
+    get:
+      tags: [enrollment]
+      operationId: getEnrollmentRequest
+      summary: Một yêu cầu enrollment
+      description: End User chỉ đọc yêu cầu của mình (của người khác hay tenant khác ⇒ `404`). Không bao giờ chứa secret.
+      x-permission: tenant.enrollment:read
+      x-own-resource: true
+      x-task: P4-T06
+      x-audit-action: enrollment.read
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/EnrollmentRequestId'
+      responses:
+        '200':
+          description: Yêu cầu
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/enrollment/requests/{enrollmentRequestId}/approve:
+    post:
+      tags: [enrollment]
+      operationId: approveEnrollmentRequest
+      summary: Duyệt yêu cầu đang chờ (trước bước thiết bị)
+      description: |-
+        Chỉ yêu cầu `pending_approval` (khác ⇒ `409`); người duyệt khác người yêu cầu (⇒ `403`). Phê duyệt gắn với
+        **request** (người yêu cầu, nhãn, phương thức) — không với Auth ID; sau đó chính người yêu cầu gọi `/start`.
+        Chưa dùng sau 24 giờ ⇒ `expired` (job `enrollment.reconcile`).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.enrollment:approve
+      x-task: P4-T06
+      x-audit-action: enrollment.approve
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/EnrollmentRequestId'
+      responses:
+        '200':
+          description: Yêu cầu đã duyệt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/enrollment/requests/{enrollmentRequestId}/reject:
+    post:
+      tags: [enrollment]
+      operationId: rejectEnrollmentRequest
+      summary: Từ chối yêu cầu đang chờ
+      description: Chỉ yêu cầu `pending_approval` (khác ⇒ `409`); người quyết định khác người yêu cầu (⇒ `403`).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.enrollment:approve
+      x-task: P4-T06
+      x-audit-action: enrollment.reject
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/EnrollmentRequestId'
+      responses:
+        '200':
+          description: Yêu cầu đã bị từ chối
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/enrollment/requests/{enrollmentRequestId}/start:
+    post:
+      tags: [enrollment]
+      operationId: startEnrollmentRequest
+      summary: Nhận mã enrollment / pre-auth key của yêu cầu đã được duyệt
+      description: |-
+        Chỉ chính người yêu cầu (người khác ⇒ `409`), chỉ yêu cầu `approved` (khác ⇒ `409`), trong phiên Portal hiện
+        tại: phát mã + lệnh (web-auth, hạn 10 phút, gắn phiên này) hoặc pre-auth key (một lần, hiển thị một lần — không
+        replay: gọi lại ⇒ `409`). Kiểm lại quota credential còn hạn.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.enrollment:request
+      x-conditions: [self_enroll]
+      x-task: P4-T06
+      x-audit-action: enrollment.start
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/EnrollmentRequestId'
+      responses:
+        '200':
+          description: Yêu cầu đã phát credential (một lần)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentIssue'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '502':
+          $ref: '#/components/responses/UpstreamRejected'
+        '503':
+          $ref: '#/components/responses/InstanceUnavailable'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/enrollment/requests/{enrollmentRequestId}/revoke:
+    post:
+      tags: [enrollment]
+      operationId: revokeEnrollmentRequest
+      summary: Thu hồi yêu cầu / credential chưa dùng
+      description: |-
+        Yêu cầu chưa kết thúc ⇒ `revoked`; pre-auth key đã phát (kể cả key reusable đã dùng nhưng còn hạn) bị expire ở
+        Headscale và đọc lại xác minh trước khi báo thành công (cặp audit `enrollment.revoke.requested` →
+        `.succeeded`/`.failed`). Thiết bị đã đăng ký không bị đụng — thu hồi thiết bị là `DELETE /devices/{id}`. Yêu cầu
+        đã kết thúc ⇒ `409`. End User chỉ thu hồi yêu cầu của mình.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.enrollment:revoke
+      x-own-resource: true
+      x-task: P4-T06
+      x-audit-action: enrollment.revoke
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/EnrollmentRequestId'
+      responses:
+        '200':
+          description: Yêu cầu đã thu hồi
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '502':
+          $ref: '#/components/responses/UpstreamRejected'
+        '503':
+          $ref: '#/components/responses/InstanceUnavailable'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/enrollment/keys:
+    post:
+      tags: [enrollment]
+      operationId: createEnrollmentKey
+      summary: Pre-auth key đặc quyền (gắn tag, reusable, ephemeral hoặc cho người khác)
+      description: |-
+        §7.4 phương thức B, `tenant.enrollment:issue_privileged` (TO, TA). Key cho một thành viên `active` khác của tenant
+        (`target_membership_id`) hoặc key chỉ-tag (không chủ — phải có `tags`). `tags` chỉ nhận tag có trong danh mục
+        của tenant (P4-T15 — ngoài danh mục ⇒ `422`), khóa chia sẻ tới hết transaction. Luôn có hạn ≤ 15 phút
+        (`ttl_minutes`, không vượt `enrollment.preauth_key_ttl_max`), `expiration` tường minh; plaintext hiển thị một lần
+        (`x-secret-once`). Không qua bước duyệt (đã cần quyền đặc quyền); quota như `POST /enrollment/requests`.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.enrollment:issue_privileged
+      x-task: P4-T06
+      x-audit-action: enrollment.key.create
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnrollmentKeyCreate'
+      responses:
+        '201':
+          description: Key đã phát (một lần)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentIssue'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/SecretNoLongerAvailable'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '502':
+          $ref: '#/components/responses/UpstreamRejected'
+        '503':
+          $ref: '#/components/responses/InstanceUnavailable'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/enrollment/web-auth/claim:
+    post:
+      tags: [enrollment]
+      operationId: claimEnrollmentWebAuth
+      summary: Xác nhận đăng ký web-auth bằng Auth ID (luồng A, §7.4 bước 6–8)
+      description: |-
+        Chỉ nhận khi **chính người gọi** có yêu cầu `web_auth` đang chờ thiết bị (`issued`), phát trong **phiên Portal
+        này**, chưa quá hạn 10 phút — không có ⇒ `409` (trang claim hiển thị cảnh báo phishing, **không** có nút xác
+        nhận) và một `security_event` `enrollment.claim_without_request`. Nhiều yêu cầu đang chờ ⇒ phải nêu
+        `request_id`. Auth ID dạng `hskey-authreq-` + 24 ký tự; chỉ hash SHA-256 được lưu. Giới hạn tần suất theo
+        thành viên (vượt ⇒ `429`). Tenant tắt `enrollment.web_auth_enabled` ⇒ `422`.
+
+        Rồi gọi `AuthRegister(mg-<membership>, auth_id)` đồng bộ và kiểm **node trả về**: tên = `mg-<mã>`, đúng
+        Headscale user, không tag, `register_method = cli`. Node **mới** sai bất kỳ điều nào ⇒ `DeleteNode` ngay +
+        `security_event` (`enrollment.node_mismatch`), yêu cầu `failed`; node **đã có** của chính thành viên ⇒ re-auth
+        hợp lệ (không đổi tên, không xóa); node đã có của người khác ⇒ `ExpireNode` + `security_event`, không bao giờ
+        xóa. Đạt ⇒ đổi tên theo `device_label`, ghi sổ thiết bị (liên kết `enrollment_request_id`), audit, thông báo
+        `device.new`, `inventory.sync` (kẹp hạn node). Không có bước duyệt nào sau claim.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.enrollment:request
+      x-conditions: [self_enroll]
+      x-task: P4-T06
+      x-audit-action: enrollment.claim
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnrollmentClaim'
+      responses:
+        '200':
+          description: Thiết bị đã đăng ký và được xác minh (`verified`) — hoặc yêu cầu `failed` kèm `failure_code`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '502':
+          $ref: '#/components/responses/UpstreamRejected'
+        '503':
+          $ref: '#/components/responses/InstanceUnavailable'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/enrollment/instructions:
+    get:
+      tags: [enrollment]
+      operationId: getEnrollmentInstructions
+      summary: Hướng dẫn cài client theo hệ điều hành với đúng `--login-server` của tenant
+      description: |-
+        Thay trang trợ giúp gốc của Headscale (`/apple`, `/windows` bị chặn ở edge — §9.4). `login_server` là
+        `server_url` của instance đang chạy của tenant (không có ⇒ `404`). Kèm `TS_NO_LOGS_NO_SUPPORT=true` cho cài đặt
+        có quản lý và thông báo quyền riêng tư (HS-22). Không chứa credential.
+      x-permission: tenant.enrollment:read
+      x-own-resource: true
+      x-task: P4-T06
+      x-audit-action: enrollment.instructions
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/EnrollmentOS'
+      responses:
+        '200':
+          description: Hướng dẫn
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentInstructions'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
   # ---------------------------------------------------------------- thiết lập của tenant (P4-T03a, §8.6, §13.3)
   /tenants/{tenantId}/settings:
     get:
@@ -4737,6 +5173,28 @@ components:
       schema:
         type: string
         format: uuid
+    EnrollmentRequestId:
+      name: enrollmentRequestId
+      in: path
+      required: true
+      description: ID yêu cầu enrollment (`enrollment_requests.id`)
+      schema:
+        type: string
+        format: uuid
+    EnrollmentStatusFilter:
+      name: status
+      in: query
+      required: false
+      description: Lọc theo trạng thái phía API của yêu cầu
+      schema:
+        $ref: '#/components/schemas/EnrollmentRequestStatus'
+    EnrollmentOS:
+      name: os
+      in: query
+      required: true
+      description: Hệ điều hành của thiết bị
+      schema:
+        $ref: '#/components/schemas/EnrollmentOS'
     TagId:
       name: tagId
       in: path
@@ -5005,6 +5463,17 @@ components:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/Problem'
+    SecretNoLongerAvailable:
+      description: >-
+        Lặp lại request phát credential sau khi secret hết hạn giữ tạm — `secret_no_longer_available` (§13.1): thu hồi
+        yêu cầu rồi tạo lại
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
     PreconditionFailed:
       description: Điều kiện trước không còn đúng — `precondition_failed` (ví dụ `payload_sha256` người duyệt đã xem khác payload hiện tại)
       headers:
@@ -5061,7 +5530,8 @@ components:
         Headscale của tenant, IdP ở luồng đăng nhập) · `instance_unavailable` (503) · `maintenance` (503, nền tảng ở
         chế độ bảo trì — sau khi restore PostgreSQL, tới khi đối soát xong và người vận hành tắt bảo trì; chỉ đăng nhập
         platform trên admin. còn được phục vụ — P3-T17, §17.2; kèm `Retry-After`) · `internal_error` (500) ·
-        `not_implemented` (501, operation chưa có handler).
+        `not_implemented` (501, operation chưa có handler) · `secret_no_longer_available` (410, replay của request phát
+        credential sau khi secret giữ tạm đã hết hạn — §13.1).
       enum:
         - unauthenticated
         - reauth_required
@@ -5080,6 +5550,7 @@ components:
         - maintenance
         - internal_error
         - not_implemented
+        - secret_no_longer_available
     FieldError:
       type: object
       required: [field, code, message]
@@ -7017,6 +7488,225 @@ components:
           minimum: 1
           maximum: 720
           default: 168
+    EnrollmentMethod:
+      type: string
+      description: >-
+        Phương thức enrollment (§7.4): `web_auth` (A — Portal môi giới, `AuthRegister`), `preauth_key` (B — key ngắn
+        hạn), `oidc` (C — OIDC gốc của Headscale, chỉ đọc: Post-MVP)
+      enum: [web_auth, preauth_key, oidc]
+    EnrollmentRequestStatus:
+      type: string
+      description: |-
+        Trạng thái phía API của `enrollment_requests.status` (§6.3, §7.4): `issued` là tên chung của `awaiting_device`
+        (web-auth) và `credential_issued` (pre-auth key) — mã/lệnh hoặc key đã phát, chờ thiết bị. Web-auth:
+        `requested` → (`pending_approval` → `approved` | `rejected`) → `issued` → `claimed` → `registered` → `verified`;
+        pre-auth key: `requested` → (`pending_approval` → `approved` | `rejected`) → `issued` → `consumed`; mọi trạng thái
+        chưa kết thúc → `expired` | `revoked` | `failed` (kèm `failure_code`).
+      enum: [requested, pending_approval, approved, rejected, issued, claimed, registered, verified, consumed, expired, revoked, failed]
+    EnrollmentRequest:
+      type: object
+      description: |-
+        Một yêu cầu enrollment (§13.3 `EnrollmentRequest`). Không bao giờ chứa pre-auth key, mã enrollment hay Auth ID
+        — các giá trị đó chỉ có trong `EnrollmentIssue` một lần.
+      required: [id, method, status, tags, ephemeral, reusable, requested_by_membership_id, login_server, created_at, updated_at, version]
+      properties:
+        id:
+          type: string
+          format: uuid
+        method:
+          $ref: '#/components/schemas/EnrollmentMethod'
+        status:
+          $ref: '#/components/schemas/EnrollmentRequestStatus'
+        device_label:
+          type: [string, 'null']
+        tags:
+          type: array
+          description: '`requested_tags` — chỉ key đặc quyền; luôn là tag của danh mục (P4-T15)'
+          items:
+            type: string
+        ephemeral:
+          type: boolean
+        reusable:
+          type: boolean
+        requested_by_membership_id:
+          type: string
+          format: uuid
+        target_membership_id:
+          type: [string, 'null']
+          format: uuid
+          description: Chủ thiết bị; `null` = key chỉ-tag
+        approver_membership_id:
+          type: [string, 'null']
+          format: uuid
+          description: Người duyệt hoặc từ chối
+        approved_at:
+          type: [string, 'null']
+          format: date-time
+        issued_at:
+          type: [string, 'null']
+          format: date-time
+          description: Lúc phát mã/lệnh hoặc key
+        credential_expires_at:
+          type: [string, 'null']
+          format: date-time
+        claimed_at:
+          type: [string, 'null']
+          format: date-time
+        node_id:
+          type: [string, 'null']
+          description: ID node ở Headscale đã đăng ký bằng yêu cầu này (`consumed_node_id`)
+        failure_code:
+          type: [string, 'null']
+        login_server:
+          type: string
+          description: URL `--login-server` của tenant (`server_url` của instance)
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        version:
+          type: integer
+          format: int64
+    EnrollmentIssue:
+      type: object
+      description: |-
+        Response phát credential (tạo yêu cầu, `/start`, key đặc quyền): yêu cầu + credential **một lần**. `credential`
+        vắng khi yêu cầu dừng ở `pending_approval`.
+      required: [request]
+      properties:
+        request:
+          $ref: '#/components/schemas/EnrollmentRequest'
+        credential:
+          $ref: '#/components/schemas/EnrollmentCredential'
+    EnrollmentCredential:
+      type: object
+      required: [kind, expires_at, command]
+      properties:
+        kind:
+          type: string
+          enum: [enroll_code, preauth_key]
+        preauth_key:
+          type: string
+          description: Pre-auth key (`hskey-auth-…`) — chỉ hiển thị một lần, không lưu ở nền tảng
+          x-secret-once: true
+        enroll_code:
+          type: string
+          description: Mã enrollment một lần (hostname `mg-<mã>`) — chỉ hiển thị một lần, chỉ hash được lưu
+          x-secret-once: true
+          pattern: '^[a-z2-7]{12}$'
+        hostname:
+          type: string
+          description: Hostname client phải dùng (`mg-<mã>` cho web-auth)
+        command:
+          type: string
+          description: >-
+            Lệnh `tailscale up` với đúng `--login-server` (web-auth: kèm `--hostname mg-<mã>`; pre-auth key: key đọc từ
+            biến môi trường `TS_AUTHKEY`, không chép vào lệnh)
+        expires_at:
+          type: string
+          format: date-time
+    EnrollmentRequestList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/EnrollmentRequest'
+        next_cursor:
+          type: [string, 'null']
+    EnrollmentRequestCreate:
+      type: object
+      required: [method]
+      additionalProperties: false
+      properties:
+        method:
+          type: string
+          enum: [web_auth, preauth_key]
+          description: '`web_auth` (thiết bị có trình duyệt) hoặc `preauth_key` (một lần, của chính người gọi)'
+        device_label:
+          type: string
+          minLength: 1
+          maxLength: 63
+          pattern: '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$'
+          description: Nhãn thiết bị — tên node (DNS label) đặt sau khi xác minh
+        ttl_minutes:
+          type: integer
+          minimum: 1
+          maximum: 15
+          description: Chỉ `preauth_key` — hạn của key (mặc định 15, không vượt `enrollment.preauth_key_ttl_max`)
+    EnrollmentKeyCreate:
+      type: object
+      additionalProperties: false
+      properties:
+        target_membership_id:
+          type: [string, 'null']
+          format: uuid
+          description: Thành viên `active` sở hữu thiết bị; vắng/`null` = key chỉ-tag (khi đó `tags` bắt buộc)
+        tags:
+          type: array
+          maxItems: 64
+          items:
+            type: string
+            pattern: '^tag:[a-z][a-z0-9-]{0,49}$'
+        reusable:
+          type: boolean
+          default: false
+        ephemeral:
+          type: boolean
+          default: false
+        device_label:
+          type: string
+          minLength: 1
+          maxLength: 63
+          pattern: '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$'
+        ttl_minutes:
+          type: integer
+          minimum: 1
+          maximum: 15
+    EnrollmentClaim:
+      type: object
+      required: [auth_id]
+      additionalProperties: false
+      properties:
+        auth_id:
+          type: string
+          pattern: '^hskey-authreq-[A-Za-z0-9_-]{24}$'
+          description: Auth ID trong URL `/register/<auth_id>` mà client nhận — chỉ hash được lưu
+        request_id:
+          type: string
+          format: uuid
+          description: Yêu cầu `web_auth` đang chờ được claim (bắt buộc khi người gọi có nhiều yêu cầu đang chờ)
+    EnrollmentOS:
+      type: string
+      enum: [linux, windows, macos, ios, android]
+    EnrollmentInstructions:
+      type: object
+      required: [os, login_server, steps, privacy_notice, managed_env]
+      properties:
+        os:
+          $ref: '#/components/schemas/EnrollmentOS'
+        login_server:
+          type: string
+        steps:
+          type: array
+          items:
+            type: string
+        web_auth_command:
+          type: [string, 'null']
+          description: Mẫu lệnh luồng A (`<mã>` thay bằng mã của yêu cầu); `null` khi tenant tắt web-auth hoặc nền tảng không đặt được hostname
+        preauth_key_command:
+          type: [string, 'null']
+          description: Mẫu lệnh luồng B (key qua biến môi trường `TS_AUTHKEY`)
+        privacy_notice:
+          type: string
+        managed_env:
+          type: object
+          additionalProperties:
+            type: string
+          description: Biến môi trường cho cài đặt có quản lý (`TS_NO_LOGS_NO_SUPPORT=true` — HS-22)
     TagPurpose:
       type: string
       description: >-

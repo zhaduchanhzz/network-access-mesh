@@ -225,6 +225,22 @@ type AdminHandlers interface {
 	UpdatePlatformPlan(ctx context.Context, request gen.UpdatePlatformPlanRequestObject) (gen.UpdatePlatformPlanResponseObject, error)
 }
 
+// EnrollmentHandlers — P4-T06 (`enrollment`): device enrollment requests (web-auth brokered by the Portal, short-lived
+// pre-auth keys), the approval before the device step, privileged keys, the web-auth claim and the instructions per OS
+// (§7.4).
+type EnrollmentHandlers interface {
+	ListEnrollmentRequests(ctx context.Context, request gen.ListEnrollmentRequestsRequestObject) (gen.ListEnrollmentRequestsResponseObject, error)
+	CreateEnrollmentRequest(ctx context.Context, request gen.CreateEnrollmentRequestRequestObject) (gen.CreateEnrollmentRequestResponseObject, error)
+	GetEnrollmentRequest(ctx context.Context, request gen.GetEnrollmentRequestRequestObject) (gen.GetEnrollmentRequestResponseObject, error)
+	ApproveEnrollmentRequest(ctx context.Context, request gen.ApproveEnrollmentRequestRequestObject) (gen.ApproveEnrollmentRequestResponseObject, error)
+	RejectEnrollmentRequest(ctx context.Context, request gen.RejectEnrollmentRequestRequestObject) (gen.RejectEnrollmentRequestResponseObject, error)
+	StartEnrollmentRequest(ctx context.Context, request gen.StartEnrollmentRequestRequestObject) (gen.StartEnrollmentRequestResponseObject, error)
+	RevokeEnrollmentRequest(ctx context.Context, request gen.RevokeEnrollmentRequestRequestObject) (gen.RevokeEnrollmentRequestResponseObject, error)
+	CreateEnrollmentKey(ctx context.Context, request gen.CreateEnrollmentKeyRequestObject) (gen.CreateEnrollmentKeyResponseObject, error)
+	ClaimEnrollmentWebAuth(ctx context.Context, request gen.ClaimEnrollmentWebAuthRequestObject) (gen.ClaimEnrollmentWebAuthResponseObject, error)
+	GetEnrollmentInstructions(ctx context.Context, request gen.GetEnrollmentInstructionsRequestObject) (gen.GetEnrollmentInstructionsResponseObject, error)
+}
+
 // Handlers is the extension point of the API: one handler set per building task. A nil set answers every operation
 // of its interface with 501 not_implemented. A set may also implement only part of its interface by embedding
 // NotImplemented. Handlers return a *problem.Error for an expected failure (not_found, conflict…); any other error
@@ -253,6 +269,7 @@ type Handlers struct {
 	Members       MemberHandlers       // P4-T09
 	Portal        PortalHandlers       // P4-T04
 	Admin         AdminHandlers        // P4-T03a
+	Enrollment    EnrollmentHandlers   // P4-T06
 }
 
 func (h Handlers) mounted() bool {
@@ -260,7 +277,7 @@ func (h Handlers) mounted() bool {
 		h.Notifications != nil || h.Approvals != nil || h.Invitations != nil || h.Hosts != nil || h.IdPConsole != nil ||
 		h.Provisioning != nil || h.Lifecycle != nil || h.Relay != nil || h.Reconfigure != nil || h.Backups != nil ||
 		h.InstanceOps != nil || h.Quarantine != nil || h.Deprovision != nil || h.Tags != nil || h.Members != nil ||
-		h.Portal != nil || h.Admin != nil
+		h.Portal != nil || h.Admin != nil || h.Enrollment != nil
 }
 
 // dispatcher implements gen.StrictServerInterface by promotion from the disjoint interfaces.
@@ -288,6 +305,7 @@ type dispatcher struct {
 	MemberHandlers
 	PortalHandlers
 	AdminHandlers
+	EnrollmentHandlers
 }
 
 var _ gen.StrictServerInterface = dispatcher{}
@@ -295,7 +313,10 @@ var _ gen.StrictServerInterface = dispatcher{}
 func newDispatcher(h Handlers) dispatcher {
 	d := dispatcher{h.Auth, h.Tenants, h.Devices, h.Audit, h.Jobs, h.Monitoring, h.Notifications, h.Approvals, h.Invitations,
 		h.Hosts, h.IdPConsole, h.Provisioning, h.Lifecycle, h.Relay, h.Reconfigure, h.Backups, h.InstanceOps,
-		h.Quarantine, h.Deprovision, h.Tags, h.Members, h.Portal, h.Admin}
+		h.Quarantine, h.Deprovision, h.Tags, h.Members, h.Portal, h.Admin, h.Enrollment}
+	if d.EnrollmentHandlers == nil {
+		d.EnrollmentHandlers = NotImplemented{}
+	}
 	if d.AdminHandlers == nil {
 		d.AdminHandlers = NotImplemented{}
 	}
@@ -792,4 +813,44 @@ func (NotImplemented) GetPlatformPlan(context.Context, gen.GetPlatformPlanReques
 
 func (NotImplemented) UpdatePlatformPlan(context.Context, gen.UpdatePlatformPlanRequestObject) (gen.UpdatePlatformPlanResponseObject, error) {
 	return nil, problem.NotImplemented("UpdatePlatformPlan")
+}
+
+func (NotImplemented) ListEnrollmentRequests(context.Context, gen.ListEnrollmentRequestsRequestObject) (gen.ListEnrollmentRequestsResponseObject, error) {
+	return nil, problem.NotImplemented("ListEnrollmentRequests")
+}
+
+func (NotImplemented) CreateEnrollmentRequest(context.Context, gen.CreateEnrollmentRequestRequestObject) (gen.CreateEnrollmentRequestResponseObject, error) {
+	return nil, problem.NotImplemented("CreateEnrollmentRequest")
+}
+
+func (NotImplemented) GetEnrollmentRequest(context.Context, gen.GetEnrollmentRequestRequestObject) (gen.GetEnrollmentRequestResponseObject, error) {
+	return nil, problem.NotImplemented("GetEnrollmentRequest")
+}
+
+func (NotImplemented) ApproveEnrollmentRequest(context.Context, gen.ApproveEnrollmentRequestRequestObject) (gen.ApproveEnrollmentRequestResponseObject, error) {
+	return nil, problem.NotImplemented("ApproveEnrollmentRequest")
+}
+
+func (NotImplemented) RejectEnrollmentRequest(context.Context, gen.RejectEnrollmentRequestRequestObject) (gen.RejectEnrollmentRequestResponseObject, error) {
+	return nil, problem.NotImplemented("RejectEnrollmentRequest")
+}
+
+func (NotImplemented) StartEnrollmentRequest(context.Context, gen.StartEnrollmentRequestRequestObject) (gen.StartEnrollmentRequestResponseObject, error) {
+	return nil, problem.NotImplemented("StartEnrollmentRequest")
+}
+
+func (NotImplemented) RevokeEnrollmentRequest(context.Context, gen.RevokeEnrollmentRequestRequestObject) (gen.RevokeEnrollmentRequestResponseObject, error) {
+	return nil, problem.NotImplemented("RevokeEnrollmentRequest")
+}
+
+func (NotImplemented) CreateEnrollmentKey(context.Context, gen.CreateEnrollmentKeyRequestObject) (gen.CreateEnrollmentKeyResponseObject, error) {
+	return nil, problem.NotImplemented("CreateEnrollmentKey")
+}
+
+func (NotImplemented) ClaimEnrollmentWebAuth(context.Context, gen.ClaimEnrollmentWebAuthRequestObject) (gen.ClaimEnrollmentWebAuthResponseObject, error) {
+	return nil, problem.NotImplemented("ClaimEnrollmentWebAuth")
+}
+
+func (NotImplemented) GetEnrollmentInstructions(context.Context, gen.GetEnrollmentInstructionsRequestObject) (gen.GetEnrollmentInstructionsResponseObject, error) {
+	return nil, problem.NotImplemented("GetEnrollmentInstructions")
 }

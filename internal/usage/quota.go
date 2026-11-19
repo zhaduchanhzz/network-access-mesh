@@ -99,6 +99,60 @@ func DevicesTx(ctx context.Context, q *sqlcdb.Queries, tenantID uuid.UUID, addin
 	return st, st.Exceeded()
 }
 
+// EnrollmentTx is the quota of an enrollment request (§7.4 step 3 — P4-T06) inside the caller's TENANT transaction
+// (store.WithTenantTx of tenantID): it locks the tenant's subscription row (`SELECT … FOR UPDATE`) and only then
+// counts, so two concurrent requests serialise there and cannot both pass a limit.
+//   - devices: the devices of the inventory PLUS the enrollment requests that can still bring one (not finished) must stay
+//     within PlanLimits.max_devices; newRequest adds the request being created (false: the request already counts —
+//     /start of an approved request);
+//   - credentials (issuing = true): the live enrollment credentials (codes and keys issued and not yet used or expired,
+//     reusable keys still valid) plus the one being issued must stay within PlanLimits.max_live_enrollment_credentials.
+//
+// The first limit exceeded is returned as a *tenants.QuotaExceededError (Resource QuotaDevices or
+// QuotaEnrollmentCredentials).
+func EnrollmentTx(ctx context.Context, q *sqlcdb.Queries, tenantID uuid.UUID, newRequest, issuing bool) (tenants.QuotaStatus, error) {
+	if tenantID == uuid.Nil {
+		return tenants.QuotaStatus{}, ErrInvalid
+	}
+	r, err := q.LockTenantSubscriptionLimits(ctx, tenantID)
+	live := err == nil
+	if err != nil && !errors.Is(err, store.ErrNoRows) {
+		return tenants.QuotaStatus{}, err
+	}
+	open, err := q.CountOpenEnrollmentRequests(ctx, tenantID)
+	if err != nil {
+		return tenants.QuotaStatus{}, err
+	}
+	dev := tenants.QuotaStatus{Resource: tenants.QuotaDevices, Requested: 1}
+	if !newRequest {
+		dev.Requested = 0
+	}
+	if live {
+		dev.Plan = r.PlanKey
+		if dev.Limit, err = effectiveLimit(r.Limits, r.Overrides, "max_devices"); err != nil {
+			return dev, fmt.Errorf("%w: plan %s: %s", ErrQuotaUnavailable, r.PlanKey, err.Error())
+		}
+	}
+	devices, err := q.CountTenantDevices(ctx, tenantID)
+	if err != nil {
+		return dev, err
+	}
+	dev.Used = devices + open
+	if err := dev.Exceeded(); err != nil || !issuing {
+		return dev, err
+	}
+	cred := tenants.QuotaStatus{Resource: tenants.QuotaEnrollmentCredentials, Requested: 1, Plan: dev.Plan}
+	if live {
+		if cred.Limit, err = effectiveLimit(r.Limits, r.Overrides, "max_live_enrollment_credentials"); err != nil {
+			return cred, fmt.Errorf("%w: plan %s: %s", ErrQuotaUnavailable, r.PlanKey, err.Error())
+		}
+	}
+	if cred.Used, err = q.CountLiveEnrollmentCredentials(ctx, tenantID); err != nil {
+		return cred, err
+	}
+	return cred, cred.Exceeded()
+}
+
 func tenantCreation(ctx context.Context, q *sqlcdb.Queries, lock bool) (tenants.QuotaStatus, error) {
 	st := tenants.QuotaStatus{Resource: tenants.QuotaTenants, Requested: 1}
 	read := q.GetTenantCap

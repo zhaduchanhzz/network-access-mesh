@@ -11,6 +11,21 @@ import (
 	"github.com/google/uuid"
 )
 
+const countLiveEnrollmentCredentials = `-- name: CountLiveEnrollmentCredentials :one
+SELECT count(*) FROM enrollment_requests
+WHERE tenant_id = $1 AND credential_expires_at > now()
+  AND (status IN ('awaiting_device', 'claimed', 'credential_issued') OR (status = 'consumed' AND reusable))
+`
+
+// Credential enrollment còn hạn (PlanLimits.max_live_enrollment_credentials): mã/lệnh web-auth và pre-auth key đã phát
+// chưa dùng, cộng key reusable đã dùng nhưng còn hạn.
+func (q *Queries) CountLiveEnrollmentCredentials(ctx context.Context, tenantID uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countLiveEnrollmentCredentials, tenantID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countLiveTenants = `-- name: CountLiveTenants :one
 SELECT count(*) FROM tenants
 WHERE status NOT IN ('deleted', 'failed')
@@ -21,6 +36,22 @@ WHERE status NOT IN ('deleted', 'failed')
 // chỉ qua /retry (orchestrator.Control), lần đó kiểm lại trần dưới cùng khóa hàng (TenantCreationTx).
 func (q *Queries) CountLiveTenants(ctx context.Context) (int64, error) {
 	row := q.db.QueryRow(ctx, countLiveTenants)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countOpenEnrollmentRequests = `-- name: CountOpenEnrollmentRequests :one
+SELECT count(*) FROM enrollment_requests
+WHERE tenant_id = $1
+  AND status IN ('requested', 'pending_approval', 'approved', 'awaiting_device', 'claimed', 'registered',
+                 'credential_issued')
+`
+
+// Yêu cầu enrollment chưa kết thúc của tenant (§7.4 bước 3: quota thiết bị = sổ thiết bị CỘNG yêu cầu còn có thể sinh
+// thiết bị) — đếm dưới khóa hàng subscription của người gọi (LockTenantSubscriptionLimits).
+func (q *Queries) CountOpenEnrollmentRequests(ctx context.Context, tenantID uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countOpenEnrollmentRequests, tenantID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err

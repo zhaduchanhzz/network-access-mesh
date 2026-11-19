@@ -137,6 +137,17 @@ var operations = []struct {
 	{http.MethodPost, "/api/v1/platform/jobs/" + itemID + "/retry", "", "RetryPlatformJob", []func(*http.Request){idempotency}},
 	{http.MethodPost, "/api/v1/platform/jobs/" + itemID + "/cancel", "", "CancelPlatformJob", []func(*http.Request){idempotency}},
 	{http.MethodPost, "/api/v1/platform/jobs/" + itemID + "/rollback", "", "RollbackPlatformJob", []func(*http.Request){idempotency}},
+	// enrollment (P4-T06)
+	{http.MethodGet, "/api/v1/tenants/" + tenantID + "/enrollment/requests?status=issued", "", "ListEnrollmentRequests", nil},
+	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/enrollment/requests", `{"method":"web_auth"}`, "CreateEnrollmentRequest", []func(*http.Request){idempotency}},
+	{http.MethodGet, "/api/v1/tenants/" + tenantID + "/enrollment/requests/" + itemID, "", "GetEnrollmentRequest", nil},
+	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/enrollment/requests/" + itemID + "/approve", "", "ApproveEnrollmentRequest", nil},
+	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/enrollment/requests/" + itemID + "/reject", "", "RejectEnrollmentRequest", nil},
+	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/enrollment/requests/" + itemID + "/start", "", "StartEnrollmentRequest", nil},
+	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/enrollment/requests/" + itemID + "/revoke", "", "RevokeEnrollmentRequest", nil},
+	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/enrollment/keys", `{"tags":["tag:web"]}`, "CreateEnrollmentKey", []func(*http.Request){idempotency}},
+	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/enrollment/web-auth/claim", `{"auth_id":"hskey-authreq-` + strings.Repeat("a", 24) + `"}`, "ClaimEnrollmentWebAuth", nil},
+	{http.MethodGet, "/api/v1/tenants/" + tenantID + "/enrollment/instructions?os=linux", "", "GetEnrollmentInstructions", nil},
 	// suspend / resume (P3-T08)
 	{http.MethodPost, "/api/v1/platform/tenants/" + tenantID + "/suspend", "", "SuspendPlatformTenant", []func(*http.Request){idempotency}},
 	{http.MethodPost, "/api/v1/platform/tenants/" + tenantID + "/resume", "", "ResumePlatformTenant", []func(*http.Request){idempotency}},

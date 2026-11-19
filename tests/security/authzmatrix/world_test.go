@@ -22,6 +22,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/authz"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/authz/approvals"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/devices"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/enrollment"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/headscale"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/headscale/locator"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi"
@@ -32,6 +33,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/backupapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/deprovisionapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/devicesapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/enrollmentapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/hostsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/idpconsoleapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/instanceopsapi"
@@ -202,6 +204,11 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 		t.Fatal(err)
 	}
 	inbox := notificationsapi.New(notifications.NewReader(w.Store))
+	enr, err := enrollment.New(w.Store, enrollment.Config{Registry: reg, Tags: policies.RequireTags, Logger: log,
+		ClaimsPerMinute: 1000})
+	if err != nil {
+		t.Fatal(err)
+	}
 	return httpapi.Handlers{
 		Tenants:     tenantsapi.New(dir, platform.New(w.Store)),
 		Devices:     devicesapi.New(dev),
@@ -236,6 +243,9 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 		Tags: tagsapi.New(tagSvc, devicesapi.New(dev)),
 		// Members (P4-T09): membership writes under authz.GuardMembershipChange, groups (no worker: jobs stay queued)
 		Members: membersapi.New(mem, appr),
+		// Enrollment (P4-T06): requests, approval, privileged keys (Headscale behind the unreachable edge), claim,
+		// instructions — the authorizer answers "may approve"
+		Enrollment: enrollmentapi.New(enr, authz.New(w.Store)),
 		// Admin (P4-T03a): platform users, settings, IdPs, plans, PATCH of a tenant; the tenant's settings, IdP and
 		// deletion request — with the approval actions of P4-T03a in the registry above
 		Admin: adminapi.New(platform.New(w.Store), dir, appr),
@@ -330,6 +340,7 @@ type objects struct {
 	host                         uuid.UUID               // the host of the instances (P3-T04: /platform/hosts/{hostId})
 	notifOwn                     map[uuid.UUID]uuid.UUID // P4-T04: membership of a tenant actor → a notification addressed to it
 	notifOther                   map[string]uuid.UUID    // P4-T04: a notification of the tenant addressed to a non-actor member
+	enrEU, enrOther              map[string]uuid.UUID    // P4-T06: a request of the End User, a request of the non-actor member
 	canaries                     []string                // secret values planted in the SecretStore (never in a response)
 }
 
@@ -426,6 +437,7 @@ func (m *matrixWorld) createObjects(t *testing.T) objects {
 		tag:    map[string]uuid.UUID{},
 		target: map[string]uuid.UUID{}, group: map[string]uuid.UUID{},
 		notifOwn: map[uuid.UUID]uuid.UUID{}, notifOther: map[string]uuid.UUID{},
+		enrEU: map[string]uuid.UUID{}, enrOther: map[string]uuid.UUID{},
 		canaries: []string{m.edgeToken},
 	}
 	sec := m.sec
@@ -515,6 +527,18 @@ func (m *matrixWorld) createObjects(t *testing.T) objects {
 			o.notifOwn[a.MembershipID] = notify(a.MembershipID)
 		}
 		o.notifOther[ten.Name] = notify(m.NewActor(t, authz.RoleTenantViewer, ten).MembershipID)
+		// P4-T06: a live subscription (quota of enrollment), self-enrolment allowed (the End User's conditional grant),
+		// a request waiting for approval of the End User and one of the non-actor member
+		m.Exec(t, `INSERT INTO subscriptions (tenant_id, plan_id) SELECT $1, id FROM subscription_plans WHERE key = 'standard'`, ten.ID)
+		m.Exec(t, `UPDATE tenants SET settings = jsonb_set(COALESCE(settings, '{}'::jsonb), '{enrollment}',
+			'{"self_enroll": true}'::jsonb, true) WHERE id = $1`, ten.ID)
+		for dst, member := range map[*map[string]uuid.UUID]uuid.UUID{&o.enrEU: eu.MembershipID, &o.enrOther: target} {
+			id := uuid.Must(uuid.NewV7())
+			(*dst)[ten.Name] = id
+			m.Exec(t, `INSERT INTO enrollment_requests (id, tenant_id, instance_id, requested_by_membership_id, method,
+					target_membership_id, status) VALUES ($1, $2, $3, $4, 'web_auth', $4, 'pending_approval')`,
+				id, ten.ID, inst, member)
+		}
 	}
 	m.Exec(t, `INSERT INTO approval_requests (id, scope, action, resource_type, resource_id, payload, payload_sha256,
 			requested_by_identity_id, expires_at)

@@ -1545,6 +1545,229 @@ export interface paths {
         patch: operations["updateTenantTag"];
         trace?: never;
     };
+    "/tenants/{tenantId}/enrollment/requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Yêu cầu enrollment của tenant (End User — của chính mình)
+         * @description Mới nhất trước (`created_at`, `id`). End User (ô ○ của §8.6) chỉ thấy yêu cầu mình tạo hoặc thiết bị của mình.
+         *     Không bao giờ chứa pre-auth key, mã enrollment hay Auth ID (§6.3 chỉ lưu hash) — `preauth_key`/`enroll_code`/
+         *     `command` chỉ có trong response phát credential.
+         */
+        get: operations["listEnrollmentRequests"];
+        put?: never;
+        /**
+         * Thêm thiết bị của chính mình (web-auth hoặc pre-auth key một lần)
+         * @description §7.4 bước 3–4. Trong một transaction: khóa hàng `subscriptions` của tenant (`SELECT … FOR UPDATE`) rồi kiểm quota
+         *     — thiết bị trong sổ **cộng** yêu cầu chưa kết thúc ≤ `max_devices`, credential còn hạn ≤
+         *     `max_live_enrollment_credentials` (vượt ⇒ `403 quota_exceeded`). End User chỉ gọi được khi tenant bật
+         *     `enrollment.self_enroll` (điều kiện `self_enroll` của §8.6 — tắt ⇒ `403`). `web_auth` cần
+         *     `enrollment.web_auth_enabled` (tắt ⇒ `422`).
+         *
+         *     Khi `enrollment.requires_approval` bật và người gọi **không** có `tenant.enrollment:approve`: yêu cầu dừng ở
+         *     `pending_approval`, **chưa** phát mã/key (`201` không có credential). Ngược lại yêu cầu được phát ngay
+         *     (`issued`): `web_auth` ⇒ `enroll_code` một lần + `command` (`tailscale up --login-server … --hostname
+         *     mg-<mã>`), hạn 10 phút, gắn với phiên Portal hiện tại; `preauth_key` ⇒ key **một lần**, không ephemeral, của
+         *     chính người gọi, hạn `ttl_minutes` (mặc định và tối đa 15, không vượt `enrollment.preauth_key_ttl_max`) —
+         *     `expiration` luôn gửi tường minh tới Headscale (V-06). Plaintext chỉ có trong response này (`x-secret-once`);
+         *     bảng chỉ giữ hash/ID. Lặp lại cùng `Idempotency-Key` trong hạn credential ⇒ cùng response (secret giữ tạm
+         *     trong SecretStore với TTL = hạn credential); sau hạn ⇒ `410 secret_no_longer_available` (thu hồi rồi tạo lại).
+         */
+        post: operations["createEnrollmentRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/enrollment/requests/{enrollmentRequestId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Một yêu cầu enrollment
+         * @description End User chỉ đọc yêu cầu của mình (của người khác hay tenant khác ⇒ `404`). Không bao giờ chứa secret.
+         */
+        get: operations["getEnrollmentRequest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/enrollment/requests/{enrollmentRequestId}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Duyệt yêu cầu đang chờ (trước bước thiết bị)
+         * @description Chỉ yêu cầu `pending_approval` (khác ⇒ `409`); người duyệt khác người yêu cầu (⇒ `403`). Phê duyệt gắn với
+         *     **request** (người yêu cầu, nhãn, phương thức) — không với Auth ID; sau đó chính người yêu cầu gọi `/start`.
+         *     Chưa dùng sau 24 giờ ⇒ `expired` (job `enrollment.reconcile`).
+         */
+        post: operations["approveEnrollmentRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/enrollment/requests/{enrollmentRequestId}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Từ chối yêu cầu đang chờ
+         * @description Chỉ yêu cầu `pending_approval` (khác ⇒ `409`); người quyết định khác người yêu cầu (⇒ `403`).
+         */
+        post: operations["rejectEnrollmentRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/enrollment/requests/{enrollmentRequestId}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Nhận mã enrollment / pre-auth key của yêu cầu đã được duyệt
+         * @description Chỉ chính người yêu cầu (người khác ⇒ `409`), chỉ yêu cầu `approved` (khác ⇒ `409`), trong phiên Portal hiện
+         *     tại: phát mã + lệnh (web-auth, hạn 10 phút, gắn phiên này) hoặc pre-auth key (một lần, hiển thị một lần — không
+         *     replay: gọi lại ⇒ `409`). Kiểm lại quota credential còn hạn.
+         */
+        post: operations["startEnrollmentRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/enrollment/requests/{enrollmentRequestId}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Thu hồi yêu cầu / credential chưa dùng
+         * @description Yêu cầu chưa kết thúc ⇒ `revoked`; pre-auth key đã phát (kể cả key reusable đã dùng nhưng còn hạn) bị expire ở
+         *     Headscale và đọc lại xác minh trước khi báo thành công (cặp audit `enrollment.revoke.requested` →
+         *     `.succeeded`/`.failed`). Thiết bị đã đăng ký không bị đụng — thu hồi thiết bị là `DELETE /devices/{id}`. Yêu cầu
+         *     đã kết thúc ⇒ `409`. End User chỉ thu hồi yêu cầu của mình.
+         */
+        post: operations["revokeEnrollmentRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/enrollment/keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pre-auth key đặc quyền (gắn tag, reusable, ephemeral hoặc cho người khác)
+         * @description §7.4 phương thức B, `tenant.enrollment:issue_privileged` (TO, TA). Key cho một thành viên `active` khác của tenant
+         *     (`target_membership_id`) hoặc key chỉ-tag (không chủ — phải có `tags`). `tags` chỉ nhận tag có trong danh mục
+         *     của tenant (P4-T15 — ngoài danh mục ⇒ `422`), khóa chia sẻ tới hết transaction. Luôn có hạn ≤ 15 phút
+         *     (`ttl_minutes`, không vượt `enrollment.preauth_key_ttl_max`), `expiration` tường minh; plaintext hiển thị một lần
+         *     (`x-secret-once`). Không qua bước duyệt (đã cần quyền đặc quyền); quota như `POST /enrollment/requests`.
+         */
+        post: operations["createEnrollmentKey"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/enrollment/web-auth/claim": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Xác nhận đăng ký web-auth bằng Auth ID (luồng A, §7.4 bước 6–8)
+         * @description Chỉ nhận khi **chính người gọi** có yêu cầu `web_auth` đang chờ thiết bị (`issued`), phát trong **phiên Portal
+         *     này**, chưa quá hạn 10 phút — không có ⇒ `409` (trang claim hiển thị cảnh báo phishing, **không** có nút xác
+         *     nhận) và một `security_event` `enrollment.claim_without_request`. Nhiều yêu cầu đang chờ ⇒ phải nêu
+         *     `request_id`. Auth ID dạng `hskey-authreq-` + 24 ký tự; chỉ hash SHA-256 được lưu. Giới hạn tần suất theo
+         *     thành viên (vượt ⇒ `429`). Tenant tắt `enrollment.web_auth_enabled` ⇒ `422`.
+         *
+         *     Rồi gọi `AuthRegister(mg-<membership>, auth_id)` đồng bộ và kiểm **node trả về**: tên = `mg-<mã>`, đúng
+         *     Headscale user, không tag, `register_method = cli`. Node **mới** sai bất kỳ điều nào ⇒ `DeleteNode` ngay +
+         *     `security_event` (`enrollment.node_mismatch`), yêu cầu `failed`; node **đã có** của chính thành viên ⇒ re-auth
+         *     hợp lệ (không đổi tên, không xóa); node đã có của người khác ⇒ `ExpireNode` + `security_event`, không bao giờ
+         *     xóa. Đạt ⇒ đổi tên theo `device_label`, ghi sổ thiết bị (liên kết `enrollment_request_id`), audit, thông báo
+         *     `device.new`, `inventory.sync` (kẹp hạn node). Không có bước duyệt nào sau claim.
+         */
+        post: operations["claimEnrollmentWebAuth"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/enrollment/instructions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Hướng dẫn cài client theo hệ điều hành với đúng `--login-server` của tenant
+         * @description Thay trang trợ giúp gốc của Headscale (`/apple`, `/windows` bị chặn ở edge — §9.4). `login_server` là
+         *     `server_url` của instance đang chạy của tenant (không có ⇒ `404`). Kèm `TS_NO_LOGS_NO_SUPPORT=true` cho cài đặt
+         *     có quản lý và thông báo quyền riêng tư (HS-22). Không chứa credential.
+         */
+        get: operations["getEnrollmentInstructions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tenants/{tenantId}/settings": {
         parameters: {
             query?: never;
@@ -1916,10 +2139,11 @@ export interface components {
          *     Headscale của tenant, IdP ở luồng đăng nhập) · `instance_unavailable` (503) · `maintenance` (503, nền tảng ở
          *     chế độ bảo trì — sau khi restore PostgreSQL, tới khi đối soát xong và người vận hành tắt bảo trì; chỉ đăng nhập
          *     platform trên admin. còn được phục vụ — P3-T17, §17.2; kèm `Retry-After`) · `internal_error` (500) ·
-         *     `not_implemented` (501, operation chưa có handler).
+         *     `not_implemented` (501, operation chưa có handler) · `secret_no_longer_available` (410, replay của request phát
+         *     credential sau khi secret giữ tạm đã hết hạn — §13.1).
          * @enum {string}
          */
-        ProblemCode: "unauthenticated" | "reauth_required" | "forbidden" | "tenant_suspended" | "quota_exceeded" | "not_found" | "conflict" | "precondition_failed" | "precondition_required" | "validation_failed" | "idempotency_key_reuse" | "rate_limited" | "upstream_rejected" | "instance_unavailable" | "maintenance" | "internal_error" | "not_implemented";
+        ProblemCode: "unauthenticated" | "reauth_required" | "forbidden" | "tenant_suspended" | "quota_exceeded" | "not_found" | "conflict" | "precondition_failed" | "precondition_required" | "validation_failed" | "idempotency_key_reuse" | "rate_limited" | "upstream_rejected" | "instance_unavailable" | "maintenance" | "internal_error" | "not_implemented" | "secret_no_longer_available";
         FieldError: {
             /** @description Đường dẫn tới trường lỗi, ví dụ `given_name` */
             field: string;
@@ -3025,6 +3249,145 @@ export interface components {
             expires_in_hours: number;
         };
         /**
+         * @description Phương thức enrollment (§7.4): `web_auth` (A — Portal môi giới, `AuthRegister`), `preauth_key` (B — key ngắn hạn), `oidc` (C — OIDC gốc của Headscale, chỉ đọc: Post-MVP)
+         * @enum {string}
+         */
+        EnrollmentMethod: "web_auth" | "preauth_key" | "oidc";
+        /**
+         * @description Trạng thái phía API của `enrollment_requests.status` (§6.3, §7.4): `issued` là tên chung của `awaiting_device`
+         *     (web-auth) và `credential_issued` (pre-auth key) — mã/lệnh hoặc key đã phát, chờ thiết bị. Web-auth:
+         *     `requested` → (`pending_approval` → `approved` | `rejected`) → `issued` → `claimed` → `registered` → `verified`;
+         *     pre-auth key: `requested` → (`pending_approval` → `approved` | `rejected`) → `issued` → `consumed`; mọi trạng thái
+         *     chưa kết thúc → `expired` | `revoked` | `failed` (kèm `failure_code`).
+         * @enum {string}
+         */
+        EnrollmentRequestStatus: "requested" | "pending_approval" | "approved" | "rejected" | "issued" | "claimed" | "registered" | "verified" | "consumed" | "expired" | "revoked" | "failed";
+        /**
+         * @description Một yêu cầu enrollment (§13.3 `EnrollmentRequest`). Không bao giờ chứa pre-auth key, mã enrollment hay Auth ID
+         *     — các giá trị đó chỉ có trong `EnrollmentIssue` một lần.
+         */
+        EnrollmentRequest: {
+            /** Format: uuid */
+            id: string;
+            method: components["schemas"]["EnrollmentMethod"];
+            status: components["schemas"]["EnrollmentRequestStatus"];
+            device_label?: string | null;
+            /** @description `requested_tags` — chỉ key đặc quyền; luôn là tag của danh mục (P4-T15) */
+            tags: string[];
+            ephemeral: boolean;
+            reusable: boolean;
+            /** Format: uuid */
+            requested_by_membership_id: string;
+            /**
+             * Format: uuid
+             * @description Chủ thiết bị; `null` = key chỉ-tag
+             */
+            target_membership_id?: string | null;
+            /**
+             * Format: uuid
+             * @description Người duyệt hoặc từ chối
+             */
+            approver_membership_id?: string | null;
+            /** Format: date-time */
+            approved_at?: string | null;
+            /**
+             * Format: date-time
+             * @description Lúc phát mã/lệnh hoặc key
+             */
+            issued_at?: string | null;
+            /** Format: date-time */
+            credential_expires_at?: string | null;
+            /** Format: date-time */
+            claimed_at?: string | null;
+            /** @description ID node ở Headscale đã đăng ký bằng yêu cầu này (`consumed_node_id`) */
+            node_id?: string | null;
+            failure_code?: string | null;
+            /** @description URL `--login-server` của tenant (`server_url` của instance) */
+            login_server: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: int64 */
+            version: number;
+        };
+        /**
+         * @description Response phát credential (tạo yêu cầu, `/start`, key đặc quyền): yêu cầu + credential **một lần**. `credential`
+         *     vắng khi yêu cầu dừng ở `pending_approval`.
+         */
+        EnrollmentIssue: {
+            request: components["schemas"]["EnrollmentRequest"];
+            credential?: components["schemas"]["EnrollmentCredential"];
+        };
+        EnrollmentCredential: {
+            /** @enum {string} */
+            kind: "enroll_code" | "preauth_key";
+            /** @description Pre-auth key (`hskey-auth-…`) — chỉ hiển thị một lần, không lưu ở nền tảng */
+            preauth_key?: string;
+            /** @description Mã enrollment một lần (hostname `mg-<mã>`) — chỉ hiển thị một lần, chỉ hash được lưu */
+            enroll_code?: string;
+            /** @description Hostname client phải dùng (`mg-<mã>` cho web-auth) */
+            hostname?: string;
+            /** @description Lệnh `tailscale up` với đúng `--login-server` (web-auth: kèm `--hostname mg-<mã>`; pre-auth key: key đọc từ biến môi trường `TS_AUTHKEY`, không chép vào lệnh) */
+            command: string;
+            /** Format: date-time */
+            expires_at: string;
+        };
+        EnrollmentRequestList: {
+            items: components["schemas"]["EnrollmentRequest"][];
+            next_cursor: string | null;
+        };
+        EnrollmentRequestCreate: {
+            /**
+             * @description `web_auth` (thiết bị có trình duyệt) hoặc `preauth_key` (một lần, của chính người gọi)
+             * @enum {string}
+             */
+            method: "web_auth" | "preauth_key";
+            /** @description Nhãn thiết bị — tên node (DNS label) đặt sau khi xác minh */
+            device_label?: string;
+            /** @description Chỉ `preauth_key` — hạn của key (mặc định 15, không vượt `enrollment.preauth_key_ttl_max`) */
+            ttl_minutes?: number;
+        };
+        EnrollmentKeyCreate: {
+            /**
+             * Format: uuid
+             * @description Thành viên `active` sở hữu thiết bị; vắng/`null` = key chỉ-tag (khi đó `tags` bắt buộc)
+             */
+            target_membership_id?: string | null;
+            tags?: string[];
+            /** @default false */
+            reusable: boolean;
+            /** @default false */
+            ephemeral: boolean;
+            device_label?: string;
+            ttl_minutes?: number;
+        };
+        EnrollmentClaim: {
+            /** @description Auth ID trong URL `/register/<auth_id>` mà client nhận — chỉ hash được lưu */
+            auth_id: string;
+            /**
+             * Format: uuid
+             * @description Yêu cầu `web_auth` đang chờ được claim (bắt buộc khi người gọi có nhiều yêu cầu đang chờ)
+             */
+            request_id?: string;
+        };
+        /** @enum {string} */
+        EnrollmentOS: "linux" | "windows" | "macos" | "ios" | "android";
+        EnrollmentInstructions: {
+            os: components["schemas"]["EnrollmentOS"];
+            login_server: string;
+            steps: string[];
+            /** @description Mẫu lệnh luồng A (`<mã>` thay bằng mã của yêu cầu); `null` khi tenant tắt web-auth hoặc nền tảng không đặt được hostname */
+            web_auth_command?: string | null;
+            /** @description Mẫu lệnh luồng B (key qua biến môi trường `TS_AUTHKEY`) */
+            preauth_key_command?: string | null;
+            privacy_notice: string;
+            /** @description Biến môi trường cho cài đặt có quản lý (`TS_NO_LOGS_NO_SUPPORT=true` — HS-22) */
+            managed_env: {
+                [key: string]: string;
+            };
+        };
+        /**
          * @description Mục đích của tag (`tenant_tags.purpose`, bất biến): `server`, `custom` do tenant khai báo; `router`, `exit` là tag do nền tảng kiểm soát (§7.2 — chỉ chúng được `autoApprovers` nêu)
          * @enum {string}
          */
@@ -3504,6 +3867,16 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
+        /** @description Lặp lại request phát credential sau khi secret hết hạn giữ tạm — `secret_no_longer_available` (§13.1): thu hồi yêu cầu rồi tạo lại */
+        SecretNoLongerAvailable: {
+            headers: {
+                "X-Request-Id": components["headers"]["RequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
         /** @description Điều kiện trước không còn đúng — `precondition_failed` (ví dụ `payload_sha256` người duyệt đã xem khác payload hiện tại) */
         PreconditionFailed: {
             headers: {
@@ -3561,6 +3934,12 @@ export interface components {
         ApprovalActionFilter: string;
         /** @description ID lời mời (`tenant_invitations.id`) */
         InvitationId: string;
+        /** @description ID yêu cầu enrollment (`enrollment_requests.id`) */
+        EnrollmentRequestId: string;
+        /** @description Lọc theo trạng thái phía API của yêu cầu */
+        EnrollmentStatusFilter: components["schemas"]["EnrollmentRequestStatus"];
+        /** @description Hệ điều hành của thiết bị */
+        EnrollmentOS: components["schemas"]["EnrollmentOS"];
         /** @description ID tag (`tenant_tags.id`) */
         TagId: string;
         /** @description Lọc theo trạng thái hiệu lực */
@@ -6419,6 +6798,349 @@ export interface operations {
             412: components["responses"]["PreconditionFailed"];
             422: components["responses"]["ValidationFailed"];
             428: components["responses"]["PreconditionRequired"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    listEnrollmentRequests: {
+        parameters: {
+            query?: {
+                /** @description Số phần tử tối đa của trang */
+                limit?: components["parameters"]["Limit"];
+                /** @description Con trỏ mờ lấy từ `next_cursor` của trang trước */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Lọc theo trạng thái phía API của yêu cầu */
+                status?: components["parameters"]["EnrollmentStatusFilter"];
+            };
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Một trang yêu cầu */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnrollmentRequestList"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    createEnrollmentRequest: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnrollmentRequestCreate"];
+            };
+        };
+        responses: {
+            /** @description Yêu cầu đã tạo — kèm credential khi đã phát (một lần) */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnrollmentIssue"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            410: components["responses"]["SecretNoLongerAvailable"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            502: components["responses"]["UpstreamRejected"];
+            503: components["responses"]["InstanceUnavailable"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    getEnrollmentRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+                /** @description ID yêu cầu enrollment (`enrollment_requests.id`) */
+                enrollmentRequestId: components["parameters"]["EnrollmentRequestId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Yêu cầu */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnrollmentRequest"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    approveEnrollmentRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+                /** @description ID yêu cầu enrollment (`enrollment_requests.id`) */
+                enrollmentRequestId: components["parameters"]["EnrollmentRequestId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Yêu cầu đã duyệt */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnrollmentRequest"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    rejectEnrollmentRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+                /** @description ID yêu cầu enrollment (`enrollment_requests.id`) */
+                enrollmentRequestId: components["parameters"]["EnrollmentRequestId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Yêu cầu đã bị từ chối */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnrollmentRequest"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    startEnrollmentRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+                /** @description ID yêu cầu enrollment (`enrollment_requests.id`) */
+                enrollmentRequestId: components["parameters"]["EnrollmentRequestId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Yêu cầu đã phát credential (một lần) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnrollmentIssue"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            502: components["responses"]["UpstreamRejected"];
+            503: components["responses"]["InstanceUnavailable"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    revokeEnrollmentRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+                /** @description ID yêu cầu enrollment (`enrollment_requests.id`) */
+                enrollmentRequestId: components["parameters"]["EnrollmentRequestId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Yêu cầu đã thu hồi */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnrollmentRequest"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            502: components["responses"]["UpstreamRejected"];
+            503: components["responses"]["InstanceUnavailable"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    createEnrollmentKey: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnrollmentKeyCreate"];
+            };
+        };
+        responses: {
+            /** @description Key đã phát (một lần) */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnrollmentIssue"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            410: components["responses"]["SecretNoLongerAvailable"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            502: components["responses"]["UpstreamRejected"];
+            503: components["responses"]["InstanceUnavailable"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    claimEnrollmentWebAuth: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnrollmentClaim"];
+            };
+        };
+        responses: {
+            /** @description Thiết bị đã đăng ký và được xác minh (`verified`) — hoặc yêu cầu `failed` kèm `failure_code` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnrollmentRequest"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            502: components["responses"]["UpstreamRejected"];
+            503: components["responses"]["InstanceUnavailable"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    getEnrollmentInstructions: {
+        parameters: {
+            query: {
+                /** @description Hệ điều hành của thiết bị */
+                os: components["parameters"]["EnrollmentOS"];
+            };
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Hướng dẫn */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnrollmentInstructions"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationFailed"];
             429: components["responses"]["RateLimited"];
             default: components["responses"]["Unexpected"];
         };

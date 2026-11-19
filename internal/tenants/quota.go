@@ -13,6 +13,9 @@ import (
 const (
 	QuotaTenants = "tenants" // system_settings quota.max_tenants: tenants not deleted, platform-wide
 	QuotaDevices = "devices" // PlanLimits.max_devices of the tenant's live subscription (plan ⊕ override)
+	// QuotaEnrollmentCredentials: PlanLimits.max_live_enrollment_credentials — enrollment codes and pre-auth keys issued
+	// and still usable (P4-T06, usage.EnrollmentTx)
+	QuotaEnrollmentCredentials = "enrollment_credentials"
 )
 
 // ErrQuotaExceeded matches every quota refusal (errors.Is); the HTTP layer answers 403 quota_exceeded (§13.1).
@@ -37,7 +40,7 @@ type QuotaExceededError struct{ Status QuotaStatus }
 
 func (e *QuotaExceededError) Error() string {
 	s := e.Status
-	if s.Resource == QuotaDevices && s.Plan == "" {
+	if (s.Resource == QuotaDevices || s.Resource == QuotaEnrollmentCredentials) && s.Plan == "" {
 		return fmt.Sprintf("quota exceeded: %s — the tenant has no live subscription", s.Resource)
 	}
 	return fmt.Sprintf("quota exceeded: %s %d in use + %d requested > limit %d", s.Resource, s.Used, s.Requested, s.Limit)

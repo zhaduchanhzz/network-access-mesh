@@ -69,6 +69,7 @@ func TestHandlerGroupsFollowSpec(t *testing.T) {
 		"P4-T09":  reflect.TypeFor[MemberHandlers](),
 		"P4-T04":  reflect.TypeFor[PortalHandlers](),
 		"P4-T03a": reflect.TypeFor[AdminHandlers](),
+		"P4-T06":  reflect.TypeFor[EnrollmentHandlers](),
 	}
 	tasks := specTasks(t)
 	for task, iface := range groups {
