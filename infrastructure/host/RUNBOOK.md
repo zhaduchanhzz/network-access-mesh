@@ -144,13 +144,19 @@ v9 chỉ đổi Caddyfile (site `app.`/`admin.`: path ngoài `/api/*` ⇒ `web.:
 
 ```bash
 # 0. versions.lock: [images.mg-api], [images.mg-worker], [images.mg-web] pin từ CÙNG một lượt workflow `images` (render_app
-#    từ chối nếu thiếu/khác tag). api/worker đổi commit và có migration mới ⇒ sudo bash infrastructure/host/migrate.sh trước.
-# 1. web TRƯỚC edge (edge v9 không có web ⇒ app./admin. trả 503 tĩnh)
-python3 tools/render_app.py infrastructure/environments/staging/staging.env /tmp/mg-app   # → /opt/meshguard/core/
+#    từ chối nếu thiếu/khác tag); [images.mg-agent] cùng lượt khi Agent đổi (lô Phase 4: WriteDnsRecords — deploy-backend o).
+# 1. render + CÀI compose.app.yaml mới TRƯỚC migrate.sh: job migrate dùng image api của file đang cài — migrate.sh chạy
+#    trước bước cài là migration của image cũ (báo OK, current:true, schema không đổi — diễn tập P4, F-3)
+python3 tools/render_app.py infrastructure/environments/staging/staging.env /tmp/mg-app
+sudo cp -a /opt/meshguard/core/compose.app.yaml /root/compose.app.yaml.$(date -u +%Y%m%dT%H%M%SZ)
+sudo install -m 0644 /tmp/mg-app/compose.app.yaml /opt/meshguard/core/compose.app.yaml
+sudo bash infrastructure/host/migrate.sh               # chỉ khi có migration mới; mong đợi "schema_version" = migration mới nhất
+# 2. web TRƯỚC edge (edge v9 không có web ⇒ app./admin. trả 503 tĩnh)
 APP="sudo docker compose -p mg-app -f /opt/meshguard/core/compose.app.yaml"
 $APP up -d --wait web                                  # (+ api worker nếu đổi image) — healthprobe GET / ⇒ 200
 $APP exec -T web /usr/bin/healthprobe http://127.0.0.1:8080/ 200 && echo web-ok
-# 2. edge: render, so compose (chỉ dòng template_version), sao lưu, cài, validate, reload
+# 3. edge: render, so compose (chỉ dòng template_version), sao lưu, cài, validate, reload. Cây ≥ 3498e00 (P4-T07) chỉ render
+#    được v10 — để dừng ở v9: render bằng tools/ của `git archive f7ceb5d` (deploy-backend mục o bước 6)
 python3 tools/render_edge.py infrastructure/environments/staging/edge.json /tmp/edge
 diff /opt/meshguard/core/compose.edge.yaml /tmp/edge/compose.edge.yaml   # chỉ dòng chú thích ⇒ reload
 sudo cp -a /opt/meshguard/core/caddy/Caddyfile /root/Caddyfile.v8.$(date +%s)
@@ -159,7 +165,7 @@ docker exec mg-edge caddy validate --config /etc/caddy/Caddyfile --adapter caddy
 docker exec mg-edge caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile --address unix//run/caddy/admin.sock
 ```
 
-3. Kiểm (ngoài các kiểm của mục 5): `https://app.<domain>/` và `/tenants/<id>/devices` qua VPS và LAN-direct ⇒ 200 `text/html` cùng `index.html`, **một** `Content-Security-Policy`, không `Server`; `/api/v1/auth/session` ⇒ 401 `problem+json`; `/healthz`, `/metrics`, `/internal/…` ⇒ `index.html` (không phải body của api); `/.env`, `/api/../metrics` ⇒ 404; `https://admin.<domain>/` từ LAN ⇒ SPA, console Keycloak (`/admin/master/console/`) vẫn sau `forward_auth` (401 khi không có phiên); `run_staging.sh` (nhóm `platform` cần `mg-app-web-1` chạy). Stream long-poll của tenant đóng ~5 phút sau reload (`stream_close_delay`), client tự nối lại.
+3. Kiểm (ngoài các kiểm của mục 5; `run_staging.sh` lấy từ **cùng cây** đã render Caddyfile đang chạy — bản của cây ≥ `3498e00` đòi chuyển hướng v10 nên FAIL nhóm `public` trên edge v9): `https://app.<domain>/` và `/tenants/<id>/devices` qua VPS và LAN-direct ⇒ 200 `text/html` cùng `index.html`, **một** `Content-Security-Policy`, không `Server`; `/api/v1/auth/session` ⇒ 401 `problem+json`; `/healthz`, `/metrics`, `/internal/…` ⇒ `index.html` (không phải body của api); `/.env`, `/api/../metrics` ⇒ 404; `https://admin.<domain>/` từ LAN ⇒ SPA, console Keycloak (`/admin/master/console/`) vẫn sau `forward_auth` (401 khi không có phiên); `run_staging.sh` (nhóm `platform` cần `mg-app-web-1` chạy). Stream long-poll của tenant đóng ~5 phút sau reload (`stream_close_delay`), client tự nối lại.
 4. Hoàn tác: cài lại `/root/Caddyfile.v8.<ts>` rồi reload (web để chạy cũng vô hại — không gì định tuyến tới); bỏ web: `$APP stop web && $APP rm -f web`.
 
 ### Template v9 → v10 (P4-T07 — chuyển hướng web-auth `/register/<auth_id>`): **reload**, không recreate
