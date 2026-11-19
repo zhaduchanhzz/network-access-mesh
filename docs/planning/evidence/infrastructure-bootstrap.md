@@ -43,6 +43,7 @@ Chủ dự án gửi mật khẩu root của VPS và của Proxmox trong hội t
 | 7 | Máy vận hành (Windows) | Cài `pre-commit` 4.7.0 cho user hiện tại và bật hook trong repo (`.git/hooks/pre-commit`: gitleaks + docs-check) | `pre-commit uninstall` (trong repo) và `python -m pip uninstall pre-commit` |
 
 | 11 | Proxmox, VM 110 `mg-ci-runner-2` | Ngày 2026-11-17, chủ dự án duyệt "Thêm VM 110 + nâng 105 sau". Tạo VM 110 bằng cùng lệnh của `pve_create_vms.sh` (một VM, 12 vCPU / 24 GB / 200 GB, `nvme01`, cloud image ở bước 3 kiểm lại sha256 `04e8f246…`), rồi cài `qemu-guest-agent`. Docker cài theo `install_docker.sh`, khóa kho kiểm theo fingerprint; ngoài engine 29.9.3 và compose 5.7.1 còn ghim thêm `containerd.io=2.4.2-4` và `docker-buildx-plugin=0.39.0-1` cho trùng VM 105, giữ phiên bản bằng `apt-mark hold`. `daemon.json` giống VM 105. Không cài Tailscale và runner GitHub. IP DHCP `192.168.1.23` (chưa có DHCP reservation). Cùng ngày, khi không còn agent chạy trên VM 105: `qm set 105 --cores 12 --memory 24576` + `qm reboot 105` (dừng ~15 s; lên lại 12 vCPU / 23 GiB, Docker và tailscaled `lab-c1` tự chạy) | `ssh root@<proxmox> 'qm stop 110 && qm destroy 110 --purge'`; VM 105: `qm set 105 --cores 6 --memory 16384 && qm reboot 105` |
+| 12 | Proxmox, VM 111 `mg-ci-runner-3` | Ngày 2026-11-19, chủ dự án duyệt "Tạo thêm VM thử trên Proxmox". Cùng lệnh `qm create` của `pve_create_vms.sh` (một VM, 12 vCPU / **16 GB** / 200 GB, `nvme01`, cloud image kiểm lại sha256 `04e8f246…`; RAM 16 GB để tổng RAM cấp cho VM 120/125 GB), `qemu-guest-agent`, Docker theo `install_docker.sh` + ghim `containerd.io=2.4.2-4`, `docker-buildx-plugin=0.39.0-1` (`apt-mark hold`); `daemon.json` giống VM 110. Kiểm: Ubuntu 24.04.5, 12 vCPU, 15 GiB, `/` 193 GB; engine 29.9.3, compose 5.7.1; overlayfs, cgroup systemd, `live-restore`; Alpine pin digest chạy được; dockerd 0 cổng TCP. IP DHCP `192.168.1.25` (chưa reservation) | `ssh root@<proxmox> 'qm stop 111 && qm destroy 111 --purge'` |
 
 Kiểm sau bước 11 (VM 110): Ubuntu 24.04.5, 12 vCPU, 23 GiB, `/` 193 GB; Docker khớp từng gói với VM 105 (engine/cli 29.9.3, containerd 2.4.2, buildx 0.39.0, compose 5.7.1); overlayfs, cgroup systemd, `live-restore` bật; container Alpine pin digest chạy được; dockerd không nghe cổng TCP nào.
 
@@ -63,6 +64,7 @@ Mọi VM: Ubuntu 24.04.5 LTS từ cloud image ở bước 3, cloud-init tạo us
 | 108 | `mg-client-a2` | 2 / 2 GB / 20 GB | `lan10` | 192.168.10.11 | 0 | Client tenant A sau NAT của OPNsense |
 | 109 | `mg-client-b2` | 2 / 2 GB / 20 GB | `lan10` | 192.168.10.12 | 0 | Client tenant B sau NAT của OPNsense |
 | 110 | `mg-ci-runner-2` | 12 / 24 GB / 200 GB | `vmbr0` | 192.168.1.23 | 1 | Máy build thứ hai (thêm 2026-11-17, bước 11) — chạy song song với VM 105, không chung Docker daemon ⇒ không đụng subnet cố định của các bộ test |
+| 111 | `mg-ci-runner-3` | 12 / 16 GB / 200 GB | `vmbr0` | 192.168.1.25 | 1 | Máy build thứ ba (thêm 2026-11-19, bước 12) — agent Phase 4 chạy song song |
 
 Storage `nvme01` đã dùng 1,69% sau khi tạo.
 
