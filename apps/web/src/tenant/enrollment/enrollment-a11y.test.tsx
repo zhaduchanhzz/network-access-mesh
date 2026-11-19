@@ -9,10 +9,10 @@ import { describe, expect, it } from "vitest";
 import { i18n } from "../../i18n";
 import en from "../../i18n/locales/en.json";
 import vi from "../../i18n/locales/vi.json";
-import { json, mockApi, problem, renderApp, TENANT_A, tenantBody, tenantSession } from "../../test/helpers";
+import { json, mockApi, platformSession, problem, renderApp, TENANT_A, tenantBody, tenantSession } from "../../test/helpers";
 import { tag } from "../../test/network";
 import { setSystemDark } from "../../test/setup";
-import { AUTH_ID, conflict, instructions, keyIssue, OTHER, REQ_1, REQ_3, request, webIssue } from "../../test/enrollment";
+import { AUTH_ID, conflict, instructions, keyIssue, OTHER, REQ_1, REQ_2, REQ_3, request, webIssue } from "../../test/enrollment";
 import { ENROLL_OS, ENROLLMENT_STATUSES } from "./model";
 
 async function violations(): Promise<string[]> {
@@ -95,6 +95,31 @@ describe.each([
     await screen.findByTestId("all-requests");
     expect(await violations()).toEqual([]);
     await userEvent.click(within(screen.getByTestId("approval-queue")).getByRole("button", { name: i18n.t("enroll.actions.approveFor", { label: "phone-binh" }) }));
+    await screen.findByRole("alertdialog");
+    expect(await violations()).toEqual([]);
+  });
+
+  it("Enrollment key qua Support Access Grant (admin.): hàng chờ + quyết định của nhân viên hỗ trợ + hộp duyệt", async () => {
+    await i18n.changeLanguage(lng);
+    setSystemDark(dark);
+    const GRANT = "0190a100-0000-7000-8000-0000000000c4";
+    const decided = request(REQ_2, { status: "approved", device_label: "tablet-binh", requested_by_membership_id: OTHER, target_membership_id: OTHER, issued_at: null, credential_expires_at: null, approved_at: "2026-11-19T03:00:00Z", approver_support_grant_id: GRANT });
+    mockApi({
+      ...apiFor("end_user"),
+      [`GET ${base}/enrollment/requests`]: (r: Request) => {
+        const s = new URL(r.url).searchParams.get("status");
+        const items = [...queue, decided];
+        return json(200, { items: s ? items.filter((x) => x.status === s) : items, next_cursor: null });
+      },
+      "GET /auth/session": json(200, platformSession("platform_support", [
+        { id: GRANT, tenant_id: TENANT_A, effective_role: "support_operator", expires_at: new Date(Date.now() + 3600_000).toISOString() },
+      ])),
+    });
+    renderApp({ path: `/t/${TENANT_A}/enrollment-keys`, console: "platform" });
+    await screen.findByTestId("approval-queue");
+    expect(await within(await screen.findByTestId("all-requests")).findByTestId("decided-by-support")).toHaveTextContent(t("enroll.decider.supportApproved"));
+    expect(await violations()).toEqual([]);
+    await userEvent.click(within(screen.getByTestId("approval-queue")).getByRole("button", { name: i18n.t("enroll.actions.rejectFor", { label: "phone-binh" }) }));
     await screen.findByRole("alertdialog");
     expect(await violations()).toEqual([]);
   });

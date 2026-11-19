@@ -12,7 +12,10 @@
 //	           explicit expiration (V-06).
 //	approval   /approve, /reject (tenant.enrollment:approve — the decider is never the requester; the requester is
 //	           notified — enrollment.approved / enrollment.rejected — in the decision's transaction), then /start by the
-//	           requester in its own Portal session issues the code or the key (§7.4 "Phê duyệt enrollment").
+//	           requester in its own Portal session issues the code or the key (§7.4 "Phê duyệt enrollment"). The
+//	           decider is a member, or platform staff through a live Support Access Grant (§8.6 cell G, §8.7): the
+//	           grant is locked and checked live in the decision's transaction and recorded as the decider
+//	           (approver_support_grant_id — 0028); the requester is told the decider is the platform's support.
 //	keys       POST /enrollment/keys (tenant.enrollment:issue_privileged): tagged, reusable, ephemeral keys, keys for
 //	           another member and tag-only keys; requested_tags only from the tenant's catalog (policies.RequireTags in
 //	           the same transaction — wired in apps/, enrollment does not import policies).

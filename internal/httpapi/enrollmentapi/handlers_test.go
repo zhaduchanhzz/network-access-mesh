@@ -66,10 +66,11 @@ func TestFailureCarriesStableReason(t *testing.T) {
 
 // The caller of a request (C4): platform staff acting through a live Support Access Grant (authz.decideSupport — no
 // membership, the grant, the effective role; never scope own) is a caller like a tenant role of scope any — not the 500
-// of a missing hook —; an operation that records a membership (memberOf: create, key, start, claim, approve, reject)
-// refuses it with 403 forbidden whose cause carries the reason support_actor_not_member (the audit's); a member's
-// decision keeps its obligations; a decision that is neither a member's nor a support actor's, or both, or of another
-// identity, or no session ⇒ 500.
+// of a missing hook — that carries its grant (the decider an approval or a rejection records — 0028); an operation that
+// records a membership as the requester (memberOf: create, key, start, claim) refuses it with 403 forbidden whose cause
+// carries the reason support_actor_not_member (the audit's); a member's decision keeps its obligations and carries no
+// grant; a decision that is neither a member's nor a support actor's, or both, or of another identity, or no session ⇒
+// 500.
 func TestActorFromDecision(t *testing.T) {
 	id, member, grant := uuid.New(), uuid.New(), uuid.New()
 	s := &identity.Session{IdentityID: id, PublicID: uuid.New(), Email: "staff@example.test"}
@@ -78,8 +79,8 @@ func TestActorFromDecision(t *testing.T) {
 	support := authz.Decision{Principal: who, TenantID: uuid.New(), RoleKey: authz.RoleSupportOperator,
 		PlatformUserID: uuid.New(), SupportGrantID: grant}
 	a, err := actorFrom(s, support, ip)
-	if err != nil || a.MembershipID != uuid.Nil || a.OwnOnly || a.SelfEnrollOnly || a.IdentityID != id ||
-		a.SessionID != s.PublicID || a.Display != s.Email || a.ClientIP != ip {
+	if err != nil || a.MembershipID != uuid.Nil || a.SupportGrantID != grant || a.OwnOnly || a.SelfEnrollOnly ||
+		a.IdentityID != id || a.SessionID != s.PublicID || a.Display != s.Email || a.ClientIP != ip {
 		t.Fatalf("support actor %+v, %v", a, err)
 	}
 	_, err = asMember(a, nil)
@@ -91,7 +92,8 @@ func TestActorFromDecision(t *testing.T) {
 	}
 
 	tenant := authz.Decision{Principal: who, MembershipID: member, OwnOnly: true, Condition: authz.CondSelfEnroll}
-	if a, err := asMember(actorFrom(s, tenant, ip)); err != nil || a.MembershipID != member || !a.OwnOnly || !a.SelfEnrollOnly {
+	if a, err := asMember(actorFrom(s, tenant, ip)); err != nil || a.MembershipID != member || !a.OwnOnly || !a.SelfEnrollOnly ||
+		a.SupportGrantID != uuid.Nil {
 		t.Fatalf("member %+v, %v", a, err)
 	}
 
@@ -110,5 +112,19 @@ func TestActorFromDecision(t *testing.T) {
 	if _, err := asMember(enrollment.Actor{}, problem.Internal(errNoDecision)); !errors.As(err, &p) ||
 		p.Code != gen.ProblemCodeInternalError {
 		t.Errorf("asMember must keep the error of actorOf: %v", err)
+	}
+}
+
+// The decider of a request reaches the API as it is recorded (0028): a member's decision in approver_membership_id,
+// a decision of platform staff in approver_support_grant_id — never both, never the grant renamed as a membership.
+func TestToRequestDecider(t *testing.T) {
+	m, g := uuid.New(), uuid.New()
+	if out := toRequest(enrollment.Request{Approver: &m}); out.ApproverMembershipId == nil || *out.ApproverMembershipId != m ||
+		out.ApproverSupportGrantId != nil {
+		t.Errorf("member decision %+v", out)
+	}
+	if out := toRequest(enrollment.Request{ApproverGrant: &g}); out.ApproverSupportGrantId == nil || *out.ApproverSupportGrantId != g ||
+		out.ApproverMembershipId != nil {
+		t.Errorf("support decision %+v", out)
 	}
 }

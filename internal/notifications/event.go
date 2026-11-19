@@ -139,9 +139,9 @@ var specs = map[Kind]spec{
 	KindInstanceReleased: {fields: map[string]fieldType{"instance_id": fUUID, "tenant_slug": fString, "job_id": fUUID,
 		"outcome": fString}, required: []string{"instance_id", "tenant_slug", "job_id", "outcome"}, platform: true},
 	KindEnrollmentApproved: {fields: map[string]fieldType{"request_id": fUUID, "method": fString, "device_label": fString,
-		"decided_by": fString, "expires_at": fTime}, required: []string{"request_id", "method", "expires_at"}},
+		"decided_by": fString, "by_support": fBool, "expires_at": fTime}, required: []string{"request_id", "method", "expires_at"}},
 	KindEnrollmentRejected: {fields: map[string]fieldType{"request_id": fUUID, "method": fString, "device_label": fString,
-		"decided_by": fString}, required: []string{"request_id", "method"}},
+		"decided_by": fString, "by_support": fBool}, required: []string{"request_id", "method"}},
 	KindRouteApproved: {fields: routeFields, required: routeRequired},
 	KindRouteRevoked:  {fields: routeFields, required: routeRequired},
 }
@@ -696,32 +696,44 @@ func boundedList(items []string) string {
 	return b.String()
 }
 
-// EnrollmentApproved — §7.4 "Phê duyệt enrollment" (TO/TA/TP gọi /approve … thông báo cho người yêu cầu): the member who
-// made the request, and only them; they start it (POST …/start) before startBy — the approval expires 24 hours after
-// it was given. One per request (a request is decided once).
-func EnrollmentApproved(tenantID, requestID, requester uuid.UUID, method, deviceLabel, decidedBy string, startBy time.Time) Event {
+// EnrollmentDecider is who decided an enrollment request, as its requester is told: the display name of the decider and
+// whether it is platform staff acting through a Support Access Grant (§8.6 cell G, §8.7 — 0028), which the
+// notification says in so many words (payload by_support).
+type EnrollmentDecider struct {
+	Display string
+	Support bool
+}
+
+// EnrollmentApproved — §7.4 "Phê duyệt enrollment" (TO/TA/TP — or platform staff through a Support Access Grant — call
+// /approve … thông báo cho người yêu cầu): the member who made the request, and only them; they start it
+// (POST …/start) before startBy — the approval expires 24 hours after it was given. One per request (a request is
+// decided once).
+func EnrollmentApproved(tenantID, requestID, requester uuid.UUID, method, deviceLabel string, by EnrollmentDecider, startBy time.Time) Event {
 	ev := Event{Kind: KindEnrollmentApproved, TenantID: tenantPtr(tenantID), Ref: "enrollment:" + requestID.String() + ":approved",
 		Payload: map[string]any{"request_id": requestID, "method": method, "expires_at": startBy},
 		To:      Audience{Members: []uuid.UUID{requester}}}
-	enrollmentOptional(ev.Payload, deviceLabel, decidedBy)
+	enrollmentOptional(ev.Payload, deviceLabel, by)
 	return ev
 }
 
 // EnrollmentRejected — the same decision, rejected: the requester only. One per request.
-func EnrollmentRejected(tenantID, requestID, requester uuid.UUID, method, deviceLabel, decidedBy string) Event {
+func EnrollmentRejected(tenantID, requestID, requester uuid.UUID, method, deviceLabel string, by EnrollmentDecider) Event {
 	ev := Event{Kind: KindEnrollmentRejected, TenantID: tenantPtr(tenantID), Ref: "enrollment:" + requestID.String() + ":rejected",
 		Payload: map[string]any{"request_id": requestID, "method": method},
 		To:      Audience{Members: []uuid.UUID{requester}}}
-	enrollmentOptional(ev.Payload, deviceLabel, decidedBy)
+	enrollmentOptional(ev.Payload, deviceLabel, by)
 	return ev
 }
 
-func enrollmentOptional(p map[string]any, deviceLabel, decidedBy string) {
+func enrollmentOptional(p map[string]any, deviceLabel string, by EnrollmentDecider) {
 	if s := textOr(deviceLabel, ""); s != "" {
 		p["device_label"] = s
 	}
-	if s := textOr(decidedBy, ""); s != "" {
+	if s := textOr(by.Display, ""); s != "" {
 		p["decided_by"] = s
+	}
+	if by.Support {
+		p["by_support"] = true
 	}
 }
 

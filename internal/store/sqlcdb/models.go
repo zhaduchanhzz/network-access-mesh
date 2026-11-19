@@ -172,6 +172,7 @@ type EnrollmentRequest struct {
 	UpdatedAt               time.Time
 	Version                 int64
 	RequestedTtlMinutes     *int16
+	ApproverSupportGrantID  *uuid.UUID
 }
 
 type Group struct {

@@ -1926,7 +1926,10 @@ export interface paths {
          * @description Chỉ yêu cầu `pending_approval` (khác ⇒ `409`); người duyệt khác người yêu cầu (⇒ `403`). Phê duyệt gắn với
          *     **request** (người yêu cầu, nhãn, phương thức) — không với Auth ID; sau đó chính người yêu cầu gọi `/start`.
          *     Chưa dùng sau 24 giờ ⇒ `expired` (job `enrollment.reconcile`). Người yêu cầu nhận thông báo
-         *     `enrollment.approved` (cùng transaction).
+         *     `enrollment.approved` (cùng transaction). Nhân viên nền tảng có Support Access Grant còn hiệu lực vào tenant
+         *     (§8.6 ô G, §8.7) duyệt như role tenant: người duyệt ghi là grant (`approver_support_grant_id`, không
+         *     `approver_membership_id`), audit của tenant `actor_type=support` + `support_grant_id`, thông báo nêu người duyệt là
+         *     nhân viên hỗ trợ; grant hết hiệu lực (thu hồi, hết hạn) trước khi quyết định commit ⇒ `403`, yêu cầu không đổi.
          */
         post: operations["approveEnrollmentRequest"];
         delete?: never;
@@ -1947,7 +1950,8 @@ export interface paths {
         /**
          * Từ chối yêu cầu đang chờ
          * @description Chỉ yêu cầu `pending_approval` (khác ⇒ `409`); người quyết định khác người yêu cầu (⇒ `403`). Người yêu cầu
-         *     nhận thông báo `enrollment.rejected` (cùng transaction).
+         *     nhận thông báo `enrollment.rejected` (cùng transaction). Nhân viên nền tảng có Support Access Grant còn hiệu lực
+         *     từ chối như ở `/approve` (người quyết định là grant — `approver_support_grant_id`).
          */
         post: operations["rejectEnrollmentRequest"];
         delete?: never;
@@ -4081,9 +4085,14 @@ export interface components {
             target_membership_id?: string | null;
             /**
              * Format: uuid
-             * @description Người duyệt hoặc từ chối
+             * @description Người duyệt hoặc từ chối khi đó là thành viên của tenant; `null` khi chưa quyết định hoặc người quyết định là nhân viên nền tảng (`approver_support_grant_id`)
              */
             approver_membership_id?: string | null;
+            /**
+             * Format: uuid
+             * @description Người duyệt hoặc từ chối là nhân viên nền tảng qua Support Access Grant này (§8.7; grant vào chính tenant — `GET /support-grants`). Đã quyết định ⇒ đúng một trong `approver_membership_id` và trường này khác `null`
+             */
+            approver_support_grant_id?: string | null;
             /** Format: date-time */
             approved_at?: string | null;
             /**

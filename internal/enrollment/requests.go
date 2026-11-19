@@ -438,12 +438,73 @@ func (s *Service) expireStale(ctx context.Context, q *sqlcdb.Queries, r sqlcdb.E
 	return true, nil
 }
 
+// decider is who records a decision (0028): a member of the tenant (approver_membership_id) or platform staff through
+// a live Support Access Grant into the tenant (approver_support_grant_id — §8.6 cell G of tenant.enrollment:approve,
+// §8.7): exactly one of the two.
+type decider struct {
+	member  uuid.UUID
+	support store.SupportActor
+}
+
+func (d decider) isSupport() bool { return d.support.GrantID != uuid.Nil }
+
+// ReasonNoDecider: an actor that is neither a member nor the support actor of the request context (fail closed — the
+// hooks always build one of the two).
+const ReasonNoDecider = "no_decider"
+
+// deciderOf is the decider of a: a member — no support actor in ctx —, or a support actor whose grant is the one the
+// request context carries (store.WithSupportActor: what every tenant transaction of the request re-checks, and the
+// grantee the decision locks the grant for). Anything else is refused before any transaction.
+func deciderOf(ctx context.Context, a Actor) (decider, error) {
+	sa, isSupport := store.SupportActorFrom(ctx)
+	switch {
+	case a.MembershipID != uuid.Nil && a.SupportGrantID == uuid.Nil && !isSupport:
+		return decider{member: a.MembershipID}, nil
+	case a.MembershipID == uuid.Nil && a.SupportGrantID != uuid.Nil && isSupport && sa.GrantID == a.SupportGrantID &&
+		sa.PlatformUserID != uuid.Nil:
+		return decider{support: sa}, nil
+	}
+	return decider{}, forbidden(ReasonNoDecider, "This decision cannot be recorded under the caller.")
+}
+
+// selfDecision reports whether the decider is the requester of r (§7.4: the decider is never the requester). A member:
+// the same membership (CHECK of 0020 too). Platform staff never make requests (creating one needs a membership), but the
+// rule is still checked on the person: the identity of the requester's membership is not the caller's.
+func selfDecision(ctx context.Context, q *sqlcdb.Queries, r sqlcdb.EnrollmentRequest, a Actor, who decider) (bool, error) {
+	if !who.isSupport() {
+		return r.RequestedByMembershipID == who.member, nil
+	}
+	m, err := q.GetEnrollmentMember(ctx, sqlcdb.GetEnrollmentMemberParams{TenantID: r.TenantID, ID: r.RequestedByMembershipID})
+	if err != nil {
+		return false, err
+	}
+	return m.IdentityID == a.IdentityID, nil
+}
+
 // decide is /approve and /reject: the decision, its audit event and the requester's notification (§7.4 "ghi
-// approver_membership_id, audit, thông báo cho người yêu cầu") commit in one transaction.
+// approver_membership_id, audit, thông báo cho người yêu cầu") commit in one transaction. Platform staff decide through
+// their live Support Access Grant (0028): the grant is locked FOR SHARE in the same transaction — one revoked or
+// expired since layer 1 decided ⇒ store.ErrSupportGrantNotLive and nothing changes; a revocation that comes later waits
+// for the decision to commit — and the decider recorded is the grant (the audit event carries actor_type=support and
+// the grant from the request scope; the requester is told the decider is the platform's support).
 func (s *Service) decide(ctx context.Context, tenantID, id uuid.UUID, a Actor, approve bool) (Request, error) {
+	who, err := deciderOf(ctx, a)
+	if err != nil {
+		return Request{}, err
+	}
 	var out Request
-	err := s.inJobTx(ctx, tenantID, func(tx *store.Tx) error {
+	err = s.inJobTx(ctx, tenantID, func(tx *store.Tx) error {
 		q := tx.Q
+		if who.isSupport() {
+			_, err := q.LockLiveSupportGrant(ctx, sqlcdb.LockLiveSupportGrantParams{TenantID: tenantID,
+				ID: who.support.GrantID, Grantee: who.support.PlatformUserID})
+			if errors.Is(err, store.ErrNoRows) {
+				return store.ErrSupportGrantNotLive
+			}
+			if err != nil {
+				return err
+			}
+		}
 		r, err := q.LockEnrollmentRequest(ctx, sqlcdb.LockEnrollmentRequestParams{TenantID: tenantID, ID: id})
 		if errors.Is(err, store.ErrNoRows) {
 			return notFound("no_request")
@@ -454,7 +515,10 @@ func (s *Service) decide(ctx context.Context, tenantID, id uuid.UUID, a Actor, a
 		if r.Status != StatusPendingApproval {
 			return conflict("not_pending_approval", "Only a request waiting for approval can be approved or rejected.")
 		}
-		if r.RequestedByMembershipID == a.MembershipID {
+		if self, err := selfDecision(ctx, q, r, a, who); err != nil || self {
+			if err != nil {
+				return err
+			}
 			return forbidden("self_approval", "The requester cannot decide its own request.")
 		}
 		if expired, err := s.expireStale(ctx, q, r); err != nil || expired {
@@ -465,7 +529,15 @@ func (s *Service) decide(ctx context.Context, tenantID, id uuid.UUID, a Actor, a
 		}
 		now := s.now().UTC()
 		p := stateOf(r)
-		p.ApproverMembershipID = &a.MembershipID
+		details := audit.Details{"requested_by": r.RequestedByMembershipID.String(), "method": r.Method}
+		if who.isSupport() {
+			g := who.support.GrantID
+			p.ApproverSupportGrantID = &g
+			details["decided_by"] = "support"
+		} else {
+			m := who.member
+			p.ApproverMembershipID = &m
+		}
 		action := ActionReject
 		if approve {
 			p.Status, p.ApprovedAt, action = StatusApproved, &now, ActionApprove
@@ -477,17 +549,17 @@ func (s *Service) decide(ctx context.Context, tenantID, id uuid.UUID, a Actor, a
 			return err
 		}
 		if err := audit.Record(ctx, q, audit.Event{Action: action, TenantID: &tenantID, ResourceType: resourceType,
-			ResourceID: id.String(), Details: audit.Details{"requested_by": r.RequestedByMembershipID.String(),
-				"method": r.Method}}); err != nil {
+			ResourceID: id.String(), Details: details}); err != nil {
 			return err
 		}
 		label := ""
 		if r.DeviceLabel != nil {
 			label = *r.DeviceLabel
 		}
-		ev := notifications.EnrollmentRejected(tenantID, id, r.RequestedByMembershipID, r.Method, label, a.Display)
+		by := notifications.EnrollmentDecider{Display: a.Display, Support: who.isSupport()}
+		ev := notifications.EnrollmentRejected(tenantID, id, r.RequestedByMembershipID, r.Method, label, by)
 		if approve {
-			ev = notifications.EnrollmentApproved(tenantID, id, r.RequestedByMembershipID, r.Method, label, a.Display,
+			ev = notifications.EnrollmentApproved(tenantID, id, r.RequestedByMembershipID, r.Method, label, by,
 				now.Add(DecisionWindow))
 		}
 		if _, err := notifications.Enqueue(ctx, tx, ev); err != nil {
@@ -497,7 +569,20 @@ func (s *Service) decide(ctx context.Context, tenantID, id uuid.UUID, a Actor, a
 		out = view(row, ls)
 		return err
 	})
-	return out, err
+	return out, supportRefusal(err)
+}
+
+// ReasonSupportGrantNotLive: the Support Access Grant of a support actor ended (revoked, expired) after layer 1 let the
+// request through and before its transaction — a refusal (403), never a 500.
+const ReasonSupportGrantNotLive = "support_grant_not_live"
+
+// supportRefusal turns store.ErrSupportGrantNotLive into a refusal of the module (errors.Is still finds it).
+func supportRefusal(err error) error {
+	if _, ok := AsError(err); !ok && errors.Is(err, store.ErrSupportGrantNotLive) {
+		return &Error{Code: CodeForbidden, Reason: ReasonSupportGrantNotLive,
+			Detail: "The support access grant is no longer live.", Err: err}
+	}
+	return err
 }
 
 // Approve is POST /enrollment/requests/{id}/approve.
@@ -646,7 +731,7 @@ func (s *Service) Revoke(ctx context.Context, tenantID, id uuid.UUID, a Actor) (
 		return Request{}, &Error{Code: CodeConflict, Reason: "busy", RetryAfter: 5 * time.Second,
 			Detail: "Another enrollment operation of this tenant is in progress; try again."}
 	}
-	return out, err
+	return out, supportRefusal(err)
 }
 
 func (s *Service) revoke(ctx context.Context, tenantID, id uuid.UUID, a Actor) (Request, error) {

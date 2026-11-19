@@ -53,8 +53,8 @@ func samples() []Event {
 		SecuritySettingsChanged(tA, `"abc"`, "policy.four_eyes", "Alice", nil),
 		TenantDeletionRequested(tA, "Alice", when),
 		PlatformTenantDeletionRequested(tA, "tenant-a", "Alice", when),
-		EnrollmentApproved(tA, idX, owner, "web_auth", "laptop-1", "Alice", when),
-		EnrollmentRejected(tA, idX, owner, "preauth_key", "", ""),
+		EnrollmentApproved(tA, idX, owner, "web_auth", "laptop-1", EnrollmentDecider{Display: "Alice"}, when),
+		EnrollmentRejected(tA, idX, owner, "preauth_key", "", EnrollmentDecider{Display: "Support Staff", Support: true}),
 		RouteApproved(tA, RouteChange{DeviceID: idX, DeviceName: "router-1", Prefixes: []string{"0.0.0.0/0", "::/0"},
 			ExitNode: true, Untagged: true, Actor: "Alice", OperationID: idX}),
 		RouteRevoked(tA, RouteChange{DeviceID: idX, DeviceName: "router-1", Prefixes: []string{"10.0.0.0/24"}, OperationID: idX}),
@@ -105,8 +105,8 @@ func TestRecipientRules(t *testing.T) {
 			Audience{PlatformRoles: []string{RoleSuperAdmin, RolePlatformOperator}}},
 		{InstanceQuarantined(idX, "acme", idX, OutcomeIncomplete), Audience{PlatformRoles: []string{RoleSuperAdmin, RolePlatformOperator}}},
 		{InstanceReleased(idX, "acme", idX, OutcomeRefused), Audience{PlatformRoles: []string{RoleSuperAdmin, RolePlatformOperator}}},
-		{EnrollmentApproved(tA, idX, owner, "web_auth", "", "", when), Audience{Members: []uuid.UUID{owner}}},
-		{EnrollmentRejected(tA, idX, owner, "web_auth", "", ""), Audience{Members: []uuid.UUID{owner}}},
+		{EnrollmentApproved(tA, idX, owner, "web_auth", "", EnrollmentDecider{}, when), Audience{Members: []uuid.UUID{owner}}},
+		{EnrollmentRejected(tA, idX, owner, "web_auth", "", EnrollmentDecider{}), Audience{Members: []uuid.UUID{owner}}},
 		{RouteApproved(tA, RouteChange{DeviceID: idX, DeviceName: "r", Prefixes: []string{"10.0.0.0/24"}}),
 			Audience{Roles: []string{RoleTenantOwner, RoleTenantAdmin}}},
 		{RouteRevoked(tA, RouteChange{DeviceID: idX, DeviceName: "r", Prefixes: []string{"10.0.0.0/24"}}),
@@ -127,14 +127,49 @@ func TestRecipientRules(t *testing.T) {
 func TestEnrollmentAndRoutePayloads(t *testing.T) {
 	req, op, appr := uuid.New(), uuid.New(), uuid.New()
 	member := uuid.New()
-	if a, r := EnrollmentApproved(tA, req, member, "web_auth", "", "", when), EnrollmentRejected(tA, req, member, "web_auth", "", ""); a.Ref == r.Ref ||
+	if a, r := EnrollmentApproved(tA, req, member, "web_auth", "", EnrollmentDecider{}, when), EnrollmentRejected(tA, req, member, "web_auth", "", EnrollmentDecider{}); a.Ref == r.Ref ||
 		a.Ref != "enrollment:"+req.String()+":approved" {
 		t.Fatalf("enrollment refs %q %q", a.Ref, r.Ref)
 	}
-	ev := EnrollmentApproved(tA, req, member, "web_auth", "lap\ntop", "https://evil.example/x", when)
+	ev := EnrollmentApproved(tA, req, member, "web_auth", "lap\ntop", EnrollmentDecider{Display: "https://evil.example/x"}, when)
 	p, err := ev.validate()
-	if err != nil || p["decided_by"] != nil || p["device_label"] != nil || p["expires_at"] != when.Format(time.RFC3339) {
+	if err != nil || p["decided_by"] != nil || p["device_label"] != nil || p["expires_at"] != when.Format(time.RFC3339) ||
+		p["by_support"] != nil {
 		t.Fatalf("enrollment payload %v %v", p, err)
+	}
+	// C4 (0028): a decision of platform staff through a Support Access Grant says so — by_support, in both locales —;
+	// a member's decision never carries the flag.
+	tm, err := parseTemplates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		ev   Event
+		vi   string
+		en   string
+		flag bool
+	}{
+		{EnrollmentApproved(tA, req, member, "web_auth", "laptop", EnrollmentDecider{Display: "Staff", Support: true}, when),
+			"đã được duyệt bởi Staff — nhân viên hỗ trợ của nền tảng", "was approved by Staff — platform support staff", true},
+		{EnrollmentRejected(tA, req, member, "preauth_key", "", EnrollmentDecider{Display: "Staff", Support: true}),
+			"đã bị từ chối bởi Staff — nhân viên hỗ trợ của nền tảng", "was rejected by Staff — platform support staff", true},
+		{EnrollmentApproved(tA, req, member, "web_auth", "laptop", EnrollmentDecider{Display: "Alice"}, when),
+			"đã được duyệt bởi Alice.", "was approved by Alice.", false},
+	} {
+		p, err := c.ev.validate()
+		if err != nil || (p["by_support"] == true) != c.flag {
+			t.Fatalf("%s payload %v %v", c.ev.Kind, p, err)
+		}
+		for loc, want := range map[string]string{LocaleVI: c.vi, LocaleEN: c.en} {
+			data := map[string]any{"tenant_name": "Acme", "portal_url": "x", "console_url": "y"}
+			for k, v := range p {
+				data[k] = v
+			}
+			_, body, err := tm.render(c.ev.Kind, loc, data)
+			if err != nil || !strings.Contains(body, want) || (!c.flag && strings.Contains(body, "support")) {
+				t.Errorf("%s/%s: %q %v, want %q", c.ev.Kind, loc, body, err, want)
+			}
+		}
 	}
 	if d := RouteApproved(tA, RouteChange{DeviceID: idX, DeviceName: "r", Prefixes: []string{"10.0.0.0/24"}, OperationID: op}); d.Ref != "route-op:"+op.String() {
 		t.Fatalf("direct ref %q", d.Ref)

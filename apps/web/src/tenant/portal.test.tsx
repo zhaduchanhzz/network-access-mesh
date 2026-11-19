@@ -426,6 +426,8 @@ describe("notifications", () => {
   it("follow-up P4-T06/P4-T12: quyết định enrollment và duyệt/gỡ route có câu riêng; route dẫn tới thiết bị", async () => {
     const N3 = "0190a400-0000-7000-8000-000000000003";
     const N4 = "0190a400-0000-7000-8000-000000000004";
+    const N5 = "0190a400-0000-7000-8000-000000000005";
+    const N6 = "0190a400-0000-7000-8000-000000000006";
     mockApi(
       routes("tenant_owner", {
         [`GET ${base}/notifications`]: list([
@@ -433,6 +435,9 @@ describe("notifications", () => {
           notification(N2, { kind: "enrollment.rejected", payload: { request_id: JOB_1, method: "preauth_key" } }),
           notification(N3, { kind: "route.approved", payload: { device_id: DEV_1, device_name: "router-1", prefixes: "0.0.0.0/0, ::/0", exit_node: true } }),
           notification(N4, { kind: "route.revoked", payload: { device_id: DEV_1, device_name: "router-1", prefixes: "10.0.0.0/24", exit_node: false } }),
+          // C4 (0028): người quyết định là nhân viên hỗ trợ của nền tảng qua Support Access Grant
+          notification(N5, { kind: "enrollment.approved", payload: { request_id: JOB_1, method: "web_auth", device_label: "phone-2", decided_by: "Ops Staff", by_support: true, expires_at: "2026-11-20T08:00:00Z" } }),
+          notification(N6, { kind: "enrollment.rejected", payload: { request_id: JOB_1, method: "preauth_key", device_label: "nas-1", by_support: true } }),
         ]),
       }),
     );
@@ -442,6 +447,9 @@ describe("notifications", () => {
     expect(rows[1]).toHaveTextContent("Yêu cầu thêm thiết bị của bạn (—) đã bị từ chối.");
     expect(rows[2]).toHaveTextContent("Route 0.0.0.0/0, ::/0 đã được duyệt trên thiết bị router-1.");
     expect(rows[3]).toHaveTextContent("Route 10.0.0.0/24 đã bị gỡ duyệt trên thiết bị router-1.");
+    expect(rows[4]).toHaveTextContent("Yêu cầu thêm thiết bị của bạn (phone-2) đã được nhân viên hỗ trợ của nền tảng duyệt (Support Access Grant tenant đã cấp) — bấm Bắt đầu trước");
+    expect(rows[5]).toHaveTextContent("Yêu cầu thêm thiết bị của bạn (nas-1) đã bị nhân viên hỗ trợ của nền tảng từ chối");
+    expect(rows[0]).not.toHaveTextContent("nhân viên hỗ trợ");
     expect(within(rows[0]!).queryByRole("link", { name: "Xem thiết bị" })).toBeNull();
     expect(within(rows[2]!).getByRole("link", { name: "Xem thiết bị" })).toHaveAttribute("href", `/t/${TENANT_A}/devices/${DEV_1}`);
     expect(within(rows[3]!).getByRole("link", { name: "Xem thiết bị" })).toHaveAttribute("href", `/t/${TENANT_A}/devices/${DEV_1}`);

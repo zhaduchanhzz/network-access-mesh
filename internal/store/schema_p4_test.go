@@ -216,6 +216,8 @@ func TestP4CrossTenantWritesRejected(t *testing.T) {
 			method, target_membership_id) VALUES ($1, $2, $3, 'preauth_key', $4)`, []any{A, f.a.instance, f.a.membership, f.b.membership}, "23503", 0, false},
 		{"request of A decided by B's membership", api, A, `UPDATE enrollment_requests SET approver_membership_id = $1 WHERE id = $2`,
 			[]any{f.b.membership, f.a.enrollment}, "23503", 0, false},
+		{"request of A decided through B's support grant (0028)", api, A, `UPDATE enrollment_requests SET approver_support_grant_id = $1
+			WHERE id = $2`, []any{f.b.grant, f.a.enrollment}, "23503", 0, false},
 		{"device of A linked to B's request", worker, A, `UPDATE device_inventory_cache SET enrollment_request_id = $1 WHERE id = $2`,
 			[]any{f.b.enrollment, f.a.device}, "23503", 0, false},
 		{"A's group gets B's membership", api, A, insMember, []any{A, f.a.group, f.b.membership}, "23503", 0, false},
@@ -251,6 +253,8 @@ func TestP4CrossTenantWritesRejected(t *testing.T) {
 		{"DNS record of A", api, A, insRecord, []any{A, n()}, "", 1, true},
 		{"support grant of A requested by the platform", api, platform, insGrant, []any{A, f.platformUserRow, f.supportRole}, "", 1, true},
 		{"A's grant approved by A's owner", api, A, approveTenant, []any{p.owner, f.a.grant}, "", 1, true},
+		{"request of A decided through A's support grant (0028)", api, A, `UPDATE enrollment_requests SET approver_support_grant_id = $1
+			WHERE id = $2`, []any{f.a.grant, f.a.enrollment}, "", 1, true},
 	}
 	for _, c := range cases {
 		n, err := execIn(ctx, c.s, c.scope, c.sql, c.args...)
@@ -282,7 +286,7 @@ func TestP4GrantMatrix(t *testing.T) {
 	grantDecide := "decided_at,expires_at,revoked_at,starts_at,status,updated_at,version,approval_kind"
 	want := map[string]map[string]grantSpec{
 		"enrollment_requests": with(map[string]grantSpec{
-			"mg_api_tenant": {[]string{"SELECT", "INSERT"}, cols("approved_at,approver_membership_id,auth_id_hash,claimed_at,claimed_from_ip," +
+			"mg_api_tenant": {[]string{"SELECT", "INSERT"}, cols("approved_at,approver_membership_id,approver_support_grant_id,auth_id_hash,claimed_at,claimed_from_ip," +
 				"consumed_node_id,credential_expires_at,enroll_code_hash,failure_code,headscale_preauthkey_id,issued_at,registered_machine_key," +
 				"reported_hostname,session_id_hash,status,updated_at,version")},
 			"mg_worker_tenant": {[]string{"SELECT", "DELETE"}, cols("consumed_node_id,failure_code,registered_machine_key,reported_hostname,status,updated_at,version")},
@@ -541,6 +545,26 @@ func TestP4CheckConstraints(t *testing.T) {
 		{"request: requested lifetime 0", er.with("requested_ttl_minutes", "0").insert("enrollment_requests"), "23514"},
 		{"request: requested lifetime 16 minutes", er.with("requested_ttl_minutes", "16").insert("enrollment_requests"), "23514"},
 		{"request: requested lifetime on web-auth", web.with("requested_ttl_minutes", "5").insert("enrollment_requests"), "23514"},
+		// the decider of 0028: a member or platform staff through a Support Access Grant into the same tenant — exactly one
+		// once decided, none before
+		{"request: valid approved through a support grant", er.with("status", "'approved'", "approver_support_grant_id", lit(a.grant),
+			"approved_at", "now()").insert("enrollment_requests"), ""},
+		{"request: valid rejected through a support grant", er.with("status", "'rejected'", "approver_support_grant_id", lit(a.grant)).insert("enrollment_requests"), ""},
+		{"request: valid issued after a support approval", issued.with("approver_support_grant_id", lit(a.grant), "approved_at", "now()").insert("enrollment_requests"), ""},
+		{"request: approved by a member and a support grant", decided.with("approver_support_grant_id", lit(a.grant)).insert("enrollment_requests"), "23514"},
+		{"request: rejected by a member and a support grant", er.with("status", "'rejected'", "approver_membership_id", lit(p.a2),
+			"approver_support_grant_id", lit(a.grant)).insert("enrollment_requests"), "23514"},
+		{"request: two deciders on an ended request", er.with("status", "'expired'", "approver_membership_id", lit(p.a2),
+			"approver_support_grant_id", lit(a.grant)).insert("enrollment_requests"), "23514"},
+		{"request: approved without any decider", er.with("status", "'approved'", "approved_at", "now()").insert("enrollment_requests"), "23514"},
+		{"request: rejected through a grant with approved_at", er.with("status", "'rejected'", "approver_support_grant_id", lit(a.grant),
+			"approved_at", "now()").insert("enrollment_requests"), "23514"},
+		{"request: pending approval already decided by a grant", er.with("status", "'pending_approval'", "approver_support_grant_id",
+			lit(a.grant)).insert("enrollment_requests"), "23514"},
+		{"request: requested already decided by a grant", er.with("approver_support_grant_id", lit(a.grant)).insert("enrollment_requests"), "23514"},
+		{"request: decided through B's support grant", er.with("status", "'approved'", "approver_support_grant_id", lit(f.b.grant),
+			"approved_at", "now()").insert("enrollment_requests"), "23503"},
+		{"request: decided through an unknown grant", er.with("status", "'rejected'", "approver_support_grant_id", "gen_random_uuid()").insert("enrollment_requests"), "23503"},
 		{"request: web-auth issued without session", webIssued.with("session_id_hash", "-").insert("enrollment_requests"), "23514"},
 		{"request: claimed without Auth ID", claimed.with("auth_id_hash", "-").insert("enrollment_requests"), "23514"},
 		{"request: claimed without claimed_at", claimed.with("claimed_at", "-").insert("enrollment_requests"), "23514"},

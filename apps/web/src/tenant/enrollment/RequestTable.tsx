@@ -1,7 +1,8 @@
 // Bảng yêu cầu enrollment + thao tác (P4-T08): duyệt / từ chối (người quyết khác người yêu cầu — nút ẩn cho chính người
-// yêu cầu, server vẫn trả 403 self_approval), `/start` cho chính người yêu cầu sau khi được duyệt (phát mã/lệnh hoặc key
-// một lần), thu hồi hai pha — cả key reusable đã dùng còn hạn (POST /revoke expire key ở Headscale + đọc lại rồi mới trả
-// `revoked`: trong lúc chờ hiện "đang thu hồi"; 502/503 ⇒ yêu cầu giữ nguyên, nói rõ chưa thu hồi). Nút chỉ là UX — server
+// yêu cầu, server vẫn trả 403 self_approval; nhân viên nền tảng có Support Access Grant thấy nút theo quyền của role hiệu
+// lực — §8.6 ô G — và quyết định của họ hiện "bởi nhân viên hỗ trợ", 0028), `/start` cho chính người yêu cầu sau khi
+// được duyệt (phát mã/lệnh hoặc key một lần), thu hồi hai pha — cả key reusable đã dùng còn hạn (POST /revoke expire
+// key ở Headscale + đọc lại rồi mới trả `revoked`: trong lúc chờ hiện "đang thu hồi"; 502/503 ⇒ yêu cầu giữ nguyên, nói rõ chưa thu hồi). Nút chỉ là UX — server
 // quyết định quyền, own-scope của End User, trạng thái tenant (suspended ⇒ 403 tenant_suspended). Tên truy cập của mọi nút
 // bắt đầu bằng chữ hiển thị (WCAG 2.5.3).
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -150,6 +151,12 @@ export function RequestTable(props: RequestTableProps) {
                     <td>
                       <StatusBadge status={r.status}>{t(`status.enrollment.${r.status}`)}</StatusBadge>
                       {r.failure_code ? <div className="text-xs text-muted">{codeText("enroll.failure", r.failure_code)}</div> : null}
+                      {r.approver_support_grant_id ? (
+                        // người quyết định là nhân viên nền tảng qua Support Access Grant (0028) — tenant thấy rõ (§8.7 bước 3)
+                        <div className="text-xs text-muted" data-testid="decided-by-support">
+                          {r.status === "rejected" ? t("enroll.decider.supportRejected") : t("enroll.decider.supportApproved")}
+                        </div>
+                      ) : null}
                       {decide.isPending && decide.variables.id === r.id && decide.variables.kind === "revoke" ? (
                         <div className="text-xs text-warn" data-testid="revoke-pending">
                           {t("enroll.actions.revoking")}

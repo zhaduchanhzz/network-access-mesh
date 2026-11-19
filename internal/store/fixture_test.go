@@ -88,11 +88,12 @@ var fixtureSteps = map[int64]func(f *fixture, t *testing.T, c *pgx.Conn){
 	25: (*fixture).step25,
 	26: (*fixture).step26,
 	27: (*fixture).step27,
+	28: (*fixture).step28,
 }
 
 // latestMigration is the number of the last migration of database/migrations (TestMigrationsUpWithData,
 // TestMigrationsShareClusterRoles).
-const latestMigration = 27
+const latestMigration = 28
 
 // migrationVersions are the versions that have a migration, ascending. Tasks written in parallel use provisional
 // numbers; the coordinator renumbers at merge so that the numbers stay contiguous (goose refuses a migration numbered
@@ -507,4 +508,15 @@ func (f *fixture) step27(t *testing.T, c *pgx.Conn) {
 	exec(t, c, `INSERT INTO enrollment_requests (tenant_id, instance_id, requested_by_membership_id, method, target_membership_id,
 			device_label, status, requested_ttl_minutes)
 		VALUES ($1, $2, $3, 'preauth_key', $3, 'nas', 'pending_approval', 5)`, f.b.id, f.b.instance, f.b.membership)
+}
+
+// step28 (0028, P4-T06/C4): enrollment_requests.approver_support_grant_id — every request of the earlier steps keeps NULL
+// (their decider, if any, is a member); each tenant gets a request rejected by platform staff through the tenant's own
+// support grant of step23 (the composite FK only needs the grant to exist in that tenant).
+func (f *fixture) step28(t *testing.T, c *pgx.Conn) {
+	for _, tr := range f.tenants() {
+		exec(t, c, `INSERT INTO enrollment_requests (tenant_id, instance_id, requested_by_membership_id, method, target_membership_id,
+				device_label, status, approver_support_grant_id)
+			VALUES ($1, $2, $3, 'web_auth', $3, 'tablet', 'rejected', $4)`, tr.id, tr.instance, tr.membership, tr.grant)
+	}
 }

@@ -256,6 +256,10 @@ type Actor struct {
 	SelfEnrollOnly bool
 	// CanApprove: the caller holds tenant.enrollment:approve (its request skips the approval — §7.4).
 	CanApprove bool
+	// SupportGrantID: platform staff acting through this live Support Access Grant (§8.7; MembershipID is then
+	// uuid.Nil) — the decider /approve and /reject record (approver_support_grant_id, 0028). The request context carries
+	// the same grant (store.WithSupportActor), which every tenant transaction re-checks.
+	SupportGrantID uuid.UUID
 }
 
 // Idempotency is the Idempotency-Key of a create and the hash of its request (jobs.RequestHash).
@@ -276,6 +280,7 @@ type Request struct {
 	RequestedBy         uuid.UUID  `json:"requested_by_membership_id"`
 	Target              *uuid.UUID `json:"target_membership_id,omitempty"`
 	Approver            *uuid.UUID `json:"approver_membership_id,omitempty"`
+	ApproverGrant       *uuid.UUID `json:"approver_support_grant_id,omitempty"` // decided by platform staff (0028)
 	ApprovedAt          *time.Time `json:"approved_at,omitempty"`
 	IssuedAt            *time.Time `json:"issued_at,omitempty"`
 	CredentialExpiresAt *time.Time `json:"credential_expires_at,omitempty"`
@@ -295,7 +300,7 @@ func view(r sqlcdb.EnrollmentRequest, loginServer string) Request {
 	}
 	return Request{ID: r.ID, Method: r.Method, Status: APIStatus(r.Status), DeviceLabel: r.DeviceLabel, Tags: tags,
 		Ephemeral: r.Ephemeral, Reusable: r.Reusable, RequestedBy: r.RequestedByMembershipID, Target: r.TargetMembershipID,
-		Approver: r.ApproverMembershipID, ApprovedAt: r.ApprovedAt, IssuedAt: r.IssuedAt,
+		Approver: r.ApproverMembershipID, ApproverGrant: r.ApproverSupportGrantID, ApprovedAt: r.ApprovedAt, IssuedAt: r.IssuedAt,
 		CredentialExpiresAt: r.CredentialExpiresAt, ClaimedAt: r.ClaimedAt, NodeID: r.ConsumedNodeID,
 		FailureCode: r.FailureCode, LoginServer: loginServer, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
 		Version: r.Version}
