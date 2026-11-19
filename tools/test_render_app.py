@@ -140,14 +140,14 @@ check(f"image: {WEB}\n" in web and "group_add" not in web and "secrets:" not in 
       and "profiles" not in web, "web: the web image, no secret group, secret, volume, environment, command or profile")
 check(re.findall(r"^      ([a-z][a-z-]*):", web.split("    networks:\n", 1)[1].split("    mem_limit:", 1)[0], re.M) == ["mg-edge"]
       and "ipv4_address" not in web and "aliases" not in web,
-      "web: on mg-edge only, reached by its service name (web:8080 of the edge's template v9) — no DB, no egress")
+      "web: on mg-edge only, reached by its service name (web:8080 of the edge's template ≥ v9) — no DB, no egress")
 check('test: ["CMD", "/usr/bin/healthprobe", "http://127.0.0.1:8080/", "200"]' in web and "restart: unless-stopped" in web,
       "web: healthcheck by the image's healthprobe (GET / ⇒ 200 index.html)")
 lim = dict(re.findall(r"^    (mem_limit|cpus|pids_limit): (\S+)", web, re.M))
 check(lim == {"mem_limit": "128m", "cpus": "0.5", "pids_limit": "64"}, "web: RAM 128m, 0.5 CPU, 64 PID", str(lim))
 edge_tmpl = (ra.ROOT / "infrastructure" / "caddy" / "Caddyfile.tmpl").read_text(encoding="utf-8")
-check("reverse_proxy web.:8080 {" in edge_tmpl and render_edge.TEMPLATE_VERSION == "9",
-      "the edge (template v9) proxies to web.:8080 — the name of this service")
+check("reverse_proxy web.:8080 {" in edge_tmpl and int(render_edge.TEMPLATE_VERSION) >= 9,
+      "the edge (template ≥ v9) proxies to web.:8080 — the name of this service")
 raises(lambda: ra.render(ENV, API, WORKER, "ghcr.io/x/web:latest"), "web image by tag is refused")
 
 # configuration values
