@@ -25,6 +25,7 @@ import {
   REQ_2,
   REQ_3,
   request,
+  T0,
   webIssue,
 } from "../../test/enrollment";
 import { extractAuthId, guessOS, problemReason } from "./model";
@@ -224,6 +225,15 @@ describe("Thêm thiết bị — wizard theo OS", () => {
     expect(document.body.innerHTML).not.toContain(PREAUTH_KEY);
     await userEvent.click(await within(screen.getByTestId("my-requests")).findByRole("button", { name: "Nhận lệnh hoặc key cho nas" }));
     expect(await screen.findByTestId("start-error")).toHaveTextContent("đã được phát");
+  });
+
+  it("yêu cầu failed vì auth_id_not_pending ⇒ hướng dẫn tạo yêu cầu mới (không bảo chạy lại lệnh cũ)", async () => {
+    const failed = request(REQ_1, { status: "failed", failure_code: "auth_id_not_pending", claimed_at: T0 });
+    mockApi(apiFor("end_user", { [`GET ${base}/enrollment/requests`]: json(200, { items: [failed], next_cursor: null }) }));
+    renderApp({ path: `/t/${TENANT_A}/enroll` });
+    const row = within(await screen.findByTestId("my-requests")).getByTestId("enroll-row");
+    expect(row).toHaveTextContent("tạo yêu cầu mới");
+    expect(row).not.toHaveTextContent("chạy lại lệnh");
   });
 
   it.each([

@@ -1,6 +1,6 @@
 // a11y + i18n của màn hình enrollment (P4-T08): axe-core (WCAG 2.0/2.1 A + AA + best-practice; color-contrast kiểm trong
 // trình duyệt thật ở P4-T14) trên Thêm thiết bị (wizard, hướng dẫn Windows, lệnh web-auth vừa phát, ô dán link), hộp key
-// một lần, trang claim (xác nhận + cảnh báo phishing), Enrollment key (hàng chờ duyệt + hộp tạo key đặc quyền) — vi và en,
+// một lần, trang claim (xác nhận + cảnh báo phishing + yêu cầu đã kết thúc), Enrollment key (hàng chờ duyệt + hộp tạo key đặc quyền) — vi và en,
 // sáng và tối; khóa i18n động có trong cả hai catalog.
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 import { i18n } from "../../i18n";
 import en from "../../i18n/locales/en.json";
 import vi from "../../i18n/locales/vi.json";
-import { json, mockApi, renderApp, TENANT_A, tenantBody, tenantSession } from "../../test/helpers";
+import { json, mockApi, problem, renderApp, TENANT_A, tenantBody, tenantSession } from "../../test/helpers";
 import { tag } from "../../test/network";
 import { setSystemDark } from "../../test/setup";
 import { AUTH_ID, conflict, instructions, keyIssue, OTHER, REQ_1, REQ_3, request, webIssue } from "../../test/enrollment";
@@ -112,6 +112,18 @@ describe.each([
     await screen.findByTestId("claim-phishing");
     expect(await violations()).toEqual([]);
   });
+
+  it("trang claim: yêu cầu đã kết thúc (503 sau bước claim)", async () => {
+    await i18n.changeLanguage(lng);
+    setSystemDark(dark);
+    mockApi({ ...apiFor("end_user"), [`POST ${base}/enrollment/web-auth/claim`]: problem(503, "instance_unavailable") });
+    renderApp({ path: `/enroll/claim?tenant=tenant-a&auth_id=${AUTH_ID}` });
+    const panel = await screen.findByTestId("claim-confirm");
+    await userEvent.click(within(panel).getByRole("checkbox"));
+    await userEvent.click(within(panel).getByRole("button", { name: t("enroll.claim.confirm") }));
+    expect(await screen.findByTestId("claim-ended")).toHaveTextContent(t("enroll.claim.endedNext"));
+    expect(await violations()).toEqual([]);
+  });
 });
 
 describe("khóa i18n động của enrollment", () => {
@@ -128,6 +140,7 @@ describe("khóa i18n động của enrollment", () => {
       ...["none", "several", "other_server"].map((c) => `enroll.paste.errors.${c}`),
       ...["self", "member", "tags"].map((o) => `enroll.key.owners.${o}`),
       ...["expired", "revoked"].map((s) => `enroll.issued.ended.${s}`),
+      ...["endedNotPending", "endedUpstream"].map((k) => `enroll.claim.${k}`),
     ];
     const missing = keys.filter((k) => typeof get(vi as Tree, k) !== "string" || typeof get(en as Tree, k) !== "string");
     expect(missing).toEqual([]);
