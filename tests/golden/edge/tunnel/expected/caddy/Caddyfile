@@ -1,4 +1,4 @@
-# Sinh bởi tools/render_edge.py từ infrastructure/caddy/Caddyfile.tmpl (template_version 10).
+# Sinh bởi tools/render_edge.py từ infrastructure/caddy/Caddyfile.tmpl (template_version 11).
 # KHÔNG sửa tay — render lại. Edge của MeshGuard (§14.6): mesh domain mesh.example.com, CA staging.
 # - Site public chỉ bind IP tĩnh của edge trên mg-edge (10.249.0.2); cổng publish của host DNAT tới IP này (V-30).
 # - Listener nội bộ: admin trên mg-admin (10.249.2.2:8081), metrics trên mg-obs (10.249.3.2:9091).
@@ -6,9 +6,12 @@
 # - Site của nền tảng (P2-T16, §8.3, §15.4): app.example.com (LAN-direct + tunnel-facing) → /api/* tới api, phần còn
 #   lại tới SPA tĩnh web (từ template v9 — P4-T01a), auth.example.com (LAN-direct + tunnel-facing) → idp,
 #   admin.example.com (cũng api + web) CHỈ LAN-direct (không bao giờ trên listener tunnel-facing) và chỉ từ
-#   192.0.2.0/24. Admin REST API và realm master của Keycloak chỉ từ worker (10.249.0.4) trên
-#   listener LAN-direct. idp chỉ ở network mg-idp cùng edge (10.249.7.2): ngoài edge, không container nào tới thẳng
-#   được idp:8080 (G2 vòng 2, A-8) — mọi lối vào Keycloak đi qua các route dưới đây.
+#   192.0.2.0/24.
+#   Admin REST API và realm master của Keycloak chỉ từ worker (10.249.0.4) trên listener LAN-direct. idp chỉ
+#   ở network mg-idp cùng edge (10.249.7.2): ngoài edge, không container nào tới thẳng được idp:8080 (G2 vòng 2,
+#   A-8) — mọi lối vào Keycloak đi qua các route dưới đây.
+# - admin. (template v11): tham số admin_public của tools/render_edge.py — false: chỉ LAN-direct từ admin_allow; true
+#   (quyết định của chủ dự án 2026-11-20): ra Internet như app., console Keycloak giữ nguyên cổng forward_auth 2P.
 # - Console quản trị Keycloak (§8.2 (3), P3-T15 — từ template v8): CHỈ trên admin.example.com, sau forward_auth tới
 #   api (GET /internal/edge/idp-console) — phiên Platform Console + phiên console đã duyệt 2P còn hạn + CIDR nguồn đã
 #   duyệt; impersonation bị chặn ở cả admin. và auth.
@@ -283,7 +286,7 @@ app.example.com, app.example.com:8443 {
 
 # Platform Console (§8.3, §15.1): admin.example.com — CHỈ listener LAN-direct (site này không có địa chỉ
 # tunnel-facing nên không tồn tại trên server của listener đó) và chỉ từ 192.0.2.0/24; nguồn khác ⇒ đóng kết nối.
-# DNS công khai không có bản ghi admin (§15.4).
+# DNS công khai không có bản ghi admin (§15.4 — admin_public: false).
 # Console quản trị Keycloak (§8.2 (3), P3-T15): /admin/*, realm master (/realms/master/*) và /resources/* của idp:8080
 # chỉ phục vụ ở đây, mỗi request qua forward_auth tới api (GET /internal/edge/idp-console — ngoài /api/v1, không site
 # public nào định tuyến tới): api trả 204 khi người gọi có phiên Platform Console của origin admin, còn giữ

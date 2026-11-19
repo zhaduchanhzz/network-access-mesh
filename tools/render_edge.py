@@ -12,15 +12,23 @@ Params (no secret — secrets are referenced by {file.*} placeholders and compos
   image          edge image pinned by digest (versions.lock)
   dns_resolvers  public resolvers for the DNS-01 propagation check (split-horizon safe — P1-T06)
   admin_allow    CIDRs allowed to reach admin.<base_domain> (Platform Console — §15.4 "giới hạn IP"): private ranges
-                 of the management network (staging: MG_LAN_CIDR), never the tenant pool; any other source is aborted
+                 of the management network (staging: MG_LAN_CIDR), never the tenant pool; any other source is aborted.
+                 Required while admin_public is false; with admin_public true it is not rendered (validated if present,
+                 so turning admin_public off again needs no other edit)
+  admin_public   optional bool, default false (template v11 — owner's decision 2026-11-20, §15.4): true puts
+                 admin.<base_domain> on the Internet — served on the tunnel-facing listener too (real source from the
+                 VPS's PROXY v2 header, like app./auth.) and no longer limited to admin_allow on either listener. The
+                 Keycloak administration console keeps its forward_auth gate unchanged (Platform Console session +
+                 platform.idp:console + console session approved 2P, from the approved source CIDR) and impersonation
+                 stays refused at both layers; the tenant pool is still aborted
   tunnel         optional {"edge_tunnel_ipv4", "peer_ipv4", "http_port", "https_port"}: tunnel-facing listeners for
                  the VPS gateway (§14.6, §14.9). The edge publishes the two ports on the host's tunnel IP only and
                  REQUIRES a PROXY v2 header from the tunnel peer; a header from any other source is rejected and a
                  headerless connection from any other source is closed by the @direct_tunnel guard (GW-02, V-17).
-                 app.<base_domain> and auth.<base_domain> are served there too (public through the VPS);
-                 admin.<base_domain>, the Admin REST API and the master realm of the IdP never are (P2-T16) — nor,
-                 therefore, the Keycloak administration console, served only on admin.<base_domain> behind the
-                 forward_auth of the api (template v8, P3-T15).
+                 app.<base_domain> and auth.<base_domain> are served there too (public through the VPS); the Admin
+                 REST API and the master realm of the IdP on auth. never are (P2-T16); admin.<base_domain> — and with
+                 it the Keycloak administration console, served only on admin.<base_domain> behind the forward_auth of
+                 the api (template v8, P3-T15) — only when admin_public is true (template v11).
 
 From template v9 (P4-T01a) app.<base_domain> and admin.<base_domain> send every path outside /api/* (and, on admin.,
 outside the Keycloak console) to the static SPA container web:8080 on mg-edge (service `web` of compose project mg-app,
@@ -30,6 +38,9 @@ From template v10 (P4-T07) GET /register/<auth_id> on a tenant hostname (auth_id
 without the query via=portal is answered with a 302 to the Portal's claim page
 https://app.<base_domain>/enroll/claim?tenant=<slug>&auth_id=<auth_id> (§7.4 flow A, §14.6); with via=portal it is
 proxied to Headscale as before (native OIDC mode); any other /register/* path except /register/confirm/* is a 404.
+
+From template v11 the parameter admin_public chooses between admin.<base_domain> on the LAN-direct listener from
+admin_allow only (false — every rendering before v11) and admin.<base_domain> on the Internet (true — see above).
 
 Writes <out_dir>/caddy/Caddyfile and <out_dir>/compose.edge.yaml. Output is deterministic — guarded by
 tools/test_render_edge.py (golden files). Standard library only.
@@ -47,7 +58,9 @@ import sys
 import mgenv  # noqa: E402 — tools/mgenv.py: env file of the environment (no secrets)
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-TEMPLATE_VERSION = "10"  # 9: SPA web sau app./admin. (P4-T01a); 10: /register/<auth_id> ⇒ claim của Portal (P4-T07)
+# 9: SPA web sau app./admin. (P4-T01a); 10: /register/<auth_id> ⇒ claim của Portal (P4-T07); 11: admin_public (admin.
+# ra Internet — quyết định của chủ dự án 2026-11-20)
+TEMPLATE_VERSION = "11"
 CADDYFILE_TMPL = ROOT / "infrastructure" / "caddy" / "Caddyfile.tmpl"
 COMPOSE_TMPL = ROOT / "infrastructure" / "compose" / "compose.edge.yaml.tmpl"
 
@@ -69,7 +82,7 @@ INTERNAL = {"admin_subnet": "10.249.2.0/24", "admin_port": "8081", "obs_subnet":
 APP_IPS = {"worker_edge_ip": "10.249.0.4"}
 # Tenant network pool (versions.lock [ids] tenant_net_pool, §14.3): a source in it is aborted on the platform sites.
 TENANT_POOL = "10.250.0.0/16"
-REQUIRED = ["lan_ipv4", "public_entry_ipv4", "acme", "image", "dns_resolvers", "admin_allow"]
+REQUIRED = ["lan_ipv4", "public_entry_ipv4", "acme", "image", "dns_resolvers"]   # + admin_allow unless admin_public
 
 
 class ParamError(ValueError):
@@ -85,6 +98,7 @@ def deny_all_but(peer: str) -> list[str]:
 
 def tunnel_values(p: dict, edge_ip: str, mesh_domain: str, base_domain: str) -> dict[str, str]:
     t = p.get("tunnel")
+    admin_public = p["admin_public"]
     if not t:
         return {"tunnel_servers": "", "tunnel_tls_site": "", "tunnel_http_site": "", "tunnel_ports": "",
                 "tunnel_guard": "", "tunnel_guard_matcher": "", "tunnel_guard_abort": "", "tunnel_app_site": "",
@@ -130,12 +144,15 @@ def tunnel_values(p: dict, edge_ip: str, mesh_domain: str, base_domain: str) -> 
         "\troute {\n\t\tabort @direct_tunnel\n\t\tabort @from_tenant_pool\n\t\trespond @unsafe_path 404\n"
         "\t\treverse_proxy @idp_public idp.:8080 {\n\t\t\timport upstream_headers\n\t\t}\n"
         "\t\trespond 404\n\t}\n}\n"
-        # A host with no site on the TLS tunnel-facing server (admin.<domain>, or any name the edge holds a certificate
-        # for) would get Caddy's default empty 200 — answered, through the VPS or straight to the port. Catch-all site of
-        # lowest precedence ⇒ close the connection instead (G2: run_staging.sh tunnel-reject with SNI admin., 2026-11-17).
-        # The plain-HTTP tunnel-facing listener needs none: its site `http://…, http://:<port>` already matches any host.
-        "\n# Listener tunnel-facing: host không có site trên server này (admin." + base_domain + " và mọi tên khác edge có chứng\n"
-        "# chỉ) ⇒ đóng kết nối, thay cho phản hồi 200 rỗng mặc định của Caddy khi không site nào khớp.\n"
+        # A host with no site on the TLS tunnel-facing server (admin.<domain> unless admin_public, or any name the edge
+        # holds a certificate for) would get Caddy's default empty 200 — answered, through the VPS or straight to the
+        # port. Catch-all site of lowest precedence ⇒ close the connection instead (G2: run_staging.sh tunnel-reject with
+        # SNI admin., 2026-11-17). The plain-HTTP tunnel-facing listener needs none: its site `http://…, http://:<port>`
+        # already matches any host.
+        "\n# Listener tunnel-facing: host không có site trên server này ("
+        + ("mọi tên edge có chứng chỉ mà không có site\n# ở đây" if admin_public
+           else "admin." + base_domain + " và mọi tên khác edge có chứng\n# chỉ") +
+        ") ⇒ đóng kết nối, thay cho phản hồi 200 rỗng mặc định của Caddy khi không site nào khớp.\n"
         f"https://:{https_port} {{\n\tabort\n}}\n")
     return {
         "tunnel_servers": server(https_port, True) + server(http_port, False),
@@ -147,6 +164,7 @@ def tunnel_values(p: dict, edge_ip: str, mesh_domain: str, base_domain: str) -> 
         "tunnel_guard_matcher": matcher,
         "tunnel_guard_abort": "\t\tabort @direct_tunnel\n",
         "tunnel_app_site": f", app.{base_domain}:{https_port}",
+        "tunnel_https_port": str(https_port),
         "tunnel_auth_site": auth_site,
         "tunnel_summary": f"{edge_ip}:{https_port} (TLS) và :{http_port}, publish trên IP tunnel {tun}; "
                           f"bắt buộc PROXY v2 từ {peer}, header từ nguồn khác bị từ chối, kết nối không header "
@@ -177,6 +195,13 @@ def validate(p: dict) -> dict:
     for r in p["dns_resolvers"]:
         if not ipaddress.ip_address(r).is_global:
             raise ParamError("dns_resolvers must be public resolvers (split-horizon must not break DNS-01)")
+    p.setdefault("admin_public", False)
+    if not isinstance(p["admin_public"], bool):
+        raise ParamError("admin_public must be true or false (JSON boolean)")
+    if "admin_allow" not in p:
+        if not p["admin_public"]:
+            raise ParamError("missing parameters: admin_allow (required unless admin_public is true)")
+        return p
     allow = p["admin_allow"]
     if isinstance(allow, str) or not allow:
         raise ParamError("admin_allow must be a non-empty list of CIDRs (management networks)")
@@ -186,6 +211,40 @@ def validate(p: dict) -> dict:
         if not n.is_private or n.prefixlen < 8 or n.overlaps(tenant_pool):
             raise ParamError("admin_allow: private management networks only (at least /8), never the tenant pool")
     return p
+
+
+def admin_values(p: dict, tunnel: dict[str, str]) -> dict[str, str]:
+    """The admin.<base_domain> site (template v11): LAN-direct from admin_allow only, or — admin_public — on the
+    Internet: LAN-direct and tunnel-facing, any source. The Keycloak console route is the same in both modes."""
+    d = p["base_domain"]
+    if not p["admin_public"]:
+        allow = " ".join(str(ipaddress.ip_network(c)) for c in p["admin_allow"])
+        return {
+            "admin_allow": allow,
+            "admin_summary": f"CHỈ LAN-direct (không bao giờ trên listener tunnel-facing) và chỉ từ\n#   {allow}",
+            "admin_scope": ("CHỈ listener LAN-direct (site này không có địa chỉ\n# tunnel-facing nên không tồn tại trên "
+                            f"server của listener đó) và chỉ từ {allow}; nguồn khác ⇒ đóng kết nối.\n"
+                            "# DNS công khai không có bản ghi admin (§15.4 — admin_public: false)."),
+            "admin_tunnel_site": "",
+            "admin_guard_matcher": f"\t@outside_admin not remote_ip {allow}\n",
+            "admin_tunnel_abort": "",
+            "admin_guard_abort": "\t\tabort @outside_admin\n",
+        }
+    port = tunnel.get("tunnel_https_port")
+    where = "LAN-direct + tunnel-facing" if port else "LAN-direct (không có listener tunnel-facing)"
+    return {
+        "admin_allow": "(không áp dụng — admin_public)",
+        "admin_summary": f"{where}, MỌI nguồn (admin_public — template v11,\n#   quyết định của chủ dự án 2026-11-20)",
+        "admin_scope": (f"ra Internet (admin_public — template v11, quyết định\n# của chủ dự án 2026-11-20): {where}"
+                        + (" (nguồn thật từ PROXY v2 của VPS, guard @direct_tunnel\n# như app.)" if port else "")
+                        + ", không giới hạn IP nguồn; DNS công khai có A admin. → VPS (§15.4). Vẫn chặn pool\n"
+                        "# tenant, path có \"\\\" và dot segment; header bảo mật, access log (CrowdSec) như app. Console "
+                        "Keycloak KHÔNG\n# nới: cùng forward_auth 2P bên dưới."),
+        "admin_tunnel_site": f", admin.{d}:{port}" if port else "",
+        "admin_guard_matcher": tunnel["tunnel_guard_matcher"] if port else "",
+        "admin_tunnel_abort": tunnel["tunnel_guard_abort"] if port else "",
+        "admin_guard_abort": "",
+    }
 
 
 def render(params: dict) -> dict[str, str]:
@@ -203,13 +262,13 @@ def render(params: dict) -> dict[str, str]:
         "public_entry_ipv4": p["public_entry_ipv4"],
         "image": p["image"],
         "base_domain": p["base_domain"],
-        "admin_allow": " ".join(str(ipaddress.ip_network(c)) for c in p["admin_allow"]),
         "tenant_pool": TENANT_POOL,
         **EDGE_IPS,
         **INTERNAL,
         **APP_IPS,
     }
     v.update(tunnel_values(p, EDGE_IPS["edge_ip"], mesh_domain, p["base_domain"]))
+    v.update(admin_values(p, v))
     return {
         "caddy/Caddyfile": string.Template(CADDYFILE_TMPL.read_text(encoding="utf-8")).substitute(v),
         "compose.edge.yaml": string.Template(COMPOSE_TMPL.read_text(encoding="utf-8")).substitute(v),

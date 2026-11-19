@@ -1,0 +1,475 @@
+# Sinh bởi tools/render_edge.py từ infrastructure/caddy/Caddyfile.tmpl (template_version 11).
+# KHÔNG sửa tay — render lại. Edge của MeshGuard (§14.6): mesh domain mesh.example.com, CA staging.
+# - Site public chỉ bind IP tĩnh của edge trên mg-edge (10.249.0.2); cổng publish của host DNAT tới IP này (V-30).
+# - Listener nội bộ: admin trên mg-admin (10.249.2.2:8081), metrics trên mg-obs (10.249.3.2:9091).
+# - Listener tunnel-facing (VPS gateway — §14.6, GW-02): 10.249.0.2:8443 (TLS) và :8080, publish trên IP tunnel 10.248.0.2; bắt buộc PROXY v2 từ 10.248.0.1, header từ nguồn khác bị từ chối, kết nối không header từ nguồn khác bị đóng ở tầng HTTP (@direct_tunnel)
+# - Site của nền tảng (P2-T16, §8.3, §15.4): app.example.com (LAN-direct + tunnel-facing) → /api/* tới api, phần còn
+#   lại tới SPA tĩnh web (từ template v9 — P4-T01a), auth.example.com (LAN-direct + tunnel-facing) → idp,
+#   admin.example.com (cũng api + web) LAN-direct + tunnel-facing, MỌI nguồn (admin_public — template v11,
+#   quyết định của chủ dự án 2026-11-20).
+#   Admin REST API và realm master của Keycloak chỉ từ worker (10.249.0.4) trên listener LAN-direct. idp chỉ
+#   ở network mg-idp cùng edge (10.249.7.2): ngoài edge, không container nào tới thẳng được idp:8080 (G2 vòng 2,
+#   A-8) — mọi lối vào Keycloak đi qua các route dưới đây.
+# - admin. (template v11): tham số admin_public của tools/render_edge.py — false: chỉ LAN-direct từ admin_allow; true
+#   (quyết định của chủ dự án 2026-11-20): ra Internet như app., console Keycloak giữ nguyên cổng forward_auth 2P.
+# - Console quản trị Keycloak (§8.2 (3), P3-T15 — từ template v8): CHỈ trên admin.example.com, sau forward_auth tới
+#   api (GET /internal/edge/idp-console) — phiên Platform Console + phiên console đã duyệt 2P còn hạn + CIDR nguồn đã
+#   duyệt; impersonation bị chặn ở cả admin. và auth.
+# - Web-auth (§7.4 luồng A, P4-T07 — từ template v10): GET /register/<auth_id> trên hostname tenant không có via=portal
+#   ⇒ 302 tới https://app.example.com/enroll/claim?tenant=<slug>&auth_id=<auth_id> (trang claim của Portal).
+# - Không có giá trị secret nào trong file: token DNS, khóa bouncer, token admin/metrics chỉ được tham chiếu bằng
+#   placeholder {file.*}, Caddy đọc file lúc provision hoặc lúc so khớp (secret dạng file — §14.2).
+# - CrowdSec ở chế độ chỉ-quan-sát (app crowdsec kết nối LAPI, chưa route nào dùng handler crowdsec; mọi site public
+#   ghi cùng access log mà CrowdSec đọc) — bật chặn là quyết định riêng (P6-T07b).
+{
+	admin unix//run/caddy/admin.sock
+	persist_config off
+	default_bind 10.249.0.2
+	auto_https disable_redirects
+	acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+	servers 10.249.0.2:8443 {
+		listener_wrappers {
+			proxy_protocol {
+				timeout 5s
+				deny 0.0.0.0/5 8.0.0.0/7 10.0.0.0/9 10.128.0.0/10 10.192.0.0/11 10.224.0.0/12 10.240.0.0/13 10.248.0.0/32 10.248.0.2/31 10.248.0.4/30 10.248.0.8/29 10.248.0.16/28 10.248.0.32/27 10.248.0.64/26 10.248.0.128/25 10.248.1.0/24 10.248.2.0/23 10.248.4.0/22 10.248.8.0/21 10.248.16.0/20 10.248.32.0/19 10.248.64.0/18 10.248.128.0/17 10.249.0.0/16 10.250.0.0/15 10.252.0.0/14 11.0.0.0/8 12.0.0.0/6 16.0.0.0/4 32.0.0.0/3 64.0.0.0/2 128.0.0.0/1 ::/0
+				fallback_policy require
+			}
+			tls
+		}
+		protocols h1 h2
+		strict_sni_host on
+	}
+	servers 10.249.0.2:8080 {
+		listener_wrappers {
+			proxy_protocol {
+				timeout 5s
+				deny 0.0.0.0/5 8.0.0.0/7 10.0.0.0/9 10.128.0.0/10 10.192.0.0/11 10.224.0.0/12 10.240.0.0/13 10.248.0.0/32 10.248.0.2/31 10.248.0.4/30 10.248.0.8/29 10.248.0.16/28 10.248.0.32/27 10.248.0.64/26 10.248.0.128/25 10.248.1.0/24 10.248.2.0/23 10.248.4.0/22 10.248.8.0/21 10.248.16.0/20 10.248.32.0/19 10.248.64.0/18 10.248.128.0/17 10.249.0.0/16 10.250.0.0/15 10.252.0.0/14 11.0.0.0/8 12.0.0.0/6 16.0.0.0/4 32.0.0.0/3 64.0.0.0/2 128.0.0.0/1 ::/0
+				fallback_policy require
+			}
+		}
+		protocols h1 h2
+	}
+	servers {
+		protocols h1 h2
+		strict_sni_host on
+	}
+	log {
+		output stdout
+		format json
+		level INFO
+	}
+	crowdsec {
+		api_url http://crowdsec:8080
+		api_key {file./run/secrets/bouncer_key}
+		ticker_interval 15s
+	}
+}
+
+# id_token_hint (đăng xuất RP-Initiated Logout tới end_session_endpoint của auth. — G2 vòng 2, A-1) là ID token của
+# người dùng: xóa khỏi URI trong access log (CrowdSec đọc JSON như cũ — filter bọc đúng encoder json).
+(access_log) {
+	log {
+		output file /var/log/caddy/access.log {
+			mode 0640
+			roll_size 50MiB
+			roll_keep 5
+		}
+		format filter {
+			wrap json
+			request>uri query {
+				delete id_token_hint
+			}
+		}
+	}
+}
+
+# Log của listener nội bộ: tách khỏi access log mà CrowdSec đọc; xóa header mang token (Caddy chỉ tự che
+# Authorization/Cookie, KHÔNG che X-MG-Token).
+(internal_log) {
+	log {
+		output file /var/log/caddy/internal.log {
+			mode 0640
+			roll_size 20MiB
+			roll_keep 5
+		}
+		format filter {
+			wrap json
+			request>headers>X-Mg-Token delete
+			request>headers>Authorization delete
+		}
+	}
+}
+
+# Chứng chỉ công khai qua ACME DNS-01 (không cần inbound — §15.4): wildcard *.mesh.example.com và app./admin./auth.
+(tls_acme) {
+	tls {
+		dns cloudflare {file./run/secrets/cloudflare_dns_token}
+		resolvers 1.1.1.1 8.8.8.8
+	}
+}
+
+# Header của mọi phản hồi của site nền tảng: HSTS, nosniff; không lộ header Server.
+(platform_headers) {
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		-Server
+		defer
+	}
+}
+
+# Site của nền tảng (app., admin., auth. — P2-T16): nguồn thuộc pool tenant (container Headscale không bao giờ gọi
+# edge — §14.3 kiểm soát (3)) và path có "\" bị chặn trước mọi route.
+(platform_site) {
+	@from_tenant_pool remote_ip 10.250.0.0/16
+	@unsafe_path path_regexp unsafe \x5c
+	import platform_headers
+}
+
+# Portal/Console (app., admin.): trang và API cùng origin, không nhúng frame, không referrer, cô lập cửa sổ/tài nguyên
+# khỏi origin khác, tắt API thiết bị. Edge là NGUỒN DUY NHẤT của các header này cho mọi phản hồi của hai origin — api,
+# SPA của container web (container không tự đặt header bảo mật — P4-T01a) và trang lỗi của edge: một chỗ để sửa, giá
+# trị không bao giờ lệch giữa API và trang. Đối số: matcher của các phản hồi nhận header (`*` = mọi phản hồi; admin.
+# trừ console Keycloak — giữ CSP/frame của chính Keycloak, P3-T15).
+(portal_headers) {
+	header {args[0]} {
+		Content-Security-Policy "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'"
+		X-Frame-Options DENY
+		Referrer-Policy no-referrer
+		Cross-Origin-Opener-Policy same-origin
+		Cross-Origin-Resource-Policy same-origin
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+		defer
+	}
+}
+
+# Portal/Console (app., admin. — template v9, P4-T01a):
+# - @dot_segment: path THÔ (đã giải mã %xx, CHƯA làm sạch) có đoạn bắt đầu bằng "." — dotfile, "/./", "/../", kể cả
+#   dạng %2e/%2f ⇒ 404 trước mọi định tuyến. Matcher `path` của Caddy so path ĐÃ làm sạch: "/api/../metrics" thành
+#   "/metrics" và — nếu không chặn ở đây — rơi sang SPA (200) thay vì 404.
+# - api/web (hoặc console Keycloak) không trả lời — container dừng, đang deploy, lỗi dial ⇒ 503 tĩnh, không cache, có
+#   Retry-After, thay cho 502 rỗng mặc định. handle_errors chạy ngoài route chính nên header `defer` của site không
+#   tới đây: import lại tường minh (vẫn một nguồn).
+(portal_site) {
+	@dot_segment vars_regexp dot {http.request.uri.path} (^|/)\.
+	handle_errors 502 503 504 {
+		import platform_headers
+		import portal_headers *
+		header Cache-Control no-store
+		header Retry-After 30
+		respond "Service temporarily unavailable" 503
+	}
+}
+
+# Header gửi lên upstream của nền tảng: Host giữ nguyên (api chọn origin theo Host; Keycloak theo X-Forwarded-Host),
+# X-Forwarded-For/-Proto/-Host do edge đặt (client không phải trusted proxy ⇒ Caddy ghi đè), header nội bộ X-MG-* và
+# header IP do client tự gửi không bao giờ đi tiếp.
+(upstream_headers) {
+	header_up -X-MG-Token
+	header_up -X-MG-Instance
+	header_up -X-Mg-*
+	header_up -X-Real-IP
+	header_up -True-Client-IP
+	header_up -Forwarded
+}
+
+# Control plane + DERP của mọi tenant: <slug>.mesh.example.com → hs-<slug>:8080 trên network riêng của tenant.
+*.mesh.example.com, *.mesh.example.com:8443 {
+	import access_log
+	# Vào thẳng listener tunnel-facing mà không qua PROXY header của VPS (địa chỉ đích còn là cổng tunnel)
+	# ⇒ đóng kết nối, trước mọi handle khác (proxy_protocol chỉ REJECT nguồn bị deny khi chúng GỬI header).
+	@direct_tunnel vars {http.request.local.port} 8443 8080
+	handle @direct_tunnel {
+		abort
+	}
+	import tls_acme
+
+	# Nhãn tenant = capture group của regex slug neo vào hậu tố .mesh.example.com (không dùng {labels.N} — EG-03).
+	# Allow-list path (§14.6); mọi path khác — gồm /api/*, /swagger*, /verify, /version, /health, /metrics — là 404.
+	# /register/* KHÔNG còn nằm trọn trong allow-list (từ template v10 — P4-T07): chỉ /register/confirm/* (trang xác
+	# nhận OIDC gốc, Headscale chỉ đăng ký khi instance bật OIDC — RT-02) và /register/<auth_id> ở dưới.
+	@tenant {
+		vars_regexp tenant {http.request.host} ^([a-z][a-z0-9-]{1,30}[a-z0-9])\.mesh\.example\.com$
+		path /ts2021 /key /machine/ping-response /derp /derp/* /register/confirm/* /auth/* /oidc/callback
+	}
+	# Web-auth do Portal môi giới (§7.4 luồng A bước 6, §14.6 — template v10, P4-T07): GET /register/<auth_id> mà client
+	# in ra (auth_id = "hskey-authreq-" + 24 ký tự [A-Za-z0-9_-] — ID-05, so trên path đã giải mã và làm sạch) KHÔNG có
+	# via=portal ⇒ 302 tới trang claim của Portal trên app.example.com. Location chỉ ghép hai capture group đã qua regex
+	# (slug, auth_id) vào một URL cố định: không phản chiếu Host, query hay phần nào khác của request (không open
+	# redirect). Có via=portal (Portal trả browser về đây khi tenant ở chế độ OIDC gốc) ⇒ proxy tới Headscale như trước.
+	# auth_id sai định dạng ⇒ 404 thống nhất (không chạm Headscale). Client không bao giờ tự GET URL này (nó chỉ gửi lại
+	# path trong followup qua Noise) nên chuyển hướng không ảnh hưởng đăng ký (V-07). Tenant không tồn tại vẫn nhận cùng
+	# 302 (edge không biết tenant nào tồn tại — không lộ thông tin); Portal mới kiểm tenant và membership.
+	@register_portal {
+		vars_regexp tenant {http.request.host} ^([a-z][a-z0-9-]{1,30}[a-z0-9])\.mesh\.example\.com$
+		path_regexp authid ^/register/(hskey-authreq-[A-Za-z0-9_-]{24})$
+		not query via=portal
+	}
+	@register_native {
+		vars_regexp tenant {http.request.host} ^([a-z][a-z0-9-]{1,30}[a-z0-9])\.mesh\.example\.com$
+		path_regexp authid ^/register/(hskey-authreq-[A-Za-z0-9_-]{24})$
+		query via=portal
+	}
+	# /bootstrap-dns KHÔNG proxy (RT-15: không xác thực, Headscale tra DNS phía server từ network internal):
+	# trả tĩnh tên tenant → IP điểm vào công khai (V-32). Ngoặc nhọn của JSON được escape cho bộ thay placeholder.
+	@bootstrap_dns {
+		vars_regexp bootstrap {http.request.host} ^([a-z][a-z0-9-]{1,30}[a-z0-9])\.mesh\.example\.com$
+		path /bootstrap-dns
+	}
+	@unsafe_path path_regexp unsafe \x5c
+	handle @bootstrap_dns {
+		header Content-Type application/json
+		header Cache-Control "no-store"
+		respond `\{"{http.request.host}":["198.51.100.7"]\}` 200
+	}
+	handle /robots.txt {
+		respond `User-agent: *
+Disallow: /
+` 200
+	}
+	# Path có "\" (kể cả dạng %5c) không bao giờ được proxy: matcher của Caddy so path đã giải mã và đã làm sạch
+	# ("/./", "/../", "//" — caddyserver/caddy#4407) nhưng không coi "\" là dấu phân cách (P1-T10a).
+	handle @unsafe_path {
+		respond 404
+	}
+	handle @register_portal {
+		header Cache-Control no-store
+		redir https://app.example.com/enroll/claim?tenant={re.tenant.1}&auth_id={re.authid.1} 302
+	}
+	handle @register_native {
+		reverse_proxy hs-{re.tenant.1}.:8080 {
+			header_up True-Client-IP {remote_host}
+			header_up X-Real-IP {remote_host}
+		}
+	}
+	handle @tenant {
+		reverse_proxy hs-{re.tenant.1}.:8080 {
+			header_up True-Client-IP {remote_host}
+			header_up X-Real-IP {remote_host}
+			stream_close_delay 5m
+		}
+	}
+	handle {
+		respond 404
+	}
+	# Tenant không tồn tại / đang dừng / chưa gắn edge là lỗi dial ⇒ cùng một 404 như path bị chặn (§14.6).
+	handle_errors 502 503 504 {
+		respond 404
+	}
+}
+
+# Tenant Portal + SaaS API (§8.3, §15.1): app.example.com — LAN-direct và tunnel-facing (public qua VPS). /api/* →
+# api:8080 trên mg-edge (api chỉ nhận request từ IP của edge — MG_TRUSTED_PROXIES); mọi path khác → SPA tĩnh web:8080
+# trên mg-edge (project mg-app — P4-T01a): file nếu có, nếu không index.html (router của SPA quyết định — 404 thống
+# nhất); /internal/*, /healthz, /readyz, /metrics của api vì vậy không bao giờ tới api. Thứ tự xử lý tường minh trong
+# `route` (không phụ thuộc cách Caddy sắp các `handle`).
+app.example.com, app.example.com:8443 {
+	import access_log
+	import tls_acme
+	import platform_site
+	import portal_headers *
+	import portal_site
+	@direct_tunnel vars {http.request.local.port} 8443 8080
+	route {
+		abort @direct_tunnel
+		abort @from_tenant_pool
+		respond @unsafe_path 404
+		respond @dot_segment 404
+		reverse_proxy /api/* api.:8080 {
+			import upstream_headers
+		}
+		reverse_proxy web.:8080 {
+			import upstream_headers
+		}
+	}
+}
+
+# Platform Console (§8.3, §15.1): admin.example.com — ra Internet (admin_public — template v11, quyết định
+# của chủ dự án 2026-11-20): LAN-direct + tunnel-facing (nguồn thật từ PROXY v2 của VPS, guard @direct_tunnel
+# như app.), không giới hạn IP nguồn; DNS công khai có A admin. → VPS (§15.4). Vẫn chặn pool
+# tenant, path có "\" và dot segment; header bảo mật, access log (CrowdSec) như app. Console Keycloak KHÔNG
+# nới: cùng forward_auth 2P bên dưới.
+# Console quản trị Keycloak (§8.2 (3), P3-T15): /admin/*, realm master (/realms/master/*) và /resources/* của idp:8080
+# chỉ phục vụ ở đây, mỗi request qua forward_auth tới api (GET /internal/edge/idp-console — ngoài /api/v1, không site
+# public nào định tuyến tới): api trả 204 khi người gọi có phiên Platform Console của origin admin, còn giữ
+# platform.idp:console và có phiên console đã được người thứ hai duyệt (2P, step-up) còn trong thời hạn, từ CIDR nguồn
+# đã duyệt; 401/403 của api đi thẳng về trình duyệt. Body của request vẫn tới Keycloak nguyên vẹn; Authorization (token
+# quản trị của console) không gửi sang api. Impersonation bị chặn hai lớp (gate + respond 403). Realm master phát URL
+# theo frontendUrl https://admin.example.com (infrastructure/idp/realm-update.sh) nên console chỉ gọi origin này.
+# Ngoài console: /api/* → api, còn lại → SPA web (Platform Console — P4-T01a), như app.
+admin.example.com, admin.example.com:8443 {
+	import access_log
+	import tls_acme
+	import platform_site
+	@portal not path /admin /admin/* /realms/master /realms/master/* /resources/*
+	import portal_headers @portal
+	import portal_site
+	@direct_tunnel vars {http.request.local.port} 8443 8080
+	@idp_console path /admin /admin/* /realms/master /realms/master/* /resources/*
+	@idp_impersonation path_regexp impersonation (?i)^/admin/realms/[^/]+/users/[^/]+/impersonation/?$
+	route {
+		abort @direct_tunnel
+		abort @from_tenant_pool
+		respond @unsafe_path 404
+		route @idp_console {
+			forward_auth api.:8080 {
+				uri /internal/edge/idp-console
+				import upstream_headers
+				header_up -Authorization
+			}
+			respond @idp_impersonation 403
+			reverse_proxy idp.:8080 {
+				import upstream_headers
+			}
+		}
+		respond @dot_segment 404
+		reverse_proxy /api/* api.:8080 {
+			import upstream_headers
+		}
+		reverse_proxy web.:8080 {
+			import upstream_headers
+		}
+	}
+}
+
+# IdP của nền tảng (§8.2): auth.example.com → idp:8080 (Keycloak; cổng quản trị 9000 không bao giờ được định tuyến).
+# Công khai chỉ endpoint OIDC + trang đăng nhập của các realm (/realms/*, /resources/*), TRỪ realm master. Admin REST
+# API (/admin/realms/*) và realm master (token của danh tính provisioning, break-glass) CHỈ từ worker
+# (10.249.0.4 — IdP driver, P2-T05a) và chỉ trên listener LAN-direct này; console /admin/ không bao giờ (console
+# chỉ ở admin.example.com — P3-T15), impersonation không bao giờ, kể cả từ worker. Điều đó đúng cả ở tầng mạng:
+# idp:8080 chỉ nằm trên mg-idp (edge + idp, G2 vòng 2 A-8); kcadm break-glass chạy TRONG container idp.
+auth.example.com {
+	import access_log
+	import tls_acme
+	import platform_site
+	@idp_worker {
+		remote_ip 10.249.0.4
+		path /admin/realms /admin/realms/* /realms/master /realms/master/*
+	}
+	@idp_public {
+		path /realms/* /resources/*
+		not path /realms/master /realms/master/*
+	}
+	@idp_impersonation path_regexp impersonation (?i)^/admin/realms/[^/]+/users/[^/]+/impersonation/?$
+	route {
+		abort @from_tenant_pool
+		respond @unsafe_path 404
+		respond @idp_impersonation 403
+		reverse_proxy @idp_worker idp.:8080 {
+			import upstream_headers
+		}
+		reverse_proxy @idp_public idp.:8080 {
+			import upstream_headers
+		}
+		respond 404
+	}
+}
+
+# auth.example.com trên listener tunnel-facing (public qua VPS): chỉ endpoint OIDC và trang đăng nhập
+# công khai của các realm (trừ master). Admin REST API, realm master và console KHÔNG tồn tại trên server này.
+auth.example.com:8443 {
+	import access_log
+	@direct_tunnel vars {http.request.local.port} 8443 8080
+	import tls_acme
+	import platform_site
+	@idp_public {
+		path /realms/* /resources/*
+		not path /realms/master /realms/master/*
+	}
+	route {
+		abort @direct_tunnel
+		abort @from_tenant_pool
+		respond @unsafe_path 404
+		reverse_proxy @idp_public idp.:8080 {
+			import upstream_headers
+		}
+		respond 404
+	}
+}
+
+# Listener tunnel-facing: host không có site trên server này (mọi tên edge có chứng chỉ mà không có site
+# ở đây) ⇒ đóng kết nối, thay cho phản hồi 200 rỗng mặc định của Caddy khi không site nào khớp.
+https://:8443 {
+	abort
+}
+
+# :80 — /generate_204 trả 204 (kiểm captive portal của client; vang lại challenge như derper), còn lại chuyển
+# HTTPS bằng phản hồi nhanh khác 101 (EG-07).
+http://, http://:8080 {
+	import access_log
+	# Vào thẳng listener tunnel-facing mà không qua PROXY header của VPS (địa chỉ đích còn là cổng tunnel)
+	# ⇒ đóng kết nối, trước mọi handle khác (proxy_protocol chỉ REJECT nguồn bị deny khi chúng GỬI header).
+	@direct_tunnel vars {http.request.local.port} 8443 8080
+	handle @direct_tunnel {
+		abort
+	}
+	@gen204 path /generate_204
+	@challenge header_regexp X-Tailscale-Challenge ^[A-Za-z0-9._-]{1,64}$
+	handle @gen204 {
+		header @challenge X-Tailscale-Response "response {http.request.header.X-Tailscale-Challenge}"
+		header Cache-Control "no-cache, no-store, must-revalidate, no-transform, max-age=0"
+		respond 204
+	}
+	handle {
+		redir https://{host}{uri} 308
+	}
+}
+
+# Listener admin nội bộ (§14.6): api/worker gọi REST API của ĐÚNG một tenant qua header X-MG-Instance.
+# Nguồn ngoài subnet mg-admin ⇒ đóng kết nối; thiếu/sai X-MG-Token ⇒ 403; chỉ /api/v1/* và GET /version;
+# token nội bộ và header chọn instance bị gỡ trước khi tới Headscale; API key của instance đi nguyên (Authorization).
+http://:8081 {
+	bind 10.249.2.2
+	import internal_log
+	@outside not remote_ip 10.249.2.0/24
+	# Hai điều kiện: định dạng (file token đọc lỗi thì placeholder rỗng — header rỗng không được lọt) và giá trị.
+	@unauthorized not {
+		header_regexp X-MG-Token ^[A-Za-z0-9]{40}$
+		header X-MG-Token {file./run/secrets/admin_token}
+	}
+	@allowed {
+		header_regexp instance X-MG-Instance ^([a-z][a-z0-9-]{1,30}[a-z0-9])$
+		expression path('/api/v1/*') || (method('GET') && path('/version'))
+	}
+	@unsafe_path path_regexp unsafe \x5c
+	route {
+		abort @outside
+		respond @unauthorized 403
+		respond @unsafe_path 404
+		reverse_proxy @allowed hs-{re.instance.1}.:8080 {
+			header_up -X-MG-Token
+			header_up -X-MG-Instance
+		}
+		respond 404
+	}
+	handle_errors 502 503 504 {
+		respond 404
+	}
+}
+
+# Listener metrics nội bộ (§14.6): Prometheus đọc /instance/<slug>/metrics ⇒ hs-<slug>:9090/metrics.
+# Không bao giờ proxy /debug/*; token riêng (Authorization: Bearer) bị gỡ trước khi tới Headscale.
+http://:9091 {
+	bind 10.249.3.2
+	import internal_log
+	@outside not remote_ip 10.249.3.0/24
+	@unauthorized not {
+		header_regexp Authorization ^Bearer\s[A-Za-z0-9]{40}$
+		header Authorization "Bearer {file./run/secrets/metrics_token}"
+	}
+	@metrics path_regexp instance ^/instance/([a-z][a-z0-9-]{1,30}[a-z0-9])/metrics$
+	route {
+		abort @outside
+		respond @unauthorized 403
+		handle @metrics {
+			rewrite * /metrics
+			reverse_proxy hs-{re.instance.1}.:9090 {
+				header_up -Authorization
+			}
+		}
+		respond 404
+	}
+	handle_errors 502 503 504 {
+		respond 404
+	}
+}

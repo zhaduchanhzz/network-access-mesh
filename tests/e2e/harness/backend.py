@@ -64,10 +64,15 @@ class Browser:
     """A minimal user agent through the edge: every host is dialled at the edge's address with its own SNI, TLS is
     verified against the run's CA only, cookies are kept per host, redirects are never followed."""
 
+    port = 443    # the LAN-direct listener; adminpublic.TunnelBrowser dials the tunnel-facing one (E2E-121)
+
     def __init__(self, st: Stack):
         self.st = st
         self.ctx = ssl.create_default_context(cafile=str(st.work / "ca" / "ca.crt"))
         self.jar: dict[str, dict[str, str]] = {}
+
+    def dial(self) -> socket.socket:
+        return socket.create_connection((self.st.edge_ip, self.port), timeout=20)
 
     def request(self, method: str, url: str, body: bytes | None = None, headers: dict | None = None) -> Resp:
         u = urllib.parse.urlsplit(url)
@@ -76,8 +81,8 @@ class Browser:
         hdr = {"Host": host, "User-Agent": UA, **(headers or {})}
         if self.jar.get(host):
             hdr["Cookie"] = "; ".join(f"{k}={v}" for k, v in self.jar[host].items())
-        raw = socket.create_connection((self.st.edge_ip, 443), timeout=20)
-        conn = http.client.HTTPConnection(self.st.edge_ip, 443, timeout=20)
+        raw = self.dial()
+        conn = http.client.HTTPConnection(self.st.edge_ip, self.port, timeout=20)
         conn.sock = self.ctx.wrap_socket(raw, server_hostname=host)
         try:
             conn.request(method, path, body=body, headers=hdr)

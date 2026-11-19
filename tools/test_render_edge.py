@@ -6,7 +6,10 @@
 
 For every case it also extracts the tenant regex from the rendered Caddyfile and checks that the tenant label is
 captured correctly for a mesh domain of 3 and of 4 labels (§14.6 — no hard-coded {labels.N}), and that invalid
-parameters are rejected. Standard library only; exit code 0 = pass.
+parameters are rejected. From template v11 (admin_public — admin.<domain> on the Internet, owner's decision
+2026-11-20) the golden cases admin-public (tunnel) and admin-public-lan render that mode, and MUTATIONS — among them
+"admin public but the Keycloak console without its forward_auth" — must each be caught by the checks.
+Standard library only; exit code 0 = pass.
 """
 from __future__ import annotations
 
@@ -38,6 +41,9 @@ BAD = {
     "admin allow-list public": {"admin_allow": ["8.8.8.0/24"]},
     "admin allow-list in the tenant pool": {"admin_allow": ["10.250.0.0/24"]},
     "admin allow-list covering the tenant pool": {"admin_allow": ["10.0.0.0/8"]},
+    "admin_public as text": {"admin_public": "true"},
+    "admin_public as a number": {"admin_public": 1},
+    "admin_public null": {"admin_public": None},
 }
 
 
@@ -215,15 +221,24 @@ def check_portal_snippets(code: str) -> list[str]:
     return errors
 
 
+def admin_address(params: dict) -> str:
+    """Address line of the admin. site: LAN-direct only, or — admin_public (template v11) — also the tunnel-facing port."""
+    d, tunnel = params["base_domain"], params.get("tunnel")
+    if params.get("admin_public") and tunnel:
+        return f"admin.{d}, admin.{d}:{tunnel['https_port']}"
+    return f"admin.{d}"
+
+
 def check_platform_sites(caddyfile: str, params: dict) -> list[str]:
-    """Invariants of the platform sites (P2-T16, §8.3, §14.6, §15.4, P2-T05a)."""
+    """Invariants of the platform sites (P2-T16, §8.3, §14.6, §15.4, P2-T05a; admin_public — template v11)."""
     errors = []
     code = "\n".join(line for line in caddyfile.splitlines() if not line.lstrip().startswith("#")) + "\n"
     d = params["base_domain"]
     tunnel = params.get("tunnel")
+    public = params.get("admin_public", False)
     tport = tunnel["https_port"] if tunnel else None
     app_addr = f"app.{d}" + (f", app.{d}:{tport}" if tunnel else "")
-    app, admin, auth = site_block(code, app_addr), site_block(code, f"admin.{d}"), site_block(code, f"auth.{d}")
+    app, admin, auth = site_block(code, app_addr), site_block(code, admin_address(params)), site_block(code, f"auth.{d}")
     auth_tunnel = site_block(code, f"auth.{d}:{tport}") if tunnel else ""
     for name, body in (("app", app), ("admin", admin), ("auth", auth)):
         if not body:
@@ -245,9 +260,9 @@ def check_platform_sites(caddyfile: str, params: dict) -> list[str]:
             if "import upstream_headers" not in proxy:
                 errors.append(f"{name}: a reverse_proxy without the upstream header rules")
     for addr in re.findall(r"(?m)^(\S[^\n{]*) \{$", code):
-        if f"admin.{d}" in addr and addr != f"admin.{d}":
+        if f"admin.{d}" in addr and addr != admin_address(params):
             errors.append(f"admin.{d} is served on another listener: {addr!r}")
-        if tunnel and f":{tport}" in addr and f"admin.{d}" in addr:
+        if tunnel and not public and f":{tport}" in addr and f"admin.{d}" in addr:
             errors.append("admin.<domain> on the tunnel-facing listener")
     if tunnel:   # host without a site on the TLS tunnel-facing server ⇒ abort, never Caddy's default empty 200 (G2)
         catch_all = site_block(code, f"https://:{tport}")
@@ -255,10 +270,21 @@ def check_platform_sites(caddyfile: str, params: dict) -> list[str]:
             errors.append(f"tunnel-facing catch-all site https://:{tport} missing or not a bare abort: {catch_all!r}")
         if code.find(f"https://:{tport} {{") < code.find(f"auth.{d}:{tport} {{"):
             errors.append("tunnel-facing catch-all is not after the tunnel-facing sites")
-    if "abort @outside_admin" not in admin or "@outside_admin not remote_ip " + " ".join(params["admin_allow"]) not in admin:
-        errors.append("admin: the IP allow-list is not enforced")
-    if admin.find("abort @outside_admin") > admin.find("reverse_proxy"):
-        errors.append("admin: the allow-list is checked after the proxy")
+    if not public:
+        if "abort @outside_admin" not in admin or \
+                "@outside_admin not remote_ip " + " ".join(params["admin_allow"]) not in admin:
+            errors.append("admin: the IP allow-list is not enforced")
+        if admin.find("abort @outside_admin") > admin.find("reverse_proxy"):
+            errors.append("admin: the allow-list is checked after the proxy")
+    else:
+        # admin_public (template v11, owner's decision 2026-11-20): no source restriction on admin. — on the tunnel-facing
+        # port the tunnel guard comes first, like app.; the tenant pool is still aborted (checked above for every site)
+        if "@outside_admin" in admin or re.search(r"(?m)^\t@\S+ (not )?remote_ip ", admin):
+            errors.append("admin (public): an IP allow-list is still rendered")
+        if tunnel and not admin.split("route {", 1)[-1].lstrip().startswith("abort @direct_tunnel"):
+            errors.append("admin (tunnel): the tunnel guard is not the first step of the route")
+        if tunnel and f"@direct_tunnel vars {{http.request.local.port}} {tport} {tunnel['http_port']}" not in admin:
+            errors.append("admin (tunnel): tunnel guard matcher missing")
     for name, body in (("app", app), ("admin", admin)):
         if "reverse_proxy /api/* api.:8080 {" not in body or "import portal_headers" not in body:
             errors.append(f"{name}: /api/* is not proxied to api.:8080 with the portal headers")
@@ -293,25 +319,35 @@ def check_platform_sites(caddyfile: str, params: dict) -> list[str]:
             errors.append("app (tunnel): the tunnel guard is not the first step of the route")
     elif "@direct_tunnel" in app + admin + auth:
         errors.append("platform sites: tunnel guard rendered without a tunnel")
+    if tunnel and not public and "@direct_tunnel" in admin:
+        errors.append("admin: tunnel guard rendered on a LAN-direct-only site")
     if "header_up -X-MG-Token" not in code.split("(upstream_headers)", 1)[-1].split("}", 1)[0]:
         errors.append("upstream_headers does not strip X-MG-Token")
     return errors
 
 
 CONSOLE_PATHS = {"/admin", "/admin/*", "/realms/master", "/realms/master/*", "/resources/*"}
+# the console route of admin. (template v8, P3-T15), byte for byte — in both modes of admin_public (template v11)
+CONSOLE_ROUTE = ("\t\troute @idp_console {\n\t\t\tforward_auth api.:8080 {\n\t\t\t\turi /internal/edge/idp-console\n"
+                 "\t\t\t\timport upstream_headers\n\t\t\t\theader_up -Authorization\n\t\t\t}\n"
+                 "\t\t\trespond @idp_impersonation 403\n\t\t\treverse_proxy idp.:8080 {\n\t\t\t\timport upstream_headers\n"
+                 "\t\t\t}\n\t\t}\n")
 
 
 def check_idp_console(caddyfile: str, params: dict) -> list[str]:
     """P3-T15 (§8.2 (3), template v8): the Keycloak administration console is served on admin.<domain> only, every
     request of it behind the forward_auth of the api (GET /internal/edge/idp-console); impersonation is refused on
-    admin. and auth.; the console never on auth. nor on the tunnel-facing listener; /internal/* never on a public site."""
+    admin. and auth.; the console never on auth. nor on the tunnel-facing listener unless admin. is (admin_public — template
+    v11: then the same gated route, byte for byte); /internal/* never on a public site."""
     errors = []
     code = "\n".join(line for line in caddyfile.splitlines() if not line.lstrip().startswith("#")) + "\n"
     d = params["base_domain"]
     tunnel = params.get("tunnel")
     tport = tunnel["https_port"] if tunnel else None
     app = site_block(code, f"app.{d}" + (f", app.{d}:{tport}" if tunnel else ""))
-    admin, auth = site_block(code, f"admin.{d}"), site_block(code, f"auth.{d}")
+    admin, auth = site_block(code, admin_address(params)), site_block(code, f"auth.{d}")
+    if not admin:
+        return [f"admin: site {admin_address(params)!r} not found"]
     console = re.search(r"@idp_console path (.+)", admin)
     if not console or set(console.group(1).split()) != CONSOLE_PATHS:
         errors.append(f"admin: @idp_console paths are not exactly {sorted(CONSOLE_PATHS)}")
@@ -340,8 +376,12 @@ def check_idp_console(caddyfile: str, params: dict) -> list[str]:
     outside = admin.replace(route.group(0), "") if route else admin
     if "idp.:8080" in outside:
         errors.append("admin: idp.:8080 is proxied outside the forward_auth route")
-    if admin.find("abort @outside_admin") > admin.find("route @idp_console"):
+    if not params.get("admin_public") and admin.find("abort @outside_admin") > admin.find("route @idp_console"):
         errors.append("admin: the console route comes before the IP allow-list")
+    # the console route itself is the same whatever admin_public says (template v11: admin. on the Internet does NOT
+    # loosen the Keycloak console — the forward_auth 2P gate is its only door, impersonation refused behind it)
+    if route and route.group(0) != CONSOLE_ROUTE:
+        errors.append("admin: the console route differs from the gated route of template v8")
     imp = "@idp_impersonation path_regexp impersonation (?i)^/admin/realms/[^/]+/users/[^/]+/impersonation/?$"
     for name, body in (("admin", admin), ("auth", auth)):
         if imp not in body:
@@ -431,6 +471,69 @@ def check_web_auth(caddyfile: str, params: dict) -> list[str]:
     return errors
 
 
+# Mutations of a rendered Caddyfile that the checks above must catch (template v11): (golden case, description, old,
+# new). "admin public but the Keycloak console lost its forward_auth" is the one the owner's decision hinges on.
+FWD = ("\t\t\tforward_auth api.:8080 {\n\t\t\t\turi /internal/edge/idp-console\n\t\t\t\timport upstream_headers\n"
+       "\t\t\t\theader_up -Authorization\n\t\t\t}\n")
+GUARDS = "\t\tabort @direct_tunnel\n\t\tabort @from_tenant_pool\n\t\trespond @unsafe_path 404\n\t\troute @idp_console"
+MUTATIONS = [
+    ("admin-public", "admin public, console without forward_auth", FWD, ""),
+    ("admin-public", "admin public, console forward_auth to another uri", "uri /internal/edge/idp-console",
+     "uri /internal/edge/ask"),
+    ("admin-public", "admin public, forward_auth sends the console token to the api",
+     "\t\t\t\theader_up -Authorization\n", ""),
+    ("admin-public", "admin public, impersonation no longer refused on admin.", "\t\t\trespond @idp_impersonation 403\n", ""),
+    ("admin-public", "admin public, idp proxied before the gate", "\t\troute @idp_console {\n",
+     "\t\treverse_proxy /admin/* idp.:8080 {\n\t\t\timport upstream_headers\n\t\t}\n\t\troute @idp_console {\n"),
+    ("admin-public", "admin public, tunnel guard dropped from admin.", GUARDS, GUARDS.replace("\t\tabort @direct_tunnel\n", "")),
+    ("admin-public", "admin public, tenant pool no longer aborted on admin.", GUARDS,
+     GUARDS.replace("\t\tabort @from_tenant_pool\n", "")),
+    ("admin-public", "admin public, an allow-list left on admin.", GUARDS,
+     GUARDS.replace("\t\tabort @from_tenant_pool\n", "\t\tabort @from_tenant_pool\n\t\tabort @outside_admin\n")),
+    ("admin-public-lan", "admin public (LAN), console without forward_auth", FWD, ""),
+    ("tunnel", "admin LAN-only, admin. added to the tunnel-facing listener", "admin.example.com {",
+     "admin.example.com, admin.example.com:8443 {"),
+    ("tunnel", "admin LAN-only, allow-list dropped", "\t\tabort @outside_admin\n", ""),
+    ("tunnel", "admin LAN-only, console without forward_auth", FWD, ""),
+]
+
+
+def check_mutations() -> list[str]:
+    """Every mutation of MUTATIONS must be caught by at least one check (a check that cannot fail proves nothing)."""
+    missed = []
+    for case, name, old, new in MUTATIONS:
+        params = json.loads((GOLDEN / case / "params.json").read_text(encoding="utf-8"))
+        caddy = re_.render(params)["caddy/Caddyfile"]
+        if old not in caddy:
+            missed.append(f"{name}: the text to mutate is not in the render of {case}")
+            continue
+        mutated = caddy.replace(old, new)
+        errors = (check_structure(mutated, params) + check_platform_sites(mutated, params)
+                  + check_idp_console(mutated, params) + check_web_auth(mutated, params))
+        if not errors:
+            missed.append(f"{name} ({case}): not caught")
+    return missed
+
+
+def check_admin_allow_optional() -> list[str]:
+    """admin_allow is required for admin. LAN-only and optional with admin_public (template v11)."""
+    base = json.loads((GOLDEN / "tunnel" / "params.json").read_text(encoding="utf-8"))
+    no_allow = {k: v for k, v in base.items() if k != "admin_allow"}
+    errors = []
+    for params, want_ok in ((no_allow, False), ({**no_allow, "admin_public": False}, False),
+                            ({**no_allow, "admin_public": True}, True)):
+        try:
+            caddy = re_.render(params)["caddy/Caddyfile"]
+            if not want_ok:
+                errors.append(f"accepted without admin_allow: admin_public={params.get('admin_public')!r}")
+            elif "@outside_admin" in caddy:
+                errors.append("admin_public without admin_allow still renders an allow-list")
+        except (re_.ParamError, ValueError) as e:
+            if want_ok:
+                errors.append(f"refused admin_public without admin_allow: {e}")
+    return errors
+
+
 def main() -> int:
     update = "--update" in sys.argv
     failures = 0
@@ -472,7 +575,8 @@ def main() -> int:
             print(f"FAIL {case.name}: platform sites: " + "; ".join(errors))
             failures += 1
         else:
-            print(f"PASS {case.name}: app./admin./auth. invariants hold (admin LAN-only, Admin API worker-only — P2-T16)")
+            mode = "admin public — template v11" if params.get("admin_public") else "admin LAN-only"
+            print(f"PASS {case.name}: app./admin./auth. invariants hold ({mode}, Admin API worker-only — P2-T16)")
         errors = check_idp_console(files["caddy/Caddyfile"], params)
         if errors:
             print(f"FAIL {case.name}: idp console: " + "; ".join(errors))
@@ -496,6 +600,20 @@ def main() -> int:
     if not cases:
         print("FAIL: no golden cases found")
         return 1
+    if not update:
+        missed = check_mutations()
+        if missed:
+            print("FAIL mutations: " + "; ".join(missed))
+            failures += 1
+        else:
+            print(f"PASS mutations: {len(MUTATIONS)}/{len(MUTATIONS)} caught (incl. admin public + console without "
+                  "forward_auth)")
+        errors = check_admin_allow_optional()
+        if errors:
+            print("FAIL admin_allow/admin_public: " + "; ".join(errors))
+            failures += 1
+        else:
+            print("PASS admin_allow required unless admin_public (template v11)")
     return 1 if failures else 0
 
 

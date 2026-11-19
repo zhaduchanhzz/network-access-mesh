@@ -5,10 +5,12 @@
 # - Listener tunnel-facing (VPS gateway — §14.6, GW-02): ${tunnel_summary}
 # - Site của nền tảng (P2-T16, §8.3, §15.4): app.${base_domain} (LAN-direct + tunnel-facing) → /api/* tới api, phần còn
 #   lại tới SPA tĩnh web (từ template v9 — P4-T01a), auth.${base_domain} (LAN-direct + tunnel-facing) → idp,
-#   admin.${base_domain} (cũng api + web) CHỈ LAN-direct (không bao giờ trên listener tunnel-facing) và chỉ từ
-#   ${admin_allow}. Admin REST API và realm master của Keycloak chỉ từ worker (${worker_edge_ip}) trên
-#   listener LAN-direct. idp chỉ ở network mg-idp cùng edge (${edge_idp_ip}): ngoài edge, không container nào tới thẳng
-#   được idp:8080 (G2 vòng 2, A-8) — mọi lối vào Keycloak đi qua các route dưới đây.
+#   admin.${base_domain} (cũng api + web) ${admin_summary}.
+#   Admin REST API và realm master của Keycloak chỉ từ worker (${worker_edge_ip}) trên listener LAN-direct. idp chỉ
+#   ở network mg-idp cùng edge (${edge_idp_ip}): ngoài edge, không container nào tới thẳng được idp:8080 (G2 vòng 2,
+#   A-8) — mọi lối vào Keycloak đi qua các route dưới đây.
+# - admin. (template v11): tham số admin_public của tools/render_edge.py — false: chỉ LAN-direct từ admin_allow; true
+#   (quyết định của chủ dự án 2026-11-20): ra Internet như app., console Keycloak giữ nguyên cổng forward_auth 2P.
 # - Console quản trị Keycloak (§8.2 (3), P3-T15 — từ template v8): CHỈ trên admin.${base_domain}, sau forward_auth tới
 #   api (GET /internal/edge/idp-console) — phiên Platform Console + phiên console đã duyệt 2P còn hạn + CIDR nguồn đã
 #   duyệt; impersonation bị chặn ở cả admin. và auth.
@@ -251,9 +253,7 @@ ${tunnel_guard_abort}		abort @from_tenant_pool
 	}
 }
 
-# Platform Console (§8.3, §15.1): admin.${base_domain} — CHỈ listener LAN-direct (site này không có địa chỉ
-# tunnel-facing nên không tồn tại trên server của listener đó) và chỉ từ ${admin_allow}; nguồn khác ⇒ đóng kết nối.
-# DNS công khai không có bản ghi admin (§15.4).
+# Platform Console (§8.3, §15.1): admin.${base_domain} — ${admin_scope}
 # Console quản trị Keycloak (§8.2 (3), P3-T15): /admin/*, realm master (/realms/master/*) và /resources/* của idp:8080
 # chỉ phục vụ ở đây, mỗi request qua forward_auth tới api (GET /internal/edge/idp-console — ngoài /api/v1, không site
 # public nào định tuyến tới): api trả 204 khi người gọi có phiên Platform Console của origin admin, còn giữ
@@ -262,20 +262,18 @@ ${tunnel_guard_abort}		abort @from_tenant_pool
 # quản trị của console) không gửi sang api. Impersonation bị chặn hai lớp (gate + respond 403). Realm master phát URL
 # theo frontendUrl https://admin.${base_domain} (infrastructure/idp/realm-update.sh) nên console chỉ gọi origin này.
 # Ngoài console: /api/* → api, còn lại → SPA web (Platform Console — P4-T01a), như app.
-admin.${base_domain} {
+admin.${base_domain}${admin_tunnel_site} {
 	import access_log
 	import tls_acme
 	import platform_site
 	@portal not path /admin /admin/* /realms/master /realms/master/* /resources/*
 	import portal_headers @portal
 	import portal_site
-	@outside_admin not remote_ip ${admin_allow}
-	@idp_console path /admin /admin/* /realms/master /realms/master/* /resources/*
+${admin_guard_matcher}	@idp_console path /admin /admin/* /realms/master /realms/master/* /resources/*
 	@idp_impersonation path_regexp impersonation (?i)^/admin/realms/[^/]+/users/[^/]+/impersonation/?$$
 	route {
-		abort @from_tenant_pool
-		abort @outside_admin
-		respond @unsafe_path 404
+${admin_tunnel_abort}		abort @from_tenant_pool
+${admin_guard_abort}		respond @unsafe_path 404
 		route @idp_console {
 			forward_auth api.:8080 {
 				uri /internal/edge/idp-console

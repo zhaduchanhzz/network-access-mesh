@@ -75,6 +75,16 @@ for f in sorted(staging.rglob("*.json")):
         check(True, f"staging/{f.relative_to(staging).as_posix()}: every placeholder resolves")
     except (mgenv.EnvError, ValueError) as e:
         check(False, f"staging/{f.relative_to(staging).as_posix()}", str(e))
+# admin.<domain> on the Internet (edge template v11, owner's decision 2026-11-20): the edge parameter admin_public and the
+# public DNS record of admin. go together — a public A record without the site behind it on the tunnel-facing listener
+# would answer nothing (catch-all abort), the site without the record would be reachable only by IP + SNI
+edge_params = mgenv.load_params(staging / "edge.json")
+dns_names = {(r["type"], r["name"]) for r in mgenv.load_params(staging / "dns-platform.json")}
+admin_a = ("A", f"admin.{env['MG_BASE_DOMAIN']}") in dns_names
+check(isinstance(edge_params.get("admin_public", False), bool) and edge_params.get("admin_public", False) == admin_a,
+      "staging: edge.json admin_public matches the public A record of admin. in dns-platform.json",
+      f"admin_public={edge_params.get('admin_public')!r}, A admin.={admin_a}")
+check(("CAA", f"admin.{env['MG_BASE_DOMAIN']}") in dns_names, "staging: CAA of admin. (dns-01 + accounturi) present")
 literals = [env[k] for k in ("MG_PUBLIC_IPV4", "MG_LAN_IPV4", "MG_LAN_CIDR", "MG_TUNNEL_HOST_IPV4", "MG_TUNNEL_VPS_IPV4",
                              "MG_BASE_DOMAIN", "MG_ACME_ACCOUNT_URI")]
 for f in sorted([*staging.rglob("*.json"), ROOT / "infrastructure" / "host" / "mg-staging-firewall.nft"]):

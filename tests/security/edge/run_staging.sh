@@ -70,15 +70,21 @@ else
 fi
 
 # Sites of the platform (P2-T16 — template_version ≥ 5): from a container on mg-edge (not the worker: Admin API of the
-# IdP refused; source outside MG_LAN_CIDR: admin. aborted) and, when published, through the tunnel-facing listener
-# only as tunnel-reject above. Skipped while the api/idp are not deployed (mg-app, mg-idp); from template_version 9
-# (P4-T01a) every path of app./admin. outside /api/* is the SPA of mg-app's web, which must run too.
+# IdP refused; source outside MG_LAN_CIDR: admin. aborted — or, with admin_public (template_version ≥ 11, decided from
+# the Caddyfile in use: no @outside_admin allow-list), admin. served to it like to any Internet client and the Keycloak
+# console answered 401 by the api's gate) and, when published, through the tunnel-facing listener only as tunnel-reject
+# above (a non-peer source gets nothing there, whatever the SNI). Skipped while the api/idp are not deployed (mg-app,
+# mg-idp); from template_version 9 (P4-T01a) every path of app./admin. outside /api/* is the SPA of mg-app's web, which
+# must run too. The path through the VPS itself is external.py's (--admin-public).
 BASE=${DOMAIN#mesh.}
+CADDYFILE=${MG_CADDYFILE:-/opt/meshguard/core/caddy/Caddyfile}
+ADMIN_MODE=refused
+grep -q '@outside_admin not remote_ip' "$CADDYFILE" || ADMIN_MODE=public
 names=$(docker ps --format '{{.Names}}')
 if printf '%s\n' "$names" | grep -q '^mg-app-api-1$' && printf '%s\n' "$names" | grep -q '^mg-app-web-1$' \
    && printf '%s\n' "$names" | grep -q '^mg-idp-idp-1$'; then
-  echo "== platform sites app./admin./auth.$BASE from a container on mg-edge"
-  run "$PP" platform --edge 10.249.0.2 --domain "$BASE" --admin refused
+  echo "== platform sites app./admin./auth.$BASE from a container on mg-edge (admin. $ADMIN_MODE)"
+  run "$PP" platform --edge 10.249.0.2 --domain "$BASE" --admin "$ADMIN_MODE"
   [ -n "$TUN" ] && run "$PP" tunnel-reject --targets 10.249.0.2:8443 --sni "admin.$BASE"
 else
   echo "== platform sites skipped (mg-app api/web or mg-idp idp not running)"

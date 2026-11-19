@@ -16,12 +16,18 @@ are stripped. Subcommands (each prints PASS/FAIL lines; exit code 0 = every chec
               no TLS/HTTP answer with or without a forged PROXY header — V-17)
   real-api    --via admin|public --edge ADDR --key-file F --instance SLUG [--token-file F] [--mesh-domain D]
               (a real, short-lived Headscale API key read from a root-only file; never printed)
-  platform    --edge IP --domain D --admin allowed|refused [--realm R] [--port 443] [--cafile F]
+  platform    --edge IP --domain D --admin allowed|refused|public [--realm R] [--port 443] [--cafile F]
+              [--proxy-v2 SRC_IP]
               (P2-T16 sites app./admin./auth. with the real api, web and idp behind: api only on /api/*, every other
               path of app./admin. is the SPA's index.html (edge template v9, P4-T01a) — never the api —, dot segments,
               "\" and unknown /api/* ⇒ 404, one set of security headers from the edge, Admin REST API / master realm /
-              console of the IdP ⇒ 404 from this source, admin. served only from the allowed management networks; on a
-              tunnel-facing port pass --admin refused)
+              console of the IdP ⇒ 404 from this source on auth.; admin.: `allowed` = served (source in admin_allow),
+              `refused` = no answer (source outside admin_allow, or a tunnel-facing port of an edge without
+              admin_public), `public` = served to any source (edge template v11, admin_public — owner's decision
+              2026-11-20) AND the Keycloak console (/admin/*, master realm, /resources/*, impersonation) answered by
+              the api's forward_auth gate (401, its own text) without a Platform Console session — never by Keycloak.
+              --proxy-v2 SRC_IP: every connection starts with a PROXY v2 header claiming SRC_IP (destination port 443)
+              — what the VPS's l4proxy sends; use it from the tunnel peer against the tunnel-facing port (--port 8443))
 
 --log is the echo upstream's JSONL file; without it, upstream-side assertions are skipped (e.g. when run from a
 LAN client). Token files are read, never printed. Standard library only.
@@ -133,6 +139,22 @@ def allowed_public(path: str) -> bool:
 
 
 CAFILE: str | None = None   # --cafile of `platform` (dev/CI stack: the run's CA); None = system roots
+PROXY_SRC: str | None = None   # --proxy-v2 of `platform`: source address claimed in a PROXY v2 header on every connection
+PROXY_V2_SIG = b"\r\n\r\n\x00\r\nQUIT\n"
+
+
+def proxy_v2(src: str, dst: str, src_port: int, dst_port: int = 443) -> bytes:
+    """PROXY protocol v2 header, command PROXY, TCP over IPv4 (what HAProxy's send-proxy-v2 sends — GW-03)."""
+    addr = socket.inet_aton(src) + socket.inet_aton(dst) + src_port.to_bytes(2, "big") + dst_port.to_bytes(2, "big")
+    return PROXY_V2_SIG + bytes([0x21, 0x11]) + len(addr).to_bytes(2, "big") + addr
+
+
+def dial(edge_ip: str, port: int, timeout: float) -> socket.socket:
+    """TCP connection to the edge; with PROXY_SRC set, announced as coming from PROXY_SRC (tunnel-facing listener)."""
+    raw = socket.create_connection((edge_ip, port), timeout=timeout)
+    if PROXY_SRC:
+        raw.sendall(proxy_v2(PROXY_SRC, edge_ip, random.randint(20000, 60000)))
+    return raw
 
 
 def https(edge_ip: str, sni: str, method: str, path: str, headers: dict | None = None, body: bytes | None = None,
@@ -140,7 +162,7 @@ def https(edge_ip: str, sni: str, method: str, path: str, headers: dict | None =
     """One HTTPS request to edge_ip with the given SNI; returns (status, headers, body) or (None, error, b"")."""
     ctx = ssl.create_default_context(cafile=CAFILE)
     try:
-        raw = socket.create_connection((edge_ip, port), timeout=timeout)
+        raw = dial(edge_ip, port, timeout)
         tls = ctx.wrap_socket(raw, server_hostname=sni)
     except (OSError, ssl.SSLError, ValueError) as e:   # ValueError: SNI that is not a valid IDNA host name
         return None, f"{type(e).__name__}: {e}", b""
@@ -512,7 +534,7 @@ def https_all(edge_ip: str, sni: str, path: str, port: int = 443, timeout: float
     """GET over HTTPS; returns (status, [(name, value)...] keeping repeated headers, body) or (None, error, b"")."""
     ctx = ssl.create_default_context(cafile=CAFILE)
     try:
-        raw = socket.create_connection((edge_ip, port), timeout=timeout)
+        raw = dial(edge_ip, port, timeout)
         tls = ctx.wrap_socket(raw, server_hostname=sni)
     except (OSError, ssl.SSLError, ValueError) as e:
         return None, f"{type(e).__name__}: {e}", b""
@@ -576,10 +598,38 @@ def check_spa(res: Result, edge: str, host: str, port: int) -> None:
               f"{host} GET /api/v1/<unknown> ⇒ 404 problem+json of the api, edge headers", f"status {st} {ct}")
 
 
+# Keycloak console of admin. (§8.2 (3), P3-T15): every path behind the api's forward_auth gate. Without a Platform Console
+# session the gate answers 401 with its own text — whatever the path (impersonation included: 403 needs a session, the
+# edge's second layer `respond @idp_impersonation 403` is never reached without the gate's 204).
+IMPERSONATION = "/admin/realms/tenant-a/users/00000000-0000-4000-8000-000000000000/impersonation"
+CONSOLE_GATED = [("GET", "/admin"), ("GET", "/admin/"), ("GET", "/admin/master/console/"), ("GET", "/admin/serverinfo"),
+                 ("GET", "/admin/realms/tenant-a/users"), ("GET", "/admin/realms/master"),
+                 ("GET", "/realms/master/.well-known/openid-configuration"),
+                 ("GET", "/realms/master/protocol/openid-connect/auth?client_id=security-admin-console"),
+                 ("POST", "/realms/master/protocol/openid-connect/token"), ("GET", "/resources/x/admin/keycloak.v2/a.js"),
+                 ("GET", IMPERSONATION), ("POST", IMPERSONATION), ("POST", IMPERSONATION.upper().replace("/ADMIN/", "/admin/")),
+                 ("GET", "/admin/realms/tenant-a/users/x/impersonation/")]
+GATE_401 = b"Sign in to the Platform Console first"
+
+
+def check_console_gate(res: Result, edge: str, host: str, port: int) -> None:
+    """admin. (any source when admin_public): the Keycloak console only through the gate — 401 from the api, never
+    Keycloak (no Keycloak page, no token endpoint answer, no redirect to a login form)."""
+    for method, path in CONSOLE_GATED:
+        st, hdr, body = https(edge, host, method, path, body=b"" if method == "POST" else None, port=port,
+                              headers={"Content-Type": "application/x-www-form-urlencoded"} if method == "POST" else None)
+        h = {k.lower(): v for k, v in hdr.items()} if st else {}
+        res.check(st == 401 and body.startswith(GATE_401) and h.get("content-type", "").startswith("text/plain")
+                  and h.get("cache-control") == "no-store" and "location" not in h,
+                  f"{host} {method} {path} without a session ⇒ 401 of the api's console gate (not Keycloak)",
+                  f"status {st} {h.get('content-type')!r} {body[:60]!r}")
+
+
 def cmd_platform(a) -> int:
     """Sites of the platform (P2-T16, §8.3, §14.6, §15.4): what a client of this source can reach on app./admin./auth."""
-    global CAFILE
+    global CAFILE, PROXY_SRC
     CAFILE = a.cafile
+    PROXY_SRC = a.proxy_v2
     res = Result()
     app, admin, auth = f"app.{a.domain}", f"admin.{a.domain}", f"auth.{a.domain}"
     st, hdr, body = https(a.edge, app, "GET", "/api/v1/auth/session", port=a.port,
@@ -603,12 +653,16 @@ def cmd_platform(a) -> int:
         st, _, _ = https(a.edge, auth, "GET", path, port=a.port)
         res.check(st == 404, f"{auth} GET {path} ⇒ 404 from this source", f"status {st}")
     st, detail, _ = https(a.edge, admin, "GET", "/api/v1/auth/session", port=a.port)
-    if a.admin == "allowed":
-        res.check(st == 401, f"{admin} from an allowed source ⇒ the api (401)", f"status {st} {detail if st is None else ''}")
+    if a.admin in ("allowed", "public"):
+        who = "an allowed source" if a.admin == "allowed" else "any source (admin_public — template v11)"
+        res.check(st == 401, f"{admin} from {who} ⇒ the api (401)", f"status {st} {detail if st is None else ''}")
         check_spa(res, a.edge, admin, a.port)
+        if a.admin == "public":
+            check_console_gate(res, a.edge, admin, a.port)
     else:
         res.check(st is None, f"{admin} from this source ⇒ no answer (aborted or no such site)", f"status {st}")
-    return res.done(f"platform sites app./admin./auth. of {a.domain} on {a.edge}:{a.port}")
+    via = f" via PROXY v2 from {a.proxy_v2}" if a.proxy_v2 else ""
+    return res.done(f"platform sites app./admin./auth. of {a.domain} on {a.edge}:{a.port}{via}")
 
 
 def main() -> int:
@@ -652,10 +706,11 @@ def main() -> int:
     p = sub.add_parser("platform")
     p.add_argument("--edge", required=True)
     p.add_argument("--domain", required=True)
-    p.add_argument("--admin", choices=["allowed", "refused"], required=True)
+    p.add_argument("--admin", choices=["allowed", "refused", "public"], required=True)
     p.add_argument("--realm", default="tenant-a")
     p.add_argument("--port", type=int, default=443)
     p.add_argument("--cafile")
+    p.add_argument("--proxy-v2", metavar="SRC_IP", help="send a PROXY v2 header claiming SRC_IP (from the tunnel peer)")
     a = ap.parse_args()
     return {"public": cmd_public, "stopped": cmd_stopped, "admin": cmd_admin, "metrics": cmd_metrics,
             "unreachable": cmd_unreachable, "tunnel-reject": cmd_tunnel_reject, "real-api": cmd_real_api,
