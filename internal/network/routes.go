@@ -16,6 +16,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/audit"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/config"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/headscale"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/notifications"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store/sqlcdb"
 )
@@ -535,12 +536,17 @@ func (s *Service) changeRoutes(ctx context.Context, tenantID uuid.UUID, a Actor,
 		return RouteDevice{}, err
 	}
 	var out RouteDevice
-	err = s.st.WithTenantTx(ctx, tenantID, func(q *sqlcdb.Queries) error {
-		d, details, err := s.applyRoutes(ctx, q, reg, tenantID, deviceID, match, c)
+	err = s.st.WithTenantJobTx(ctx, tenantID, func(tx *store.Tx) error {
+		q := tx.Q
+		d, details, diff, err := s.applyRoutes(ctx, q, reg, tenantID, deviceID, match, c)
 		if err != nil {
 			return err
 		}
 		if err := op.Succeeded(ctx, q, details); err != nil {
+			return err
+		}
+		if err := notifyRoutes(ctx, tx, tenantID, d, c.approve, diff,
+			notifications.RouteChange{Actor: a.Display, OperationID: op.ID}); err != nil {
 			return err
 		}
 		out = d
@@ -565,46 +571,52 @@ func (s *Service) changeRoutes(ctx context.Context, tenantID uuid.UUID, a Actor,
 	return out, nil
 }
 
-// applyRoutes is the locked part of changeRoutes (q: the transaction that holds the row until it commits).
+// applyRoutes is the locked part of changeRoutes (q: the transaction that holds the row until it commits). diff is what
+// the change really added (approve) or removed (revoke) from the approved set Headscale held — empty when the set did
+// not change.
 func (s *Service) applyRoutes(ctx context.Context, q *sqlcdb.Queries, reg DeviceRegister, tenantID, deviceID uuid.UUID, match string,
-	c routeChange) (RouteDevice, audit.Details, error) {
+	c routeChange) (d RouteDevice, details audit.Details, diff []netip.Prefix, err error) {
 	row, err := reg.LockLive(ctx, q, tenantID, deviceID)
 	if errors.Is(err, store.ErrNoRows) {
-		return RouteDevice{}, nil, notFound(ReasonNoDevice)
+		return RouteDevice{}, nil, nil, notFound(ReasonNoDevice)
 	}
 	if err != nil {
-		return RouteDevice{}, nil, err
+		return RouteDevice{}, nil, nil, err
 	}
 	inst, node, err := s.headscaleRoutes(ctx, tenantID, row)
 	if err != nil {
-		return RouteDevice{}, nil, err
+		return RouteDevice{}, nil, nil, err
 	}
 	next, err := plan(node, match, c)
 	if err != nil {
-		return RouteDevice{}, nil, err
+		return RouteDevice{}, nil, nil, err
 	}
 	cur := sortedPrefixes(node.ApprovedRoutes)
 	approved, advertised := cur, sortedPrefixes(node.AvailableRoutes)
 	if !slices.Equal(next, cur) {
 		set, err := inst.SetApprovedRoutes(ctx, node.ID, next)
 		if err != nil {
-			return RouteDevice{}, nil, fromAdapter(err)
+			return RouteDevice{}, nil, nil, fromAdapter(err)
 		}
 		got := sortedPrefixes(set.ApprovedRoutes)
 		if !slices.Equal(got, next) || set.MachineKey != row.MachineKey {
-			return RouteDevice{}, nil, &Error{Code: CodeUpstreamRejected, Reason: ReasonReadbackMismatch,
+			return RouteDevice{}, nil, nil, &Error{Code: CodeUpstreamRejected, Reason: ReasonReadbackMismatch,
 				Detail: "the tenant's control plane did not apply the new routes"}
 		}
 		approved, advertised = got, sortedPrefixes(set.AvailableRoutes)
+		diff = prefixDiff(next, cur) // approved: what is new
+		if !c.approve {
+			diff = prefixDiff(cur, next) // revoked: what is gone
+		}
 	}
 	if err := reg.RecordRoutes(ctx, q, tenantID, deviceID, approved, advertised); err != nil {
-		return RouteDevice{}, nil, err
+		return RouteDevice{}, nil, nil, err
 	}
-	d, err := s.routeDeviceTx(ctx, q, reg, tenantID, deviceID)
+	d, err = s.routeDeviceTx(ctx, q, reg, tenantID, deviceID)
 	if err != nil {
-		return RouteDevice{}, nil, err
+		return RouteDevice{}, nil, nil, err
 	}
-	details := audit.Details{"approved": prefixStrings(approved), "advertised": prefixStrings(advertised),
+	details = audit.Details{"approved": prefixStrings(approved), "advertised": prefixStrings(advertised),
 		"changed": !slices.Equal(next, cur), "routes_etag": d.ETag}
 	for _, w := range d.Warnings {
 		switch w.Code {
@@ -614,7 +626,40 @@ func (s *Service) applyRoutes(ctx context.Context, q *sqlcdb.Queries, reg Device
 			details["overlap"] = true
 		}
 	}
-	return d, details, nil
+	return d, details, diff, nil
+}
+
+// prefixDiff is a \ b (both sorted sets).
+func prefixDiff(a, b []netip.Prefix) []netip.Prefix {
+	var out []netip.Prefix
+	for _, p := range a {
+		if !slices.Contains(b, p) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// notifyRoutes writes route.approved / route.revoked for the Tenant Owners and Admins (T-08 "audit + thông báo") in the
+// transaction of the change, when it altered the approved set (diff — a change that left the set as it was notifies
+// nothing). rc carries who made it: the actor and the audit operation of a direct change, or the approval request whose
+// execution applied it (its ref: an execution that runs again never notifies twice).
+func notifyRoutes(ctx context.Context, tx *store.Tx, tenantID uuid.UUID, d RouteDevice, approve bool, diff []netip.Prefix,
+	rc notifications.RouteChange) error {
+	if len(diff) == 0 {
+		return nil
+	}
+	rc.DeviceID, rc.Prefixes, rc.ExitNode, rc.Untagged = d.DeviceID, prefixStrings(diff), hasExit(diff), len(d.Tags) == 0
+	rc.DeviceName = d.GivenName
+	if rc.DeviceName == "" {
+		rc.DeviceName = d.Name
+	}
+	ev := notifications.RouteRevoked(tenantID, rc)
+	if approve {
+		ev = notifications.RouteApproved(tenantID, rc)
+	}
+	_, err := notifications.Enqueue(ctx, tx, ev)
+	return err
 }
 
 // jobsKey is a held Idempotency-Key of an approval.
@@ -632,7 +677,8 @@ func (s *Service) newKey(tenantID uuid.UUID, a Actor, idem *Idempotency) *jobsKe
 // ExecuteRouteApproval runs an approved tenant.route.approve request (the executor of P3-T04a, registered by apps/) in
 // the approval's transaction tx: the device row is locked, the node read directly from Headscale, and the exact
 // approved change applied only while the device's approved set still has the ETag the request was made on (otherwise
-// nothing changes and the request stays approved). The approved prefixes must still be advertised. No job.
+// nothing changes and the request stays approved). The approved prefixes must still be advertised. No job; the Tenant
+// Owners and Admins are notified in tx (route.approved, keyed by the approval).
 func (s *Service) ExecuteRouteApproval(ctx context.Context, tx *store.Tx, tenantID, approvalID uuid.UUID, resourceID string,
 	requestedBy uuid.UUID, p RouteApprovalPayload) (*uuid.UUID, error) {
 	if resourceID != p.DeviceID.String() {
@@ -654,10 +700,14 @@ func (s *Service) ExecuteRouteApproval(ctx context.Context, tx *store.Tx, tenant
 	if err != nil {
 		return nil, err
 	}
-	_, details, err := s.applyRoutes(ctx, tx.Q, reg, tenantID, p.DeviceID, p.IfMatch, c)
+	d, details, diff, err := s.applyRoutes(ctx, tx.Q, reg, tenantID, p.DeviceID, p.IfMatch, c)
 	if err != nil {
 		return nil, err
 	}
 	details["approval_id"] = approvalID
-	return nil, op.Succeeded(ctx, tx.Q, details)
+	if err := op.Succeeded(ctx, tx.Q, details); err != nil {
+		return nil, err
+	}
+	return nil, notifyRoutes(ctx, tx, tenantID, d, true, diff, notifications.RouteChange{ApprovalID: &approvalID,
+		OperationID: op.ID})
 }

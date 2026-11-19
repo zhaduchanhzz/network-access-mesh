@@ -47,6 +47,9 @@ const (
 	// P4-T06 follow-up: the decision on an enrollment request that waited for approval (§7.4 "thông báo cho người yêu cầu")
 	KindEnrollmentApproved Kind = "enrollment.approved"
 	KindEnrollmentRejected Kind = "enrollment.rejected"
+	// P4-T12 follow-up (T-08 "audit + thông báo"): subnet routes / exit node approved or revoked on a device
+	KindRouteApproved Kind = "route.approved"
+	KindRouteRevoked  Kind = "route.revoked"
 )
 
 // Tenant and platform role keys of the default recipient rules (§6.3, roles of §8.4).
@@ -72,6 +75,7 @@ const (
 	fInt
 	fTime
 	fUUID
+	fBool
 )
 
 // spec is the fixed description of a kind: the payload fields it may carry (and nothing else), whether it is a
@@ -138,7 +142,16 @@ var specs = map[Kind]spec{
 		"decided_by": fString, "expires_at": fTime}, required: []string{"request_id", "method", "expires_at"}},
 	KindEnrollmentRejected: {fields: map[string]fieldType{"request_id": fUUID, "method": fString, "device_label": fString,
 		"decided_by": fString}, required: []string{"request_id", "method"}},
+	KindRouteApproved: {fields: routeFields, required: routeRequired},
+	KindRouteRevoked:  {fields: routeFields, required: routeRequired},
 }
+
+// routeFields are the payload of route.approved / route.revoked (RouteApproved, RouteRevoked).
+var (
+	routeFields = map[string]fieldType{"device_id": fUUID, "device_name": fString, "prefixes": fString,
+		"exit_node": fBool, "untagged_router": fBool, "actor": fString, "approval_id": fUUID}
+	routeRequired = []string{"device_id", "device_name", "prefixes", "exit_node"}
+)
 
 // Kinds returns every kind, sorted.
 func Kinds() []Kind {
@@ -296,6 +309,12 @@ func cleanField(k string, t fieldType, v any) (any, error) {
 			return p.String(), nil
 		}
 		return nil, bad("must be a UUID")
+	case fBool:
+		b, ok := v.(bool)
+		if !ok {
+			return nil, bad("must be a boolean")
+		}
+		return b, nil
 	}
 	return nil, bad("has an unknown type")
 }
@@ -657,6 +676,26 @@ func textOr(s, fallback string) string {
 	return fallback
 }
 
+// maxListText bounds a list rendered into one payload text (route prefixes): below maxText, room for the remainder.
+const maxListText = 200
+
+// boundedList joins items with ", " within maxListText bytes; the items that do not fit are counted as " (+N)".
+func boundedList(items []string) string {
+	var b strings.Builder
+	for i, it := range items {
+		sep := ""
+		if i > 0 {
+			sep = ", "
+		}
+		if b.Len()+len(sep)+len(it) > maxListText {
+			fmt.Fprintf(&b, " (+%d)", len(items)-i)
+			break
+		}
+		b.WriteString(sep + it)
+	}
+	return b.String()
+}
+
 // EnrollmentApproved — §7.4 "Phê duyệt enrollment" (TO/TA/TP gọi /approve … thông báo cho người yêu cầu): the member who
 // made the request, and only them; they start it (POST …/start) before startBy — the approval expires 24 hours after
 // it was given. One per request (a request is decided once).
@@ -684,6 +723,55 @@ func enrollmentOptional(p map[string]any, deviceLabel, decidedBy string) {
 	if s := textOr(decidedBy, ""); s != "" {
 		p["decided_by"] = s
 	}
+}
+
+// RouteChange is one APPLIED change of a device's approved routes (P4-T12 §2.2): what route.approved / route.revoked
+// report. A change that left the approved set as it was is not notified.
+type RouteChange struct {
+	DeviceID   uuid.UUID
+	DeviceName string
+	Prefixes   []string // the prefixes approved or revoked by this change (canonical; the exit node as both families)
+	ExitNode   bool     // the change approves or revokes the exit node
+	Untagged   bool     // the device is not a tagged node (T-08: routers are tagged by convention)
+	Actor      string   // who made the change (direct change); "" when unknown
+	// ApprovalID: the tenant approval request (routes.four_eyes) whose execution applied it — the ref is then the
+	// approval, so an execution that runs again never notifies twice.
+	ApprovalID *uuid.UUID
+	// OperationID: the audit operation (route.<action>.requested) of a direct change — its ref.
+	OperationID uuid.UUID
+}
+
+// RouteApproved — T-08 "audit + thông báo": routes or an exit node were approved on a device — the Tenant Owners and
+// Admins (a security notification: not switchable), also when a second person's approval executed it.
+func RouteApproved(tenantID uuid.UUID, c RouteChange) Event {
+	return routeEvent(KindRouteApproved, tenantID, c)
+}
+
+// RouteRevoked — routes or the exit node were revoked on a device: the Tenant Owners and Admins.
+func RouteRevoked(tenantID uuid.UUID, c RouteChange) Event {
+	return routeEvent(KindRouteRevoked, tenantID, c)
+}
+
+func routeEvent(kind Kind, tenantID uuid.UUID, c RouteChange) Event {
+	ref := "route-op:" + c.OperationID.String()
+	if c.ApprovalID != nil {
+		ref = "approval:" + c.ApprovalID.String() + ":route"
+	}
+	name := textOr(c.DeviceName, c.DeviceID.String())
+	ev := Event{Kind: kind, TenantID: tenantPtr(tenantID), Ref: ref,
+		Payload: map[string]any{"device_id": c.DeviceID, "device_name": name, "prefixes": boundedList(c.Prefixes),
+			"exit_node": c.ExitNode},
+		To: Audience{Roles: []string{RoleTenantOwner, RoleTenantAdmin}}}
+	if c.Untagged {
+		ev.Payload["untagged_router"] = true
+	}
+	if s := textOr(c.Actor, ""); s != "" {
+		ev.Payload["actor"] = s
+	}
+	if c.ApprovalID != nil {
+		ev.Payload["approval_id"] = *c.ApprovalID
+	}
+	return ev
 }
 
 // PlatformTenantDeletionRequested — platform notification of the same request: Super Admins and Platform Operators

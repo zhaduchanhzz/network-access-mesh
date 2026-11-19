@@ -423,12 +423,16 @@ describe("notifications", () => {
     expect(await screen.findByTestId("notification")).toHaveTextContent("Device laptop-1 expires at");
   });
 
-  it("follow-up P4-T06: quyết định về yêu cầu enrollment có câu riêng, không dẫn tới thiết bị", async () => {
+  it("follow-up P4-T06/P4-T12: quyết định enrollment và duyệt/gỡ route có câu riêng; route dẫn tới thiết bị", async () => {
+    const N3 = "0190a400-0000-7000-8000-000000000003";
+    const N4 = "0190a400-0000-7000-8000-000000000004";
     mockApi(
       routes("tenant_owner", {
         [`GET ${base}/notifications`]: list([
           notification(N1, { kind: "enrollment.approved", payload: { request_id: JOB_1, method: "web_auth", device_label: "phone-1", expires_at: "2026-11-20T08:00:00Z" } }),
           notification(N2, { kind: "enrollment.rejected", payload: { request_id: JOB_1, method: "preauth_key" } }),
+          notification(N3, { kind: "route.approved", payload: { device_id: DEV_1, device_name: "router-1", prefixes: "0.0.0.0/0, ::/0", exit_node: true } }),
+          notification(N4, { kind: "route.revoked", payload: { device_id: DEV_1, device_name: "router-1", prefixes: "10.0.0.0/24", exit_node: false } }),
         ]),
       }),
     );
@@ -436,7 +440,10 @@ describe("notifications", () => {
     const rows = await screen.findAllByTestId("notification");
     expect(rows[0]).toHaveTextContent("Yêu cầu thêm thiết bị của bạn (phone-1) đã được duyệt — bấm Bắt đầu trước");
     expect(rows[1]).toHaveTextContent("Yêu cầu thêm thiết bị của bạn (—) đã bị từ chối.");
+    expect(rows[2]).toHaveTextContent("Route 0.0.0.0/0, ::/0 đã được duyệt trên thiết bị router-1.");
+    expect(rows[3]).toHaveTextContent("Route 10.0.0.0/24 đã bị gỡ duyệt trên thiết bị router-1.");
     expect(within(rows[0]!).queryByRole("link", { name: "Xem thiết bị" })).toBeNull();
-    expect(within(rows[1]!).queryByRole("link", { name: "Xem thiết bị" })).toBeNull();
+    expect(within(rows[2]!).getByRole("link", { name: "Xem thiết bị" })).toHaveAttribute("href", `/t/${TENANT_A}/devices/${DEV_1}`);
+    expect(within(rows[3]!).getByRole("link", { name: "Xem thiết bị" })).toHaveAttribute("href", `/t/${TENANT_A}/devices/${DEV_1}`);
   });
 });

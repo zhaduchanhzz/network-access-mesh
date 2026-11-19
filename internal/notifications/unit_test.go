@@ -3,6 +3,7 @@ package notifications
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"mime"
 	"mime/quotedprintable"
@@ -54,6 +55,9 @@ func samples() []Event {
 		PlatformTenantDeletionRequested(tA, "tenant-a", "Alice", when),
 		EnrollmentApproved(tA, idX, owner, "web_auth", "laptop-1", "Alice", when),
 		EnrollmentRejected(tA, idX, owner, "preauth_key", "", ""),
+		RouteApproved(tA, RouteChange{DeviceID: idX, DeviceName: "router-1", Prefixes: []string{"0.0.0.0/0", "::/0"},
+			ExitNode: true, Untagged: true, Actor: "Alice", OperationID: idX}),
+		RouteRevoked(tA, RouteChange{DeviceID: idX, DeviceName: "router-1", Prefixes: []string{"10.0.0.0/24"}, OperationID: idX}),
 	}
 }
 
@@ -103,6 +107,10 @@ func TestRecipientRules(t *testing.T) {
 		{InstanceReleased(idX, "acme", idX, OutcomeRefused), Audience{PlatformRoles: []string{RoleSuperAdmin, RolePlatformOperator}}},
 		{EnrollmentApproved(tA, idX, owner, "web_auth", "", "", when), Audience{Members: []uuid.UUID{owner}}},
 		{EnrollmentRejected(tA, idX, owner, "web_auth", "", ""), Audience{Members: []uuid.UUID{owner}}},
+		{RouteApproved(tA, RouteChange{DeviceID: idX, DeviceName: "r", Prefixes: []string{"10.0.0.0/24"}}),
+			Audience{Roles: []string{RoleTenantOwner, RoleTenantAdmin}}},
+		{RouteRevoked(tA, RouteChange{DeviceID: idX, DeviceName: "r", Prefixes: []string{"10.0.0.0/24"}}),
+			Audience{Roles: []string{RoleTenantOwner, RoleTenantAdmin}}},
 	}
 	for _, c := range cases {
 		a := c.ev.To
@@ -113,10 +121,11 @@ func TestRecipientRules(t *testing.T) {
 	}
 }
 
-// TestEnrollmentPayloads: the follow-up kinds of P4-T06 — one ref per decision, and a display name or a device label
-// that the no-secret rule refuses is dropped instead of failing the event.
-func TestEnrollmentPayloads(t *testing.T) {
-	req := uuid.New()
+// TestEnrollmentAndRoutePayloads: the follow-up kinds of P4-T06/P4-T12 — one ref per decision / applied change (an
+// approval's execution keyed by the approval), prefixes bounded in one text field whatever their number, and a display
+// or device name that the no-secret rule refuses is dropped (or replaced) instead of failing the event.
+func TestEnrollmentAndRoutePayloads(t *testing.T) {
+	req, op, appr := uuid.New(), uuid.New(), uuid.New()
 	member := uuid.New()
 	if a, r := EnrollmentApproved(tA, req, member, "web_auth", "", "", when), EnrollmentRejected(tA, req, member, "web_auth", "", ""); a.Ref == r.Ref ||
 		a.Ref != "enrollment:"+req.String()+":approved" {
@@ -126,6 +135,29 @@ func TestEnrollmentPayloads(t *testing.T) {
 	p, err := ev.validate()
 	if err != nil || p["decided_by"] != nil || p["device_label"] != nil || p["expires_at"] != when.Format(time.RFC3339) {
 		t.Fatalf("enrollment payload %v %v", p, err)
+	}
+	if d := RouteApproved(tA, RouteChange{DeviceID: idX, DeviceName: "r", Prefixes: []string{"10.0.0.0/24"}, OperationID: op}); d.Ref != "route-op:"+op.String() {
+		t.Fatalf("direct ref %q", d.Ref)
+	}
+	if d := RouteApproved(tA, RouteChange{DeviceID: idX, DeviceName: "r", Prefixes: []string{"10.0.0.0/24"}, OperationID: op,
+		ApprovalID: &appr}); d.Ref != "approval:"+appr.String()+":route" || d.Payload["approval_id"] != appr {
+		t.Fatalf("approval ref %q %v", d.Ref, d.Payload)
+	}
+	many := make([]string, 64)
+	for i := range many {
+		many[i] = fmt.Sprintf("fd00:%x:%x::/64", i, i*7)
+	}
+	ev = RouteApproved(tA, RouteChange{DeviceID: idX, DeviceName: "bad\nname", Prefixes: many, Actor: "a\x00b", OperationID: op})
+	if p, err = ev.validate(); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := p["prefixes"].(string)
+	if len(s) > maxText || !strings.HasPrefix(s, "fd00:0:0::/64, fd00:1:7::/64") || !strings.HasSuffix(s, ")") ||
+		!strings.Contains(s, " (+") || p["device_name"] != idX.String() || p["actor"] != nil || p["exit_node"] != false {
+		t.Fatalf("route payload %v", p)
+	}
+	if got := boundedList([]string{"10.0.0.0/24", "::/0"}); got != "10.0.0.0/24, ::/0" {
+		t.Fatalf("boundedList %q", got)
 	}
 }
 

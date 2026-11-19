@@ -1612,7 +1612,8 @@ export interface paths {
          *     `202` + yêu cầu phê duyệt phạm vi tenant `tenant.route.approve` (payload = prefix thêm, tập đã duyệt sau khi thêm,
          *     `If-Match`; người gọi phải step-up) — người thứ hai có `tenant.approval:decide` và `tenant.route:approve` duyệt ở
          *     `Location`; Headscale chỉ được gọi khi đó, và chỉ khi tập đã duyệt vẫn mang đúng ETag đã duyệt. Audit cặp
-         *     `route.approve`.
+         *     `route.approve`; tập đã duyệt thực sự đổi ⇒ thông báo `route.approved` cho Tenant Owner/Admin trong cùng
+         *     transaction (T-08), cả khi thực thi qua phê duyệt — mỗi thay đổi (mỗi yêu cầu phê duyệt) một lần.
          */
         post: operations["approveTenantRoutes"];
         delete?: never;
@@ -1634,7 +1635,8 @@ export interface paths {
          * Gỡ duyệt route của một thiết bị (đọc–sửa–ghi có kiểm)
          * @description Như `approve` (khóa hàng, đọc trực tiếp từ Headscale, `If-Match` bắt buộc — `428`/`412`, đọc lại sau
          *     `SetApprovedRoutes`) với tập mới = tập hiện tại trừ `prefixes`; prefix chưa được duyệt ⇒ `422`; exit node gỡ cả
-         *     hai họ địa chỉ. Gỡ duyệt thu hẹp truy cập nên không cần người thứ hai. Audit cặp `route.revoke`.
+         *     hai họ địa chỉ. Gỡ duyệt thu hẹp truy cập nên không cần người thứ hai. Audit cặp `route.revoke`; thông báo
+         *     `route.revoked` cho Tenant Owner/Admin.
          */
         post: operations["revokeTenantRoutes"];
         delete?: never;

@@ -73,13 +73,17 @@ func New(svc Service, appr Approvals) *Handlers {
 	return &Handlers{svc: svc, appr: appr, actor: callerOf}
 }
 
-// caller is the identity of a write and the auth time of its session (the step-up of an approval request).
+// caller is the identity of a write, how the notifications name it and the auth time of its session (the step-up of
+// an approval request).
 type caller struct {
 	identityID uuid.UUID
+	display    string
 	authTime   time.Time
 }
 
-func (c caller) actor() network.Actor { return network.Actor{IdentityID: c.identityID} }
+func (c caller) actor() network.Actor {
+	return network.Actor{IdentityID: c.identityID, Display: c.display}
+}
 
 var errNoSession = errors.New("networkapi: no session or decision in the request context (hooks missing)")
 
@@ -89,7 +93,11 @@ func callerOf(ctx context.Context) (caller, error) {
 	if !ok || !okd || s == nil || s.IdentityID == uuid.Nil || d.Principal.IdentityID != s.IdentityID {
 		return caller{}, problem.Internal(errNoSession)
 	}
-	return caller{identityID: s.IdentityID, authTime: s.AuthTime}, nil
+	display := s.DisplayName
+	if display == "" {
+		display = s.Email
+	}
+	return caller{identityID: s.IdentityID, display: display, authTime: s.AuthTime}, nil
 }
 
 // problemOf maps a service error to the problem of §13.1.
