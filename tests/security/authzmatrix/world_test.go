@@ -7,8 +7,11 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -23,6 +26,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/authz"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/authz/approvals"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/devices"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/devices/devicestest"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/enrollment"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/headscale"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/headscale/locator"
@@ -35,6 +39,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/deprovisionapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/devicesapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/enrollmentapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/gen"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/hostsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/idpconsoleapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/instanceopsapi"
@@ -86,8 +91,36 @@ func TestMain(m *testing.M) {
 
 // unreachableEdge is the edge admin listener the Locator hands out: nothing listens there, so a handler that calls
 // Headscale for an own object answers 503 instance_unavailable — and an answer of 404 for any other object proves the
-// object was refused BEFORE any Headscale call.
+// object was refused BEFORE any Headscale call. The enrollment module alone reaches a fake Headscale per tenant behind a
+// reachable fake edge (newEnrollmentEdge): a privileged key is really issued for the roles that hold
+// issue_privileged (A6), and the fakes count every call, so "refused before Headscale" is checked there by counting.
 const unreachableEdge = "http://127.0.0.1:1"
+
+// newEnrollmentEdge starts the edge admin listener of the enrollment module: one fake Headscale 0.29.7 per tenant
+// (devicestest — the wire format the real adapter speaks), reached through the production Locator and adapter exactly
+// like the unreachable edge above, routed by the instance header as the edge routes it. Each fake accepts the edge
+// token of the matrix and — once createObjects planted it — the API key canary of its tenant only.
+func (m *matrixWorld) newEnrollmentEdge(t *testing.T, w *sessionfixture.World) string {
+	t.Helper()
+	m.hs = map[string]*devicestest.Fake{}
+	bySlug := map[string]*devicestest.Fake{}
+	for _, ten := range []*sessionfixture.Tenant{w.A, w.B} {
+		f := devicestest.New(t, ten.Slug)
+		f.EdgeToken = m.edgeToken
+		f.APIKey = "" // set by createObjects to the tenant's API key canary: until then every call is refused 401
+		m.hs[ten.Name], bySlug[ten.Slug] = f, f
+	}
+	edge := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		f, ok := bySlug[r.Header.Get(headscale.HeaderInstance)]
+		if !ok {
+			rw.WriteHeader(http.StatusNotFound) // the edge knows no such instance
+			return
+		}
+		f.Server.Config.Handler.ServeHTTP(rw, r)
+	}))
+	t.Cleanup(edge.Close)
+	return edge.URL
+}
 
 // handlerSets are the production handler sets of the composed API under test — every set that exists on main, wired
 // as the api process wires them (P2-T16): Tenants (P2-T11, tenantsapi over internal/tenants + internal/platform),
@@ -222,7 +255,14 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 	}
 	registry, jobsH, relayH := tenantsapi.New(dir, platform.New(w.Store)), jobsapi.New(jobs.NewService(w.Store)), relayapi.New(relays)
 	inbox := notificationsapi.New(notifications.NewReader(w.Store))
-	enr, err := enrollment.New(w.Store, enrollment.Config{Registry: reg, Tags: policies.RequireTags, Logger: log,
+	// P4-T06 (A6): the enrollment module reaches its tenants' fake Headscale through the production Locator and adapter
+	enrLoc, err := locator.New(dir, m.sec, locator.Options{AdminURL: m.newEnrollmentEdge(t, w), EdgeTokenFile: tokenFile,
+		Timeout: 2 * time.Second, Logger: log})
+	if err != nil {
+		t.Fatal(err)
+	}
+	enrReg := headscale.NewRegistry(enrLoc, headscale.Options{Logger: log, Retry: headscale.RetryPolicy{Attempts: 1}})
+	enr, err := enrollment.New(w.Store, enrollment.Config{Registry: enrReg, Tags: policies.RequireTags, Logger: log,
 		ClaimsPerMinute: 1000})
 	if err != nil {
 		t.Fatal(err)
@@ -265,8 +305,8 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 		Tags: tagsapi.New(tagSvc, devicesapi.New(dev)),
 		// Members (P4-T09): membership writes under authz.GuardMembershipChange, groups (no worker: jobs stay queued)
 		Members: membersapi.New(mem, appr),
-		// Enrollment (P4-T06): requests, approval, privileged keys (Headscale behind the unreachable edge), claim,
-		// instructions — the authorizer answers "may approve"
+		// Enrollment (P4-T06): requests, approval, privileged keys (the tenant's fake Headscale behind the enrollment
+		// edge), claim, instructions — the authorizer answers "may approve"
 		Enrollment: enrollmentapi.New(enr, authz.New(w.Store)),
 		// Admin (P4-T03a): platform users, settings, IdPs, plans, PATCH of a tenant; the tenant's settings, IdP and
 		// deletion request — with the approval actions of P4-T03a in the registry above
@@ -394,6 +434,11 @@ type matrixWorld struct {
 	sec       *secrets.Store // the SecretStore of the api process (throwaway kek-app keyring)
 	edgeToken string         // the edge admin token the Locator reads from its file (a canary too)
 	svcLog    *syncBuffer    // log of the services behind the handlers: devices, Locator, Headscale adapter (scanned)
+	// hs is the fake Headscale of each tenant ("A", "B") the enrollment module reaches (newEnrollmentEdge).
+	hs map[string]*devicestest.Fake
+	// selfEnroll is the tenant setting enrollment.self_enroll of each tenant: on in A, off in B — the End User's
+	// conditional grant of tenant.enrollment:request is tried both ways (A6).
+	selfEnroll map[string]bool
 }
 
 // syncBuffer collects the log lines written by concurrent requests.
@@ -437,7 +482,8 @@ func newSecretStore(t *testing.T, w *sessionfixture.World) *secrets.Store {
 
 func newMatrixWorld(t *testing.T) *matrixWorld {
 	t.Helper()
-	m := &matrixWorld{rec: &recorder{recs: map[string]decisionRecord{}}, svcLog: &syncBuffer{}, edgeToken: randomHex(20)}
+	m := &matrixWorld{rec: &recorder{recs: map[string]decisionRecord{}}, svcLog: &syncBuffer{}, edgeToken: randomHex(20),
+		selfEnroll: map[string]bool{"A": true, "B": false}}
 	m.World = sessionfixture.New(t, sessionfixture.Options{MaxConns: 8, Mount: func(w *sessionfixture.World) sessionfixture.Mount {
 		logger, err := audit.New(w.Store, storetest.Require(t).OpenAuditWriter(t, w.DB), audit.Config{})
 		if err != nil {
@@ -490,8 +536,12 @@ func (m *matrixWorld) createObjects(t *testing.T) objects {
 	for i, ten := range []*sessionfixture.Tenant{m.A, m.B} {
 		apiKey := secrets.TenantRef(ten.ID, "headscale-api-key", 1)
 		clientSecret := secrets.TenantRef(ten.ID, "idp-client-secret."+ten.IdP.String(), 1) // the IdP's own name (G2 F3)
+
+		// the shape of a Headscale API key; the tenant's fake Headscale (enrollment) accepts its own key only
+		apiKeyValue := "hskey-api-" + randomHex(6) + "-" + randomHex(24)
+		m.hs[ten.Name].APIKey = apiKeyValue
 		for ref, value := range map[secrets.Ref]string{
-			apiKey:       "hskey-api-" + randomHex(6) + "-" + randomHex(24), // the shape of a Headscale API key
+			apiKey:       apiKeyValue,
 			clientSecret: "mg-canary-client-secret-" + randomHex(16),
 		} {
 			if err := sec.Put(t.Context(), ref, []byte(value)); err != nil {
@@ -579,17 +629,15 @@ func (m *matrixWorld) createObjects(t *testing.T) objects {
 			o.notifOwn[a.MembershipID] = notify(a.MembershipID)
 		}
 		o.notifOther[ten.Name] = notify(m.NewActor(t, authz.RoleTenantViewer, ten).MembershipID)
-		// P4-T06: a live subscription (quota of enrollment), self-enrolment allowed (the End User's conditional grant),
-		// a request waiting for approval of the End User and one of the non-actor member
+		// P4-T06: a live subscription (quota of enrollment), self-enrolment allowed in A and not in B (the End User's
+		// conditional grant, both ways — A6), a request waiting for approval of the End User and one of the non-actor
+		// member (the objects of the reads and of the probes from outside; a write on an own request gets a request of its
+		// own — enrollmentObject)
 		m.Exec(t, `INSERT INTO subscriptions (tenant_id, plan_id) SELECT $1, id FROM subscription_plans WHERE key = 'standard'`, ten.ID)
 		m.Exec(t, `UPDATE tenants SET settings = jsonb_set(COALESCE(settings, '{}'::jsonb), '{enrollment}',
-			'{"self_enroll": true}'::jsonb, true) WHERE id = $1`, ten.ID)
+			jsonb_build_object('self_enroll', $2::boolean), true) WHERE id = $1`, ten.ID, m.selfEnroll[ten.Name])
 		for dst, member := range map[*map[string]uuid.UUID]uuid.UUID{&o.enrEU: eu.MembershipID, &o.enrOther: target} {
-			id := uuid.Must(uuid.NewV7())
-			(*dst)[ten.Name] = id
-			m.Exec(t, `INSERT INTO enrollment_requests (id, tenant_id, instance_id, requested_by_membership_id, method,
-					target_membership_id, status) VALUES ($1, $2, $3, $4, 'web_auth', $4, 'pending_approval')`,
-				id, ten.ID, inst, member)
+			(*dst)[ten.Name] = m.insertEnrollment(t, ten, inst, member, enrollment.StatusPendingApproval)
 		}
 	}
 	m.Exec(t, `INSERT INTO approval_requests (id, scope, action, resource_type, resource_id, payload, payload_sha256,
@@ -619,4 +667,132 @@ func (m *matrixWorld) createObjects(t *testing.T) objects {
 	}
 	o.platformGrant = grant(m.A.ID)
 	return o
+}
+
+// insertEnrollment inserts a web-auth request of member in tenant ten with status pending_approval or approved (decided
+// by the tenant's Tenant Admin — never the requester).
+func (m *matrixWorld) insertEnrollment(t *testing.T, ten *sessionfixture.Tenant, inst, member uuid.UUID, status string) uuid.UUID {
+	t.Helper()
+	id := uuid.Must(uuid.NewV7())
+	var approver *uuid.UUID
+	if status == enrollment.StatusApproved {
+		approver = &m.Actor(t, authz.RoleTenantAdmin, ten).MembershipID
+	}
+	m.Exec(t, `INSERT INTO enrollment_requests (id, tenant_id, instance_id, requested_by_membership_id, method,
+			target_membership_id, status, approver_membership_id, approved_at)
+		VALUES ($1, $2, $3, $4, 'web_auth', $4, $5, $6, CASE WHEN $6::uuid IS NULL THEN NULL ELSE now() END)`,
+		id, ten.ID, inst, member, status, approver)
+	return id
+}
+
+// enrollmentWrites are the writes on one enrollment request and the status the request they act on starts in: a
+// decision needs a request waiting for one, /start an approved request (§7.4).
+var enrollmentWrites = map[string]string{
+	"approveEnrollmentRequest": enrollment.StatusPendingApproval,
+	"rejectEnrollmentRequest":  enrollment.StatusPendingApproval,
+	"revokeEnrollmentRequest":  enrollment.StatusPendingApproval,
+	"startEnrollmentRequest":   enrollment.StatusApproved,
+}
+
+// enrollmentObject gives a write on an own enrollment request (the End User's, or the non-actor member's, in the
+// tenant of the path) a request of its own (A6): the callers of the matrix run in parallel, and on one shared request
+// the first decision would change the answer of every later one (200, then 409), so the recipes could only accept "any
+// non-refusal". With one request per call every granted answer is exact, and the request's status after the run says
+// what the write did (checkEnrollmentObjects). Anything else — a probe from outside, a missing object — keeps the
+// shared objects of createObjects.
+func (m *matrix) enrollmentObject(t *testing.T, c *call, owner *sessionfixture.Tenant) (uuid.UUID, string, bool) {
+	t.Helper()
+	status, write := enrollmentWrites[c.op.ID]
+	if !write || owner == nil || c.actor.kind == kindCrossSite || (c.objectCase != "eu-own" && c.objectCase != "other-member") {
+		return uuid.Nil, "", false
+	}
+	member := m.obj.target[owner.Name]
+	if c.objectCase == "eu-own" {
+		member = m.Actor(t, authz.RoleEndUser, owner).MembershipID
+	}
+	return m.insertEnrollment(t, owner, m.obj.instance[owner.Name], member, status), status, true
+}
+
+// checkEnrollmentObjects — the request of its own each enrollment write acted on (enrollmentObject) ends where the
+// expected answer says: moved by a granted write (approved, rejected, revoked, awaiting_device after /start), untouched
+// by every refusal — authorization, layer 2 or the service (409, 403 self_enroll_disabled).
+func (m *matrix) checkEnrollmentObjects(t *testing.T) {
+	t.Helper()
+	var checked, moved int
+	for _, c := range m.calls {
+		if c.enrollment == uuid.Nil {
+			continue
+		}
+		want := c.enrollmentBefore
+		if c.exp.status/100 == 2 && c.exp.after != "" {
+			want = c.exp.after
+			moved++
+		}
+		var got string
+		m.Scan(t, `SELECT status FROM enrollment_requests WHERE id = $1`, []any{c.enrollment}, &got)
+		checked++
+		if got != want {
+			t.Errorf("%s (HTTP %d): its enrollment request is %s, want %s", c, c.rec.Code, got, want)
+		}
+	}
+	t.Logf("enrollment writes: %d requests of their own checked, %d moved by a granted write", checked, moved)
+}
+
+// checkEnrollmentHeadscale — the fake Headscale of each tenant saw exactly the privileged keys granted callers issued
+// in that tenant (createEnrollmentKey, 201) and nothing else: no claim, no revocation and no other operation reached
+// it, so every refusal — another tenant, a role without issue_privileged, a claim without a pending request, the
+// condition self_enroll — happened before Headscale. Each issued key is the one the 201 answer showed once: tag-only
+// (the requested tag), single-use, at most 15 minutes. It returns the number of keys issued.
+func (m *matrix) checkEnrollmentHeadscale(t *testing.T) int {
+	t.Helper()
+	total := 0
+	for _, ten := range []*sessionfixture.Tenant{m.A, m.B} {
+		f := m.hs[ten.Name]
+		want, shown := 0, map[string]bool{}
+		for _, c := range m.calls {
+			if c.op.ID != "createEnrollmentKey" || c.pathTenant != ten.ID || c.exp.status != http.StatusCreated {
+				continue
+			}
+			want++
+			if k := issuedKey(c); k != "" {
+				shown[k] = true
+			}
+		}
+		keys := f.Keys()
+		total += len(keys)
+		if got := f.Calls(devicestest.OpCreatePreAuthKey); got != want || len(keys) != want || len(shown) != want {
+			t.Errorf("tenant %s: %d CreatePreAuthKey calls, %d keys at Headscale, %d distinct keys shown in 201 answers — "+
+				"want %d (one per granted createEnrollmentKey)", ten.Name, got, len(keys), len(shown), want)
+		}
+		for _, k := range keys {
+			full := f.FullKey(k.ID)
+			if !shown[full] || k.UserID != 0 || !reflect.DeepEqual(k.Tags, []string{"tag:server"}) || k.Reusable ||
+				k.Expiration.After(time.Now().Add(enrollment.MaxKeyTTL)) {
+				t.Errorf("tenant %s: key %d (user %d, tags %v, reusable %v, expires %s; shown in its answer: %v) is not the "+
+					"single-use tag:server key of ≤ 15 minutes a granted call was shown", ten.Name, k.ID, k.UserID, k.Tags,
+					k.Reusable, k.Expiration, shown[full])
+			}
+		}
+		for _, op := range []string{devicestest.OpAuthRegister, devicestest.OpExpirePreAuthKey, devicestest.OpListPreAuthKeys,
+			devicestest.OpCreateUser, devicestest.OpListUsers, devicestest.OpListNodes, devicestest.OpGetNode,
+			devicestest.OpRenameNode, devicestest.OpExpireNode, devicestest.OpSetTags, devicestest.OpDeleteNode} {
+			if n := f.Calls(op); n != 0 {
+				t.Errorf("tenant %s: %d %s call(s) reached Headscale, want none", ten.Name, n, op)
+			}
+		}
+		t.Logf("tenant %s: %d privileged keys issued at the fake Headscale, each shown once", ten.Name, len(keys))
+	}
+	return total
+}
+
+// issuedKey is the pre-auth key a 201 answer of createEnrollmentKey shows once ("" otherwise).
+func issuedKey(c *call) string {
+	if c.op.ID != "createEnrollmentKey" || c.rec == nil || c.rec.Code != http.StatusCreated {
+		return ""
+	}
+	var out gen.EnrollmentIssue
+	if json.Unmarshal(c.rec.Body.Bytes(), &out) != nil || out.Credential == nil || out.Credential.PreauthKey == nil {
+		return ""
+	}
+	return *out.Credential.PreauthKey
 }

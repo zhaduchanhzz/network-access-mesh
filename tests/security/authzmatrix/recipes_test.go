@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/zhaduchanhzz/network-access-mesh/internal/authz"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/enrollment"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/gen"
 )
 
@@ -17,6 +19,17 @@ import (
 type answer struct {
 	status int
 	code   gen.ProblemCode
+}
+
+// outcome is an answer with what else the matrix checks about it.
+type outcome struct {
+	answer
+	// reason is the stable reason of a refusal by the handler ("" ⇒ not checked): Problem.errors[0].code of a 409,
+	// the reason of the denied audit event of a 403.
+	reason string
+	// after is the status the call's own enrollment request has after a success (checkEnrollmentObjects); a refusal
+	// leaves it as it was.
+	after string
 }
 
 // recipe of one operation.
@@ -35,6 +48,11 @@ type recipe struct {
 	// refusal (401/403/404), not 500/501 — for the device writes, whose answer depends on the order of the parallel
 	// requests on the same device (202, 409 revocation in progress) or on Headscale (unreachable here ⇒ 503).
 	ok answer
+	// after is outcome.after of ok (an enrollment write on its own request).
+	after string
+	// okOf is the outcome when it depends on the caller — its role, its tenant's settings, which object it acts on;
+	// wins over ok and after.
+	okOf func(m *matrix, c *call) outcome
 	// public is the handler's answer to everyone for a public operation (authorization lets every caller through).
 	public answer
 }
@@ -291,21 +309,48 @@ var recipes = map[string]recipe{
 	"updateTenantResource": {body: `{"description":"matrix"}`,
 		ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
 	"deleteTenantResource": {ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
-	// enrollment (P4-T06, enrollmentapi — mounted; the matrix's tenants allow self-enrolment, so the End User's
-	// conditional grant passes and the handler enforces the condition): a web-auth request is issued without Headscale
-	// (201); a privileged key reaches Headscale behind the unreachable edge (503); a claim without a request pending in
-	// the caller's session answers 409; the writes on the requests race on the same objects (approve, reject, start —
-	// 409 for every caller but the requester —, revoke) — any answer that is not a refusal
-	"listEnrollmentRequests":    {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
-	"getEnrollmentRequest":      {ok: answer{status: http.StatusOK}},
-	"createEnrollmentRequest":   {idempotent: true, body: `{"method":"web_auth"}`, ok: answer{status: http.StatusCreated}},
-	"createEnrollmentKey":       {idempotent: true, body: `{"tags":["tag:server"]}`},
-	"approveEnrollmentRequest":  {},
-	"rejectEnrollmentRequest":   {},
-	"startEnrollmentRequest":    {},
-	"revokeEnrollmentRequest":   {},
-	"claimEnrollmentWebAuth":    {body: `{"auth_id":"hskey-authreq-` + strings.Repeat("matrix", 4) + `"}`, ok: answer{http.StatusConflict, gen.ProblemCodeConflict}},
+	// enrollment (P4-T06, enrollmentapi — mounted). Tenant A allows self-enrolment and tenant B does not (world_test.go):
+	// the End User's conditional grant of tenant.enrollment:request passes layer 1 in both, and the handler enforces the
+	// condition — 403 self_enroll_disabled in B, audited as a denial (A6). Every granted answer is exact (A6): a web-auth
+	// request is issued without Headscale (201); a privileged key is issued by the tenant's fake Headscale behind the
+	// enrollment edge (201 — checkEnrollmentHeadscale); a claim without a request pending in the caller's session answers
+	// 409 no_pending_request before Headscale; each write on an own request acts on a request of its own
+	// (enrollmentObject — no race between the parallel callers): approve, reject and revoke answer 200 and move it,
+	// /start answers 200 only to the requester of an approved request and 409 not_requester to everyone else.
+	"listEnrollmentRequests": {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
+	"getEnrollmentRequest":   {ok: answer{status: http.StatusOK}},
+	"createEnrollmentRequest": {idempotent: true, body: `{"method":"web_auth"}`,
+		okOf: selfEnrolled(outcome{answer: answer{status: http.StatusCreated}})},
+	"createEnrollmentKey":      {idempotent: true, body: `{"tags":["tag:server"]}`, ok: answer{status: http.StatusCreated}},
+	"approveEnrollmentRequest": {ok: answer{status: http.StatusOK}, after: enrollment.StatusApproved},
+	"rejectEnrollmentRequest":  {ok: answer{status: http.StatusOK}, after: enrollment.StatusRejected},
+	"startEnrollmentRequest":   {okOf: startOutcome},
+	"revokeEnrollmentRequest":  {ok: answer{status: http.StatusOK}, after: enrollment.StatusRevoked},
+	"claimEnrollmentWebAuth": {body: `{"auth_id":"hskey-authreq-` + strings.Repeat("matrix", 4) + `"}`,
+		okOf: selfEnrolled(outcome{answer: answer{http.StatusConflict, gen.ProblemCodeConflict}, reason: "no_pending_request"})},
 	"getEnrollmentInstructions": {query: func(*call) string { return "os=linux" }, ok: answer{status: http.StatusOK}},
+}
+
+// selfEnrolled is the outcome of a granted tenant.enrollment:request operation: o, unless the caller holds the grant
+// only under the condition self_enroll (End User — §8.6) and its tenant does not allow self-enrolment.
+func selfEnrolled(o outcome) func(m *matrix, c *call) outcome {
+	return func(m *matrix, c *call) outcome {
+		if cellOf(c.op.Permission, c.actor.role) == condSelfEnroll && !m.selfEnroll[c.actor.tenantName()] {
+			return outcome{answer: answer{http.StatusForbidden, gen.ProblemCodeForbidden}, reason: "self_enroll_disabled"}
+		}
+		return o
+	}
+}
+
+// startOutcome is the outcome of a granted /start on the call's own approved request (enrollmentObject): the code of
+// the request for its requester — the End User on its own request, when its tenant allows self-enrolment — and 409
+// not_requester for everyone else, the End User of a tenant without self-enrolment included (the service checks the
+// requester before the condition).
+func startOutcome(m *matrix, c *call) outcome {
+	if c.objectCase != "eu-own" || c.actor.role != authz.RoleEndUser {
+		return outcome{answer: answer{http.StatusConflict, gen.ProblemCodeConflict}, reason: "not_requester"}
+	}
+	return selfEnrolled(outcome{answer: answer{status: http.StatusOK}, after: enrollment.StatusAwaitingDevice})(m, c)
 }
 
 // objectKind is what a path parameter (other than the {tenantId} context of a tenant route) designates.
