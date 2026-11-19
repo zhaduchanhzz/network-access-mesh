@@ -123,6 +123,15 @@ WHERE tenant_id = sqlc.arg(tenant_id) AND instance_id = sqlc.arg(instance_id) AN
   AND consumed_node_id = sqlc.arg(node_id) AND registered_machine_key = sqlc.arg(machine_key)
   AND updated_at >= sqlc.arg(node_created_at)::timestamptz - interval '1 second';
 
+-- name: ListMemberWebAuthClaims :many
+-- Claim khi câu trả lời của AuthRegister bị mất (§13.4 quy tắc 3 — đọc lại, không gửi lại): các yêu cầu web-auth KHÁC
+-- của cùng thành viên trên instance đã claim (claimed/registered: thiết bị của nó tên mg-<mã của nó>) hoặc đã có node
+-- (registered/verified: consumed_node_id) — node của chúng không phải node mà claim này có thể đã tạo.
+SELECT id, status, enroll_code_hash, consumed_node_id FROM enrollment_requests
+WHERE tenant_id = sqlc.arg(tenant_id) AND instance_id = sqlc.arg(instance_id) AND method = 'web_auth'
+  AND requested_by_membership_id = sqlc.arg(member) AND id <> sqlc.arg(id)
+  AND status IN ('claimed', 'registered', 'verified');
+
 -- name: LockLiveDeviceOfNode :one
 SELECT * FROM device_inventory_cache
 WHERE tenant_id = sqlc.arg(tenant_id) AND instance_id = sqlc.arg(instance_id)

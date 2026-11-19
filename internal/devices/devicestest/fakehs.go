@@ -92,6 +92,8 @@ type Fake struct {
 	pending  map[string]Node
 	nextID   uint64
 	fullKeys map[uint64]string
+	// lose: op → the call is applied, then its answer is lost (bare 504 from the edge — LoseAnswer)
+	lose map[string]bool
 }
 
 // Operation names used by Refuse, Ignore and Calls.
@@ -122,7 +124,7 @@ func New(t testing.TB, slug string) *Fake {
 		nodes:  map[uint64]*Node{}, users: map[uint64]string{}, keys: map[uint64]*Key{}, calls: map[string]int{}, refuse: map[string]bool{},
 		ignore: map[string]bool{}, now: time.Now, version: "v0.29.7",
 		before: map[string]func(uint64){}, after: map[string]func(uint64){}, expiries: map[uint64][]time.Time{},
-		pending: map[string]Node{}, nextID: 1000, fullKeys: map[uint64]string{}}
+		pending: map[string]Node{}, nextID: 1000, fullKeys: map[uint64]string{}, lose: map[string]bool{}}
 	f.Server = httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(f.Server.Close)
 	return f
@@ -302,6 +304,14 @@ func (f *Fake) Ignore(op string, on bool) {
 	f.ignore[op] = on
 }
 
+// LoseAnswer makes op apply as usual and then lose its answer: the edge answers a bare 504 (the instance acted, then
+// took too long or went away). For a write the adapter reports outcome unknown (§13.4 rule 3: read back).
+func (f *Fake) LoseAnswer(op string, on bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.lose[op] = on
+}
+
 // Calls returns how many times op was called (failed calls included).
 func (f *Fake) Calls(op string) int {
 	f.mu.Lock()
@@ -373,6 +383,13 @@ func (f *Fake) serve(w http.ResponseWriter, r *http.Request) {
 	f.answer(rec, r, body)
 	if fn := f.hook(f.after, op); fn != nil {
 		fn(id)
+	}
+	f.mu.Lock()
+	lost := f.lose[op]
+	f.mu.Unlock()
+	if lost {
+		w.WriteHeader(http.StatusGatewayTimeout)
+		return
 	}
 	for k, v := range rec.Header() {
 		w.Header()[k] = v

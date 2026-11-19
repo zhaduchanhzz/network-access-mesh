@@ -1,6 +1,7 @@
 package enrollment
 
 import (
+	"context"
 	"crypto/sha256"
 	"slices"
 	"strings"
@@ -333,8 +334,8 @@ func TestEnrollment(t *testing.T) {
 		}
 		left := uint64(*r2.NodeID) //nolint:gosec // small test ids
 		n, ok := a.hs.Node(left)
-		if !ok {
-			t.Fatal("the refused delete removed the node")
+		if !ok || n.Expiry == nil {
+			t.Fatalf("the refused delete: node %+v %v, want kept and expired", n, ok)
 		}
 		// … and it is old by the time of the next claim: neither created since that claim began nor since its request
 		n.CreatedAt = time.Now().Add(-time.Hour)
@@ -362,6 +363,116 @@ func TestEnrollment(t *testing.T) {
 			AND details->>'request_id' IN ($3, $4, $5)`, a.id, EventNodeMismatch, r.ID.String(), r2.ID.String(),
 			r3.ID.String()); k != 3 {
 			t.Fatalf("node_mismatch security events %d, want 3", k)
+		}
+	})
+
+	t.Run("ClaimRunsToItsVerdict", func(t *testing.T) {
+		// C1: once AuthRegister may have registered a node, the claim runs to its verdict whatever happens to the request
+		// or to the answer — a node is never left registered under the member without the checks of step 8.
+		admin := a.actor("admin", uuid.New())
+		ctx := ctxOf(admin, a.id, ActionClaim)
+		create := func(key string) Issue {
+			t.Helper()
+			out, err := f.api.Create(ctx, a.id, admin, NewRequest{Method: MethodWebAuth}, idem(key, key))
+			if err != nil {
+				t.Fatal(err)
+			}
+			return out
+		}
+		nodesOf := func(mkey string) []devicestest.Node {
+			var out []devicestest.Node
+			for _, n := range a.hs.Nodes() {
+				if n.MachineKey == mkey {
+					out = append(out, n)
+				}
+			}
+			return out
+		}
+		state := func(id uuid.UUID) string {
+			return f.str(t, `SELECT status || '/' || COALESCE(failure_code, '') FROM enrollment_requests WHERE id = $1`, id)
+		}
+		mismatch := StatusFailed + "/" + FailureNodeMismatch
+
+		// (1) the caller goes away while AuthRegister is in flight: the request context is cancelled once Headscale has
+		// registered the node, before its answer arrives
+		gone := create("k-c1-1")
+		auth := "hskey-authreq-" + strings.Repeat("M", 24)
+		a.hs.PutPending(auth, devicestest.Node{MachineKey: "mkey:c1-gone", Hostname: "evil-gone"})
+		cctx, cancel := context.WithCancel(ctx)
+		a.hs.After(devicestest.OpAuthRegister, func(uint64) { cancel() })
+		_, _ = f.api.Claim(cctx, a.id, admin, Claim{AuthID: auth})
+		cancel()
+		if n := nodesOf("mkey:c1-gone"); len(n) != 0 {
+			t.Errorf("caller gone: the unverified node was left registered: %+v", n)
+		}
+		if st := state(gone.Request.ID); st != mismatch {
+			t.Errorf("caller gone: request %s, want %s", st, mismatch)
+		}
+
+		// (2) the answer of AuthRegister is lost (the edge answers a bare 504 after Headscale registered the node): the
+		// claim reads back — the requester's own device, named mg-<code>, is verified …
+		mine := create("k-c1-2")
+		auth = "hskey-authreq-" + strings.Repeat("N", 24)
+		a.hs.PutPending(auth, devicestest.Node{MachineKey: "mkey:c1-mine", Hostname: "mg-" + mine.Credential.EnrollCode.Reveal()})
+		a.hs.LoseAnswer(devicestest.OpAuthRegister, true)
+		r, err := f.api.Claim(ctx, a.id, admin, Claim{AuthID: auth})
+		a.hs.LoseAnswer(devicestest.OpAuthRegister, false)
+		if n := nodesOf("mkey:c1-mine"); err != nil || r.Status != StatusVerified || len(n) != 1 || r.NodeID == nil ||
+			*r.NodeID != int64(n[0].ID) { //nolint:gosec // small test ids
+			t.Errorf("answer lost, own device: %s %v, nodes %+v", r.Status, err, n)
+		}
+		if k := f.count(t, `SELECT count(*) FROM device_inventory_cache WHERE enrollment_request_id = $1 AND removed_at IS NULL`,
+			mine.Request.ID); k != 1 {
+			t.Errorf("answer lost, own device: %d device rows", k)
+		}
+		// … and a node that is not the requester's device is deleted (node_mismatch)
+		lost := create("k-c1-3")
+		auth = "hskey-authreq-" + strings.Repeat("O", 24)
+		a.hs.PutPending(auth, devicestest.Node{MachineKey: "mkey:c1-lost", Hostname: "evil-lost"})
+		a.hs.LoseAnswer(devicestest.OpAuthRegister, true)
+		_, _ = f.api.Claim(ctx, a.id, admin, Claim{AuthID: auth})
+		a.hs.LoseAnswer(devicestest.OpAuthRegister, false)
+		if n := nodesOf("mkey:c1-lost"); len(n) != 0 {
+			t.Errorf("answer lost: the unverified node was left registered: %+v", n)
+		}
+		if st := state(lost.Request.ID); st != mismatch {
+			t.Errorf("answer lost: request %s, want %s", st, mismatch)
+		}
+
+		// (3) the corrective delete is refused: the node is expired instead, so it cannot stay connected
+		refused := create("k-c1-4")
+		auth = "hskey-authreq-" + strings.Repeat("P", 24)
+		a.hs.PutPending(auth, devicestest.Node{MachineKey: "mkey:c1-refused", Hostname: "evil-refused"})
+		a.hs.Refuse(devicestest.OpDeleteNode, true)
+		_, _ = f.api.Claim(ctx, a.id, admin, Claim{AuthID: auth})
+		a.hs.Refuse(devicestest.OpDeleteNode, false)
+		if n := nodesOf("mkey:c1-refused"); len(n) != 1 || n[0].Expiry == nil || n[0].Expiry.After(f.clk.now().Add(time.Minute)) {
+			t.Errorf("delete refused: the node was not expired: %+v", n)
+		} else {
+			a.hs.RemoveNode(n[0].ID)
+		}
+		if st := state(refused.Request.ID); st != mismatch {
+			t.Errorf("delete refused: request %s, want %s", st, mismatch)
+		}
+
+		// (4) the registered node cannot be recorded (the database refuses the write): the node this claim created is
+		// deleted, never left for inventory.sync to adopt as the member's device
+		norec := create("k-c1-5")
+		auth = "hskey-authreq-" + strings.Repeat("Q", 24)
+		a.hs.PutPending(auth, devicestest.Node{MachineKey: "mkey:c1-norecord", Hostname: "evil-norecord"})
+		f.exec(t, `CREATE FUNCTION test_refuse_write() RETURNS trigger LANGUAGE plpgsql AS $$
+			BEGIN RAISE EXCEPTION 'write refused by the test'; END $$`)
+		a.hs.After(devicestest.OpAuthRegister, func(uint64) {
+			f.exec(t, `CREATE TRIGGER test_refuse_write BEFORE UPDATE ON enrollment_requests FOR EACH ROW
+				WHEN (OLD.id = '`+norec.Request.ID.String()+`'::uuid) EXECUTE FUNCTION test_refuse_write()`)
+		})
+		if _, err := f.api.Claim(ctx, a.id, admin, Claim{AuthID: auth}); err == nil {
+			t.Error("no record: the claim succeeded")
+		}
+		f.exec(t, `DROP TRIGGER test_refuse_write ON enrollment_requests`)
+		f.exec(t, `DROP FUNCTION test_refuse_write()`)
+		if n := nodesOf("mkey:c1-norecord"); len(n) != 0 {
+			t.Errorf("no record: the unverified node was left registered: %+v", n)
 		}
 	})
 

@@ -2,10 +2,12 @@ package enrollment
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"net/netip"
+	"slices"
 	"strings"
 	"time"
 
@@ -33,9 +35,17 @@ const (
 	FailureClaimUnfinished = "claim_unfinished" // reconcile: the claim never reached a verdict
 )
 
-// clockSlack absorbs the skew between the database clock and the instance's when a node's created_at is compared with
-// the time of a request or of its claim.
-const clockSlack = time.Second
+const (
+	// clockSlack absorbs the skew between the database clock and the instance's when a node's created_at is compared
+	// with the time of a request or of its claim.
+	clockSlack = time.Second
+	// claimBudget bounds a claim from AuthRegister to its verdict (§7.4 step 8). These steps run detached from the
+	// request: once AuthRegister may have registered a node, the caller closing the tab or losing the network must not
+	// stop the checks or the corrective call half way — the node would stay registered under the member, unverified.
+	claimBudget = time.Minute
+	// correctiveBudget bounds the corrective calls on a node a claim rejects (delete, else expire).
+	correctiveBudget = 30 * time.Second
+)
 
 // Claim is POST /tenants/{t}/enrollment/web-auth/claim (§7.4 steps 6–8): the only way an Auth ID registers a node.
 func (s *Service) Claim(ctx context.Context, tenantID uuid.UUID, a Actor, in Claim) (Request, error) {
@@ -136,7 +146,10 @@ func (s *Service) securityEvent(tenantID uuid.UUID, kind, severity string, a Act
 	return audit.SecurityEvent{TenantID: &t, Kind: kind, Severity: severity, Source: securitySource, Details: d}
 }
 
-// register calls AuthRegister for a claimed request and checks the node it answers (§7.4 step 8).
+// register calls AuthRegister for a claimed request and checks the node it answers (§7.4 step 8). It runs detached
+// from the request (claimBudget). When the answer of AuthRegister is lost (outcome unknown), the node is found by
+// reading back (lostRegistration) and checked the same way; when the registered node cannot be recorded, it is not
+// left registered unverified (deleted when this claim created it, else expired).
 //
 // New or existing is decided by the node itself, never by its machine key alone: AuthRegister on a machine key that
 // already has a node of ANOTHER user creates a new node for the claiming member (V-28), so a row of that other node in
@@ -149,6 +162,8 @@ func (s *Service) securityEvent(tenantID uuid.UUID, kind, severity string, a Act
 func (s *Service) register(ctx context.Context, tenantID uuid.UUID, a Actor, r sqlcdb.EnrollmentRequest, user member,
 	tc tenantContext, authID string, op audit.Operation,
 ) (Request, error) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), claimBudget)
+	defer cancel()
 	claimedAt := r.UpdatedAt // database clock of the claimed write; AuthRegister is sent after it
 	fail := func(err error, code string) (Request, error) {
 		e := fromAdapter(err)
@@ -172,7 +187,26 @@ func (s *Service) register(ctx context.Context, tenantID uuid.UUID, a Actor, r s
 			FailureNotPending)
 	}
 	if err != nil {
-		return fail(err, "")
+		if !answerLost(err) {
+			return fail(err, "")
+		}
+		// the request reached the instance and its answer was lost: a node may have been registered (§13.4 rule 3 —
+		// a RetryNever call is reconciled by reading back, never sent again)
+		found, extra, rerr := s.lostRegistration(ctx, tenantID, inst, r, user, tc, claimedAt)
+		for _, n := range extra {
+			deleted, expired := s.removeNode(ctx, inst, n.ID)
+			s.log.ErrorContext(ctx, "enrollment: removed another unverified node registered under the member during a claim",
+				"alert", true, "request_id", r.ID, "node_id", n.ID, "deleted", deleted, "expired", expired)
+		}
+		switch {
+		case rerr != nil:
+			s.log.ErrorContext(ctx, "enrollment: the answer of AuthRegister was lost and the nodes could not be read back",
+				"alert", true, "request_id", r.ID, "error", fromAdapter(rerr).Reason)
+			return fail(err, "")
+		case found == nil: // nothing was registered since the claim began
+			return fail(err, "")
+		}
+		node = *found
 	}
 	nid := int64(node.ID) //nolint:gosec // Headscale ids are small positive integers
 	host := clip(node.Name, 255)
@@ -213,6 +247,16 @@ func (s *Service) register(ctx context.Context, tenantID uuid.UUID, a Actor, r s
 		return err
 	})
 	if err != nil {
+		// the node exists but the claim can neither record it nor decide on it: it is not left registered unverified —
+		// the node this claim created is deleted, an older node (never deleted — rule b) is expired
+		deleted, expired := false, false
+		if createdSince(node, claimedAt) {
+			deleted, expired = s.removeNode(ctx, inst, node.ID)
+		} else {
+			expired = s.expireNode(ctx, inst, node.ID)
+		}
+		s.log.ErrorContext(ctx, "enrollment: the registered node could not be recorded", "alert", true, "request_id", r.ID,
+			"node_id", node.ID, "deleted", deleted, "expired", expired, "sqlstate", store.SQLState(err))
 		return fail(fmt.Errorf("enrollment: record the registered node: %w", err), "record_failed")
 	}
 	isNew := createdSince(node, claimedAt) || own == nil && createdSince(node, r.CreatedAt)
@@ -220,22 +264,17 @@ func (s *Service) register(ctx context.Context, tenantID uuid.UUID, a Actor, r s
 	if !isNew {
 		if prior.WasMismatch {
 			// rejected before as a new node that failed the checks, and still there: it never becomes a device
-			derr := inst.DeleteNode(ctx, node.ID)
-			if errors.Is(derr, headscale.ErrNotFound) {
-				derr = nil
-			}
+			deleted, expired := s.removeNode(ctx, inst, node.ID)
 			return s.rejected(ctx, tenantID, a, r, EventNodeMismatch, FailureNodeMismatch, audit.Details{"node_id": nid,
-				"checks_failed": []string{"rejected_before"}, "deleted": derr == nil}, op)
+				"checks_failed": []string{"rejected_before"}, "deleted": deleted, "expired": expired}, op)
 		}
 		// (b) a node that existed before is never deleted: the member's own device re-authenticates; anything else is
 		// expired and left to its owner's decision
 		if ownUser && !node.IsTagged() && !prior.WasForeign && ownedBy(rows, a.MembershipID) {
 			return s.verified(ctx, tenantID, a, r, node, tc, own, false, op)
 		}
-		now := s.now().UTC()
-		_, xerr := inst.ExpireNode(ctx, node.ID, &now)
 		return s.rejected(ctx, tenantID, a, r, EventForeignNode, FailureForeignNode, audit.Details{"node_id": nid,
-			"expired": xerr == nil}, op)
+			"expired": s.expireNode(ctx, inst, node.ID)}, op)
 	}
 	// (a) a new node: name mg-<code> (the code only the requester's session received), the expected user, no tag, CLI
 	reasons := []string{}
@@ -253,12 +292,9 @@ func (s *Service) register(ctx context.Context, tenantID uuid.UUID, a Actor, r s
 		reasons = append(reasons, "register_method")
 	}
 	if len(reasons) > 0 {
-		derr := inst.DeleteNode(ctx, node.ID)
-		if errors.Is(derr, headscale.ErrNotFound) {
-			derr = nil
-		}
+		deleted, expired := s.removeNode(ctx, inst, node.ID)
 		return s.rejected(ctx, tenantID, a, r, EventNodeMismatch, FailureNodeMismatch, audit.Details{"node_id": nid,
-			"checks_failed": reasons, "deleted": derr == nil}, op)
+			"checks_failed": reasons, "deleted": deleted, "expired": expired}, op)
 	}
 	if label := r.DeviceLabel; label != nil && *label != node.GivenName {
 		if renamed, rerr := inst.RenameNode(ctx, node.ID, *label); rerr == nil {
@@ -269,6 +305,99 @@ func (s *Service) register(ctx context.Context, tenantID uuid.UUID, a Actor, r s
 		}
 	}
 	return s.verified(ctx, tenantID, a, r, node, tc, nil, true, op)
+}
+
+// answerLost reports whether an AuthRegister was sent and its answer lost (the adapter's outcome unknown: a timeout,
+// the edge's bare 502/504, a recovered panic): the node may exist.
+func answerLost(err error) bool {
+	he, ok := headscale.AsError(err)
+	return ok && he.Outcome == headscale.OutcomeUnknown
+}
+
+// lostRegistration reads the member's nodes back after an AuthRegister whose answer was lost. The candidates are the
+// member's untagged web-auth (CLI) nodes created since the claim began, except those another claim of the member
+// accounts for (its recorded node, or a device named mg-<its code> while that claim waits for its own answer). The
+// candidate named mg-<this request's code> is the requester's device and is returned. Without it, the newest candidate
+// is returned — a node this claim may have registered for whoever started the sign-in, which the checks of step 8
+// reject — and the other candidates in extra, to be removed as well.
+func (s *Service) lostRegistration(ctx context.Context, tenantID uuid.UUID, inst headscale.Instance,
+	r sqlcdb.EnrollmentRequest, user member, tc tenantContext, claimedAt time.Time,
+) (*headscale.Node, []headscale.Node, error) {
+	nodes, err := inst.ListNodes(ctx, user.user)
+	if err != nil {
+		return nil, nil, err
+	}
+	var others []sqlcdb.ListMemberWebAuthClaimsRow
+	if err := s.st.WithTenantTx(ctx, tenantID, func(q *sqlcdb.Queries) error {
+		var err error
+		others, err = q.ListMemberWebAuthClaims(ctx, sqlcdb.ListMemberWebAuthClaimsParams{TenantID: tenantID,
+			InstanceID: tc.instance, Member: r.RequestedByMembershipID, ID: r.ID})
+		return err
+	}); err != nil {
+		return nil, nil, err
+	}
+	accounted := func(n headscale.Node, hash []byte) bool {
+		for _, o := range others {
+			if o.ConsumedNodeID != nil && *o.ConsumedNodeID == int64(n.ID) || //nolint:gosec // small ids
+				hash != nil && bytes.Equal(hash, o.EnrollCodeHash) {
+				return true
+			}
+		}
+		return false
+	}
+	var strays []headscale.Node
+	for _, n := range nodes {
+		if n.IsTagged() || n.User == nil || n.User.Name != user.user || n.RegisterMethod != headscale.RegisterMethodCLI ||
+			!createdSince(n, claimedAt) {
+			continue
+		}
+		var hash []byte
+		if code, ok := strings.CutPrefix(n.Name, HostnamePrefix); ok {
+			hash = codeHash(code)
+		}
+		switch {
+		case hash != nil && bytes.Equal(hash, r.EnrollCodeHash):
+			return &n, nil, nil
+		case !accounted(n, hash):
+			strays = append(strays, n)
+		}
+	}
+	if len(strays) == 0 {
+		return nil, nil, nil
+	}
+	slices.SortFunc(strays, func(x, y headscale.Node) int {
+		if c := x.CreatedAt.Compare(y.CreatedAt); c != 0 {
+			return c
+		}
+		return cmp.Compare(x.ID, y.ID)
+	})
+	newest := strays[len(strays)-1]
+	return &newest, strays[:len(strays)-1], nil
+}
+
+// removeNode deletes a node a claim rejects as new (§7.4 step 8 a). When the delete does not go through, it expires the
+// node at least: the client then has to sign in again, which takes another claim, and a claim never accepts a node it
+// rejected before (ClaimRejectionsOfNode). Detached from the request.
+func (s *Service) removeNode(ctx context.Context, inst headscale.Instance, id uint64) (deleted, expired bool) {
+	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), correctiveBudget)
+	defer cancel()
+	err := inst.DeleteNode(cctx, id)
+	if err == nil || errors.Is(err, headscale.ErrNotFound) {
+		return true, false
+	}
+	expired = s.expireNode(cctx, inst, id)
+	s.log.ErrorContext(ctx, "enrollment: a rejected node could not be deleted", "alert", true, "node_id", id,
+		"error", fromAdapter(err).Reason, "expired", expired)
+	return false, expired
+}
+
+// expireNode expires a node now (a node a claim rejects but never deletes — rule b), detached from the request.
+func (s *Service) expireNode(ctx context.Context, inst headscale.Instance, id uint64) bool {
+	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), correctiveBudget)
+	defer cancel()
+	now := s.now().UTC()
+	_, err := inst.ExpireNode(cctx, id, &now)
+	return err == nil
 }
 
 // createdSince reports whether node n was created at or after t (within the clock slack).

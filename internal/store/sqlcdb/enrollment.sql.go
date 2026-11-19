@@ -464,6 +464,60 @@ func (q *Queries) ListEnrollmentRequestsPage(ctx context.Context, arg ListEnroll
 	return items, nil
 }
 
+const listMemberWebAuthClaims = `-- name: ListMemberWebAuthClaims :many
+SELECT id, status, enroll_code_hash, consumed_node_id FROM enrollment_requests
+WHERE tenant_id = $1 AND instance_id = $2 AND method = 'web_auth'
+  AND requested_by_membership_id = $3 AND id <> $4
+  AND status IN ('claimed', 'registered', 'verified')
+`
+
+type ListMemberWebAuthClaimsParams struct {
+	TenantID   uuid.UUID
+	InstanceID uuid.UUID
+	Member     uuid.UUID
+	ID         uuid.UUID
+}
+
+type ListMemberWebAuthClaimsRow struct {
+	ID             uuid.UUID
+	Status         string
+	EnrollCodeHash []byte
+	ConsumedNodeID *int64
+}
+
+// Claim khi câu trả lời của AuthRegister bị mất (§13.4 quy tắc 3 — đọc lại, không gửi lại): các yêu cầu web-auth KHÁC
+// của cùng thành viên trên instance đã claim (claimed/registered: thiết bị của nó tên mg-<mã của nó>) hoặc đã có node
+// (registered/verified: consumed_node_id) — node của chúng không phải node mà claim này có thể đã tạo.
+func (q *Queries) ListMemberWebAuthClaims(ctx context.Context, arg ListMemberWebAuthClaimsParams) ([]ListMemberWebAuthClaimsRow, error) {
+	rows, err := q.db.Query(ctx, listMemberWebAuthClaims,
+		arg.TenantID,
+		arg.InstanceID,
+		arg.Member,
+		arg.ID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListMemberWebAuthClaimsRow{}
+	for rows.Next() {
+		var i ListMemberWebAuthClaimsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Status,
+			&i.EnrollCodeHash,
+			&i.ConsumedNodeID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOpenEnrollmentRequests = `-- name: ListOpenEnrollmentRequests :many
 SELECT id, tenant_id, instance_id, requested_by_membership_id, method, target_membership_id, device_label, requested_tags, ephemeral, reusable, status, approver_membership_id, approved_at, issued_at, headscale_preauthkey_id, auth_id_hash, session_id_hash, enroll_code_hash, claimed_at, claimed_from_ip, registered_machine_key, reported_hostname, credential_expires_at, consumed_node_id, failure_code, created_at, updated_at, version FROM enrollment_requests
 WHERE tenant_id = $1
