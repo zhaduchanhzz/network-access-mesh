@@ -16,6 +16,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/jobs"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store/sqlcdb"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/tenants"
 )
 
 // tenantContext is what every operation reads first: the typed settings and the instance serving the tenant.
@@ -200,7 +201,8 @@ type keyPlan struct {
 
 // issueKey creates the pre-auth key of request r at Headscale (explicit expiration — V-06) and records it:
 // credential_issued with the key's numeric id, op succeeded. Any failure ends the request failed (op failed); a key
-// created but not recorded is expired at once — no live credential the platform does not know.
+// created but not recorded — or refused at the record (issuable) — is expired at once: no live credential the platform
+// does not know.
 func (s *Service) issueKey(ctx context.Context, tenantID uuid.UUID, r sqlcdb.EnrollmentRequest, kp keyPlan,
 	loginServer string, op audit.Operation,
 ) (sqlcdb.EnrollmentRequest, *Credential, error) {
@@ -238,11 +240,27 @@ func (s *Service) issueKey(ctx context.Context, tenantID uuid.UUID, r sqlcdb.Enr
 			Detail: "The tenant's control plane did not issue the key as requested."})
 	}
 	kid := int64(key.ID) //nolint:gosec // Headscale ids are small positive integers
-	var row sqlcdb.EnrollmentRequest
+	var (
+		row     sqlcdb.EnrollmentRequest
+		refusal *Error
+	)
 	err = s.st.WithTenantTx(ctx, tenantID, func(q *sqlcdb.Queries) error {
 		cur, err := q.LockEnrollmentRequest(ctx, sqlcdb.LockEnrollmentRequestParams{TenantID: tenantID, ID: r.ID})
 		if err != nil {
 			return err
+		}
+		if refusal, err = issuable(ctx, q, tenantID, r, cur); err != nil || refusal != nil {
+			if err != nil {
+				return err
+			}
+			if cur.Version == r.Version { // still the row the issuance started from (a moved row keeps its newer state)
+				p := stateOf(cur)
+				p.Status, p.FailureCode = StatusFailed, &refusal.Reason
+				if _, err := q.SetEnrollmentRequestState(ctx, p); err != nil {
+					return err
+				}
+			}
+			return s.closeOp(ctx, q, &op, refusal.Reason)
 		}
 		p := stateOf(cur)
 		p.Status, p.IssuedAt, p.CredentialExpiresAt, p.HeadscalePreauthkeyID = StatusCredentialIssued, &issued, &exp, &kid
@@ -257,9 +275,41 @@ func (s *Service) issueKey(ctx context.Context, tenantID uuid.UUID, r sqlcdb.Enr
 		s.failRequest(ctx, tenantID, r.ID, "record_failed", &op)
 		return r, nil, fmt.Errorf("enrollment: record the issued key: %w", err)
 	}
+	if refusal != nil { // created but never handed out: expired at once (no live credential the platform does not know)
+		if err := inst.ExpirePreAuthKey(context.WithoutCancel(ctx), key.ID); err != nil {
+			s.log.ErrorContext(ctx, "enrollment: expiring a key that was not handed out failed", "request_id", r.ID,
+				"key_id", key.ID, "reason", fromAdapter(err).Reason)
+		}
+		return r, nil, refusal
+	}
 	return row, &Credential{Kind: CredentialPreauthKey, PreauthKey: key.Key, Command: preauthCommand(loginServer),
 		ExpiresAt: exp}, nil
 }
+
+// issuable re-checks, under the lock of the request and after its key was created at Headscale, what the issuance
+// started from (cur is the locked row, r the row the issuance read). The request may have moved meanwhile — /revoke of
+// a `requested` row does not wait for an issuance it cannot see, reconcile expires an `approved` one —: the newer state
+// stays (409 already_final). The tenant may have been suspended after the authorizer let the call through: the
+// suspension expires the keys it lists after its status change (P3-T08 step preauthkeys.expire), not a key created after
+// that read, and this read follows the creation — so a key is either seen by that step or refused here (403).
+func issuable(ctx context.Context, q *sqlcdb.Queries, tenantID uuid.UUID, r, cur sqlcdb.EnrollmentRequest) (*Error, error) {
+	if cur.Status != r.Status || cur.Version != r.Version {
+		return conflict("already_final", "The request was revoked or ended while its key was being issued; no key was handed out."), nil
+	}
+	tc, err := q.GetEnrollmentContext(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	switch tc.TenantStatus {
+	case tenants.StatusSuspended, tenants.StatusDeprovisioning, tenants.StatusDeleted:
+		return &Error{Code: codeTenantSuspended, Reason: codeTenantSuspended,
+			Detail: "The tenant was suspended while the key was being issued; no key was handed out."}, nil
+	}
+	return nil, nil
+}
+
+// codeTenantSuspended is the Problem code (403) of a write on a suspended tenant — the one the authorizer answers.
+const codeTenantSuspended = "tenant_suspended"
 
 // detached is a context for the closing writes of an operation: not cancelled with the request, bounded.
 func detached(ctx context.Context) (context.Context, context.CancelFunc) {
