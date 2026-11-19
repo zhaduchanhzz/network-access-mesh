@@ -23,6 +23,7 @@
 | m | P4-T01a — SPA sau edge: service `web` trong `mg-app`, Caddyfile **v9** (`app.`/`admin.` ngoài `/api/*` ⇒ `web:8080`) | **[CHỦ DỰ ÁN/NGƯỜI ĐIỀU PHỐI DUYỆT]** + **thông báo trước reload edge** | Xem mục m |
 | n | P4-T07 — Caddyfile **v10**: `/register/<auth_id>` không `via=portal` ⇒ 302 tới trang claim của Portal; chỉ sau khi API claim (P4-T06) và trang `/enroll/claim` (P4-T08) đã chạy | **[CHỦ DỰ ÁN DUYỆT]** + **thông báo trước reload edge** | Xem mục n |
 | o | Lô Phase 4 đầu tiên lên staging (`8840590` → `9736636`): migration `0020`–`0028`, api/worker/web/**agent** mới, Caddyfile v9 (v10 khi có P4-T08) — trình tự đã diễn tập trên VM 110 | **[CHỦ DỰ ÁN DUYỆT]** + **thông báo trước reload edge** | Xem mục o |
+| p | `admin.` ra Internet: Caddyfile **v11** (`admin_public: true` — `admin.` cả trên listener tunnel-facing, bỏ `admin_allow`; console Keycloak giữ cổng `forward_auth` 2P) + `A admin.` → VPS (quyết định của chủ dự án 2026-11-20) | **[CHỦ DỰ ÁN DUYỆT]** (đã quyết 2026-11-20) + **thông báo trước reload edge** | Reload; sau DNS: Platform Console + console Keycloak (sau cổng 2P) nhận lưu lượng Internet |
 
 Lệch thứ tự so với danh sách của brief: **idp-bootstrap và đăng nhập thử nằm sau (h)** — worker chỉ tới được Admin API của Keycloak qua site `auth.` mới của edge, đăng nhập cần site `app.`/`admin.`. Adopt, client secret, bootstrap SA/seed (e, f) không cần edge mới.
 
@@ -429,3 +430,78 @@ sudo bash ~/mg-v9/tests/security/edge/run_staging.sh "mesh.$MG_BASE_DOMAIN" "$MG
   vụ ~22 s (gồm 11 s chờ worker dừng job). Sau B: instance có `records/extra-records.json` không rỗng trong khi DB vừa
   restore không có bản ghi DNS nào ⇒ ghi lại file `[]` hoặc để lần ghi DNS đầu tiên sau khi nâng lại ghi lại toàn bộ file
   từ DB (job level-triggered — đã kiểm) — F-5.
+
+## p. `admin.` ra Internet (Caddyfile v11, `admin_public`) **[CHỦ DỰ ÁN DUYỆT]** (quyết định 2026-11-20)
+
+Quyết định "Mở toàn bộ admin" (D-15, §15.4 của master): Platform Console (SPA + `/api/*`) và console quản trị Keycloak
+(realm `master`: `/admin/*`, `/realms/master/*`, `/resources/*`) vào được từ Internet qua VPS. Console Keycloak **giữ
+nguyên** cổng `forward_auth` tới api (`/internal/edge/idp-console`: phiên Platform Console + `platform.idp:console` +
+phiên console đã được Super Admin thứ hai duyệt (2P, step-up) còn hạn, từ CIDR nguồn đã duyệt); impersonation bị chặn
+hai lớp. Thiết kế và phép thử: edge template v11 (`tools/render_edge.py`, tham số `admin_public`), golden
+`admin-public`/`admin-public-lan` + 12 đột biến của `tools/test_render_edge.py`, E2E-121/E2E-122 (stack dev/CI: qua
+listener tunnel-facing với PROXY v2, api thấy đúng IP client).
+
+**Đổi gì:** chỉ Caddyfile (⇒ **reload**, §14.6 (a) — compose của edge chỉ khác dòng chú thích `template_version`) và
+một bản ghi DNS `A admin.$MG_BASE_DOMAIN` → `MG_PUBLIC_IPV4` (CAA của `admin.` đã có từ mục i). **Không đổi:** image
+(edge, api, web, idp), VPS (`l4proxy` đã chuyển mọi TCP 443/80 qua tunnel tới listener tunnel-facing — mục i), firewall
+host/VPS, `staging.env`, realm Keycloak (`frontendUrl` của master đã là `https://admin.<domain>` — P3-T15), secret.
+Caddyfile v11 khác v10 đang chạy ở: chú thích; dòng địa chỉ `admin.<domain>, admin.<domain>:<cổng tunnel>`;
+`@outside_admin`/`abort @outside_admin` thay bằng `@direct_tunnel`/`abort @direct_tunnel` (như `app.`); chú thích của
+catch-all tunnel-facing. Route console Keycloak giống v10 từng byte.
+
+**Lưu ý vận hành:** phiên console 2P gắn CIDR mặc định = /32 của request — qua VPS là IP công khai thật của máy người
+xin (từ PROXY v2), không phải IP của VPS/tunnel; IP đổi (di động, CGNAT, đổi mạng) ⇒ `403 source_ip_not_allowed` ⇒ xin
+lại phiên hoặc khai `source_cidr` (tối đa /24). Đăng nhập Platform Console vẫn bắt buộc TOTP; từ nay mọi cảnh báo
+`idp.console_login` (email SA/PO) và mọi `idp.console.access` bị từ chối có thể đến từ Internet — rà theo IP trong
+`details`/`actor_ip`.
+
+```bash
+# 0. ~/mg = git archive của commit có v11; báo trước giờ reload edge (stream upgrade đóng sau stream_close_delay 5 phút)
+cd ~/mg && eval "$(python3 tools/mgenv.py export infrastructure/environments/staging/staging.env)" && sudo -v
+TS=$(date -u +%Y%m%dT%H%M%SZ)
+PSQL="sudo docker exec -i mg-core-postgres-1 psql -X -U postgres -d meshguard -tA"
+# 1. render + so sánh (chỉ đọc)
+python3 tools/test_render_edge.py | tail -2        # "PASS mutations: 12/12 caught …", "PASS admin_allow required unless …"
+python3 tools/render_edge.py infrastructure/environments/staging/edge.json /tmp/edge11
+diff /opt/meshguard/core/compose.edge.yaml /tmp/edge11/compose.edge.yaml   # chỉ dòng chú thích template_version ⇒ reload
+diff /opt/meshguard/core/caddy/Caddyfile /tmp/edge11/caddy/Caddyfile       # chỉ các chỗ liệt kê ở trên
+# 2. validate trên FILE TẠM trong /etc/caddy (bind mount của /opt/meshguard/core/caddy — rootfs của edge chỉ đọc,
+#    /tmp của host không thấy được từ container); Caddyfile đang chạy chưa bị đụng
+sudo install -o root -g root -m 0644 /tmp/edge11/caddy/Caddyfile /opt/meshguard/core/caddy/Caddyfile.v11
+sudo docker exec mg-edge caddy validate --config /etc/caddy/Caddyfile.v11 --adapter caddyfile     # "Valid configuration"
+# 3. sao lưu → cài → reload (đúng giờ đã báo)
+sudo cp -a /opt/meshguard/core/caddy/Caddyfile /root/Caddyfile.v10.$TS
+sudo install -o root -g root -m 0644 /tmp/edge11/caddy/Caddyfile /opt/meshguard/core/caddy/Caddyfile
+sudo rm -f /opt/meshguard/core/caddy/Caddyfile.v11
+sudo docker exec mg-edge caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile --address unix//run/caddy/admin.sock
+# 4. kiểm qua VPS TRƯỚC khi có DNS — từ một máy NGOÀI LAN (--resolve thay DNS), D=$MG_BASE_DOMAIN, E=$MG_PUBLIC_IPV4:
+#    curl -s -o /dev/null -w '%{http_code}\n' --resolve admin.$D:443:$E https://admin.$D/                        ⇒ 200 (SPA)
+#    … https://admin.$D/api/v1/auth/session                                                                     ⇒ 401
+#    … https://admin.$D/admin/master/console/   và   /realms/master/.well-known/openid-configuration              ⇒ 401
+#      (body "Sign in to the Platform Console first; …" của cổng api — không phải trang Keycloak)
+#    trên host: conformance — nhóm platform tự chọn --admin public (Caddyfile không còn @outside_admin)
+sudo bash tests/security/edge/run_staging.sh "mesh.$MG_BASE_DOMAIN" "$MG_PUBLIC_IPV4" tenant-a tenant-b   # EDGE CONFORMANCE: PASS
+# 5. DNS (đã duyệt cùng quyết định 2026-11-20): upsert cả file — app./auth. giữ nguyên (update cùng nội dung), A admin.
+#    create, CAA không đổi. Chỉ đụng admin.: thêm --record "A admin.$MG_BASE_DOMAIN"
+sudo python3 infrastructure/gateway/cf_dns.py apply infrastructure/environments/staging/dns-platform.json
+dig +short admin.$MG_BASE_DOMAIN @1.1.1.1                                    # = $MG_PUBLIC_IPV4 (TTL 300)
+# 6. kiểm từ ngoài (máy Internet): như bước 4 nhưng không --resolve, rồi
+#    python3 -I tests/security/edge/external.py "$MG_PUBLIC_IPV4" "mesh.$MG_BASE_DOMAIN" tenant-a,tenant-b --admin-public
+#    Super Admin đăng nhập https://admin.$D/ từ Internet (mật khẩu + TOTP) ⇒ IP của phiên là IP công khai của máy đó:
+$PSQL -c "SELECT origin, host(ip), created_at FROM sessions WHERE origin = 'admin' AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 3"
+#    (tùy chủ dự án) phiên console 2P từ Internet theo RUNBOOK "Console quản trị Keycloak": source_cidr = <IP đó>/32
+# 7. như mọi lần đổi Caddyfile (RUNBOOK "Đổi cấu hình edge" mục 5): /key?v=113 của A/B/C qua VPS và LAN-direct ⇒ 200;
+#    IT-14 hai chế độ (tests/isolation/it14_probe.sh)
+```
+
+**Hoàn tác** (thứ tự ngược; DNS trước để Internet thôi tìm thấy `admin.`):
+
+1. `sudo python3 infrastructure/gateway/cf_dns.py delete infrastructure/environments/staging/dns-platform.json --record "A admin.$MG_BASE_DOMAIN"`
+   — **không** chạy `delete` cả file (xóa luôn `app.`/`auth.`). Cache DNS hết sau TTL 300 s.
+2. Cài lại `/root/Caddyfile.v10.$TS` → `caddy validate` → reload (như bước 3). Tương đương: render cây hiện tại với
+   `"admin_public": false` (v11, `admin.` chỉ LAN-direct từ `admin_allow`).
+3. Kiểm: `curl --resolve admin.$D:443:$E https://admin.$D/` từ ngoài ⇒ không có phản hồi HTTP (catch-all tunnel-facing đóng kết nối); `run_staging.sh` (nhóm
+   `platform` tự về `--admin refused`) PASS; `external.py` không `--admin-public` PASS.
+
+Ghi vào `current.md`: giờ reload v11, bản sao `/root/Caddyfile.v10.$TS`, id bản ghi `A admin.` (dòng `create ok id=…` của
+`cf_dns.py`), kết quả `run_staging.sh`/`external.py`.

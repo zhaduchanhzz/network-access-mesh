@@ -220,9 +220,13 @@ sudo rm -rf /opt/meshguard/core/idp /opt/meshguard/core/compose.idp.yaml
 sudo rm -rf /opt/meshguard/secrets/idp /opt/meshguard/secrets/backup/idp_backup_password   # chỉ sau down -v
 ```
 
+### Template v10 → v11 (`admin_public` — `admin.` ra Internet, quyết định của chủ dự án 2026-11-20): **reload**, không recreate
+
+v11 thêm tham số `admin_public` (mặc định `false` = hành vi v10). Staging đặt `true` (`infrastructure/environments/staging/edge.json`): site `admin.` có cả trên listener tunnel-facing (nguồn thật từ PROXY v2, guard `@direct_tunnel` như `app.`), không còn `abort` theo `admin_allow`; pool tenant vẫn bị chặn; route console Keycloak (cổng `forward_auth` 2P, impersonation 403) giữ nguyên từng byte. `compose.edge.yaml` chỉ khác dòng chú thích ⇒ mục 2 ở trên (reload). Đi cùng bản ghi `A admin.<domain>` → VPS (`dns-platform.json`). Trình tự đầy đủ (validate trên file tạm `/etc/caddy/Caddyfile.v11` — rootfs của edge chỉ đọc —, kiểm qua VPS trước DNS bằng `--resolve`, DNS, kiểm từ ngoài, hoàn tác chỉ xóa đúng bản ghi `A admin.` bằng `cf_dns.py … --record`): [deploy-backend.md mục p](../../docs/operations/deploy-backend.md). `run_staging.sh` tự chọn nhóm `platform --admin public` khi Caddyfile đang chạy không còn `@outside_admin`; từ máy ngoài thêm `--admin-public` cho `external.py`.
+
 ## Console quản trị Keycloak — phiên 2P có thời hạn (P3-T15, §8.2 (3))
 
-Console của Keycloak (realm `master`) **chỉ** mở ở `https://admin.<domain>/admin/master/console/` (listener LAN-direct, nguồn trong `admin_allow`), sau `forward_auth` của edge tới api: không có phiên đã duyệt ⇒ 401/403; qua `auth.<domain>` ⇒ 404; qua VPS không có `admin.`. Thiết kế và phép thử: [P3-T15](../../docs/planning/evidence/P3-T15.md).
+Console của Keycloak (realm `master`) **chỉ** mở ở `https://admin.<domain>/admin/master/console/`, sau `forward_auth` của edge tới api: không có phiên đã duyệt ⇒ 401/403; qua `auth.<domain>` ⇒ 404. Edge `admin_public: false`: chỉ listener LAN-direct, nguồn trong `admin_allow`, qua VPS không có `admin.`; `admin_public: true` (staging từ quyết định 2026-11-20 — template v11): cả qua VPS từ mọi nguồn, cổng không đổi — CIDR mặc định của phiên console là IP công khai thật của máy xin (từ PROXY v2), không phải IP của VPS. Thiết kế và phép thử: [P3-T15](../../docs/planning/evidence/P3-T15.md).
 
 1. **Super Admin A** đăng nhập Platform Console (mật khẩu + OTP, trong 15 phút) rồi xin phiên — từ đúng máy sẽ mở console (mặc định CIDR = địa chỉ của chính request, /32):
    `POST /api/v1/platform/idp-console/sessions` body `{"reason":"<ticket/sự cố>","duration_minutes":30}` (CSRF + `Idempotency-Key`; `source_cidr` tùy chọn, tối đa /24) ⇒ `202` + `Location: /api/v1/platform/approvals/<id>`.

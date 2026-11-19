@@ -12,8 +12,8 @@
 | **VPS `l4proxy`** | TCP 443, TCP 80 | Vào | **Public** (IP của VPS) | Điểm vào từ Internet; chuyển tiếp tầng 4 về listener tunnel-facing của edge, kèm PROXY protocol v2 | Không terminate TLS; không có chứng chỉ trên VPS |
 | **VPS `stund`** | UDP 3478 | Vào | **Public** (IP của VPS; trên host LAN ở chế độ dev) | STUN dùng chung cho mọi tenant | Host network; HTTP debug chỉ bind loopback |
 | **Tunnel WireGuard** | UDP (một cổng trên VPS) | Vào VPS, từ host LAN | Chỉ peer có khóa; giới hạn IP nguồn nếu host LAN có IP ra cố định | Liên kết riêng VPS ↔ host LAN | Host LAN chủ động kết nối — không cần port forwarding ở LAN |
-| edge (Caddy) — tunnel-facing | TCP 8443, 8080 trên IP tunnel của host LAN | Vào, từ VPS | **Chỉ peer tunnel** | Nhận lưu lượng public đã chuyển tiếp: Portal, SaaS API, IdP, control plane mọi tenant (`/ts2021`), DERP (`/derp`) | PROXY protocol bắt buộc; nơi **duy nhất** terminate TLS |
-| edge (Caddy) — LAN-direct | TCP 443, TCP 80 trên IP LAN | Vào | Chỉ LAN | Local Development; Platform Console (`admin.<domain>`); redirect, `/generate_204`, lần thử upgrade đầu của client (EG-07) | `admin.<domain>` **không** phục vụ trên listener tunnel-facing |
+| edge (Caddy) — tunnel-facing | TCP 8443, 8080 trên IP tunnel của host LAN | Vào, từ VPS | **Chỉ peer tunnel** | Nhận lưu lượng public đã chuyển tiếp: Portal, SaaS API, IdP, Platform Console (khi `admin_public` — §15.4), control plane mọi tenant (`/ts2021`), DERP (`/derp`) | PROXY protocol bắt buộc; nơi **duy nhất** terminate TLS |
+| edge (Caddy) — LAN-direct | TCP 443, TCP 80 trên IP LAN | Vào | Chỉ LAN | Local Development; Platform Console (`admin.<domain>`); redirect, `/generate_204`, lần thử upgrade đầu của client (EG-07) | `admin.<domain>` phục vụ trên listener tunnel-facing **chỉ** khi `admin_public: true` (edge template v11 — staging từ 2026-11-20, §15.4) |
 | edge (Caddy) | UDP 443 (HTTP/3) | Vào | Tắt ở MVP | — | Tắt **tường minh** bằng global option `servers { protocols h1 h2 }`: mặc định của Caddy là `h1 h2 h3` (tài liệu Caddy, theo phản biện) nên chỉ không publish UDP 443 thì edge vẫn quảng bá `Alt-Svc` cho h3 và trình duyệt thử QUIC vào cổng đóng trước khi lùi. Control/DERP dùng HTTP/1.1 upgrade; bật lại (kèm publish 443/udp) nếu cần cho Portal |
 | Headscale tenant *n* | TCP 8080 | Nội bộ | Chỉ network tenant (`internal`) | Control + REST API | Public chỉ qua allow-list của edge; container **không publish cổng nào** |
 | Headscale tenant *n* | TCP 9090 | Nội bộ | Chỉ network tenant | Metrics + debug (không xác thực) | Chỉ `/metrics` được edge chuyển tiếp nội bộ |
@@ -36,7 +36,7 @@
 
 **Đối chiếu AC-20:** PostgreSQL, Headscale admin API (`/api/v1`, Swagger), metrics/debug, gRPC và Platform Console đều **không** có đường public; từ VPS chỉ tới được đúng hai cổng listener tunnel-facing của edge.
 
-**Các endpoint cần public (đi qua VPS):** `https://<slug>.<mesh_domain>` (control + DERP), `http://…:80` (redirect, `/generate_204`), STUN UDP 3478, `app.<domain>` (Tenant Portal + SaaS API), `auth.<domain>` (IdP). **Không public:** `admin.<domain>`, Grafana, Headscale API/Swagger/metrics, PostgreSQL, Prometheus/log store, CrowdSec LAPI, Agent.
+**Các endpoint cần public (đi qua VPS):** `https://<slug>.<mesh_domain>` (control + DERP), `http://…:80` (redirect, `/generate_204`), STUN UDP 3478, `app.<domain>` (Tenant Portal + SaaS API), `auth.<domain>` (IdP), và — từ quyết định của chủ dự án 2026-11-20 (§15.4, `admin_public`) — `admin.<domain>` (Platform Console; console quản trị Keycloak vẫn sau cổng 2P). **Không public:** Grafana, Headscale API/Swagger/metrics, PostgreSQL, Prometheus/log store, CrowdSec LAPI, Agent.
 
 ### 15.2 Connectivity requirements theo dịch vụ
 
