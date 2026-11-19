@@ -162,6 +162,14 @@ docker exec mg-edge caddy reload --config /etc/caddy/Caddyfile --adapter caddyfi
 3. Kiểm (ngoài các kiểm của mục 5): `https://app.<domain>/` và `/tenants/<id>/devices` qua VPS và LAN-direct ⇒ 200 `text/html` cùng `index.html`, **một** `Content-Security-Policy`, không `Server`; `/api/v1/auth/session` ⇒ 401 `problem+json`; `/healthz`, `/metrics`, `/internal/…` ⇒ `index.html` (không phải body của api); `/.env`, `/api/../metrics` ⇒ 404; `https://admin.<domain>/` từ LAN ⇒ SPA, console Keycloak (`/admin/master/console/`) vẫn sau `forward_auth` (401 khi không có phiên); `run_staging.sh` (nhóm `platform` cần `mg-app-web-1` chạy). Stream long-poll của tenant đóng ~5 phút sau reload (`stream_close_delay`), client tự nối lại.
 4. Hoàn tác: cài lại `/root/Caddyfile.v8.<ts>` rồi reload (web để chạy cũng vô hại — không gì định tuyến tới); bỏ web: `$APP stop web && $APP rm -f web`.
 
+### Template v9 → v10 (P4-T07 — chuyển hướng web-auth `/register/<auth_id>`): **reload**, không recreate
+
+v10 chỉ đổi khối `*.<mesh_domain>` của Caddyfile: `GET /register/<auth_id>` (`hskey-authreq-` + 24 ký tự) không có `via=portal` ⇒ `302` tới `https://app.<domain>/enroll/claim?tenant=<slug>&auth_id=<auth_id>`; có `via=portal` ⇒ Headscale như trước; mọi `/register/*` khác ngoài `/register/confirm/*` ⇒ 404. `compose.edge.yaml` chỉ khác dòng chú thích `template_version` ⇒ mục 2 ở trên (reload — loại (a) của §14.6, lên lịch). Thiết kế: [P4-T07](../../docs/planning/evidence/P4-T07.md).
+
+**Điều kiện trước:** api/worker có API claim (P4-T06) và SPA có trang `/enroll/claim` (P4-T08) đã chạy — nếu không, người chạy `tailscale up` không key được đưa tới trang 404 của SPA thay cho trang gốc của Headscale. Các bước: như "Template v8 → v9" bước 2 (render, `diff` compose chỉ dòng `template_version`, sao lưu `Caddyfile.v9.<ts>`, cài, `caddy validate`, reload).
+
+Kiểm (ngoài mục 5, trong đó `run_staging.sh` nhóm `public` đã gồm chuyển hướng, Auth ID sai ⇒ 404 và `via=portal`): một client thật `tailscale up --login-server https://<slug>.mesh.<domain> --hostname mg-<mã>` (mã từ Portal) ⇒ mở link in ra ⇒ trình duyệt tới `app.<domain>/enroll/claim?…` ⇒ claim ⇒ client `Running` (V-07 — theo từng OS); `/key?v=113` A/B/C 200. Hoàn tác: cài lại `/root/Caddyfile.v9.<ts>` rồi reload (link `/register/<auth_id>` lại mở trang gốc của Headscale; phương án "dán Auth ID" vẫn dùng được trong Portal).
+
 ## IdP — Keycloak `mg-idp` (P2-T05, triển khai lên staging ở P2-T16)
 
 Project `mg-idp`: `idp` (Keycloak 26.8.2, 3 realm `platform`/`tenant-a`/`tenant-b` nhập lúc khởi động đầu), `idp-db` (PostgreSQL riêng, chỉ trên `mg-idp-data`) và — khi `MG_IDP_MAIL_SINK=mailpit` (staging) — `mailsink` (Mailpit, network `mail` internal: thư không ra ngoài host). Không publish cổng nào; `auth.<domain>` qua edge là bước riêng của P2-T16 (template edge mới + reload có lịch). Thiết kế: [P2-T05](../../docs/planning/evidence/P2-T05.md), [P2-T05b](../../docs/planning/evidence/P2-T05b.md).

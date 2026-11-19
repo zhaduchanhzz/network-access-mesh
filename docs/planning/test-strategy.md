@@ -35,7 +35,7 @@ Quy tắc ghi nhận: kết quả từ container cùng host hoặc từ mô ph�
 | V-04 | Headscale chạy non-root, read-only | Instance healthy với UID riêng | P1-T11 | G1 |
 | V-05 | Chặn `/verify` không ảnh hưởng embedded DERP | Relay vẫn hoạt động khi `/verify` trả 404 ở edge | P1-T05a | G1 |
 | V-06 | Key tạo không kèm `expiration`; policy rỗng; mã lỗi HTTP của `SetPolicy`; `/key` cần `?v=`; decoder policy với khóa khác kiểu chữ, khóa `#`, giá trị `null` | Contract test | P2-T10 | G2 |
-| V-07 | Chuyển hướng `/register/<auth_id>` về Portal | Đăng ký hoàn tất trên từng OS | P4-T07 | G4a |
+| V-07 | Chuyển hướng `/register/<auth_id>` về Portal | Đăng ký hoàn tất trên từng OS. Kết quả sơ bộ P4-T07 (functional, stack dev/CI, client chính thức Linux, Headscale 0.29.7, edge template v10 — E2E-117/E2E-118, `docs/planning/evidence/P4-T07.md`): link của client ⇒ `302` về trang claim, pending registration không bị ảnh hưởng, client hoàn tất đăng ký sau claim; **từng OS trên staging: chờ chủ dự án duyệt triển khai** (V-07 còn mở) | P4-T07 | G4a |
 | V-08 | Client 1.104.x trên 5 hệ điều hành | Ma trận tương thích | P1-T12e (sơ bộ), P5-T03 | G5 |
 | V-09 | Độ trễ thu hồi và lan truyền policy; hành vi peer offline | Đo theo AC-17 | P5-T04, P5-T07 | G5 |
 | V-10 | Tunnel direct khi control plane của tenant ngừng | Đo theo AC-18 | P1-T13 | G1/G5 |
