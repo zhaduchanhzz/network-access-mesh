@@ -1,5 +1,6 @@
 // Đồng bộ sổ thiết bị (P4-T04): POST /tenants/{t}/devices/sync (CSRF + Idempotency-Key) ⇒ 202 Job + Location; poll
-// GET /tenants/{t}/jobs/{id} tới khi xong rồi làm mới danh sách và dashboard. Chỉ role có tenant.device:sync (§8.6).
+// GET /tenants/{t}/jobs/{id} tới khi xong rồi làm mới danh sách, dashboard và Routes (P4-T12 dùng lại nút này). Chỉ role
+// có tenant.device:sync (§8.6).
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -35,6 +36,8 @@ export function SyncControl() {
     if (status === "succeeded") {
       void queryClient.invalidateQueries({ queryKey: queryKeys.tenant(tenantId, "devices") });
       void queryClient.invalidateQueries({ queryKey: queryKeys.tenant(tenantId, "dashboard") });
+      // P4-T12: màn hình Routes đọc cùng sổ thiết bị
+      void queryClient.invalidateQueries({ queryKey: queryKeys.tenant(tenantId, "routes") });
     }
   }, [status, queryClient, tenantId]);
 

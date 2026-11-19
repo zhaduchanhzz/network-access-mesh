@@ -25,6 +25,8 @@ type recipe struct {
 	query func(c *call) string
 	// body is the JSON body ("" ⇒ none).
 	body string
+	// bodyOf builds the JSON body from the world (P4-T13: the tenant a support grant is asked for) — wins over body.
+	bodyOf func(m *matrix, c *call) string
 	// idempotent adds Idempotency-Key (required by the binding of the operation).
 	idempotent bool
 	// endsSession: the request revokes the session it is sent with (logout) — sent with a throwaway session.
@@ -250,6 +252,45 @@ var recipes = map[string]recipe{
 	// stored — a granted import or export answers 200 (the import of an empty grants list passes).
 	"importTenantPolicy": {body: `{"hujson":"{\"grants\": []}"}`, ok: answer{status: http.StatusOK}},
 	"exportTenantPolicy": {body: `{"source":{"grants":[]}}`, ok: answer{status: http.StatusOK}},
+	// support access grants (P4-T13, supportapi — mounted). The objects are pending grants whose requester/grantee is a
+	// Super Admin that is no actor of the matrix (world_test.go): a granted decision answers 200 for the first caller
+	// and 409 grant_closed after (the order of parallel callers decides), so the answer is left open; the requests
+	// create a pending grant into tenant A for the calling staff member (201, then 409 support_grant_open) — never a
+	// live grant, so the staff column of every other operation stays "no grant".
+	"listTenantSupportGrants":       {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
+	"approveTenantSupportGrant":     {},
+	"rejectTenantSupportGrant":      {},
+	"revokeTenantSupportGrant":      {},
+	"listPlatformSupportGrants":     {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
+	"approveSupportGrantBreakglass": {},
+	"revokePlatformSupportGrant":    {},
+	"createSupportGrant": {idempotent: true, bodyOf: func(m *matrix, _ *call) string {
+		return `{"tenant_id":"` + m.A.ID.String() + `","effective_role":"support_operator","reason":"matrix",` +
+			`"ticket_ref":"MATRIX-1","duration_minutes":30}`
+	}},
+	// network (P4-T12, networkapi — mounted). Every write that needs If-Match is sent without it: a granted caller is
+	// answered 428 before any read or write (the route approvals check it first — the body's device need not exist; the
+	// objects stay for every caller); the reads answer 200 from the register and the tables; a DNS record whose value is
+	// outside the tailnet answers 422 (T-09 lint) for every granted caller; a create of a resource answers 201 the first
+	// time and 409 after (same name).
+	"listTenantRoutes": {ok: answer{status: http.StatusOK}},
+	"approveTenantRoutes": {idempotent: true, body: `{"device_id":"0190a000-0000-7000-8000-0000000000d1","prefixes":["10.0.0.0/24"]}`,
+		ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
+	"revokeTenantRoutes": {body: `{"device_id":"0190a000-0000-7000-8000-0000000000d1","prefixes":["10.0.0.0/24"]}`,
+		ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
+	"getTenantDns": {ok: answer{status: http.StatusOK}},
+	"updateTenantDnsSettings": {body: `{"nameservers":["1.1.1.1"]}`,
+		ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
+	"listTenantDnsRecords": {ok: answer{status: http.StatusOK}},
+	"createTenantDnsRecord": {idempotent: true, body: `{"name":"matrix.corp.example","type":"A","value":"192.0.2.10"}`,
+		ok: answer{http.StatusUnprocessableEntity, gen.ProblemCodeValidationFailed}},
+	"deleteTenantDnsRecord": {ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
+	"listTenantResources":   {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
+	"getTenantResource":     {ok: answer{status: http.StatusOK}},
+	"createTenantResource":  {idempotent: true, body: `{"name":"matrix-new","kind":"host","address":"10.9.9.9"}`},
+	"updateTenantResource": {body: `{"description":"matrix"}`,
+		ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
+	"deleteTenantResource": {ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
 	// enrollment (P4-T06, enrollmentapi — mounted; the matrix's tenants allow self-enrolment, so the End User's
 	// conditional grant passes and the handler enforces the condition): a web-auth request is issued without Headscale
 	// (201); a privileged key reaches Headscale behind the unreachable edge (503); a claim without a request pending in
@@ -290,6 +331,10 @@ const (
 	objSetting      objectKind = "setting"
 	objPlan         objectKind = "plan"
 	objPolicy       objectKind = "policy" // /tenants/{t}/policies/{versionId} (P4-T10)
+	objGrant        objectKind = "grant"  // P4-T13: /tenants/{t}/support-grants/{grantId}, /platform/support-grants/{grantId}
+	// P4-T12: /tenants/{t}/dns/records/{recordId}, /tenants/{t}/resources/{resourceId}
+	objDNSRecord objectKind = "dns-record"
+	objResource  objectKind = "resource"
 	// P4-T06: /tenants/{t}/enrollment/requests/{enrollmentRequestId} — End User: own on read/revoke
 	objEnrollment objectKind = "enrollment"
 )
@@ -300,5 +345,5 @@ var paramObjects = map[string]objectKind{
 	"tenantId": objTenant, "sessionId": objSession, "idpId": objIdP, "approvalId": objApproval, "invitationId": objInvitation,
 	"hostId": objHost, "tagId": objTag, "notificationId": objNotification, "groupId": objGroup,
 	"platformUserId": objPlatformUser, "settingKey": objSetting, "planId": objPlan, "enrollmentRequestId": objEnrollment,
-	"versionId": objPolicy,
+	"versionId": objPolicy, "grantId": objGrant, "recordId": objDNSRecord, "resourceId": objResource,
 }

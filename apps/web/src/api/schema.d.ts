@@ -1569,6 +1569,231 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tenants/{tenantId}/routes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Route quảng bá và đã duyệt của các thiết bị (subnet router, exit node)
+         * @description Từ sổ thiết bị (cache của `inventory.sync`, mỗi thiết bị kèm `synced_at` — đồng bộ ngay bằng
+         *     `POST /devices/sync`): chỉ thiết bị có route quảng bá hoặc đã duyệt. Mỗi thiết bị kèm `routes_etag` (giá trị
+         *     `If-Match` của `approve`/`revoke`) và cảnh báo: prefix chồng lấn với thiết bị khác, router không phải tagged node
+         *     (T-08), exit node. Route quảng bá chưa duyệt (`pending_routes`) không được Headscale phân phối (double opt-in — PL-10).
+         */
+        get: operations["listTenantRoutes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/routes/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Duyệt route quảng bá của một thiết bị (đọc–sửa–ghi có kiểm; 4-eyes ⇒ 202)
+         * @description Body `{device_id, prefixes[]}` + `If-Match` = `routes_etag` của thiết bị (thiếu ⇒ `428`). Server khóa hàng thiết
+         *     bị (`FOR UPDATE`) suốt lượt đọc–sửa–ghi, đọc **trực tiếp** tập đã duyệt từ Headscale (không dùng cache) — lệch
+         *     `If-Match` ⇒ `412`; prefix không đang được quảng bá ⇒ `422`; tập mới = tập hiện tại ∪ `prefixes`, ghi bằng
+         *     `SetApprovedRoutes` (thay thế toàn bộ — PL-10) rồi đọc lại phải khớp. Exit node = `0.0.0.0/0` + `::/0` (một trong
+         *     hai là cả hai) và cần `confirm_exit_node: true` (thiếu ⇒ `422`). Hai lần duyệt đồng thời trên cùng thiết bị: lần
+         *     sau chờ khóa rồi nhận `412` — không mất prefix nào. Khi `TenantSettings.routes.four_eyes` bật: không đổi gì, trả
+         *     `202` + yêu cầu phê duyệt phạm vi tenant `tenant.route.approve` (payload = prefix thêm, tập đã duyệt sau khi thêm,
+         *     `If-Match`; người gọi phải step-up) — người thứ hai có `tenant.approval:decide` và `tenant.route:approve` duyệt ở
+         *     `Location`; Headscale chỉ được gọi khi đó, và chỉ khi tập đã duyệt vẫn mang đúng ETag đã duyệt. Audit cặp
+         *     `route.approve`.
+         */
+        post: operations["approveTenantRoutes"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/routes/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Gỡ duyệt route của một thiết bị (đọc–sửa–ghi có kiểm)
+         * @description Như `approve` (khóa hàng, đọc trực tiếp từ Headscale, `If-Match` bắt buộc — `428`/`412`, đọc lại sau
+         *     `SetApprovedRoutes`) với tập mới = tập hiện tại trừ `prefixes`; prefix chưa được duyệt ⇒ `422`; exit node gỡ cả
+         *     hai họ địa chỉ. Gỡ duyệt thu hẹp truy cập nên không cần người thứ hai. Audit cặp `route.revoke`.
+         */
+        post: operations["revokeTenantRoutes"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/dns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * DNS của tenant — MagicDNS, nameserver đang hiệu lực, lần reconfigure chưa xong
+         * @description MagicDNS luôn bật (nền tảng render `dns.base_domain` = `<slug>.tail.<domain>`); `nameservers` là của version cấu
+         *     hình đang hiệu lực của instance (rỗng khi instance chưa có version do orchestrator ghi); `pending` = lần
+         *     `instance.reconfigure` chưa kết thúc (nếu có); `etag` là giá trị `If-Match` của `PUT /dns/settings`.
+         */
+        get: operations["getTenantDns"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/dns/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Đổi nameserver của tailnet ⇒ 202 + job instance.reconfigure (restart có kiểm soát)
+         * @description `If-Match` = `etag` của `GET /dns` (thiếu ⇒ `428`, lệch ⇒ `412`). Nameserver (1–8 địa chỉ unicast dùng được,
+         *     không trùng) được render vào một version cấu hình mới của instance bởi `instance.reconfigure` (P3-T13): restart
+         *     có kiểm soát sau health gate, tự lùi khi instance không lên — phiên relay của tenant bị ngắt trong lúc restart
+         *     (R-19). Một lần reconfigure chưa xong với cùng thay đổi ⇒ trả lại chính job đó; thay đổi khác ⇒ `409`. Audit cặp
+         *     `dns.settings.update` (job đóng). `search_domains`, `split_dns` chưa thuộc template cấu hình của instance (§13.3).
+         */
+        put: operations["updateTenantDnsSettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/dns/records": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Extra DNS records của tenant (tối đa 1024)
+         * @description Theo thứ tự của file `extra-records.json` (`name`, `type`, `value`).
+         */
+        get: operations["listTenantDnsRecords"];
+        put?: never;
+        /**
+         * Thêm một bản ghi A/AAAA (ghi file extra-records, không restart)
+         * @description `name` là FQDN chữ thường (≥ 2 nhãn, không wildcard); dưới domain của nền tảng chỉ trong MagicDNS domain của chính
+         *     tenant. `A` ⇔ IPv4, `AAAA` ⇔ IPv6. Lint T-09: `value` phải là địa chỉ tailnet của một thiết bị của tenant hoặc
+         *     nằm trong một subnet route tenant đã duyệt (`422` field `value`). Trùng `(name, type, value)` ⇒ `409`; quá 1024 ⇒
+         *     `409`. Cùng transaction: audit `dns.record.create` và job `dns.records_write` (level-triggered — Host Agent ghi
+         *     `records/extra-records.json` bằng tmp + rename, Headscale nạp lại không restart; job chưa xong được dùng lại).
+         */
+        post: operations["createTenantDnsRecord"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/dns/records/{recordId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Xóa một bản ghi ⇒ 202 + job ghi file (bản ghi cuối ⇒ file [])
+         * @description Cần `If-Match` = `etag` của bản ghi (thiếu ⇒ `428`, lệch ⇒ `412`). Cùng transaction với audit `dns.record.delete`
+         *     và job `dns.records_write`.
+         */
+        delete: operations["deleteTenantDnsRecord"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/resources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Network Resource Catalog
+         * @description Thứ tự ổn định `(created_at, id)`; mỗi tài nguyên kèm `etag` — giá trị `If-Match` của `PATCH`/`DELETE`.
+         */
+        get: operations["listTenantResources"];
+        put?: never;
+        /**
+         * Thêm một tài nguyên (alias của khóa hosts)
+         * @description `name` chữ thường/số/gạch nối (alias của `hosts` — §7.2), duy nhất trong tenant (`409`); `host`/`service` đúng
+         *     một địa chỉ, `subnet` một prefix (không bit host, không `/0`); `ports` = cổng/dải (`443`, `8000-8100`; rỗng = mọi
+         *     cổng), không đi với `icmp`, `service` phải có cổng; `protocol` `any` = mọi giao thức; `tags` chỉ tag có trong
+         *     danh mục (P4-T15 — `422` liệt kê); `owner_group_id` là group của tenant. Cùng transaction: audit
+         *     `resource.create` và job `policy.apply` (trigger `resource_change`).
+         */
+        post: operations["createTenantResource"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/resources/{resourceId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Một tài nguyên của catalog */
+        get: operations["getTenantResource"];
+        put?: never;
+        post?: never;
+        /**
+         * Xóa một tài nguyên
+         * @description Cần `If-Match` = `etag` (thiếu ⇒ `428`, lệch ⇒ `412`). Cùng transaction: audit `resource.delete` và job
+         *     `policy.apply` (trigger `resource_change`).
+         */
+        delete: operations["deleteTenantResource"];
+        options?: never;
+        head?: never;
+        /**
+         * Sửa một tài nguyên
+         * @description Chỉ các trường gửi lên đổi; kết quả được kiểm như khi tạo. `owner_group_id` chuỗi rỗng gỡ group sở hữu,
+         *     `description` rỗng xóa mô tả. Cần `If-Match` = `etag` (thiếu ⇒ `428`, lệch ⇒ `412`). Cùng transaction: audit
+         *     `resource.update` và job `policy.apply` (trigger `resource_change`).
+         */
+        patch: operations["updateTenantResource"];
+        trace?: never;
+    };
     "/tenants/{tenantId}/tags": {
         parameters: {
             query?: never;
@@ -1959,6 +2184,166 @@ export interface paths {
          *     Tenant `deprovisioning` ⇒ `403 tenant_suspended` như mọi thao tác ghi.
          */
         post: operations["requestTenantDeletion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/support-grants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Support Access Grant vào tenant này (minh bạch — §8.7)
+         * @description Mọi yêu cầu truy cập hỗ trợ của nhân sự nền tảng vào tenant trong path, mới nhất trước. `status` là trạng thái hiệu lực (`approved` đã quá `expires_at` là `expired`, kể cả trước khi job `grant.expire` ghi lại); `active` = grant đang cho phép truy cập lúc trả lời. Hành động của nhân sự dưới grant nằm trong `GET /audit` (`actor.type = support`, `actor.support_grant_id`).
+         */
+        get: operations["listTenantSupportGrants"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/support-grants/{grantId}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Tenant duyệt một yêu cầu truy cập hỗ trợ (step-up) — chỉ role Support Operator
+         * @description §8.7 bước 2: Tenant Owner/Admin duyệt trong Portal; người duyệt step-up (`auth_time` ≤ 15 phút, nếu không ⇒
+         *     `401 reauth_required`). Trần role hiệu lực khi tenant duyệt là `support_operator` (cột Staff, ô **G** của §8.6);
+         *     grant `support_admin` chỉ được cấp qua break-glass của hai Super Admin ⇒ ở đây `403`. Role Owner không bao giờ là
+         *     role hiệu lực (schema chỉ có hai role support). Chỉ grant `pending` còn trong cửa sổ thời gian (hết cửa sổ hoặc
+         *     đã quyết định ⇒ `409`). Cửa sổ không đổi khi duyệt. Audit `support_grant.approve` cùng transaction.
+         */
+        post: operations["approveTenantSupportGrant"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/support-grants/{grantId}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Tenant từ chối một yêu cầu truy cập hỗ trợ đang chờ
+         * @description Chỉ grant `pending` (đã quyết định, đã hết cửa sổ ⇒ `409`). Từ chối là trạng thái cuối. Audit `support_grant.reject`.
+         */
+        post: operations["rejectTenantSupportGrant"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/support-grants/{grantId}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Tenant thu hồi một grant (đang chờ hoặc đang hiệu lực, kể cả grant break-glass)
+         * @description §8.7 bước 4: có hiệu lực ở request kế tiếp của nhân sự (mọi request dưới grant kiểm grant còn hiệu lực ở lớp 1 và trong transaction của tenant). Grant đã ở trạng thái cuối ⇒ `409`. Không cần step-up (thu hồi chỉ thu hẹp quyền). Audit `support_grant.revoke`.
+         */
+        post: operations["revokeTenantSupportGrant"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/support-grants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Support Access Grant của mọi tenant
+         * @description Mới nhất trước; `status` hiệu lực như `GET /tenants/{tenantId}/support-grants`. Không lộ dữ liệu nội bộ tenant (chỉ metadata của grant + slug của tenant).
+         */
+        get: operations["listPlatformSupportGrants"];
+        put?: never;
+        /**
+         * Nhân sự nền tảng xin truy cập hỗ trợ vào một tenant (grant `pending`)
+         * @description §8.7 bước 1: tenant, role hiệu lực (`support_operator`; `support_admin` chỉ được duyệt qua break-glass), lý do,
+         *     mã ticket, thời lượng 1–480 phút (≤ 8 giờ — CHECK của bảng). Người xin là grantee. Step-up. Tenant phải `active`
+         *     hoặc `suspended` (tenant đang/đã gỡ ⇒ `409`, không tồn tại ⇒ `404`); người xin đã có một grant còn mở (đang chờ
+         *     hoặc đang hiệu lực) vào tenant đó ⇒ `409`. Cửa sổ tính từ lúc xin; grant chưa được duyệt khi hết cửa sổ thành
+         *     `expired` (job `grant.expire`). Ghi audit platform `platform.support_grant.request`, audit của tenant
+         *     `support_grant.request` và thông báo `support.grant_requested` cho người giữ `tenant.support_grant:decide`.
+         */
+        post: operations["createSupportGrant"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/support-grants/{grantId}/approve-breakglass": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Break-glass — Super Admin thứ hai duyệt grant khi không liên lạc được tenant (2P)
+         * @description §8.7 bước 2, ô 2P của §8.5: dual control nằm ngay trong grant — người yêu cầu là một Super Admin đang hoạt động
+         *     (người xin grant), người gọi là Super Admin **thứ hai** (khác người yêu cầu và khác grantee — CHECK + trigger
+         *     `mg_support_grant_guard` của 0023), người gọi step-up (`401 reauth_required`; người xin đã step-up lúc xin).
+         *     Người gọi chính là người xin ⇒ `403`; người xin không phải Super Admin đang hoạt động ⇒ `409`. Chỉ grant
+         *     `pending` còn trong cửa sổ (`409`). Nhận cả `support_operator` lẫn `support_admin`. Cùng transaction: grant
+         *     `approved` (`approval_kind = breakglass`) + audit platform `platform.support_grant.breakglass`; sau đó trong
+         *     transaction của tenant: audit `support_grant.breakglass` hiển thị cho tenant, `security_event` mức `high`
+         *     (`support.break_glass`) và thông báo `support.break_glass` cho mọi Tenant Owner (không tắt được).
+         */
+        post: operations["approveSupportGrantBreakglass"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/support-grants/{grantId}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Super Admin thu hồi một grant bất kỳ (đang chờ hoặc đang hiệu lực)
+         * @description §8.7 bước 4: có hiệu lực ở request kế tiếp. Grant đã ở trạng thái cuối ⇒ `409`. Audit platform `platform.support_grant.revoke` + audit của tenant `support_grant.revoke` (minh bạch).
+         */
+        post: operations["revokePlatformSupportGrant"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3792,6 +4177,158 @@ export interface components {
          * @enum {string}
          */
         TagPurpose: "router" | "exit" | "server" | "custom";
+        /**
+         * @description Cảnh báo route (§12.3, T-08): `overlap` — prefix của thiết bị chồng lấn prefix của thiết bị khác; `untagged_router`
+         *     — router không phải tagged node (thuộc một user); `exit_node` — thiết bị quảng bá hoặc được duyệt làm exit node
+         */
+        RouteWarning: {
+            /** @enum {string} */
+            code: "overlap" | "untagged_router" | "exit_node";
+            prefix?: string;
+            /** Format: uuid */
+            other_device_id?: string;
+            other_prefix?: string;
+        };
+        /** @description Route của một thiết bị — quảng bá (client) vs đã duyệt (Headscale), từ sổ thiết bị kèm `synced_at` */
+        RouteDevice: {
+            /** Format: uuid */
+            device_id: string;
+            name: string;
+            given_name: string;
+            tags: string[];
+            online: boolean;
+            advertised_routes: string[];
+            approved_routes: string[];
+            /** @description Quảng bá nhưng chưa duyệt — chưa được phân phối tới client nào */
+            pending_routes: string[];
+            exit_node: {
+                advertised: boolean;
+                approved: boolean;
+            };
+            /** @description Hash tập route đã duyệt — giá trị `If-Match` của `approve`/`revoke` */
+            routes_etag: string;
+            /** Format: date-time */
+            synced_at: string;
+            warnings: components["schemas"]["RouteWarning"][];
+        };
+        RouteList: {
+            items: components["schemas"]["RouteDevice"][];
+        };
+        RouteChange: {
+            /** Format: uuid */
+            device_id: string;
+            /** @description Prefix dạng chuẩn (không bit host); `0.0.0.0/0` hoặc `::/0` là exit node (cả hai họ địa chỉ) */
+            prefixes: string[];
+            /** @description Bắt buộc `true` khi duyệt exit node (lưu lượng Internet của client đi qua thiết bị) */
+            confirm_exit_node?: boolean;
+        };
+        /** @description Lần `instance.reconfigure` chưa kết thúc của instance */
+        DnsPending: {
+            /** Format: uuid */
+            job_id: string;
+            status: components["schemas"]["JobStatus"];
+            nameservers?: string[];
+        };
+        DnsView: {
+            magic_dns: boolean;
+            /** @description MagicDNS domain của tailnet (`<slug>.tail.<domain>`) */
+            base_domain: string;
+            /** @description Nameserver của version cấu hình đang hiệu lực (rỗng khi chưa có version do orchestrator ghi) */
+            nameservers: string[];
+            config_version: number | null;
+            /** @description Giá trị `If-Match` của `PUT /dns/settings` */
+            etag: string;
+            pending: components["schemas"]["DnsPending"] | null;
+            /** @description Số extra record của tenant */
+            records: number;
+        };
+        DnsSettingsUpdate: {
+            nameservers: string[];
+        };
+        /** @enum {string} */
+        DnsRecordType: "A" | "AAAA";
+        DnsRecord: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            type: components["schemas"]["DnsRecordType"];
+            value: string;
+            /** @description Giá trị `If-Match` của `DELETE` */
+            etag: string;
+            /** Format: uuid */
+            created_by?: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        DnsRecordList: {
+            items: components["schemas"]["DnsRecord"][];
+        };
+        DnsRecordCreate: {
+            name: string;
+            type: components["schemas"]["DnsRecordType"];
+            value: string;
+        };
+        DnsRecordChange: {
+            record: components["schemas"]["DnsRecord"];
+            job: components["schemas"]["Job"];
+        };
+        /** @enum {string} */
+        NetworkResourceKind: "host" | "subnet" | "service";
+        /**
+         * @description `any` = mọi giao thức
+         * @enum {string}
+         */
+        NetworkResourceProtocol: "tcp" | "udp" | "icmp" | "any";
+        /** @description Một tài nguyên của Network Resource Catalog (`network_resources`) — alias của khóa `hosts` (§7.2) */
+        NetworkResource: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            kind: components["schemas"]["NetworkResourceKind"];
+            /** @description Một địa chỉ (host, service) hoặc một prefix (subnet) */
+            address: string;
+            ports: string[];
+            protocol: components["schemas"]["NetworkResourceProtocol"];
+            tags: string[];
+            /** Format: uuid */
+            owner_group_id?: string;
+            description?: string;
+            /** Format: int64 */
+            version: number;
+            /** @description Phiên bản hiện tại — giá trị `If-Match` của `PATCH`/`DELETE` */
+            etag: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        NetworkResourceList: {
+            items: components["schemas"]["NetworkResource"][];
+            next_cursor: string | null;
+        };
+        NetworkResourceCreate: {
+            name: string;
+            kind: components["schemas"]["NetworkResourceKind"];
+            address: string;
+            ports?: string[];
+            protocol?: components["schemas"]["NetworkResourceProtocol"];
+            tags?: string[];
+            /** Format: uuid */
+            owner_group_id?: string;
+            description?: string;
+        };
+        NetworkResourceUpdate: {
+            name?: string;
+            kind?: components["schemas"]["NetworkResourceKind"];
+            address?: string;
+            ports?: string[];
+            protocol?: components["schemas"]["NetworkResourceProtocol"];
+            tags?: string[];
+            /** @description UUID của group sở hữu; chuỗi rỗng gỡ group */
+            owner_group_id?: string;
+            /** @description Chuỗi rỗng xóa mô tả */
+            description?: string;
+        };
         /** @description Một tag của danh mục (`tenant_tags`) — render vào `tagOwners` với danh sách owner rỗng (§7.2) */
         Tag: {
             /** Format: uuid */
@@ -4060,6 +4597,65 @@ export interface components {
         DeviceTagsUpdate: {
             /** @description Tập tag mới (thay thế toàn bộ) — mỗi tag phải có trong danh mục của tenant */
             tags: string[];
+        };
+        /**
+         * @description Role hiệu lực phạm vi support (cột Staff của §8.6) — `support_operator` (ô G), `support_admin` (thêm ô G (Admin), chỉ qua break-glass). Không bao giờ là role của tenant (Owner…).
+         * @enum {string}
+         */
+        SupportGrantRole: "support_operator" | "support_admin";
+        /**
+         * @description Trạng thái hiệu lực — `approved` đã quá `expires_at` được trả là `expired`
+         * @enum {string}
+         */
+        SupportGrantStatus: "pending" | "approved" | "rejected" | "revoked" | "expired";
+        /** @description Yêu cầu truy cập hỗ trợ (§8.7 bước 1) */
+        SupportGrantCreate: {
+            /**
+             * Format: uuid
+             * @description Tenant đích (tài nguyên của thao tác platform — không phải ngữ cảnh tenant của API)
+             */
+            tenant_id: string;
+            effective_role: components["schemas"]["SupportGrantRole"];
+            reason: string;
+            ticket_ref: string;
+            /** @description Thời lượng cửa sổ (≤ 8 giờ), tính từ lúc xin */
+            duration_minutes: number;
+        };
+        /** @description Một người của grant — tên hiển thị (với grantee là ảnh chụp lúc xin) */
+        SupportGrantPerson: {
+            display_name: string;
+        };
+        /** @description Support Access Grant (§6.3 `support_access_grants`). `decided_by` là thành viên tenant đã duyệt/từ chối (kiểu `tenant`) hoặc Super Admin thứ hai (kiểu `breakglass` — tên chỉ trả cho phía platform; tenant thấy `approval_kind = breakglass` và được thông báo). */
+        SupportGrant: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            tenant_id: string;
+            tenant_slug: string;
+            effective_role: components["schemas"]["SupportGrantRole"];
+            reason: string;
+            ticket_ref: string;
+            status: components["schemas"]["SupportGrantStatus"];
+            /** @description Grant đang cho phép truy cập lúc trả lời (`approved` ∧ `starts_at` ≤ now < `expires_at`) */
+            active: boolean;
+            /** @enum {string} */
+            approval_kind?: "tenant" | "breakglass";
+            grantee: components["schemas"]["SupportGrantPerson"];
+            decided_by?: components["schemas"]["SupportGrantPerson"];
+            /** Format: date-time */
+            decided_at?: string;
+            /** Format: date-time */
+            starts_at: string;
+            /** Format: date-time */
+            expires_at: string;
+            /** Format: date-time */
+            revoked_at?: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        SupportGrantList: {
+            items: components["schemas"]["SupportGrant"][];
+            next_cursor: string | null;
         };
         /** @description Sửa tenant (§8.5 `platform.tenant:update` — tên, gói, quota); ít nhất một trường */
         TenantUpdate: {
@@ -4555,6 +5151,12 @@ export interface components {
         ToFilter: string;
         JobStatusFilter: components["schemas"]["JobStatus"];
         JobKindFilter: components["schemas"]["JobKind"];
+        /** @description ID của Support Access Grant (`support_access_grants.id`) */
+        GrantId: string;
+        /** @description Lọc theo trạng thái hiệu lực */
+        SupportGrantStatusFilter: components["schemas"]["SupportGrantStatus"];
+        /** @description Lọc theo loại actor — `support` = hành động của nhân sự nền tảng dưới Support Access Grant (§8.7, P4-T13) */
+        ActorTypeFilter: "identity" | "system" | "support";
         /** @description ID yêu cầu phê duyệt (`approval_requests.id`) */
         ApprovalId: string;
         /** @description Lọc theo trạng thái hiệu lực */
@@ -4569,6 +5171,10 @@ export interface components {
         EnrollmentStatusFilter: components["schemas"]["EnrollmentRequestStatus"];
         /** @description Hệ điều hành của thiết bị */
         EnrollmentOS: components["schemas"]["EnrollmentOS"];
+        /** @description ID bản ghi DNS (`dns_records.id`) */
+        RecordId: string;
+        /** @description ID tài nguyên mạng (`network_resources.id`) */
+        ResourceId: string;
         /** @description ID tag (`tenant_tags.id`) */
         TagId: string;
         /** @description ID version policy (`policy_versions.id`) */
@@ -5660,6 +6266,8 @@ export interface operations {
                 cursor?: components["parameters"]["Cursor"];
                 /** @description Lọc theo identity của actor */
                 actor?: components["parameters"]["ActorFilter"];
+                /** @description Lọc theo loại actor — `support` = hành động của nhân sự nền tảng dưới Support Access Grant (§8.7, P4-T13) */
+                actor_type?: components["parameters"]["ActorTypeFilter"];
                 /** @description Lọc theo `action` (khớp chính xác) */
                 action?: components["parameters"]["ActionFilter"];
                 outcome?: components["parameters"]["OutcomeFilter"];
@@ -6774,6 +7382,8 @@ export interface operations {
                 cursor?: components["parameters"]["Cursor"];
                 /** @description Lọc theo identity của actor */
                 actor?: components["parameters"]["ActorFilter"];
+                /** @description Lọc theo loại actor — `support` = hành động của nhân sự nền tảng dưới Support Access Grant (§8.7, P4-T13) */
+                actor_type?: components["parameters"]["ActorTypeFilter"];
                 /** @description Lọc theo `action` (khớp chính xác) */
                 action?: components["parameters"]["ActionFilter"];
                 outcome?: components["parameters"]["OutcomeFilter"];
@@ -7422,6 +8032,480 @@ export interface operations {
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    listTenantRoutes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Route của các thiết bị */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RouteList"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    approveTenantRoutes: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428` */
+                "If-Match"?: components["parameters"]["IfMatch"];
+                /** @description Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RouteChange"];
+            };
+        };
+        responses: {
+            /** @description Route của thiết bị sau khi duyệt (kèm cảnh báo) */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RouteDevice"];
+                };
+            };
+            /** @description Tenant bật `routes.four_eyes` — yêu cầu phê duyệt đã tạo, người thứ hai duyệt ở `Location` */
+            202: {
+                headers: {
+                    Location: components["headers"]["TenantApprovalLocation"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalRequest"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["ValidationFailed"];
+            428: components["responses"]["PreconditionRequired"];
+            429: components["responses"]["RateLimited"];
+            502: components["responses"]["UpstreamRejected"];
+            503: components["responses"]["InstanceUnavailable"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    revokeTenantRoutes: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428` */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RouteChange"];
+            };
+        };
+        responses: {
+            /** @description Route của thiết bị sau khi gỡ duyệt */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RouteDevice"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["ValidationFailed"];
+            428: components["responses"]["PreconditionRequired"];
+            429: components["responses"]["RateLimited"];
+            502: components["responses"]["UpstreamRejected"];
+            503: components["responses"]["InstanceUnavailable"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    getTenantDns: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description DNS của tenant */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DnsView"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    updateTenantDnsSettings: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428` */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DnsSettingsUpdate"];
+            };
+        };
+        responses: {
+            /** @description Đã enqueue (hoặc dùng lại) job instance.reconfigure */
+            202: {
+                headers: {
+                    Location: components["headers"]["JobLocation"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["ValidationFailed"];
+            428: components["responses"]["PreconditionRequired"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    listTenantDnsRecords: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bản ghi của tenant */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DnsRecordList"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    createTenantDnsRecord: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DnsRecordCreate"];
+            };
+        };
+        responses: {
+            /** @description Bản ghi đã lưu và job ghi file */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DnsRecordChange"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    deleteTenantDnsRecord: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428` */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+                /** @description ID bản ghi DNS (`dns_records.id`) */
+                recordId: components["parameters"]["RecordId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Đã xóa; job ghi lại file */
+            202: {
+                headers: {
+                    Location: components["headers"]["JobLocation"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["ValidationFailed"];
+            428: components["responses"]["PreconditionRequired"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    listTenantResources: {
+        parameters: {
+            query?: {
+                /** @description Số phần tử tối đa của trang */
+                limit?: components["parameters"]["Limit"];
+                /** @description Con trỏ mờ lấy từ `next_cursor` của trang trước */
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Một trang của catalog */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NetworkResourceList"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    createTenantResource: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NetworkResourceCreate"];
+            };
+        };
+        responses: {
+            /** @description Tài nguyên đã thêm */
+            201: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NetworkResource"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    getTenantResource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+                /** @description ID tài nguyên mạng (`network_resources.id`) */
+                resourceId: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Tài nguyên */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NetworkResource"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    deleteTenantResource: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428` */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+                /** @description ID tài nguyên mạng (`network_resources.id`) */
+                resourceId: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Đã xóa */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["ValidationFailed"];
+            428: components["responses"]["PreconditionRequired"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    updateTenantResource: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428` */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+                /** @description ID tài nguyên mạng (`network_resources.id`) */
+                resourceId: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NetworkResourceUpdate"];
+            };
+        };
+        responses: {
+            /** @description Tài nguyên sau khi sửa */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NetworkResource"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["ValidationFailed"];
+            428: components["responses"]["PreconditionRequired"];
             429: components["responses"]["RateLimited"];
             default: components["responses"]["Unexpected"];
         };
@@ -8131,6 +9215,259 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    listTenantSupportGrants: {
+        parameters: {
+            query?: {
+                /** @description Số phần tử tối đa của trang */
+                limit?: components["parameters"]["Limit"];
+                /** @description Con trỏ mờ lấy từ `next_cursor` của trang trước */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Lọc theo trạng thái hiệu lực */
+                status?: components["parameters"]["SupportGrantStatusFilter"];
+            };
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Một trang grant */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupportGrantList"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    approveTenantSupportGrant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+                /** @description ID của Support Access Grant (`support_access_grants.id`) */
+                grantId: components["parameters"]["GrantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Grant sau khi duyệt */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupportGrant"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    rejectTenantSupportGrant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+                /** @description ID của Support Access Grant (`support_access_grants.id`) */
+                grantId: components["parameters"]["GrantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Grant sau khi từ chối */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupportGrant"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    revokeTenantSupportGrant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+                /** @description ID của Support Access Grant (`support_access_grants.id`) */
+                grantId: components["parameters"]["GrantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Grant sau khi thu hồi */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupportGrant"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    listPlatformSupportGrants: {
+        parameters: {
+            query?: {
+                /** @description Số phần tử tối đa của trang */
+                limit?: components["parameters"]["Limit"];
+                /** @description Con trỏ mờ lấy từ `next_cursor` của trang trước */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Lọc theo trạng thái hiệu lực */
+                status?: components["parameters"]["SupportGrantStatusFilter"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Một trang grant */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupportGrantList"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    createSupportGrant: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupportGrantCreate"];
+            };
+        };
+        responses: {
+            /** @description Grant đã tạo (`pending`) */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupportGrant"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    approveSupportGrantBreakglass: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID của Support Access Grant (`support_access_grants.id`) */
+                grantId: components["parameters"]["GrantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Grant sau khi duyệt break-glass */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupportGrant"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    revokePlatformSupportGrant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID của Support Access Grant (`support_access_grants.id`) */
+                grantId: components["parameters"]["GrantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Grant sau khi thu hồi */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupportGrant"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             429: components["responses"]["RateLimited"];
             default: components["responses"]["Unexpected"];
         };

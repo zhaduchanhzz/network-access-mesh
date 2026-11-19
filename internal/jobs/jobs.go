@@ -160,6 +160,9 @@ func DefaultKinds() map[string]Kind {
 		// P4-T09: an invitation of a tenant whose IdP the platform hosts creates the user there (required actions e-mailed
 		// by the IdP — §8.2 InviteUser); {object} = the invitation id
 		other("member.idp_invite", "invitation:{object}:idp_invite", ScopeTenant, QueueDefault, 6, 2*time.Minute),
+		// P4-T12 (internal/network): the tenant's records/extra-records.json written by the Host Agent from the whole
+		// dns_records set (level-triggered — a queued job carries every later change; no restart)
+		other("dns.records_write", "tenant:{tenant}:dns.records", ScopeTenant, QueueDefault, 6, 2*time.Minute),
 		other("policy.drift_check", "tenant:{tenant}:policy.drift:{slot}", ScopeTenant, QueueDefault, 3, 2*time.Minute),
 		other("instance.reconcile", "instance:{instance}:reconcile:{slot}", ScopeInstance, QueueDefault, 3, 5*time.Minute),
 		other("host.reconcile", "host.reconcile:{slot}", ScopePlatform, QueueDefault, 3, 5*time.Minute),

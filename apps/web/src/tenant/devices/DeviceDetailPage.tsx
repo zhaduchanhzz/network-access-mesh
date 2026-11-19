@@ -2,7 +2,8 @@
 // bộ); thu hồi hai pha — expire (POST …/expire, Idempotency-Key) và xóa (DELETE) đều trả 202 + `revocation.state =
 // pending`, màn hình poll thiết bị tới `applied`/`failed` và chỉ báo "đã áp dụng" khi applied (T-17); xóa đã áp dụng
 // ⇒ thiết bị biến khỏi sổ (404) ⇒ báo đã xóa. Quyền theo role (§8.6; End User chỉ trên thiết bị của mình — server
-// quyết định), tenant chỉ-đọc ⇒ khóa mọi thao tác ghi. Tag và route chỉ đọc ở đây (đổi tag: P4-T10; duyệt route: P4-T12).
+// quyết định), tenant chỉ-đọc ⇒ khóa mọi thao tác ghi. Tag và route chỉ đọc ở đây (đổi tag: P4-T10; duyệt route: màn hình
+// Routes của P4-T12 — có liên kết khi thiết bị có route).
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type SyntheticEvent } from "react";
 import { useTranslation } from "react-i18next";
@@ -128,6 +129,13 @@ function DeviceDetail({ deviceId }: { deviceId: string }) {
           <dt className="text-muted">{t("devices.detail.routesApproved")}</dt>
           <dd className="font-mono text-xs">{d.routes.approved.length > 0 ? d.routes.approved.join(", ") : "—"}</dd>
         </dl>
+        {(d.routes.advertised.length > 0 || d.routes.approved.length > 0) && can(role, "tenant.route:read") ? (
+          <p className="mt-2 text-sm">
+            <Link to={`/t/${tenantId}/routes`} className="link" data-testid="device-routes-link">
+              {t("devices.detail.manageRoutes")}
+            </Link>
+          </p>
+        ) : null}
         <ObservedAt labelKey="ui.syncedAt" iso={d.synced_at} />
         <p className="mt-1 text-xs text-muted">{t("devices.noOsNote")}</p>
       </section>

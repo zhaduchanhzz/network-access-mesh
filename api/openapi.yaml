@@ -82,10 +82,14 @@ tags:
     description: Thiết lập của tenant, thiết lập bảo mật (phê duyệt trong tenant khi nới lỏng), IdP của tenant (§8.2, §8.6, §13.3) — P4-T03a
   - name: tags
     description: Danh mục tag của tenant — nguồn render `tagOwners`, đổi danh mục ⇒ `policy.apply` (§6.3, §7.2) — P4-T15
+  - name: network
+    description: Subnet route/exit node (duyệt có kiểm, 4-eyes tùy chọn), DNS (nameserver ⇒ reconfigure, extra records ⇒ file không restart), Network Resource Catalog (§12.3, §13.2) — P4-T12
   - name: policies
     description: Vòng đời policy — mô hình có kiểu, render tất định, lint L1–L13, duyệt (4-eyes), apply/rollback (§7.2, §7.3) — P4-T10
   - name: enrollment
     description: Thêm thiết bị — web-auth do Portal môi giới, pre-auth key ngắn hạn, phê duyệt trước bước thiết bị, hướng dẫn theo OS (§7.4) — P4-T06
+  - name: support
+    description: Support Access Grant phía tenant — minh bạch, duyệt, từ chối, thu hồi (§8.7) — P4-T13
 paths:
   # ---------------------------------------------------------------- auth (P2-T06)
   /auth/login:
@@ -1429,6 +1433,7 @@ paths:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/ActorFilter'
+        - $ref: '#/components/parameters/ActorTypeFilter'
         - $ref: '#/components/parameters/ActionFilter'
         - $ref: '#/components/parameters/OutcomeFilter'
         - $ref: '#/components/parameters/FromFilter'
@@ -2826,6 +2831,7 @@ paths:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/ActorFilter'
+        - $ref: '#/components/parameters/ActorTypeFilter'
         - $ref: '#/components/parameters/ActionFilter'
         - $ref: '#/components/parameters/OutcomeFilter'
         - $ref: '#/components/parameters/FromFilter'
@@ -3563,6 +3569,574 @@ paths:
         default:
           $ref: '#/components/responses/Unexpected'
   # ---------------------------------------------------------------- tags (danh mục tag — P4-T15, §6.3, §7.2)
+  # ---------------------------------------------------------------- routes, dns, resources (P4-T12)
+  /tenants/{tenantId}/routes:
+    get:
+      tags: [network]
+      operationId: listTenantRoutes
+      summary: Route quảng bá và đã duyệt của các thiết bị (subnet router, exit node)
+      description: |-
+        Từ sổ thiết bị (cache của `inventory.sync`, mỗi thiết bị kèm `synced_at` — đồng bộ ngay bằng
+        `POST /devices/sync`): chỉ thiết bị có route quảng bá hoặc đã duyệt. Mỗi thiết bị kèm `routes_etag` (giá trị
+        `If-Match` của `approve`/`revoke`) và cảnh báo: prefix chồng lấn với thiết bị khác, router không phải tagged node
+        (T-08), exit node. Route quảng bá chưa duyệt (`pending_routes`) không được Headscale phân phối (double opt-in — PL-10).
+      x-permission: tenant.route:read
+      x-task: P4-T12
+      x-audit-action: route.list
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '200':
+          description: Route của các thiết bị
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RouteList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/routes/approve:
+    post:
+      tags: [network]
+      operationId: approveTenantRoutes
+      summary: Duyệt route quảng bá của một thiết bị (đọc–sửa–ghi có kiểm; 4-eyes ⇒ 202)
+      description: |-
+        Body `{device_id, prefixes[]}` + `If-Match` = `routes_etag` của thiết bị (thiếu ⇒ `428`). Server khóa hàng thiết
+        bị (`FOR UPDATE`) suốt lượt đọc–sửa–ghi, đọc **trực tiếp** tập đã duyệt từ Headscale (không dùng cache) — lệch
+        `If-Match` ⇒ `412`; prefix không đang được quảng bá ⇒ `422`; tập mới = tập hiện tại ∪ `prefixes`, ghi bằng
+        `SetApprovedRoutes` (thay thế toàn bộ — PL-10) rồi đọc lại phải khớp. Exit node = `0.0.0.0/0` + `::/0` (một trong
+        hai là cả hai) và cần `confirm_exit_node: true` (thiếu ⇒ `422`). Hai lần duyệt đồng thời trên cùng thiết bị: lần
+        sau chờ khóa rồi nhận `412` — không mất prefix nào. Khi `TenantSettings.routes.four_eyes` bật: không đổi gì, trả
+        `202` + yêu cầu phê duyệt phạm vi tenant `tenant.route.approve` (payload = prefix thêm, tập đã duyệt sau khi thêm,
+        `If-Match`; người gọi phải step-up) — người thứ hai có `tenant.approval:decide` và `tenant.route:approve` duyệt ở
+        `Location`; Headscale chỉ được gọi khi đó, và chỉ khi tập đã duyệt vẫn mang đúng ETag đã duyệt. Audit cặp
+        `route.approve`.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.route:approve
+      x-task: P4-T12
+      x-audit-action: route.approve
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RouteChange'
+      responses:
+        '200':
+          description: Route của thiết bị sau khi duyệt (kèm cảnh báo)
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RouteDevice'
+        '202':
+          description: Tenant bật `routes.four_eyes` — yêu cầu phê duyệt đã tạo, người thứ hai duyệt ở `Location`
+          headers:
+            Location:
+              $ref: '#/components/headers/TenantApprovalLocation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '502':
+          $ref: '#/components/responses/UpstreamRejected'
+        '503':
+          $ref: '#/components/responses/InstanceUnavailable'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/routes/revoke:
+    post:
+      tags: [network]
+      operationId: revokeTenantRoutes
+      summary: Gỡ duyệt route của một thiết bị (đọc–sửa–ghi có kiểm)
+      description: |-
+        Như `approve` (khóa hàng, đọc trực tiếp từ Headscale, `If-Match` bắt buộc — `428`/`412`, đọc lại sau
+        `SetApprovedRoutes`) với tập mới = tập hiện tại trừ `prefixes`; prefix chưa được duyệt ⇒ `422`; exit node gỡ cả
+        hai họ địa chỉ. Gỡ duyệt thu hẹp truy cập nên không cần người thứ hai. Audit cặp `route.revoke`.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.route:approve
+      x-task: P4-T12
+      x-audit-action: route.revoke
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RouteChange'
+      responses:
+        '200':
+          description: Route của thiết bị sau khi gỡ duyệt
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RouteDevice'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '502':
+          $ref: '#/components/responses/UpstreamRejected'
+        '503':
+          $ref: '#/components/responses/InstanceUnavailable'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/dns:
+    get:
+      tags: [network]
+      operationId: getTenantDns
+      summary: DNS của tenant — MagicDNS, nameserver đang hiệu lực, lần reconfigure chưa xong
+      description: |-
+        MagicDNS luôn bật (nền tảng render `dns.base_domain` = `<slug>.tail.<domain>`); `nameservers` là của version cấu
+        hình đang hiệu lực của instance (rỗng khi instance chưa có version do orchestrator ghi); `pending` = lần
+        `instance.reconfigure` chưa kết thúc (nếu có); `etag` là giá trị `If-Match` của `PUT /dns/settings`.
+      x-permission: tenant.dns:read
+      x-task: P4-T12
+      x-audit-action: dns.read
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '200':
+          description: DNS của tenant
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DnsView'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/dns/settings:
+    put:
+      tags: [network]
+      operationId: updateTenantDnsSettings
+      summary: Đổi nameserver của tailnet ⇒ 202 + job instance.reconfigure (restart có kiểm soát)
+      description: |-
+        `If-Match` = `etag` của `GET /dns` (thiếu ⇒ `428`, lệch ⇒ `412`). Nameserver (1–8 địa chỉ unicast dùng được,
+        không trùng) được render vào một version cấu hình mới của instance bởi `instance.reconfigure` (P3-T13): restart
+        có kiểm soát sau health gate, tự lùi khi instance không lên — phiên relay của tenant bị ngắt trong lúc restart
+        (R-19). Một lần reconfigure chưa xong với cùng thay đổi ⇒ trả lại chính job đó; thay đổi khác ⇒ `409`. Audit cặp
+        `dns.settings.update` (job đóng). `search_domains`, `split_dns` chưa thuộc template cấu hình của instance (§13.3).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.dns:update
+      x-task: P4-T12
+      x-audit-action: dns.settings.update
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DnsSettingsUpdate'
+      responses:
+        '202':
+          description: Đã enqueue (hoặc dùng lại) job instance.reconfigure
+          headers:
+            Location:
+              $ref: '#/components/headers/JobLocation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/dns/records:
+    get:
+      tags: [network]
+      operationId: listTenantDnsRecords
+      summary: Extra DNS records của tenant (tối đa 1024)
+      description: Theo thứ tự của file `extra-records.json` (`name`, `type`, `value`).
+      x-permission: tenant.dns:read
+      x-task: P4-T12
+      x-audit-action: dns.record.list
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '200':
+          description: Bản ghi của tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DnsRecordList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+    post:
+      tags: [network]
+      operationId: createTenantDnsRecord
+      summary: Thêm một bản ghi A/AAAA (ghi file extra-records, không restart)
+      description: |-
+        `name` là FQDN chữ thường (≥ 2 nhãn, không wildcard); dưới domain của nền tảng chỉ trong MagicDNS domain của chính
+        tenant. `A` ⇔ IPv4, `AAAA` ⇔ IPv6. Lint T-09: `value` phải là địa chỉ tailnet của một thiết bị của tenant hoặc
+        nằm trong một subnet route tenant đã duyệt (`422` field `value`). Trùng `(name, type, value)` ⇒ `409`; quá 1024 ⇒
+        `409`. Cùng transaction: audit `dns.record.create` và job `dns.records_write` (level-triggered — Host Agent ghi
+        `records/extra-records.json` bằng tmp + rename, Headscale nạp lại không restart; job chưa xong được dùng lại).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.dns:update
+      x-task: P4-T12
+      x-audit-action: dns.record.create
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DnsRecordCreate'
+      responses:
+        '201':
+          description: Bản ghi đã lưu và job ghi file
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DnsRecordChange'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/dns/records/{recordId}:
+    delete:
+      tags: [network]
+      operationId: deleteTenantDnsRecord
+      summary: Xóa một bản ghi ⇒ 202 + job ghi file (bản ghi cuối ⇒ file [])
+      description: |-
+        Cần `If-Match` = `etag` của bản ghi (thiếu ⇒ `428`, lệch ⇒ `412`). Cùng transaction với audit `dns.record.delete`
+        và job `dns.records_write`.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.dns:update
+      x-task: P4-T12
+      x-audit-action: dns.record.delete
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/RecordId'
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '202':
+          description: Đã xóa; job ghi lại file
+          headers:
+            Location:
+              $ref: '#/components/headers/JobLocation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/resources:
+    get:
+      tags: [network]
+      operationId: listTenantResources
+      summary: Network Resource Catalog
+      description: Thứ tự ổn định `(created_at, id)`; mỗi tài nguyên kèm `etag` — giá trị `If-Match` của `PATCH`/`DELETE`.
+      x-permission: tenant.resource:read
+      x-task: P4-T12
+      x-audit-action: resource.list
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Một trang của catalog
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NetworkResourceList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+    post:
+      tags: [network]
+      operationId: createTenantResource
+      summary: Thêm một tài nguyên (alias của khóa hosts)
+      description: |-
+        `name` chữ thường/số/gạch nối (alias của `hosts` — §7.2), duy nhất trong tenant (`409`); `host`/`service` đúng
+        một địa chỉ, `subnet` một prefix (không bit host, không `/0`); `ports` = cổng/dải (`443`, `8000-8100`; rỗng = mọi
+        cổng), không đi với `icmp`, `service` phải có cổng; `protocol` `any` = mọi giao thức; `tags` chỉ tag có trong
+        danh mục (P4-T15 — `422` liệt kê); `owner_group_id` là group của tenant. Cùng transaction: audit
+        `resource.create` và job `policy.apply` (trigger `resource_change`).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.resource:manage
+      x-task: P4-T12
+      x-audit-action: resource.create
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NetworkResourceCreate'
+      responses:
+        '201':
+          description: Tài nguyên đã thêm
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NetworkResource'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/resources/{resourceId}:
+    get:
+      tags: [network]
+      operationId: getTenantResource
+      summary: Một tài nguyên của catalog
+      x-permission: tenant.resource:read
+      x-task: P4-T12
+      x-audit-action: resource.read
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: Tài nguyên
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NetworkResource'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+    patch:
+      tags: [network]
+      operationId: updateTenantResource
+      summary: Sửa một tài nguyên
+      description: |-
+        Chỉ các trường gửi lên đổi; kết quả được kiểm như khi tạo. `owner_group_id` chuỗi rỗng gỡ group sở hữu,
+        `description` rỗng xóa mô tả. Cần `If-Match` = `etag` (thiếu ⇒ `428`, lệch ⇒ `412`). Cùng transaction: audit
+        `resource.update` và job `policy.apply` (trigger `resource_change`).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.resource:manage
+      x-task: P4-T12
+      x-audit-action: resource.update
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NetworkResourceUpdate'
+      responses:
+        '200':
+          description: Tài nguyên sau khi sửa
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NetworkResource'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+    delete:
+      tags: [network]
+      operationId: deleteTenantResource
+      summary: Xóa một tài nguyên
+      description: |-
+        Cần `If-Match` = `etag` (thiếu ⇒ `428`, lệch ⇒ `412`). Cùng transaction: audit `resource.delete` và job
+        `policy.apply` (trigger `resource_change`).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.resource:manage
+      x-task: P4-T12
+      x-audit-action: resource.delete
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204':
+          description: Đã xóa
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
   /tenants/{tenantId}/tags:
     get:
       tags: [tags]
@@ -4453,6 +5027,311 @@ paths:
           $ref: '#/components/responses/NotFound'
         '422':
           $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  # ---------------------------------------------------------------- support grants (P4-T13, §8.7)
+  /tenants/{tenantId}/support-grants:
+    get:
+      tags: [support]
+      operationId: listTenantSupportGrants
+      summary: Support Access Grant vào tenant này (minh bạch — §8.7)
+      description: >-
+        Mọi yêu cầu truy cập hỗ trợ của nhân sự nền tảng vào tenant trong path, mới nhất trước. `status` là trạng thái
+        hiệu lực (`approved` đã quá `expires_at` là `expired`, kể cả trước khi job `grant.expire` ghi lại); `active` =
+        grant đang cho phép truy cập lúc trả lời. Hành động của nhân sự dưới grant nằm trong `GET /audit`
+        (`actor.type = support`, `actor.support_grant_id`).
+      x-permission: tenant.support_grant:read
+      x-task: P4-T13
+      x-audit-action: support_grant.list
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/SupportGrantStatusFilter'
+      responses:
+        '200':
+          description: Một trang grant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupportGrantList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/support-grants/{grantId}/approve:
+    post:
+      tags: [support]
+      operationId: approveTenantSupportGrant
+      summary: Tenant duyệt một yêu cầu truy cập hỗ trợ (step-up) — chỉ role Support Operator
+      description: |-
+        §8.7 bước 2: Tenant Owner/Admin duyệt trong Portal; người duyệt step-up (`auth_time` ≤ 15 phút, nếu không ⇒
+        `401 reauth_required`). Trần role hiệu lực khi tenant duyệt là `support_operator` (cột Staff, ô **G** của §8.6);
+        grant `support_admin` chỉ được cấp qua break-glass của hai Super Admin ⇒ ở đây `403`. Role Owner không bao giờ là
+        role hiệu lực (schema chỉ có hai role support). Chỉ grant `pending` còn trong cửa sổ thời gian (hết cửa sổ hoặc
+        đã quyết định ⇒ `409`). Cửa sổ không đổi khi duyệt. Audit `support_grant.approve` cùng transaction.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.support_grant:decide
+      x-task: P4-T13
+      x-audit-action: support_grant.approve
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/GrantId'
+      responses:
+        '200':
+          description: Grant sau khi duyệt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupportGrant'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/support-grants/{grantId}/reject:
+    post:
+      tags: [support]
+      operationId: rejectTenantSupportGrant
+      summary: Tenant từ chối một yêu cầu truy cập hỗ trợ đang chờ
+      description: >-
+        Chỉ grant `pending` (đã quyết định, đã hết cửa sổ ⇒ `409`). Từ chối là trạng thái cuối. Audit
+        `support_grant.reject`.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.support_grant:decide
+      x-task: P4-T13
+      x-audit-action: support_grant.reject
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/GrantId'
+      responses:
+        '200':
+          description: Grant sau khi từ chối
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupportGrant'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/support-grants/{grantId}/revoke:
+    post:
+      tags: [support]
+      operationId: revokeTenantSupportGrant
+      summary: Tenant thu hồi một grant (đang chờ hoặc đang hiệu lực, kể cả grant break-glass)
+      description: >-
+        §8.7 bước 4: có hiệu lực ở request kế tiếp của nhân sự (mọi request dưới grant kiểm grant còn hiệu lực ở lớp 1
+        và trong transaction của tenant). Grant đã ở trạng thái cuối ⇒ `409`. Không cần step-up (thu hồi chỉ thu hẹp
+        quyền). Audit `support_grant.revoke`.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.support_grant:decide
+      x-task: P4-T13
+      x-audit-action: support_grant.revoke
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/GrantId'
+      responses:
+        '200':
+          description: Grant sau khi thu hồi
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupportGrant'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /platform/support-grants:
+    get:
+      tags: [platform]
+      operationId: listPlatformSupportGrants
+      summary: Support Access Grant của mọi tenant
+      description: >-
+        Mới nhất trước; `status` hiệu lực như `GET /tenants/{tenantId}/support-grants`. Không lộ dữ liệu nội bộ tenant
+        (chỉ metadata của grant + slug của tenant).
+      x-permission: platform.support_grant:read
+      x-task: P4-T13
+      x-audit-action: platform.support_grant.list
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/SupportGrantStatusFilter'
+      responses:
+        '200':
+          description: Một trang grant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupportGrantList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+    post:
+      tags: [platform]
+      operationId: createSupportGrant
+      summary: Nhân sự nền tảng xin truy cập hỗ trợ vào một tenant (grant `pending`)
+      description: |-
+        §8.7 bước 1: tenant, role hiệu lực (`support_operator`; `support_admin` chỉ được duyệt qua break-glass), lý do,
+        mã ticket, thời lượng 1–480 phút (≤ 8 giờ — CHECK của bảng). Người xin là grantee. Step-up. Tenant phải `active`
+        hoặc `suspended` (tenant đang/đã gỡ ⇒ `409`, không tồn tại ⇒ `404`); người xin đã có một grant còn mở (đang chờ
+        hoặc đang hiệu lực) vào tenant đó ⇒ `409`. Cửa sổ tính từ lúc xin; grant chưa được duyệt khi hết cửa sổ thành
+        `expired` (job `grant.expire`). Ghi audit platform `platform.support_grant.request`, audit của tenant
+        `support_grant.request` và thông báo `support.grant_requested` cho người giữ `tenant.support_grant:decide`.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: platform.support_grant:request
+      x-task: P4-T13
+      x-audit-action: platform.support_grant.request
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SupportGrantCreate'
+      responses:
+        '201':
+          description: Grant đã tạo (`pending`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupportGrant'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /platform/support-grants/{grantId}/approve-breakglass:
+    post:
+      tags: [platform]
+      operationId: approveSupportGrantBreakglass
+      summary: Break-glass — Super Admin thứ hai duyệt grant khi không liên lạc được tenant (2P)
+      description: |-
+        §8.7 bước 2, ô 2P của §8.5: dual control nằm ngay trong grant — người yêu cầu là một Super Admin đang hoạt động
+        (người xin grant), người gọi là Super Admin **thứ hai** (khác người yêu cầu và khác grantee — CHECK + trigger
+        `mg_support_grant_guard` của 0023), người gọi step-up (`401 reauth_required`; người xin đã step-up lúc xin).
+        Người gọi chính là người xin ⇒ `403`; người xin không phải Super Admin đang hoạt động ⇒ `409`. Chỉ grant
+        `pending` còn trong cửa sổ (`409`). Nhận cả `support_operator` lẫn `support_admin`. Cùng transaction: grant
+        `approved` (`approval_kind = breakglass`) + audit platform `platform.support_grant.breakglass`; sau đó trong
+        transaction của tenant: audit `support_grant.breakglass` hiển thị cho tenant, `security_event` mức `high`
+        (`support.break_glass`) và thông báo `support.break_glass` cho mọi Tenant Owner (không tắt được).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: platform.support_grant:breakglass
+      x-dual-control: true
+      x-task: P4-T13
+      x-audit-action: platform.support_grant.breakglass
+      parameters:
+        - $ref: '#/components/parameters/GrantId'
+      responses:
+        '200':
+          description: Grant sau khi duyệt break-glass
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupportGrant'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /platform/support-grants/{grantId}/revoke:
+    post:
+      tags: [platform]
+      operationId: revokePlatformSupportGrant
+      summary: Super Admin thu hồi một grant bất kỳ (đang chờ hoặc đang hiệu lực)
+      description: >-
+        §8.7 bước 4: có hiệu lực ở request kế tiếp. Grant đã ở trạng thái cuối ⇒ `409`. Audit platform
+        `platform.support_grant.revoke` + audit của tenant `support_grant.revoke` (minh bạch).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: platform.support_grant:revoke
+      x-task: P4-T13
+      x-audit-action: platform.support_grant.revoke
+      parameters:
+        - $ref: '#/components/parameters/GrantId'
+      responses:
+        '200':
+          description: Grant sau khi thu hồi
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupportGrant'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '429':
           $ref: '#/components/responses/RateLimited'
         default:
@@ -5915,6 +6794,30 @@ components:
       required: false
       schema:
         $ref: '#/components/schemas/JobKind'
+    # support grants (P4-T13)
+    GrantId:
+      name: grantId
+      in: path
+      required: true
+      description: ID của Support Access Grant (`support_access_grants.id`)
+      schema:
+        type: string
+        format: uuid
+    SupportGrantStatusFilter:
+      name: status
+      in: query
+      required: false
+      description: Lọc theo trạng thái hiệu lực
+      schema:
+        $ref: '#/components/schemas/SupportGrantStatus'
+    ActorTypeFilter:
+      name: actor_type
+      in: query
+      required: false
+      description: Lọc theo loại actor — `support` = hành động của nhân sự nền tảng dưới Support Access Grant (§8.7, P4-T13)
+      schema:
+        type: string
+        enum: [identity, system, support]
     # dual control (P3-T04a) + lời mời (P3-T05a)
     ApprovalId:
       name: approvalId
@@ -5970,6 +6873,22 @@ components:
       description: Hệ điều hành của thiết bị
       schema:
         $ref: '#/components/schemas/EnrollmentOS'
+    RecordId:
+      name: recordId
+      in: path
+      required: true
+      description: ID bản ghi DNS (`dns_records.id`)
+      schema:
+        type: string
+        format: uuid
+    ResourceId:
+      name: resourceId
+      in: path
+      required: true
+      description: ID tài nguyên mạng (`network_resources.id`)
+      schema:
+        type: string
+        format: uuid
     TagId:
       name: tagId
       in: path
@@ -8563,6 +9482,333 @@ components:
         Mục đích của tag (`tenant_tags.purpose`, bất biến): `server`, `custom` do tenant khai báo; `router`, `exit` là tag
         do nền tảng kiểm soát (§7.2 — chỉ chúng được `autoApprovers` nêu)
       enum: [router, exit, server, custom]
+    RouteWarning:
+      type: object
+      description: |-
+        Cảnh báo route (§12.3, T-08): `overlap` — prefix của thiết bị chồng lấn prefix của thiết bị khác; `untagged_router`
+        — router không phải tagged node (thuộc một user); `exit_node` — thiết bị quảng bá hoặc được duyệt làm exit node
+      required: [code]
+      properties:
+        code:
+          type: string
+          enum: [overlap, untagged_router, exit_node]
+        prefix:
+          type: string
+        other_device_id:
+          type: string
+          format: uuid
+        other_prefix:
+          type: string
+    RouteDevice:
+      type: object
+      description: Route của một thiết bị — quảng bá (client) vs đã duyệt (Headscale), từ sổ thiết bị kèm `synced_at`
+      required: [device_id, name, given_name, tags, online, advertised_routes, approved_routes, pending_routes, exit_node, routes_etag, synced_at, warnings]
+      properties:
+        device_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        given_name:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        online:
+          type: boolean
+        advertised_routes:
+          type: array
+          items:
+            type: string
+        approved_routes:
+          type: array
+          items:
+            type: string
+        pending_routes:
+          type: array
+          description: Quảng bá nhưng chưa duyệt — chưa được phân phối tới client nào
+          items:
+            type: string
+        exit_node:
+          type: object
+          required: [advertised, approved]
+          properties:
+            advertised:
+              type: boolean
+            approved:
+              type: boolean
+        routes_etag:
+          type: string
+          description: Hash tập route đã duyệt — giá trị `If-Match` của `approve`/`revoke`
+        synced_at:
+          type: string
+          format: date-time
+        warnings:
+          type: array
+          items:
+            $ref: '#/components/schemas/RouteWarning'
+    RouteList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/RouteDevice'
+    RouteChange:
+      type: object
+      additionalProperties: false
+      required: [device_id, prefixes]
+      properties:
+        device_id:
+          type: string
+          format: uuid
+        prefixes:
+          type: array
+          minItems: 1
+          maxItems: 64
+          items:
+            type: string
+            maxLength: 64
+          description: Prefix dạng chuẩn (không bit host); `0.0.0.0/0` hoặc `::/0` là exit node (cả hai họ địa chỉ)
+        confirm_exit_node:
+          type: boolean
+          description: Bắt buộc `true` khi duyệt exit node (lưu lượng Internet của client đi qua thiết bị)
+    DnsPending:
+      type: object
+      description: Lần `instance.reconfigure` chưa kết thúc của instance
+      required: [job_id, status]
+      properties:
+        job_id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/JobStatus'
+        nameservers:
+          type: array
+          items:
+            type: string
+    DnsView:
+      type: object
+      required: [magic_dns, base_domain, nameservers, config_version, etag, pending, records]
+      properties:
+        magic_dns:
+          type: boolean
+        base_domain:
+          type: string
+          description: MagicDNS domain của tailnet (`<slug>.tail.<domain>`)
+        nameservers:
+          type: array
+          description: Nameserver của version cấu hình đang hiệu lực (rỗng khi chưa có version do orchestrator ghi)
+          items:
+            type: string
+        config_version:
+          type: [integer, 'null']
+        etag:
+          type: string
+          description: Giá trị `If-Match` của `PUT /dns/settings`
+        pending:
+          oneOf:
+            - $ref: '#/components/schemas/DnsPending'
+            - type: 'null'
+        records:
+          type: integer
+          description: Số extra record của tenant
+    DnsSettingsUpdate:
+      type: object
+      additionalProperties: false
+      required: [nameservers]
+      properties:
+        nameservers:
+          type: array
+          minItems: 1
+          maxItems: 8
+          items:
+            type: string
+            maxLength: 64
+    DnsRecordType:
+      type: string
+      enum: [A, AAAA]
+    DnsRecord:
+      type: object
+      required: [id, name, type, value, etag, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        type:
+          $ref: '#/components/schemas/DnsRecordType'
+        value:
+          type: string
+        etag:
+          type: string
+          description: Giá trị `If-Match` của `DELETE`
+        created_by:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+    DnsRecordList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DnsRecord'
+    DnsRecordCreate:
+      type: object
+      additionalProperties: false
+      required: [name, type, value]
+      properties:
+        name:
+          type: string
+          maxLength: 254
+        type:
+          $ref: '#/components/schemas/DnsRecordType'
+        value:
+          type: string
+          maxLength: 64
+    DnsRecordChange:
+      type: object
+      required: [record, job]
+      properties:
+        record:
+          $ref: '#/components/schemas/DnsRecord'
+        job:
+          $ref: '#/components/schemas/Job'
+    NetworkResourceKind:
+      type: string
+      enum: [host, subnet, service]
+    NetworkResourceProtocol:
+      type: string
+      description: '`any` = mọi giao thức'
+      enum: [tcp, udp, icmp, any]
+    NetworkResource:
+      type: object
+      description: Một tài nguyên của Network Resource Catalog (`network_resources`) — alias của khóa `hosts` (§7.2)
+      required: [id, name, kind, address, ports, protocol, tags, version, etag, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          pattern: '^[a-z][a-z0-9-]{0,62}$'
+        kind:
+          $ref: '#/components/schemas/NetworkResourceKind'
+        address:
+          type: string
+          description: Một địa chỉ (host, service) hoặc một prefix (subnet)
+        ports:
+          type: array
+          items:
+            type: string
+        protocol:
+          $ref: '#/components/schemas/NetworkResourceProtocol'
+        tags:
+          type: array
+          items:
+            type: string
+        owner_group_id:
+          type: string
+          format: uuid
+        description:
+          type: string
+        version:
+          type: integer
+          format: int64
+        etag:
+          type: string
+          description: Phiên bản hiện tại — giá trị `If-Match` của `PATCH`/`DELETE`
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    NetworkResourceList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/NetworkResource'
+        next_cursor:
+          type: [string, 'null']
+    NetworkResourceCreate:
+      type: object
+      additionalProperties: false
+      required: [name, kind, address]
+      properties:
+        name:
+          type: string
+          pattern: '^[a-z][a-z0-9-]{0,62}$'
+        kind:
+          $ref: '#/components/schemas/NetworkResourceKind'
+        address:
+          type: string
+          maxLength: 64
+        ports:
+          type: array
+          maxItems: 64
+          items:
+            type: string
+            maxLength: 11
+        protocol:
+          $ref: '#/components/schemas/NetworkResourceProtocol'
+        tags:
+          type: array
+          maxItems: 64
+          items:
+            type: string
+            maxLength: 54
+        owner_group_id:
+          type: string
+          format: uuid
+        description:
+          type: string
+          maxLength: 1000
+    NetworkResourceUpdate:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          pattern: '^[a-z][a-z0-9-]{0,62}$'
+        kind:
+          $ref: '#/components/schemas/NetworkResourceKind'
+        address:
+          type: string
+          maxLength: 64
+        ports:
+          type: array
+          maxItems: 64
+          items:
+            type: string
+            maxLength: 11
+        protocol:
+          $ref: '#/components/schemas/NetworkResourceProtocol'
+        tags:
+          type: array
+          maxItems: 64
+          items:
+            type: string
+            maxLength: 54
+        owner_group_id:
+          type: string
+          maxLength: 36
+          description: UUID của group sở hữu; chuỗi rỗng gỡ group
+        description:
+          type: string
+          maxLength: 1000
+          description: Chuỗi rỗng xóa mô tả
     Tag:
       type: object
       description: Một tag của danh mục (`tenant_tags`) — render vào `tagOwners` với danh sách owner rỗng (§7.2)
@@ -9115,6 +10361,108 @@ components:
           items:
             type: string
             pattern: '^tag:[a-z][a-z0-9-]{0,49}$'
+    # ------------------------------------------------------------ Support Access Grant (§8.7, §6.3 — P4-T13)
+    SupportGrantRole:
+      type: string
+      description: >-
+        Role hiệu lực phạm vi support (cột Staff của §8.6) — `support_operator` (ô G), `support_admin` (thêm ô G (Admin),
+        chỉ qua break-glass). Không bao giờ là role của tenant (Owner…).
+      enum: [support_operator, support_admin]
+    SupportGrantStatus:
+      type: string
+      description: Trạng thái hiệu lực — `approved` đã quá `expires_at` được trả là `expired`
+      enum: [pending, approved, rejected, revoked, expired]
+    SupportGrantCreate:
+      type: object
+      description: Yêu cầu truy cập hỗ trợ (§8.7 bước 1)
+      required: [tenant_id, effective_role, reason, ticket_ref, duration_minutes]
+      additionalProperties: false
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+          description: Tenant đích (tài nguyên của thao tác platform — không phải ngữ cảnh tenant của API)
+        effective_role:
+          $ref: '#/components/schemas/SupportGrantRole'
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        ticket_ref:
+          type: string
+          minLength: 1
+          maxLength: 200
+        duration_minutes:
+          type: integer
+          minimum: 1
+          maximum: 480
+          description: Thời lượng cửa sổ (≤ 8 giờ), tính từ lúc xin
+    SupportGrantPerson:
+      type: object
+      description: Một người của grant — tên hiển thị (với grantee là ảnh chụp lúc xin)
+      required: [display_name]
+      properties:
+        display_name:
+          type: string
+    SupportGrant:
+      type: object
+      description: >-
+        Support Access Grant (§6.3 `support_access_grants`). `decided_by` là thành viên tenant đã duyệt/từ chối (kiểu
+        `tenant`) hoặc Super Admin thứ hai (kiểu `breakglass` — tên chỉ trả cho phía platform; tenant thấy
+        `approval_kind = breakglass` và được thông báo).
+      required: [id, tenant_id, tenant_slug, effective_role, reason, ticket_ref, status, active, grantee, starts_at, expires_at, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        tenant_slug:
+          type: string
+        effective_role:
+          $ref: '#/components/schemas/SupportGrantRole'
+        reason:
+          type: string
+        ticket_ref:
+          type: string
+        status:
+          $ref: '#/components/schemas/SupportGrantStatus'
+        active:
+          type: boolean
+          description: Grant đang cho phép truy cập lúc trả lời (`approved` ∧ `starts_at` ≤ now < `expires_at`)
+        approval_kind:
+          type: string
+          enum: [tenant, breakglass]
+        grantee:
+          $ref: '#/components/schemas/SupportGrantPerson'
+        decided_by:
+          $ref: '#/components/schemas/SupportGrantPerson'
+        decided_at:
+          type: string
+          format: date-time
+        starts_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        revoked_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+    SupportGrantList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SupportGrant'
+        next_cursor:
+          type: [string, 'null']
     # ------------------------------------------------------------ P4-T03a: sửa tenant, thiết lập, IdP, platform users, settings, plans
     TenantUpdate:
       type: object

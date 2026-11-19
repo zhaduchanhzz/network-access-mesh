@@ -561,6 +561,7 @@ type SupportAccessGrant struct {
 	CreatedAt                 time.Time
 	UpdatedAt                 time.Time
 	Version                   int64
+	GranteeDisplay            string
 }
 
 type SystemSetting struct {

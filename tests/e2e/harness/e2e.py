@@ -36,12 +36,14 @@ import lifecycle  # noqa: E402 — E2E-56 … E2E-58 (P3-T08)
 import mailrelay  # noqa: E402 — E2E-82, E2E-83 (P3-T05b-mail: relay thư ra, Worker giả)
 import members  # noqa: E402 — E2E-92, E2E-93 (P4-T09: offboard V-23, quy tắc 3a, group sensitive)
 import monitoring  # noqa: E402 — E2E-76 … E2E-78 (P3-T16)
+import network  # noqa: E402 — E2E-102 … E2E-104 (P4-T12: routes, DNS records hot-reload, resource catalog)
 import phase3  # noqa: E402 — E2E-32 … E2E-36 (P3-T14a, P3-T03a, P3-T08a)
 import portal  # noqa: E402 — E2E-87 (P4-T04: hộp thông báo, lọc rà soát tagged node)
 import policylife  # noqa: E402 — E2E-96 … E2E-98 (P4-T10: vòng đời policy, pipeline, drift)
 import postrestore  # noqa: E402 — E2E-70, E2E-71 (P3-T17)
 import restore  # noqa: E402 — E2E-59, E2E-60 (P3-T11: V-11)
 import spa  # noqa: E402 — E2E-85, E2E-86 (P4-T01a: SPA sau edge template v9)
+import supportgrant  # noqa: E402 — E2E-105 … E2E-107 (P4-T13: Support Access Grant, break-glass, grant.expire)
 import tagcatalog  # noqa: E402 — E2E-91 (P4-T15: danh mục tag)
 from stack import CLIENTS, SECRET_RE, TENANTS, Stack, StackError, log  # noqa: E402
 
@@ -229,12 +231,18 @@ def test(st: Stack, r: checks.Results) -> None:
     with timed("ca E2E-91 (P4-T15: danh mục tag — CRUD, policy.apply tag_change ⇒ tagOwners, tag chưa khai báo bị từ chối, "
                "xóa tag còn tham chiếu ⇒ 409)"):
         tagcatalog.run_all(r, st, guarded)
+    with timed("ca E2E-102 … E2E-104 (P4-T12: route quảng bá chưa duyệt không dùng được, duyệt đọc–sửa–ghi + đồng thời 412, "
+               "DNS record hot-reload phân giải từ client, resource ⇒ policy.apply resource_change)"):
+        network.run_all(r, st, guarded)
     with timed("ca E2E-94, E2E-95 (P4-T03a: IdP của tenant do nền tảng sửa ⇒ 2P + audit tenant, role Super Admin qua 2P, "
                "thiết lập bảo mật — tắt 4-eyes qua phê duyệt trong tenant, yêu cầu xóa tenant)"):
         admin.run_all(r, st, guarded)
     with timed("ca E2E-96 … E2E-98 (P4-T10: policy có kiểu — vòng đời, pipeline với Headscale thật, 4-eyes + step-up, drift, "
                "ErrNoPolicy, db.sqlite bị thay)"):
         policylife.run_all(r, st, guarded)
+    with timed("ca E2E-105 … E2E-107 (P4-T13: Support Access Grant — hành động của support trong audit tenant, break-glass "
+               "cần Super Admin thứ hai, grant hết hạn tự vô hiệu + grant.expire)"):
+        supportgrant.run_all(r, st, guarded)
     with timed("ca E2E-99 … E2E-101 (P4-T06: enrollment — pre-auth key một lần với client chính thức, web-auth claim trong "
                "cùng phiên + kiểm node, phê duyệt trước bước thiết bị, IT-13 chéo tenant)"):
         enrollment.run_all(r, st, guarded)

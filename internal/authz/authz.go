@@ -160,8 +160,11 @@ type Decision struct {
 	Permission     Permission
 	RoleKey        string    // "" for public / authenticated operations
 	RoleRank       int       // seniority of the role within its scope
-	MembershipID   uuid.UUID // the caller's membership (tenant routes)
-	PlatformUserID uuid.UUID // the caller's platform user (platform routes)
+	MembershipID   uuid.UUID // the caller's membership (tenant routes; uuid.Nil for a support actor)
+	PlatformUserID uuid.UUID // the caller's platform user (platform routes, and tenant routes through a support grant)
+	// SupportGrantID: platform staff granted on a tenant route through this live Support Access Grant (§8.7, P4-T13) —
+	// RoleKey is then its effective role (support_operator / support_admin). uuid.Nil for every other decision.
+	SupportGrantID uuid.UUID
 	// OwnOnly: the grant has scope own — the service must act only on the caller's own resources (CheckOwner,
 	// OwnerFilter).
 	OwnOnly bool
@@ -170,6 +173,19 @@ type Decision struct {
 	DualControl bool
 	// Condition: the grant is conditional — the service must enforce this condition (one of Requirement.Conditions).
 	Condition string
+}
+
+// Support reports whether the request is platform staff acting inside the tenant through a Support Access Grant.
+func (d Decision) Support() bool { return d.SupportGrantID != uuid.Nil }
+
+// SupportContext returns ctx for the handler of a granted request: for a support decision it carries the support actor
+// (store.WithSupportActor), so every tenant transaction of the request re-checks the grant inside the transaction
+// (§6.1 row "Platform scope", IT-17); other decisions leave ctx unchanged.
+func SupportContext(ctx context.Context, d Decision) context.Context {
+	if !d.Support() {
+		return ctx
+	}
+	return store.WithSupportActor(ctx, store.SupportActor{GrantID: d.SupportGrantID, PlatformUserID: d.PlatformUserID})
 }
 
 // NeedsApproval reports whether the operation must become an approval request (§8.6 2P rule) instead of running now.
@@ -209,6 +225,11 @@ var (
 type Denial struct {
 	Kind   error
 	Reason string
+	// SupportGrantID: the live Support Access Grant of a refused staff request on a tenant route (the grant exists but
+	// its role lacks the permission, or the tenant is suspended) — the refusal belongs to the tenant's trail (§8.7).
+	SupportGrantID uuid.UUID
+	// PlatformUserID: the staff member of such a refusal.
+	PlatformUserID uuid.UUID
 }
 
 func (d *Denial) Error() string { return "authz: " + d.Kind.Error() + " (" + d.Reason + ")" }
@@ -247,6 +268,7 @@ type access struct {
 	roleRank       int
 	grantScope     string
 	grantCondition string
+	grantID        uuid.UUID // support access only: the live Support Access Grant
 }
 
 type loader interface {
@@ -254,6 +276,8 @@ type loader interface {
 	tenantAccess(ctx context.Context, tenantID, identityID uuid.UUID, perm Permission) (*access, error)
 	// platformAccess returns nil when the identity is not a platform user.
 	platformAccess(ctx context.Context, identityID uuid.UUID, perm Permission) (*access, error)
+	// supportAccess returns nil when the identity — a platform user — holds no live Support Access Grant on the tenant.
+	supportAccess(ctx context.Context, tenantID, identityID uuid.UUID, perm Permission) (*access, error)
 }
 
 // Authorizer makes the decisions of layer 1 (§8.8).
@@ -319,9 +343,13 @@ func (a *Authorizer) requireTenant(ctx context.Context, p Principal, tenantID uu
 	switch {
 	case p.Scope == ScopeTenant && p.Origin == OriginApp:
 	case p.Scope == ScopePlatform && p.Origin == OriginAdmin:
-		// Staff reach tenant-internal operations only through a Support Access Grant (§8.4 invariant 2, §8.7). The
-		// table support_access_grants arrives with migration 0015 (P4-T13); until then there is no grant to find.
-		return Decision{}, deny(ErrForbidden, "no_support_grant")
+		// Staff reach tenant-internal operations only through a live Support Access Grant (§8.4 invariant 2, §8.7,
+		// P4-T13): loaded on every request, so a revoked or expired grant stops at the next request.
+		acc, err := a.load.supportAccess(ctx, tenantID, p.IdentityID, req.Permission)
+		if err != nil {
+			return Decision{}, fmt.Errorf("authz: load support access: %w", err)
+		}
+		return decideSupport(p, tenantID, req, acc)
 	default:
 		return Decision{}, deny(ErrForbidden, "origin_scope_mismatch")
 	}
@@ -362,6 +390,44 @@ func decideTenant(p Principal, tenantID uuid.UUID, req Requirement, acc *access)
 		return Decision{}, deny(ErrTenantSuspended, "tenant_deprovisioning")
 	}
 	d.TenantID, d.MembershipID = tenantID, acc.subjectID
+	return d, nil
+}
+
+// decideSupport is the pure decision of a tenant route for platform staff once its live grant is loaded: no grant ⇒
+// 403 no_support_grant (staff see the registry, so the tenant's existence is no secret to them); the grant's
+// effective role must hold the permission (cells G / G (Admin) of §8.6); a suspended tenant refuses the writes of a
+// support role exactly like those of its own roles (§8.4 invariant 5).
+func decideSupport(p Principal, tenantID uuid.UUID, req Requirement, acc *access) (Decision, error) {
+	switch {
+	case acc == nil:
+		return Decision{}, deny(ErrForbidden, "no_support_grant")
+	case acc.tenantStatus == TenantDeleted:
+		return Decision{}, deny(ErrNotFound, "tenant_deleted")
+	case acc.subjectStatus != StatusActive || acc.identityStatus != StatusActive:
+		return Decision{}, deny(ErrForbidden, "platform_user_inactive")
+	}
+	supportDenial := func(err error) error {
+		var d *Denial
+		if errors.As(err, &d) {
+			d.SupportGrantID, d.PlatformUserID = acc.grantID, acc.subjectID
+		}
+		return err
+	}
+	d, err := grantDecision(p, req, acc)
+	if err != nil {
+		return Decision{}, supportDenial(err)
+	}
+	if d.OwnOnly { // impossible by the CHECK of role_permissions (own only for tenant roles) — refuse rather than trust it
+		return Decision{}, supportDenial(deny(ErrForbidden, "own_scope_on_support_role"))
+	}
+	if (acc.tenantStatus == TenantSuspended || acc.tenantStatus == TenantDeprovisioning) && !req.ReadOnly {
+		reason := "tenant_suspended"
+		if acc.tenantStatus == TenantDeprovisioning {
+			reason = "tenant_deprovisioning"
+		}
+		return Decision{}, supportDenial(deny(ErrTenantSuspended, reason))
+	}
+	d.TenantID, d.PlatformUserID, d.SupportGrantID = tenantID, acc.subjectID, acc.grantID
 	return d, nil
 }
 
@@ -446,6 +512,28 @@ func (l storeLoader) platformAccess(ctx context.Context, identityID uuid.UUID, p
 			subjectID: row.PlatformUserID, subjectStatus: row.PlatformUserStatus, identityStatus: row.IdentityStatus,
 			roleKey: row.RoleKey, roleRank: int(row.RoleRank),
 			grantScope: deref(row.GrantScope), grantCondition: deref(row.GrantCondition),
+		}
+		return nil
+	})
+	return out, err
+}
+
+func (l storeLoader) supportAccess(ctx context.Context, tenantID, identityID uuid.UUID, perm Permission) (*access, error) {
+	var out *access
+	err := l.s.WithPlatformTx(ctx, func(q *sqlcdb.Queries) error {
+		row, err := q.GetSupportAccess(ctx, sqlcdb.GetSupportAccessParams{
+			TenantID: tenantID, IdentityID: identityID, PermissionKey: string(perm),
+		})
+		if errors.Is(err, store.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		out = &access{
+			tenantStatus: row.TenantStatus, subjectID: row.PlatformUserID, subjectStatus: row.PlatformUserStatus,
+			identityStatus: row.IdentityStatus, roleKey: row.RoleKey, roleRank: int(row.RoleRank),
+			grantScope: deref(row.GrantScope), grantCondition: deref(row.GrantCondition), grantID: row.GrantID,
 		}
 		return nil
 	})

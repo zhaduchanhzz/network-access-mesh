@@ -96,17 +96,18 @@ type Fake struct {
 
 // Operation names used by Refuse, Ignore and Calls.
 const (
-	OpListNodes        = "ListNodes"
-	OpListUsers        = "ListUsers"
-	OpGetNode          = "GetNode"
-	OpRenameNode       = "RenameNode"
-	OpExpireNode       = "ExpireNode"
-	OpSetTags          = "SetTags"
-	OpDeleteNode       = "DeleteNode"
-	OpListPreAuthKeys  = "ListPreAuthKeys"
-	OpExpirePreAuthKey = "ExpirePreAuthKey"
-	OpHealth           = "Health"
-	OpVersion          = "Version"
+	OpListNodes         = "ListNodes"
+	OpListUsers         = "ListUsers"
+	OpGetNode           = "GetNode"
+	OpRenameNode        = "RenameNode"
+	OpExpireNode        = "ExpireNode"
+	OpSetTags           = "SetTags"
+	OpSetApprovedRoutes = "SetApprovedRoutes" // P4-T12: replaces the whole approved set (PL-10)
+	OpDeleteNode        = "DeleteNode"
+	OpListPreAuthKeys   = "ListPreAuthKeys"
+	OpExpirePreAuthKey  = "ExpirePreAuthKey"
+	OpHealth            = "Health"
+	OpVersion           = "Version"
 	// P4-T06
 	OpCreateUser       = "CreateUser"
 	OpCreatePreAuthKey = "CreatePreAuthKey"
@@ -493,6 +494,33 @@ func (f *Fake) answer(w http.ResponseWriter, r *http.Request, body []byte) {
 			n.Tags = slices.Clone(in.Tags)
 		}
 		writeJSON(w, map[string]any{"node": n.wire(false)})
+	case OpSetApprovedRoutes:
+		n, ok := f.nodes[id]
+		if !ok {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(gw(5, "node not found")))
+			return
+		}
+		var in struct {
+			Routes []string `json:"routes"`
+		}
+		_ = json.Unmarshal(body, &in)
+		var set []netip.Prefix
+		for _, r := range in.Routes {
+			p, err := netip.ParsePrefix(r)
+			if err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(gw(3, "invalid route")))
+				return
+			}
+			set = append(set, p)
+		}
+		if !f.ignore[op] {
+			n.Approved = set
+		}
+		writeJSON(w, map[string]any{"node": n.wire(false)})
 	case OpDeleteNode:
 		if _, ok := f.nodes[id]; !ok {
 			w.Header().Set("Content-Type", "application/json")
@@ -651,6 +679,8 @@ func route(r *http.Request) (op string, id uint64, rest string) {
 			return OpExpireNode, n, ""
 		case r.Method == http.MethodPost && len(parts) == 2 && parts[1] == "tags":
 			return OpSetTags, n, ""
+		case r.Method == http.MethodPost && len(parts) == 2 && parts[1] == "approve_routes":
+			return OpSetApprovedRoutes, n, ""
 		case r.Method == http.MethodPost && len(parts) == 3 && parts[1] == "rename":
 			return OpRenameNode, n, parts[2]
 		}

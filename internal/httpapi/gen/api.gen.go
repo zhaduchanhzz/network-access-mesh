@@ -214,6 +214,24 @@ func (e DeviceRevocationState) Valid() bool {
 	}
 }
 
+// Defines values for DnsRecordType.
+const (
+	DnsRecordTypeA    DnsRecordType = "A"
+	DnsRecordTypeAAAA DnsRecordType = "AAAA"
+)
+
+// Valid indicates whether the value is a known member of the DnsRecordType enum.
+func (e DnsRecordType) Valid() bool {
+	switch e {
+	case DnsRecordTypeA:
+		return true
+	case DnsRecordTypeAAAA:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for EnrollmentCredentialKind.
 const (
 	EnrollmentCredentialKindEnrollCode EnrollmentCredentialKind = "enroll_code"
@@ -751,6 +769,51 @@ func (e MembershipUpdateStatus) Valid() bool {
 	case MembershipUpdateStatusActive:
 		return true
 	case MembershipUpdateStatusLocked:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for NetworkResourceKind.
+const (
+	NetworkResourceKindHost    NetworkResourceKind = "host"
+	NetworkResourceKindService NetworkResourceKind = "service"
+	NetworkResourceKindSubnet  NetworkResourceKind = "subnet"
+)
+
+// Valid indicates whether the value is a known member of the NetworkResourceKind enum.
+func (e NetworkResourceKind) Valid() bool {
+	switch e {
+	case NetworkResourceKindHost:
+		return true
+	case NetworkResourceKindService:
+		return true
+	case NetworkResourceKindSubnet:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for NetworkResourceProtocol.
+const (
+	NetworkResourceProtocolAny  NetworkResourceProtocol = "any"
+	NetworkResourceProtocolIcmp NetworkResourceProtocol = "icmp"
+	NetworkResourceProtocolTcp  NetworkResourceProtocol = "tcp"
+	NetworkResourceProtocolUdp  NetworkResourceProtocol = "udp"
+)
+
+// Valid indicates whether the value is a known member of the NetworkResourceProtocol enum.
+func (e NetworkResourceProtocol) Valid() bool {
+	switch e {
+	case NetworkResourceProtocolAny:
+		return true
+	case NetworkResourceProtocolIcmp:
+		return true
+	case NetworkResourceProtocolTcp:
+		return true
+	case NetworkResourceProtocolUdp:
 		return true
 	default:
 		return false
@@ -1321,6 +1384,27 @@ func (e RelayRegionKind) Valid() bool {
 	}
 }
 
+// Defines values for RouteWarningCode.
+const (
+	RouteWarningCodeExitNode       RouteWarningCode = "exit_node"
+	RouteWarningCodeOverlap        RouteWarningCode = "overlap"
+	RouteWarningCodeUntaggedRouter RouteWarningCode = "untagged_router"
+)
+
+// Valid indicates whether the value is a known member of the RouteWarningCode enum.
+func (e RouteWarningCode) Valid() bool {
+	switch e {
+	case RouteWarningCodeExitNode:
+		return true
+	case RouteWarningCodeOverlap:
+		return true
+	case RouteWarningCodeUntaggedRouter:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SessionOrigin.
 const (
 	SessionOriginAdmin SessionOrigin = "admin"
@@ -1333,6 +1417,69 @@ func (e SessionOrigin) Valid() bool {
 	case SessionOriginAdmin:
 		return true
 	case SessionOriginApp:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SupportGrantApprovalKind.
+const (
+	SupportGrantApprovalKindBreakglass SupportGrantApprovalKind = "breakglass"
+	SupportGrantApprovalKindTenant     SupportGrantApprovalKind = "tenant"
+)
+
+// Valid indicates whether the value is a known member of the SupportGrantApprovalKind enum.
+func (e SupportGrantApprovalKind) Valid() bool {
+	switch e {
+	case SupportGrantApprovalKindBreakglass:
+		return true
+	case SupportGrantApprovalKindTenant:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SupportGrantRole.
+const (
+	SupportGrantRoleSupportAdmin    SupportGrantRole = "support_admin"
+	SupportGrantRoleSupportOperator SupportGrantRole = "support_operator"
+)
+
+// Valid indicates whether the value is a known member of the SupportGrantRole enum.
+func (e SupportGrantRole) Valid() bool {
+	switch e {
+	case SupportGrantRoleSupportAdmin:
+		return true
+	case SupportGrantRoleSupportOperator:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SupportGrantStatus.
+const (
+	SupportGrantStatusApproved SupportGrantStatus = "approved"
+	SupportGrantStatusExpired  SupportGrantStatus = "expired"
+	SupportGrantStatusPending  SupportGrantStatus = "pending"
+	SupportGrantStatusRejected SupportGrantStatus = "rejected"
+	SupportGrantStatusRevoked  SupportGrantStatus = "revoked"
+)
+
+// Valid indicates whether the value is a known member of the SupportGrantStatus enum.
+func (e SupportGrantStatus) Valid() bool {
+	switch e {
+	case SupportGrantStatusApproved:
+		return true
+	case SupportGrantStatusExpired:
+		return true
+	case SupportGrantStatusPending:
+		return true
+	case SupportGrantStatusRejected:
+		return true
+	case SupportGrantStatusRevoked:
 		return true
 	default:
 		return false
@@ -1468,6 +1615,27 @@ func (e TenantStatus) Valid() bool {
 	}
 }
 
+// Defines values for ActorTypeFilter.
+const (
+	ActorTypeFilterIdentity ActorTypeFilter = "identity"
+	ActorTypeFilterSupport  ActorTypeFilter = "support"
+	ActorTypeFilterSystem   ActorTypeFilter = "system"
+)
+
+// Valid indicates whether the value is a known member of the ActorTypeFilter enum.
+func (e ActorTypeFilter) Valid() bool {
+	switch e {
+	case ActorTypeFilterIdentity:
+		return true
+	case ActorTypeFilterSupport:
+		return true
+	case ActorTypeFilterSystem:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for IdPScopeFilter.
 const (
 	IdPScopeFilterPlatform IdPScopeFilter = "platform"
@@ -1504,6 +1672,27 @@ func (e AuthLoginParamsScope) Valid() bool {
 	}
 }
 
+// Defines values for ListPlatformAuditEventsParamsActorType.
+const (
+	ListPlatformAuditEventsParamsActorTypeIdentity ListPlatformAuditEventsParamsActorType = "identity"
+	ListPlatformAuditEventsParamsActorTypeSupport  ListPlatformAuditEventsParamsActorType = "support"
+	ListPlatformAuditEventsParamsActorTypeSystem   ListPlatformAuditEventsParamsActorType = "system"
+)
+
+// Valid indicates whether the value is a known member of the ListPlatformAuditEventsParamsActorType enum.
+func (e ListPlatformAuditEventsParamsActorType) Valid() bool {
+	switch e {
+	case ListPlatformAuditEventsParamsActorTypeIdentity:
+		return true
+	case ListPlatformAuditEventsParamsActorTypeSupport:
+		return true
+	case ListPlatformAuditEventsParamsActorTypeSystem:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ListPlatformIdentityProvidersParamsScope.
 const (
 	ListPlatformIdentityProvidersParamsScopePlatform ListPlatformIdentityProvidersParamsScope = "platform"
@@ -1516,6 +1705,27 @@ func (e ListPlatformIdentityProvidersParamsScope) Valid() bool {
 	case ListPlatformIdentityProvidersParamsScopePlatform:
 		return true
 	case ListPlatformIdentityProvidersParamsScopeTenant:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListTenantAuditEventsParamsActorType.
+const (
+	ListTenantAuditEventsParamsActorTypeIdentity ListTenantAuditEventsParamsActorType = "identity"
+	ListTenantAuditEventsParamsActorTypeSupport  ListTenantAuditEventsParamsActorType = "support"
+	ListTenantAuditEventsParamsActorTypeSystem   ListTenantAuditEventsParamsActorType = "system"
+)
+
+// Valid indicates whether the value is a known member of the ListTenantAuditEventsParamsActorType enum.
+func (e ListTenantAuditEventsParamsActorType) Valid() bool {
+	switch e {
+	case ListTenantAuditEventsParamsActorTypeIdentity:
+		return true
+	case ListTenantAuditEventsParamsActorTypeSupport:
+		return true
+	case ListTenantAuditEventsParamsActorTypeSystem:
 		return true
 	default:
 		return false
@@ -1778,6 +1988,73 @@ type DeviceRoutes struct {
 type DeviceTagsUpdate struct {
 	// Tags Tập tag mới (thay thế toàn bộ) — mỗi tag phải có trong danh mục của tenant
 	Tags []string `json:"tags"`
+}
+
+// DnsPending Lần `instance.reconfigure` chưa kết thúc của instance
+type DnsPending struct {
+	JobId       openapi_types.UUID `json:"job_id"`
+	Nameservers *[]string          `json:"nameservers,omitempty"`
+
+	// Status Trạng thái job (`provisioning_jobs.status`, §6.3)
+	Status JobStatus `json:"status"`
+}
+
+// DnsRecord defines model for DnsRecord.
+type DnsRecord struct {
+	CreatedAt time.Time           `json:"created_at"`
+	CreatedBy *openapi_types.UUID `json:"created_by,omitempty"`
+
+	// Etag Giá trị `If-Match` của `DELETE`
+	Etag  string             `json:"etag"`
+	Id    openapi_types.UUID `json:"id"`
+	Name  string             `json:"name"`
+	Type  DnsRecordType      `json:"type"`
+	Value string             `json:"value"`
+}
+
+// DnsRecordChange defines model for DnsRecordChange.
+type DnsRecordChange struct {
+	// Job Job — phép chiếu an toàn cho người gọi phạm vi tenant (§13.3)
+	Job    Job       `json:"job"`
+	Record DnsRecord `json:"record"`
+}
+
+// DnsRecordCreate defines model for DnsRecordCreate.
+type DnsRecordCreate struct {
+	Name  string        `json:"name"`
+	Type  DnsRecordType `json:"type"`
+	Value string        `json:"value"`
+}
+
+// DnsRecordList defines model for DnsRecordList.
+type DnsRecordList struct {
+	Items []DnsRecord `json:"items"`
+}
+
+// DnsRecordType defines model for DnsRecordType.
+type DnsRecordType string
+
+// DnsSettingsUpdate defines model for DnsSettingsUpdate.
+type DnsSettingsUpdate struct {
+	Nameservers []string `json:"nameservers"`
+}
+
+// DnsView defines model for DnsView.
+type DnsView struct {
+	// BaseDomain MagicDNS domain của tailnet (`<slug>.tail.<domain>`)
+	BaseDomain    string `json:"base_domain"`
+	ConfigVersion *int   `json:"config_version"`
+
+	// Etag Giá trị `If-Match` của `PUT /dns/settings`
+	Etag     string `json:"etag"`
+	MagicDns bool   `json:"magic_dns"`
+
+	// Nameservers Nameserver của version cấu hình đang hiệu lực (rỗng khi chưa có version do orchestrator ghi)
+	Nameservers []string    `json:"nameservers"`
+	Pending     *DnsPending `json:"pending"`
+
+	// Records Số extra record của tenant
+	Records int `json:"records"`
 }
 
 // EnrollmentClaim defines model for EnrollmentClaim.
@@ -2566,6 +2843,72 @@ type MembershipUpdate struct {
 // MembershipUpdateStatus `locked` khóa (thu hồi mọi session), `active` mở khóa
 type MembershipUpdateStatus string
 
+// NetworkResource Một tài nguyên của Network Resource Catalog (`network_resources`) — alias của khóa `hosts` (§7.2)
+type NetworkResource struct {
+	// Address Một địa chỉ (host, service) hoặc một prefix (subnet)
+	Address     string    `json:"address"`
+	CreatedAt   time.Time `json:"created_at"`
+	Description *string   `json:"description,omitempty"`
+
+	// Etag Phiên bản hiện tại — giá trị `If-Match` của `PATCH`/`DELETE`
+	Etag         string              `json:"etag"`
+	Id           openapi_types.UUID  `json:"id"`
+	Kind         NetworkResourceKind `json:"kind"`
+	Name         string              `json:"name"`
+	OwnerGroupId *openapi_types.UUID `json:"owner_group_id,omitempty"`
+	Ports        []string            `json:"ports"`
+
+	// Protocol `any` = mọi giao thức
+	Protocol  NetworkResourceProtocol `json:"protocol"`
+	Tags      []string                `json:"tags"`
+	UpdatedAt time.Time               `json:"updated_at"`
+	Version   int64                   `json:"version"`
+}
+
+// NetworkResourceCreate defines model for NetworkResourceCreate.
+type NetworkResourceCreate struct {
+	Address      string              `json:"address"`
+	Description  *string             `json:"description,omitempty"`
+	Kind         NetworkResourceKind `json:"kind"`
+	Name         string              `json:"name"`
+	OwnerGroupId *openapi_types.UUID `json:"owner_group_id,omitempty"`
+	Ports        *[]string           `json:"ports,omitempty"`
+
+	// Protocol `any` = mọi giao thức
+	Protocol *NetworkResourceProtocol `json:"protocol,omitempty"`
+	Tags     *[]string                `json:"tags,omitempty"`
+}
+
+// NetworkResourceKind defines model for NetworkResourceKind.
+type NetworkResourceKind string
+
+// NetworkResourceList defines model for NetworkResourceList.
+type NetworkResourceList struct {
+	Items      []NetworkResource `json:"items"`
+	NextCursor *string           `json:"next_cursor"`
+}
+
+// NetworkResourceProtocol `any` = mọi giao thức
+type NetworkResourceProtocol string
+
+// NetworkResourceUpdate defines model for NetworkResourceUpdate.
+type NetworkResourceUpdate struct {
+	Address *string `json:"address,omitempty"`
+
+	// Description Chuỗi rỗng xóa mô tả
+	Description *string              `json:"description,omitempty"`
+	Kind        *NetworkResourceKind `json:"kind,omitempty"`
+	Name        *string              `json:"name,omitempty"`
+
+	// OwnerGroupId UUID của group sở hữu; chuỗi rỗng gỡ group
+	OwnerGroupId *string   `json:"owner_group_id,omitempty"`
+	Ports        *[]string `json:"ports,omitempty"`
+
+	// Protocol `any` = mọi giao thức
+	Protocol *NetworkResourceProtocol `json:"protocol,omitempty"`
+	Tags     *[]string                `json:"tags,omitempty"`
+}
+
 // Notification defines model for Notification.
 type Notification struct {
 	CreatedAt time.Time          `json:"created_at"`
@@ -3253,6 +3596,56 @@ type ResourceRef struct {
 	Type string `json:"type"`
 }
 
+// RouteChange defines model for RouteChange.
+type RouteChange struct {
+	// ConfirmExitNode Bắt buộc `true` khi duyệt exit node (lưu lượng Internet của client đi qua thiết bị)
+	ConfirmExitNode *bool              `json:"confirm_exit_node,omitempty"`
+	DeviceId        openapi_types.UUID `json:"device_id"`
+
+	// Prefixes Prefix dạng chuẩn (không bit host); `0.0.0.0/0` hoặc `::/0` là exit node (cả hai họ địa chỉ)
+	Prefixes []string `json:"prefixes"`
+}
+
+// RouteDevice Route của một thiết bị — quảng bá (client) vs đã duyệt (Headscale), từ sổ thiết bị kèm `synced_at`
+type RouteDevice struct {
+	AdvertisedRoutes []string           `json:"advertised_routes"`
+	ApprovedRoutes   []string           `json:"approved_routes"`
+	DeviceId         openapi_types.UUID `json:"device_id"`
+	ExitNode         struct {
+		Advertised bool `json:"advertised"`
+		Approved   bool `json:"approved"`
+	} `json:"exit_node"`
+	GivenName string `json:"given_name"`
+	Name      string `json:"name"`
+	Online    bool   `json:"online"`
+
+	// PendingRoutes Quảng bá nhưng chưa duyệt — chưa được phân phối tới client nào
+	PendingRoutes []string `json:"pending_routes"`
+
+	// RoutesEtag Hash tập route đã duyệt — giá trị `If-Match` của `approve`/`revoke`
+	RoutesEtag string         `json:"routes_etag"`
+	SyncedAt   time.Time      `json:"synced_at"`
+	Tags       []string       `json:"tags"`
+	Warnings   []RouteWarning `json:"warnings"`
+}
+
+// RouteList defines model for RouteList.
+type RouteList struct {
+	Items []RouteDevice `json:"items"`
+}
+
+// RouteWarning Cảnh báo route (§12.3, T-08): `overlap` — prefix của thiết bị chồng lấn prefix của thiết bị khác; `untagged_router`
+// — router không phải tagged node (thuộc một user); `exit_node` — thiết bị quảng bá hoặc được duyệt làm exit node
+type RouteWarning struct {
+	Code          RouteWarningCode    `json:"code"`
+	OtherDeviceId *openapi_types.UUID `json:"other_device_id,omitempty"`
+	OtherPrefix   *string             `json:"other_prefix,omitempty"`
+	Prefix        *string             `json:"prefix,omitempty"`
+}
+
+// RouteWarningCode defines model for RouteWarning.Code.
+type RouteWarningCode string
+
 // Session Session hiện tại (§8.3) — chỉ mang danh tính; membership, role và grant đọc từ DB ở mỗi request
 type Session struct {
 	AbsoluteExpiresAt time.Time `json:"absolute_expires_at"`
@@ -3336,6 +3729,69 @@ type SuperAdminRoleChange struct {
 	// SuperAdmin true = gán role Super Admin, false = gỡ
 	SuperAdmin bool `json:"super_admin"`
 }
+
+// SupportGrant Support Access Grant (§6.3 `support_access_grants`). `decided_by` là thành viên tenant đã duyệt/từ chối (kiểu `tenant`) hoặc Super Admin thứ hai (kiểu `breakglass` — tên chỉ trả cho phía platform; tenant thấy `approval_kind = breakglass` và được thông báo).
+type SupportGrant struct {
+	// Active Grant đang cho phép truy cập lúc trả lời (`approved` ∧ `starts_at` ≤ now < `expires_at`)
+	Active       bool                      `json:"active"`
+	ApprovalKind *SupportGrantApprovalKind `json:"approval_kind,omitempty"`
+	CreatedAt    time.Time                 `json:"created_at"`
+	DecidedAt    *time.Time                `json:"decided_at,omitempty"`
+
+	// DecidedBy Một người của grant — tên hiển thị (với grantee là ảnh chụp lúc xin)
+	DecidedBy *SupportGrantPerson `json:"decided_by,omitempty"`
+
+	// EffectiveRole Role hiệu lực phạm vi support (cột Staff của §8.6) — `support_operator` (ô G), `support_admin` (thêm ô G (Admin), chỉ qua break-glass). Không bao giờ là role của tenant (Owner…).
+	EffectiveRole SupportGrantRole `json:"effective_role"`
+	ExpiresAt     time.Time        `json:"expires_at"`
+
+	// Grantee Một người của grant — tên hiển thị (với grantee là ảnh chụp lúc xin)
+	Grantee   SupportGrantPerson `json:"grantee"`
+	Id        openapi_types.UUID `json:"id"`
+	Reason    string             `json:"reason"`
+	RevokedAt *time.Time         `json:"revoked_at,omitempty"`
+	StartsAt  time.Time          `json:"starts_at"`
+
+	// Status Trạng thái hiệu lực — `approved` đã quá `expires_at` được trả là `expired`
+	Status     SupportGrantStatus `json:"status"`
+	TenantId   openapi_types.UUID `json:"tenant_id"`
+	TenantSlug string             `json:"tenant_slug"`
+	TicketRef  string             `json:"ticket_ref"`
+}
+
+// SupportGrantApprovalKind defines model for SupportGrant.ApprovalKind.
+type SupportGrantApprovalKind string
+
+// SupportGrantCreate Yêu cầu truy cập hỗ trợ (§8.7 bước 1)
+type SupportGrantCreate struct {
+	// DurationMinutes Thời lượng cửa sổ (≤ 8 giờ), tính từ lúc xin
+	DurationMinutes int `json:"duration_minutes"`
+
+	// EffectiveRole Role hiệu lực phạm vi support (cột Staff của §8.6) — `support_operator` (ô G), `support_admin` (thêm ô G (Admin), chỉ qua break-glass). Không bao giờ là role của tenant (Owner…).
+	EffectiveRole SupportGrantRole `json:"effective_role"`
+	Reason        string           `json:"reason"`
+
+	// TenantId Tenant đích (tài nguyên của thao tác platform — không phải ngữ cảnh tenant của API)
+	TenantId  openapi_types.UUID `json:"tenant_id"`
+	TicketRef string             `json:"ticket_ref"`
+}
+
+// SupportGrantList defines model for SupportGrantList.
+type SupportGrantList struct {
+	Items      []SupportGrant `json:"items"`
+	NextCursor *string        `json:"next_cursor"`
+}
+
+// SupportGrantPerson Một người của grant — tên hiển thị (với grantee là ảnh chụp lúc xin)
+type SupportGrantPerson struct {
+	DisplayName string `json:"display_name"`
+}
+
+// SupportGrantRole Role hiệu lực phạm vi support (cột Staff của §8.6) — `support_operator` (ô G), `support_admin` (thêm ô G (Admin), chỉ qua break-glass). Không bao giờ là role của tenant (Owner…).
+type SupportGrantRole string
+
+// SupportGrantStatus Trạng thái hiệu lực — `approved` đã quá `expires_at` được trả là `expired`
+type SupportGrantStatus string
 
 // SupportGrantSummary Support Access Grant đang hiệu lực của nhân sự nền tảng (§8.7) — có từ P4-T13, trước đó danh sách luôn rỗng
 type SupportGrantSummary struct {
@@ -3707,6 +4163,9 @@ type ActionFilter = string
 // ActorFilter defines model for ActorFilter.
 type ActorFilter = openapi_types.UUID
 
+// ActorTypeFilter defines model for ActorTypeFilter.
+type ActorTypeFilter string
+
 // ApprovalActionFilter defines model for ApprovalActionFilter.
 type ApprovalActionFilter = string
 
@@ -3734,6 +4193,9 @@ type EnrollmentStatusFilter = EnrollmentRequestStatus
 
 // FromFilter defines model for FromFilter.
 type FromFilter = time.Time
+
+// GrantId defines model for GrantId.
+type GrantId = openapi_types.UUID
 
 // GroupId defines model for GroupId.
 type GroupId = openapi_types.UUID
@@ -3807,11 +4269,20 @@ type PolicyAgainst = openapi_types.UUID
 // PolicyVersionId defines model for PolicyVersionId.
 type PolicyVersionId = openapi_types.UUID
 
+// RecordId defines model for RecordId.
+type RecordId = openapi_types.UUID
+
+// ResourceId defines model for ResourceId.
+type ResourceId = openapi_types.UUID
+
 // SessionId defines model for SessionId.
 type SessionId = openapi_types.UUID
 
 // SettingKey defines model for SettingKey.
 type SettingKey = string
+
+// SupportGrantStatusFilter Trạng thái hiệu lực — `approved` đã quá `expires_at` được trả là `expired`
+type SupportGrantStatusFilter = SupportGrantStatus
 
 // TagId defines model for TagId.
 type TagId = openapi_types.UUID
@@ -3938,6 +4409,9 @@ type ListPlatformAuditEventsParams struct {
 	// Actor Lọc theo identity của actor
 	Actor *ActorFilter `form:"actor,omitempty" json:"actor,omitempty"`
 
+	// ActorType Lọc theo loại actor — `support` = hành động của nhân sự nền tảng dưới Support Access Grant (§8.7, P4-T13)
+	ActorType *ListPlatformAuditEventsParamsActorType `form:"actor_type,omitempty" json:"actor_type,omitempty"`
+
 	// Action Lọc theo `action` (khớp chính xác)
 	Action  *ActionFilter  `form:"action,omitempty" json:"action,omitempty"`
 	Outcome *OutcomeFilter `form:"outcome,omitempty" json:"outcome,omitempty"`
@@ -3948,6 +4422,9 @@ type ListPlatformAuditEventsParams struct {
 	// To Tới thời điểm (không bao gồm)
 	To *ToFilter `form:"to,omitempty" json:"to,omitempty"`
 }
+
+// ListPlatformAuditEventsParamsActorType defines parameters for ListPlatformAuditEvents.
+type ListPlatformAuditEventsParamsActorType string
 
 // ListPlatformBackupsParams defines parameters for ListPlatformBackups.
 type ListPlatformBackupsParams struct {
@@ -4141,6 +4618,24 @@ type PutPlatformSettingParams struct {
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
 
+// ListPlatformSupportGrantsParams defines parameters for ListPlatformSupportGrants.
+type ListPlatformSupportGrantsParams struct {
+	// Limit Số phần tử tối đa của trang
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Con trỏ mờ lấy từ `next_cursor` của trang trước
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Status Lọc theo trạng thái hiệu lực
+	Status *SupportGrantStatusFilter `form:"status,omitempty" json:"status,omitempty"`
+}
+
+// CreateSupportGrantParams defines parameters for CreateSupportGrant.
+type CreateSupportGrantParams struct {
+	// IdempotencyKey Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
 // ListPlatformTenantsParams defines parameters for ListPlatformTenants.
 type ListPlatformTenantsParams struct {
 	// Limit Số phần tử tối đa của trang
@@ -4278,6 +4773,9 @@ type ListTenantAuditEventsParams struct {
 	// Actor Lọc theo identity của actor
 	Actor *ActorFilter `form:"actor,omitempty" json:"actor,omitempty"`
 
+	// ActorType Lọc theo loại actor — `support` = hành động của nhân sự nền tảng dưới Support Access Grant (§8.7, P4-T13)
+	ActorType *ListTenantAuditEventsParamsActorType `form:"actor_type,omitempty" json:"actor_type,omitempty"`
+
 	// Action Lọc theo `action` (khớp chính xác)
 	Action  *ActionFilter  `form:"action,omitempty" json:"action,omitempty"`
 	Outcome *OutcomeFilter `form:"outcome,omitempty" json:"outcome,omitempty"`
@@ -4288,6 +4786,9 @@ type ListTenantAuditEventsParams struct {
 	// To Tới thời điểm (không bao gồm)
 	To *ToFilter `form:"to,omitempty" json:"to,omitempty"`
 }
+
+// ListTenantAuditEventsParamsActorType defines parameters for ListTenantAuditEvents.
+type ListTenantAuditEventsParamsActorType string
 
 // ListDevicesParams defines parameters for ListDevices.
 type ListDevicesParams struct {
@@ -4327,6 +4828,24 @@ type ExpireDeviceParams struct {
 
 // SetDeviceTagsParams defines parameters for SetDeviceTags.
 type SetDeviceTagsParams struct {
+	// IfMatch `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428`
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// CreateTenantDnsRecordParams defines parameters for CreateTenantDnsRecord.
+type CreateTenantDnsRecordParams struct {
+	// IdempotencyKey Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// DeleteTenantDnsRecordParams defines parameters for DeleteTenantDnsRecord.
+type DeleteTenantDnsRecordParams struct {
+	// IfMatch `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428`
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// UpdateTenantDnsSettingsParams defines parameters for UpdateTenantDnsSettings.
+type UpdateTenantDnsSettingsParams struct {
 	// IfMatch `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428`
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
@@ -4507,6 +5026,48 @@ type ValidateTenantPolicyParams struct {
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
 
+// ListTenantResourcesParams defines parameters for ListTenantResources.
+type ListTenantResourcesParams struct {
+	// Limit Số phần tử tối đa của trang
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Con trỏ mờ lấy từ `next_cursor` của trang trước
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
+// CreateTenantResourceParams defines parameters for CreateTenantResource.
+type CreateTenantResourceParams struct {
+	// IdempotencyKey Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// DeleteTenantResourceParams defines parameters for DeleteTenantResource.
+type DeleteTenantResourceParams struct {
+	// IfMatch `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428`
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// UpdateTenantResourceParams defines parameters for UpdateTenantResource.
+type UpdateTenantResourceParams struct {
+	// IfMatch `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428`
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// ApproveTenantRoutesParams defines parameters for ApproveTenantRoutes.
+type ApproveTenantRoutesParams struct {
+	// IfMatch `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428`
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+
+	// IdempotencyKey Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// RevokeTenantRoutesParams defines parameters for RevokeTenantRoutes.
+type RevokeTenantRoutesParams struct {
+	// IfMatch `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428`
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
 // UpdateTenantSettingsParams defines parameters for UpdateTenantSettings.
 type UpdateTenantSettingsParams struct {
 	// IfMatch `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428`
@@ -4517,6 +5078,18 @@ type UpdateTenantSettingsParams struct {
 type PutTenantSecuritySettingsParams struct {
 	// IfMatch `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428`
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// ListTenantSupportGrantsParams defines parameters for ListTenantSupportGrants.
+type ListTenantSupportGrantsParams struct {
+	// Limit Số phần tử tối đa của trang
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Con trỏ mờ lấy từ `next_cursor` của trang trước
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Status Lọc theo trạng thái hiệu lực
+	Status *SupportGrantStatusFilter `form:"status,omitempty" json:"status,omitempty"`
 }
 
 // ListTenantTagsParams defines parameters for ListTenantTags.
@@ -4621,6 +5194,9 @@ type UpdatePlatformPlanJSONRequestBody = PlanUpdate
 // PutPlatformSettingJSONRequestBody defines body for PutPlatformSetting for application/json ContentType.
 type PutPlatformSettingJSONRequestBody = SystemSettingUpdate
 
+// CreateSupportGrantJSONRequestBody defines body for CreateSupportGrant for application/json ContentType.
+type CreateSupportGrantJSONRequestBody = SupportGrantCreate
+
 // CreatePlatformTenantJSONRequestBody defines body for CreatePlatformTenant for application/json ContentType.
 type CreatePlatformTenantJSONRequestBody = TenantCreate
 
@@ -4647,6 +5223,12 @@ type RenameDeviceJSONRequestBody = DeviceRename
 
 // SetDeviceTagsJSONRequestBody defines body for SetDeviceTags for application/json ContentType.
 type SetDeviceTagsJSONRequestBody = DeviceTagsUpdate
+
+// CreateTenantDnsRecordJSONRequestBody defines body for CreateTenantDnsRecord for application/json ContentType.
+type CreateTenantDnsRecordJSONRequestBody = DnsRecordCreate
+
+// UpdateTenantDnsSettingsJSONRequestBody defines body for UpdateTenantDnsSettings for application/json ContentType.
+type UpdateTenantDnsSettingsJSONRequestBody = DnsSettingsUpdate
 
 // CreateEnrollmentKeyJSONRequestBody defines body for CreateEnrollmentKey for application/json ContentType.
 type CreateEnrollmentKeyJSONRequestBody = EnrollmentKeyCreate
@@ -4698,6 +5280,18 @@ type RejectTenantPolicyJSONRequestBody = PolicyReject
 
 // RequestTenantDeletionJSONRequestBody defines body for RequestTenantDeletion for application/json ContentType.
 type RequestTenantDeletionJSONRequestBody = TenantDeletionRequestCreate
+
+// CreateTenantResourceJSONRequestBody defines body for CreateTenantResource for application/json ContentType.
+type CreateTenantResourceJSONRequestBody = NetworkResourceCreate
+
+// UpdateTenantResourceJSONRequestBody defines body for UpdateTenantResource for application/json ContentType.
+type UpdateTenantResourceJSONRequestBody = NetworkResourceUpdate
+
+// ApproveTenantRoutesJSONRequestBody defines body for ApproveTenantRoutes for application/json ContentType.
+type ApproveTenantRoutesJSONRequestBody = RouteChange
+
+// RevokeTenantRoutesJSONRequestBody defines body for RevokeTenantRoutes for application/json ContentType.
+type RevokeTenantRoutesJSONRequestBody = RouteChange
 
 // UpdateTenantSettingsJSONRequestBody defines body for UpdateTenantSettings for application/json ContentType.
 type UpdateTenantSettingsJSONRequestBody = TenantSettingsPatch
@@ -4857,6 +5451,18 @@ type ServerInterface interface {
 	// PutPlatformSetting Đặt giá trị một khóa cấu hình — Super Admin, step-up, ETag
 	// (PUT /platform/settings/{settingKey})
 	PutPlatformSetting(w http.ResponseWriter, r *http.Request, settingKey SettingKey, params PutPlatformSettingParams)
+	// ListPlatformSupportGrants Support Access Grant của mọi tenant
+	// (GET /platform/support-grants)
+	ListPlatformSupportGrants(w http.ResponseWriter, r *http.Request, params ListPlatformSupportGrantsParams)
+	// CreateSupportGrant Nhân sự nền tảng xin truy cập hỗ trợ vào một tenant (grant `pending`)
+	// (POST /platform/support-grants)
+	CreateSupportGrant(w http.ResponseWriter, r *http.Request, params CreateSupportGrantParams)
+	// ApproveSupportGrantBreakglass Break-glass — Super Admin thứ hai duyệt grant khi không liên lạc được tenant (2P)
+	// (POST /platform/support-grants/{grantId}/approve-breakglass)
+	ApproveSupportGrantBreakglass(w http.ResponseWriter, r *http.Request, grantId GrantId)
+	// RevokePlatformSupportGrant Super Admin thu hồi một grant bất kỳ (đang chờ hoặc đang hiệu lực)
+	// (POST /platform/support-grants/{grantId}/revoke)
+	RevokePlatformSupportGrant(w http.ResponseWriter, r *http.Request, grantId GrantId)
 	// ListPlatformTenants Tenant Registry — chỉ metadata registry
 	// (GET /platform/tenants)
 	ListPlatformTenants(w http.ResponseWriter, r *http.Request, params ListPlatformTenantsParams)
@@ -4950,6 +5556,21 @@ type ServerInterface interface {
 	// SetDeviceTags Thay tập tag của thiết bị
 	// (PUT /tenants/{tenantId}/devices/{deviceId}/tags)
 	SetDeviceTags(w http.ResponseWriter, r *http.Request, tenantId TenantId, deviceId DeviceId, params SetDeviceTagsParams)
+	// GetTenantDns DNS của tenant — MagicDNS, nameserver đang hiệu lực, lần reconfigure chưa xong
+	// (GET /tenants/{tenantId}/dns)
+	GetTenantDns(w http.ResponseWriter, r *http.Request, tenantId TenantId)
+	// ListTenantDnsRecords Extra DNS records của tenant (tối đa 1024)
+	// (GET /tenants/{tenantId}/dns/records)
+	ListTenantDnsRecords(w http.ResponseWriter, r *http.Request, tenantId TenantId)
+	// CreateTenantDnsRecord Thêm một bản ghi A/AAAA (ghi file extra-records, không restart)
+	// (POST /tenants/{tenantId}/dns/records)
+	CreateTenantDnsRecord(w http.ResponseWriter, r *http.Request, tenantId TenantId, params CreateTenantDnsRecordParams)
+	// DeleteTenantDnsRecord Xóa một bản ghi ⇒ 202 + job ghi file (bản ghi cuối ⇒ file [])
+	// (DELETE /tenants/{tenantId}/dns/records/{recordId})
+	DeleteTenantDnsRecord(w http.ResponseWriter, r *http.Request, tenantId TenantId, recordId RecordId, params DeleteTenantDnsRecordParams)
+	// UpdateTenantDnsSettings Đổi nameserver của tailnet ⇒ 202 + job instance.reconfigure (restart có kiểm soát)
+	// (PUT /tenants/{tenantId}/dns/settings)
+	UpdateTenantDnsSettings(w http.ResponseWriter, r *http.Request, tenantId TenantId, params UpdateTenantDnsSettingsParams)
 	// GetEnrollmentInstructions Hướng dẫn cài client theo hệ điều hành với đúng `--login-server` của tenant
 	// (GET /tenants/{tenantId}/enrollment/instructions)
 	GetEnrollmentInstructions(w http.ResponseWriter, r *http.Request, tenantId TenantId, params GetEnrollmentInstructionsParams)
@@ -5079,6 +5700,30 @@ type ServerInterface interface {
 	// RequestTenantDeletion Tenant Owner yêu cầu nền tảng xóa tenant — step-up; không xóa gì
 	// (POST /tenants/{tenantId}/request-deletion)
 	RequestTenantDeletion(w http.ResponseWriter, r *http.Request, tenantId TenantId)
+	// ListTenantResources Network Resource Catalog
+	// (GET /tenants/{tenantId}/resources)
+	ListTenantResources(w http.ResponseWriter, r *http.Request, tenantId TenantId, params ListTenantResourcesParams)
+	// CreateTenantResource Thêm một tài nguyên (alias của khóa hosts)
+	// (POST /tenants/{tenantId}/resources)
+	CreateTenantResource(w http.ResponseWriter, r *http.Request, tenantId TenantId, params CreateTenantResourceParams)
+	// DeleteTenantResource Xóa một tài nguyên
+	// (DELETE /tenants/{tenantId}/resources/{resourceId})
+	DeleteTenantResource(w http.ResponseWriter, r *http.Request, tenantId TenantId, resourceId ResourceId, params DeleteTenantResourceParams)
+	// GetTenantResource Một tài nguyên của catalog
+	// (GET /tenants/{tenantId}/resources/{resourceId})
+	GetTenantResource(w http.ResponseWriter, r *http.Request, tenantId TenantId, resourceId ResourceId)
+	// UpdateTenantResource Sửa một tài nguyên
+	// (PATCH /tenants/{tenantId}/resources/{resourceId})
+	UpdateTenantResource(w http.ResponseWriter, r *http.Request, tenantId TenantId, resourceId ResourceId, params UpdateTenantResourceParams)
+	// ListTenantRoutes Route quảng bá và đã duyệt của các thiết bị (subnet router, exit node)
+	// (GET /tenants/{tenantId}/routes)
+	ListTenantRoutes(w http.ResponseWriter, r *http.Request, tenantId TenantId)
+	// ApproveTenantRoutes Duyệt route quảng bá của một thiết bị (đọc–sửa–ghi có kiểm; 4-eyes ⇒ 202)
+	// (POST /tenants/{tenantId}/routes/approve)
+	ApproveTenantRoutes(w http.ResponseWriter, r *http.Request, tenantId TenantId, params ApproveTenantRoutesParams)
+	// RevokeTenantRoutes Gỡ duyệt route của một thiết bị (đọc–sửa–ghi có kiểm)
+	// (POST /tenants/{tenantId}/routes/revoke)
+	RevokeTenantRoutes(w http.ResponseWriter, r *http.Request, tenantId TenantId, params RevokeTenantRoutesParams)
 	// GetTenantSettings TenantSettings hiệu lực của tenant (§13.3)
 	// (GET /tenants/{tenantId}/settings)
 	GetTenantSettings(w http.ResponseWriter, r *http.Request, tenantId TenantId)
@@ -5088,6 +5733,18 @@ type ServerInterface interface {
 	// PutTenantSecuritySettings Đặt thiết lập bảo mật của tenant — step-up; nới lỏng một kiểm soát hai người ⇒ 202 + phê duyệt trong tenant
 	// (PUT /tenants/{tenantId}/settings/security)
 	PutTenantSecuritySettings(w http.ResponseWriter, r *http.Request, tenantId TenantId, params PutTenantSecuritySettingsParams)
+	// ListTenantSupportGrants Support Access Grant vào tenant này (minh bạch — §8.7)
+	// (GET /tenants/{tenantId}/support-grants)
+	ListTenantSupportGrants(w http.ResponseWriter, r *http.Request, tenantId TenantId, params ListTenantSupportGrantsParams)
+	// ApproveTenantSupportGrant Tenant duyệt một yêu cầu truy cập hỗ trợ (step-up) — chỉ role Support Operator
+	// (POST /tenants/{tenantId}/support-grants/{grantId}/approve)
+	ApproveTenantSupportGrant(w http.ResponseWriter, r *http.Request, tenantId TenantId, grantId GrantId)
+	// RejectTenantSupportGrant Tenant từ chối một yêu cầu truy cập hỗ trợ đang chờ
+	// (POST /tenants/{tenantId}/support-grants/{grantId}/reject)
+	RejectTenantSupportGrant(w http.ResponseWriter, r *http.Request, tenantId TenantId, grantId GrantId)
+	// RevokeTenantSupportGrant Tenant thu hồi một grant (đang chờ hoặc đang hiệu lực, kể cả grant break-glass)
+	// (POST /tenants/{tenantId}/support-grants/{grantId}/revoke)
+	RevokeTenantSupportGrant(w http.ResponseWriter, r *http.Request, tenantId TenantId, grantId GrantId)
 	// ListTenantTags Danh mục tag của tenant
 	// (GET /tenants/{tenantId}/tags)
 	ListTenantTags(w http.ResponseWriter, r *http.Request, tenantId TenantId, params ListTenantTagsParams)
@@ -5607,6 +6264,19 @@ func (siw *ServerInterfaceWrapper) ListPlatformAuditEvents(w http.ResponseWriter
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "actor"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "actor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "actor_type" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "actor_type", r.URL.Query(), &params.ActorType, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "actor_type"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "actor_type", Err: err})
 		}
 		return
 	}
@@ -7241,6 +7911,162 @@ func (siw *ServerInterfaceWrapper) PutPlatformSetting(w http.ResponseWriter, r *
 	handler.ServeHTTP(w, r)
 }
 
+// ListPlatformSupportGrants operation middleware
+func (siw *ServerInterfaceWrapper) ListPlatformSupportGrants(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListPlatformSupportGrantsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListPlatformSupportGrants(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateSupportGrant operation middleware
+func (siw *ServerInterfaceWrapper) CreateSupportGrant(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateSupportGrantParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateSupportGrant(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ApproveSupportGrantBreakglass operation middleware
+func (siw *ServerInterfaceWrapper) ApproveSupportGrantBreakglass(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "grantId" -------------
+	var grantId GrantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "grantId", r.PathValue("grantId"), &grantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "grantId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ApproveSupportGrantBreakglass(w, r, grantId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RevokePlatformSupportGrant operation middleware
+func (siw *ServerInterfaceWrapper) RevokePlatformSupportGrant(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "grantId" -------------
+	var grantId GrantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "grantId", r.PathValue("grantId"), &grantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "grantId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RevokePlatformSupportGrant(w, r, grantId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListPlatformTenants operation middleware
 func (siw *ServerInterfaceWrapper) ListPlatformTenants(w http.ResponseWriter, r *http.Request) {
 
@@ -8384,6 +9210,19 @@ func (siw *ServerInterfaceWrapper) ListTenantAuditEvents(w http.ResponseWriter, 
 		return
 	}
 
+	// ------------- Optional query parameter "actor_type" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "actor_type", r.URL.Query(), &params.ActorType, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "actor_type"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "actor_type", Err: err})
+		}
+		return
+	}
+
 	// ------------- Optional query parameter "action" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "action", r.URL.Query(), &params.Action, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
@@ -8891,6 +9730,221 @@ func (siw *ServerInterfaceWrapper) SetDeviceTags(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SetDeviceTags(w, r, tenantId, deviceId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetTenantDns operation middleware
+func (siw *ServerInterfaceWrapper) GetTenantDns(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetTenantDns(w, r, tenantId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListTenantDnsRecords operation middleware
+func (siw *ServerInterfaceWrapper) ListTenantDnsRecords(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListTenantDnsRecords(w, r, tenantId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateTenantDnsRecord operation middleware
+func (siw *ServerInterfaceWrapper) CreateTenantDnsRecord(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateTenantDnsRecordParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateTenantDnsRecord(w, r, tenantId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteTenantDnsRecord operation middleware
+func (siw *ServerInterfaceWrapper) DeleteTenantDnsRecord(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "recordId" -------------
+	var recordId RecordId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "recordId", r.PathValue("recordId"), &recordId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "recordId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DeleteTenantDnsRecordParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteTenantDnsRecord(w, r, tenantId, recordId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateTenantDnsSettings operation middleware
+func (siw *ServerInterfaceWrapper) UpdateTenantDnsSettings(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpdateTenantDnsSettingsParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateTenantDnsSettings(w, r, tenantId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -10912,6 +11966,417 @@ func (siw *ServerInterfaceWrapper) RequestTenantDeletion(w http.ResponseWriter, 
 	handler.ServeHTTP(w, r)
 }
 
+// ListTenantResources operation middleware
+func (siw *ServerInterfaceWrapper) ListTenantResources(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListTenantResourcesParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListTenantResources(w, r, tenantId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateTenantResource operation middleware
+func (siw *ServerInterfaceWrapper) CreateTenantResource(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateTenantResourceParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateTenantResource(w, r, tenantId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteTenantResource operation middleware
+func (siw *ServerInterfaceWrapper) DeleteTenantResource(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "resourceId" -------------
+	var resourceId ResourceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "resourceId", r.PathValue("resourceId"), &resourceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "resourceId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DeleteTenantResourceParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteTenantResource(w, r, tenantId, resourceId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetTenantResource operation middleware
+func (siw *ServerInterfaceWrapper) GetTenantResource(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "resourceId" -------------
+	var resourceId ResourceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "resourceId", r.PathValue("resourceId"), &resourceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "resourceId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetTenantResource(w, r, tenantId, resourceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateTenantResource operation middleware
+func (siw *ServerInterfaceWrapper) UpdateTenantResource(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "resourceId" -------------
+	var resourceId ResourceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "resourceId", r.PathValue("resourceId"), &resourceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "resourceId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpdateTenantResourceParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateTenantResource(w, r, tenantId, resourceId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListTenantRoutes operation middleware
+func (siw *ServerInterfaceWrapper) ListTenantRoutes(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListTenantRoutes(w, r, tenantId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ApproveTenantRoutes operation middleware
+func (siw *ServerInterfaceWrapper) ApproveTenantRoutes(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ApproveTenantRoutesParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ApproveTenantRoutes(w, r, tenantId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RevokeTenantRoutes operation middleware
+func (siw *ServerInterfaceWrapper) RevokeTenantRoutes(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RevokeTenantRoutesParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RevokeTenantRoutes(w, r, tenantId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetTenantSettings operation middleware
 func (siw *ServerInterfaceWrapper) GetTenantSettings(w http.ResponseWriter, r *http.Request) {
 
@@ -11029,6 +12494,179 @@ func (siw *ServerInterfaceWrapper) PutTenantSecuritySettings(w http.ResponseWrit
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.PutTenantSecuritySettings(w, r, tenantId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListTenantSupportGrants operation middleware
+func (siw *ServerInterfaceWrapper) ListTenantSupportGrants(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListTenantSupportGrantsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListTenantSupportGrants(w, r, tenantId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ApproveTenantSupportGrant operation middleware
+func (siw *ServerInterfaceWrapper) ApproveTenantSupportGrant(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "grantId" -------------
+	var grantId GrantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "grantId", r.PathValue("grantId"), &grantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "grantId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ApproveTenantSupportGrant(w, r, tenantId, grantId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RejectTenantSupportGrant operation middleware
+func (siw *ServerInterfaceWrapper) RejectTenantSupportGrant(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "grantId" -------------
+	var grantId GrantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "grantId", r.PathValue("grantId"), &grantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "grantId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RejectTenantSupportGrant(w, r, tenantId, grantId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RevokeTenantSupportGrant operation middleware
+func (siw *ServerInterfaceWrapper) RevokeTenantSupportGrant(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "grantId" -------------
+	var grantId GrantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "grantId", r.PathValue("grantId"), &grantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "grantId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RevokeTenantSupportGrant(w, r, tenantId, grantId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -11844,6 +13482,19 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants/{tenantId}/invitations", wrapper.CreateTenantInvitation)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/tenants/{tenantId}/invitations/{invitationId}", wrapper.RevokeTenantInvitation)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants/{tenantId}/invitations/{invitationId}/resend", wrapper.ResendTenantInvitation)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tenants/{tenantId}/routes", wrapper.ListTenantRoutes)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants/{tenantId}/routes/approve", wrapper.ApproveTenantRoutes)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants/{tenantId}/routes/revoke", wrapper.RevokeTenantRoutes)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tenants/{tenantId}/dns", wrapper.GetTenantDns)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/tenants/{tenantId}/dns/settings", wrapper.UpdateTenantDnsSettings)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tenants/{tenantId}/dns/records", wrapper.ListTenantDnsRecords)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants/{tenantId}/dns/records", wrapper.CreateTenantDnsRecord)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/tenants/{tenantId}/dns/records/{recordId}", wrapper.DeleteTenantDnsRecord)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tenants/{tenantId}/resources", wrapper.ListTenantResources)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants/{tenantId}/resources", wrapper.CreateTenantResource)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/tenants/{tenantId}/resources/{resourceId}", wrapper.DeleteTenantResource)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tenants/{tenantId}/resources/{resourceId}", wrapper.GetTenantResource)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/tenants/{tenantId}/resources/{resourceId}", wrapper.UpdateTenantResource)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tenants/{tenantId}/tags", wrapper.ListTenantTags)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants/{tenantId}/tags", wrapper.CreateTenantTag)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/tenants/{tenantId}/tags/{tagId}", wrapper.DeleteTenantTag)
@@ -11864,6 +13515,14 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tenants/{tenantId}/identity-provider", wrapper.GetTenantIdentityProvider)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/tenants/{tenantId}/identity-provider", wrapper.UpdateTenantIdentityProvider)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants/{tenantId}/request-deletion", wrapper.RequestTenantDeletion)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tenants/{tenantId}/support-grants", wrapper.ListTenantSupportGrants)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants/{tenantId}/support-grants/{grantId}/approve", wrapper.ApproveTenantSupportGrant)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants/{tenantId}/support-grants/{grantId}/reject", wrapper.RejectTenantSupportGrant)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants/{tenantId}/support-grants/{grantId}/revoke", wrapper.RevokeTenantSupportGrant)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/platform/support-grants", wrapper.ListPlatformSupportGrants)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/platform/support-grants", wrapper.CreateSupportGrant)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/platform/support-grants/{grantId}/approve-breakglass", wrapper.ApproveSupportGrantBreakglass)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/platform/support-grants/{grantId}/revoke", wrapper.RevokePlatformSupportGrant)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/platform/users", wrapper.ListPlatformUsers)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/platform/users", wrapper.CreatePlatformUser)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/platform/users/{platformUserId}", wrapper.DeletePlatformUser)
@@ -18882,6 +20541,616 @@ func (response PutPlatformSettingdefaultApplicationProblemPlusJSONResponse) Visi
 	return err
 }
 
+type ListPlatformSupportGrantsRequestObject struct {
+	Params ListPlatformSupportGrantsParams
+}
+
+type ListPlatformSupportGrantsResponseObject interface {
+	VisitListPlatformSupportGrantsResponse(w http.ResponseWriter) error
+}
+
+type ListPlatformSupportGrants200JSONResponse SupportGrantList
+
+func (response ListPlatformSupportGrants200JSONResponse) VisitListPlatformSupportGrantsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPlatformSupportGrants401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response ListPlatformSupportGrants401ApplicationProblemPlusJSONResponse) VisitListPlatformSupportGrantsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPlatformSupportGrants403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response ListPlatformSupportGrants403ApplicationProblemPlusJSONResponse) VisitListPlatformSupportGrantsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPlatformSupportGrants422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response ListPlatformSupportGrants422ApplicationProblemPlusJSONResponse) VisitListPlatformSupportGrantsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPlatformSupportGrants429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response ListPlatformSupportGrants429ApplicationProblemPlusJSONResponse) VisitListPlatformSupportGrantsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPlatformSupportGrantsdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response ListPlatformSupportGrantsdefaultApplicationProblemPlusJSONResponse) VisitListPlatformSupportGrantsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSupportGrantRequestObject struct {
+	Params CreateSupportGrantParams
+	Body   *CreateSupportGrantJSONRequestBody
+}
+
+type CreateSupportGrantResponseObject interface {
+	VisitCreateSupportGrantResponse(w http.ResponseWriter) error
+}
+
+type CreateSupportGrant201JSONResponse SupportGrant
+
+func (response CreateSupportGrant201JSONResponse) VisitCreateSupportGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSupportGrant401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateSupportGrant401ApplicationProblemPlusJSONResponse) VisitCreateSupportGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSupportGrant403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response CreateSupportGrant403ApplicationProblemPlusJSONResponse) VisitCreateSupportGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSupportGrant404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response CreateSupportGrant404ApplicationProblemPlusJSONResponse) VisitCreateSupportGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSupportGrant409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response CreateSupportGrant409ApplicationProblemPlusJSONResponse) VisitCreateSupportGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSupportGrant422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateSupportGrant422ApplicationProblemPlusJSONResponse) VisitCreateSupportGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSupportGrant429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateSupportGrant429ApplicationProblemPlusJSONResponse) VisitCreateSupportGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSupportGrantdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response CreateSupportGrantdefaultApplicationProblemPlusJSONResponse) VisitCreateSupportGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveSupportGrantBreakglassRequestObject struct {
+	GrantId GrantId `json:"grantId"`
+}
+
+type ApproveSupportGrantBreakglassResponseObject interface {
+	VisitApproveSupportGrantBreakglassResponse(w http.ResponseWriter) error
+}
+
+type ApproveSupportGrantBreakglass200JSONResponse SupportGrant
+
+func (response ApproveSupportGrantBreakglass200JSONResponse) VisitApproveSupportGrantBreakglassResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveSupportGrantBreakglass401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response ApproveSupportGrantBreakglass401ApplicationProblemPlusJSONResponse) VisitApproveSupportGrantBreakglassResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveSupportGrantBreakglass403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response ApproveSupportGrantBreakglass403ApplicationProblemPlusJSONResponse) VisitApproveSupportGrantBreakglassResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveSupportGrantBreakglass404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response ApproveSupportGrantBreakglass404ApplicationProblemPlusJSONResponse) VisitApproveSupportGrantBreakglassResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveSupportGrantBreakglass409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response ApproveSupportGrantBreakglass409ApplicationProblemPlusJSONResponse) VisitApproveSupportGrantBreakglassResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveSupportGrantBreakglass429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response ApproveSupportGrantBreakglass429ApplicationProblemPlusJSONResponse) VisitApproveSupportGrantBreakglassResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveSupportGrantBreakglassdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response ApproveSupportGrantBreakglassdefaultApplicationProblemPlusJSONResponse) VisitApproveSupportGrantBreakglassResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokePlatformSupportGrantRequestObject struct {
+	GrantId GrantId `json:"grantId"`
+}
+
+type RevokePlatformSupportGrantResponseObject interface {
+	VisitRevokePlatformSupportGrantResponse(w http.ResponseWriter) error
+}
+
+type RevokePlatformSupportGrant200JSONResponse SupportGrant
+
+func (response RevokePlatformSupportGrant200JSONResponse) VisitRevokePlatformSupportGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokePlatformSupportGrant401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response RevokePlatformSupportGrant401ApplicationProblemPlusJSONResponse) VisitRevokePlatformSupportGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokePlatformSupportGrant403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response RevokePlatformSupportGrant403ApplicationProblemPlusJSONResponse) VisitRevokePlatformSupportGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokePlatformSupportGrant404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response RevokePlatformSupportGrant404ApplicationProblemPlusJSONResponse) VisitRevokePlatformSupportGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokePlatformSupportGrant409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response RevokePlatformSupportGrant409ApplicationProblemPlusJSONResponse) VisitRevokePlatformSupportGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokePlatformSupportGrant429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response RevokePlatformSupportGrant429ApplicationProblemPlusJSONResponse) VisitRevokePlatformSupportGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokePlatformSupportGrantdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response RevokePlatformSupportGrantdefaultApplicationProblemPlusJSONResponse) VisitRevokePlatformSupportGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListPlatformTenantsRequestObject struct {
 	Params ListPlatformTenantsParams
 }
@@ -23943,6 +26212,890 @@ type SetDeviceTagsdefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response SetDeviceTagsdefaultApplicationProblemPlusJSONResponse) VisitSetDeviceTagsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTenantDnsRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+}
+
+type GetTenantDnsResponseObject interface {
+	VisitGetTenantDnsResponse(w http.ResponseWriter) error
+}
+
+type GetTenantDns200ResponseHeaders struct {
+	ETag string
+}
+
+type GetTenantDns200JSONResponse struct {
+	Body    DnsView
+	Headers GetTenantDns200ResponseHeaders
+}
+
+func (response GetTenantDns200JSONResponse) VisitGetTenantDnsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTenantDns401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response GetTenantDns401ApplicationProblemPlusJSONResponse) VisitGetTenantDnsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTenantDns403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response GetTenantDns403ApplicationProblemPlusJSONResponse) VisitGetTenantDnsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTenantDns404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response GetTenantDns404ApplicationProblemPlusJSONResponse) VisitGetTenantDnsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTenantDns409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response GetTenantDns409ApplicationProblemPlusJSONResponse) VisitGetTenantDnsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTenantDns429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response GetTenantDns429ApplicationProblemPlusJSONResponse) VisitGetTenantDnsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTenantDnsdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response GetTenantDnsdefaultApplicationProblemPlusJSONResponse) VisitGetTenantDnsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantDnsRecordsRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+}
+
+type ListTenantDnsRecordsResponseObject interface {
+	VisitListTenantDnsRecordsResponse(w http.ResponseWriter) error
+}
+
+type ListTenantDnsRecords200JSONResponse DnsRecordList
+
+func (response ListTenantDnsRecords200JSONResponse) VisitListTenantDnsRecordsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantDnsRecords401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response ListTenantDnsRecords401ApplicationProblemPlusJSONResponse) VisitListTenantDnsRecordsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantDnsRecords403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response ListTenantDnsRecords403ApplicationProblemPlusJSONResponse) VisitListTenantDnsRecordsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantDnsRecords404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response ListTenantDnsRecords404ApplicationProblemPlusJSONResponse) VisitListTenantDnsRecordsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantDnsRecords429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response ListTenantDnsRecords429ApplicationProblemPlusJSONResponse) VisitListTenantDnsRecordsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantDnsRecordsdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response ListTenantDnsRecordsdefaultApplicationProblemPlusJSONResponse) VisitListTenantDnsRecordsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTenantDnsRecordRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	Params   CreateTenantDnsRecordParams
+	Body     *CreateTenantDnsRecordJSONRequestBody
+}
+
+type CreateTenantDnsRecordResponseObject interface {
+	VisitCreateTenantDnsRecordResponse(w http.ResponseWriter) error
+}
+
+type CreateTenantDnsRecord201JSONResponse DnsRecordChange
+
+func (response CreateTenantDnsRecord201JSONResponse) VisitCreateTenantDnsRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTenantDnsRecord401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateTenantDnsRecord401ApplicationProblemPlusJSONResponse) VisitCreateTenantDnsRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTenantDnsRecord403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response CreateTenantDnsRecord403ApplicationProblemPlusJSONResponse) VisitCreateTenantDnsRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTenantDnsRecord404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response CreateTenantDnsRecord404ApplicationProblemPlusJSONResponse) VisitCreateTenantDnsRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTenantDnsRecord409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response CreateTenantDnsRecord409ApplicationProblemPlusJSONResponse) VisitCreateTenantDnsRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTenantDnsRecord422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateTenantDnsRecord422ApplicationProblemPlusJSONResponse) VisitCreateTenantDnsRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTenantDnsRecord429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateTenantDnsRecord429ApplicationProblemPlusJSONResponse) VisitCreateTenantDnsRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTenantDnsRecorddefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response CreateTenantDnsRecorddefaultApplicationProblemPlusJSONResponse) VisitCreateTenantDnsRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteTenantDnsRecordRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	RecordId RecordId `json:"recordId"`
+	Params   DeleteTenantDnsRecordParams
+}
+
+type DeleteTenantDnsRecordResponseObject interface {
+	VisitDeleteTenantDnsRecordResponse(w http.ResponseWriter) error
+}
+
+type DeleteTenantDnsRecord202ResponseHeaders struct {
+	Location string
+}
+
+type DeleteTenantDnsRecord202JSONResponse struct {
+	Body    Job
+	Headers DeleteTenantDnsRecord202ResponseHeaders
+}
+
+func (response DeleteTenantDnsRecord202JSONResponse) VisitDeleteTenantDnsRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Location", fmt.Sprint(response.Headers.Location))
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteTenantDnsRecord401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteTenantDnsRecord401ApplicationProblemPlusJSONResponse) VisitDeleteTenantDnsRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteTenantDnsRecord403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteTenantDnsRecord403ApplicationProblemPlusJSONResponse) VisitDeleteTenantDnsRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteTenantDnsRecord404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteTenantDnsRecord404ApplicationProblemPlusJSONResponse) VisitDeleteTenantDnsRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteTenantDnsRecord412ApplicationProblemPlusJSONResponse struct {
+	PreconditionFailedApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteTenantDnsRecord412ApplicationProblemPlusJSONResponse) VisitDeleteTenantDnsRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(412)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteTenantDnsRecord422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteTenantDnsRecord422ApplicationProblemPlusJSONResponse) VisitDeleteTenantDnsRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteTenantDnsRecord428ApplicationProblemPlusJSONResponse struct {
+	PreconditionRequiredApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteTenantDnsRecord428ApplicationProblemPlusJSONResponse) VisitDeleteTenantDnsRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(428)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteTenantDnsRecord429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteTenantDnsRecord429ApplicationProblemPlusJSONResponse) VisitDeleteTenantDnsRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteTenantDnsRecorddefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response DeleteTenantDnsRecorddefaultApplicationProblemPlusJSONResponse) VisitDeleteTenantDnsRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTenantDnsSettingsRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	Params   UpdateTenantDnsSettingsParams
+	Body     *UpdateTenantDnsSettingsJSONRequestBody
+}
+
+type UpdateTenantDnsSettingsResponseObject interface {
+	VisitUpdateTenantDnsSettingsResponse(w http.ResponseWriter) error
+}
+
+type UpdateTenantDnsSettings202ResponseHeaders struct {
+	Location string
+}
+
+type UpdateTenantDnsSettings202JSONResponse struct {
+	Body    Job
+	Headers UpdateTenantDnsSettings202ResponseHeaders
+}
+
+func (response UpdateTenantDnsSettings202JSONResponse) VisitUpdateTenantDnsSettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Location", fmt.Sprint(response.Headers.Location))
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTenantDnsSettings401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateTenantDnsSettings401ApplicationProblemPlusJSONResponse) VisitUpdateTenantDnsSettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTenantDnsSettings403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateTenantDnsSettings403ApplicationProblemPlusJSONResponse) VisitUpdateTenantDnsSettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTenantDnsSettings404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateTenantDnsSettings404ApplicationProblemPlusJSONResponse) VisitUpdateTenantDnsSettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTenantDnsSettings409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateTenantDnsSettings409ApplicationProblemPlusJSONResponse) VisitUpdateTenantDnsSettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTenantDnsSettings412ApplicationProblemPlusJSONResponse struct {
+	PreconditionFailedApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateTenantDnsSettings412ApplicationProblemPlusJSONResponse) VisitUpdateTenantDnsSettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(412)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTenantDnsSettings422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateTenantDnsSettings422ApplicationProblemPlusJSONResponse) VisitUpdateTenantDnsSettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTenantDnsSettings428ApplicationProblemPlusJSONResponse struct {
+	PreconditionRequiredApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateTenantDnsSettings428ApplicationProblemPlusJSONResponse) VisitUpdateTenantDnsSettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(428)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTenantDnsSettings429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateTenantDnsSettings429ApplicationProblemPlusJSONResponse) VisitUpdateTenantDnsSettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTenantDnsSettingsdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response UpdateTenantDnsSettingsdefaultApplicationProblemPlusJSONResponse) VisitUpdateTenantDnsSettingsResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -31501,6 +34654,1537 @@ func (response RequestTenantDeletiondefaultApplicationProblemPlusJSONResponse) V
 	return err
 }
 
+type ListTenantResourcesRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	Params   ListTenantResourcesParams
+}
+
+type ListTenantResourcesResponseObject interface {
+	VisitListTenantResourcesResponse(w http.ResponseWriter) error
+}
+
+type ListTenantResources200JSONResponse NetworkResourceList
+
+func (response ListTenantResources200JSONResponse) VisitListTenantResourcesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantResources401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response ListTenantResources401ApplicationProblemPlusJSONResponse) VisitListTenantResourcesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantResources403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response ListTenantResources403ApplicationProblemPlusJSONResponse) VisitListTenantResourcesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantResources404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response ListTenantResources404ApplicationProblemPlusJSONResponse) VisitListTenantResourcesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantResources422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response ListTenantResources422ApplicationProblemPlusJSONResponse) VisitListTenantResourcesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantResources429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response ListTenantResources429ApplicationProblemPlusJSONResponse) VisitListTenantResourcesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantResourcesdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response ListTenantResourcesdefaultApplicationProblemPlusJSONResponse) VisitListTenantResourcesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTenantResourceRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	Params   CreateTenantResourceParams
+	Body     *CreateTenantResourceJSONRequestBody
+}
+
+type CreateTenantResourceResponseObject interface {
+	VisitCreateTenantResourceResponse(w http.ResponseWriter) error
+}
+
+type CreateTenantResource201ResponseHeaders struct {
+	ETag string
+}
+
+type CreateTenantResource201JSONResponse struct {
+	Body    NetworkResource
+	Headers CreateTenantResource201ResponseHeaders
+}
+
+func (response CreateTenantResource201JSONResponse) VisitCreateTenantResourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTenantResource401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateTenantResource401ApplicationProblemPlusJSONResponse) VisitCreateTenantResourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTenantResource403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response CreateTenantResource403ApplicationProblemPlusJSONResponse) VisitCreateTenantResourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTenantResource404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response CreateTenantResource404ApplicationProblemPlusJSONResponse) VisitCreateTenantResourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTenantResource409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response CreateTenantResource409ApplicationProblemPlusJSONResponse) VisitCreateTenantResourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTenantResource422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateTenantResource422ApplicationProblemPlusJSONResponse) VisitCreateTenantResourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTenantResource429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateTenantResource429ApplicationProblemPlusJSONResponse) VisitCreateTenantResourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTenantResourcedefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response CreateTenantResourcedefaultApplicationProblemPlusJSONResponse) VisitCreateTenantResourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteTenantResourceRequestObject struct {
+	TenantId   TenantId   `json:"tenantId"`
+	ResourceId ResourceId `json:"resourceId"`
+	Params     DeleteTenantResourceParams
+}
+
+type DeleteTenantResourceResponseObject interface {
+	VisitDeleteTenantResourceResponse(w http.ResponseWriter) error
+}
+
+type DeleteTenantResource204Response struct {
+}
+
+func (response DeleteTenantResource204Response) VisitDeleteTenantResourceResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteTenantResource401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteTenantResource401ApplicationProblemPlusJSONResponse) VisitDeleteTenantResourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteTenantResource403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteTenantResource403ApplicationProblemPlusJSONResponse) VisitDeleteTenantResourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteTenantResource404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteTenantResource404ApplicationProblemPlusJSONResponse) VisitDeleteTenantResourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteTenantResource412ApplicationProblemPlusJSONResponse struct {
+	PreconditionFailedApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteTenantResource412ApplicationProblemPlusJSONResponse) VisitDeleteTenantResourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(412)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteTenantResource422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteTenantResource422ApplicationProblemPlusJSONResponse) VisitDeleteTenantResourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteTenantResource428ApplicationProblemPlusJSONResponse struct {
+	PreconditionRequiredApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteTenantResource428ApplicationProblemPlusJSONResponse) VisitDeleteTenantResourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(428)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteTenantResource429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteTenantResource429ApplicationProblemPlusJSONResponse) VisitDeleteTenantResourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteTenantResourcedefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response DeleteTenantResourcedefaultApplicationProblemPlusJSONResponse) VisitDeleteTenantResourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTenantResourceRequestObject struct {
+	TenantId   TenantId   `json:"tenantId"`
+	ResourceId ResourceId `json:"resourceId"`
+}
+
+type GetTenantResourceResponseObject interface {
+	VisitGetTenantResourceResponse(w http.ResponseWriter) error
+}
+
+type GetTenantResource200ResponseHeaders struct {
+	ETag string
+}
+
+type GetTenantResource200JSONResponse struct {
+	Body    NetworkResource
+	Headers GetTenantResource200ResponseHeaders
+}
+
+func (response GetTenantResource200JSONResponse) VisitGetTenantResourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTenantResource401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response GetTenantResource401ApplicationProblemPlusJSONResponse) VisitGetTenantResourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTenantResource403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response GetTenantResource403ApplicationProblemPlusJSONResponse) VisitGetTenantResourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTenantResource404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response GetTenantResource404ApplicationProblemPlusJSONResponse) VisitGetTenantResourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTenantResource429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response GetTenantResource429ApplicationProblemPlusJSONResponse) VisitGetTenantResourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTenantResourcedefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response GetTenantResourcedefaultApplicationProblemPlusJSONResponse) VisitGetTenantResourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTenantResourceRequestObject struct {
+	TenantId   TenantId   `json:"tenantId"`
+	ResourceId ResourceId `json:"resourceId"`
+	Params     UpdateTenantResourceParams
+	Body       *UpdateTenantResourceJSONRequestBody
+}
+
+type UpdateTenantResourceResponseObject interface {
+	VisitUpdateTenantResourceResponse(w http.ResponseWriter) error
+}
+
+type UpdateTenantResource200ResponseHeaders struct {
+	ETag string
+}
+
+type UpdateTenantResource200JSONResponse struct {
+	Body    NetworkResource
+	Headers UpdateTenantResource200ResponseHeaders
+}
+
+func (response UpdateTenantResource200JSONResponse) VisitUpdateTenantResourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTenantResource401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateTenantResource401ApplicationProblemPlusJSONResponse) VisitUpdateTenantResourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTenantResource403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateTenantResource403ApplicationProblemPlusJSONResponse) VisitUpdateTenantResourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTenantResource404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateTenantResource404ApplicationProblemPlusJSONResponse) VisitUpdateTenantResourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTenantResource409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateTenantResource409ApplicationProblemPlusJSONResponse) VisitUpdateTenantResourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTenantResource412ApplicationProblemPlusJSONResponse struct {
+	PreconditionFailedApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateTenantResource412ApplicationProblemPlusJSONResponse) VisitUpdateTenantResourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(412)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTenantResource422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateTenantResource422ApplicationProblemPlusJSONResponse) VisitUpdateTenantResourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTenantResource428ApplicationProblemPlusJSONResponse struct {
+	PreconditionRequiredApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateTenantResource428ApplicationProblemPlusJSONResponse) VisitUpdateTenantResourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(428)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTenantResource429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateTenantResource429ApplicationProblemPlusJSONResponse) VisitUpdateTenantResourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTenantResourcedefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response UpdateTenantResourcedefaultApplicationProblemPlusJSONResponse) VisitUpdateTenantResourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantRoutesRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+}
+
+type ListTenantRoutesResponseObject interface {
+	VisitListTenantRoutesResponse(w http.ResponseWriter) error
+}
+
+type ListTenantRoutes200JSONResponse RouteList
+
+func (response ListTenantRoutes200JSONResponse) VisitListTenantRoutesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantRoutes401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response ListTenantRoutes401ApplicationProblemPlusJSONResponse) VisitListTenantRoutesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantRoutes403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response ListTenantRoutes403ApplicationProblemPlusJSONResponse) VisitListTenantRoutesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantRoutes404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response ListTenantRoutes404ApplicationProblemPlusJSONResponse) VisitListTenantRoutesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantRoutes429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response ListTenantRoutes429ApplicationProblemPlusJSONResponse) VisitListTenantRoutesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantRoutesdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response ListTenantRoutesdefaultApplicationProblemPlusJSONResponse) VisitListTenantRoutesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveTenantRoutesRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	Params   ApproveTenantRoutesParams
+	Body     *ApproveTenantRoutesJSONRequestBody
+}
+
+type ApproveTenantRoutesResponseObject interface {
+	VisitApproveTenantRoutesResponse(w http.ResponseWriter) error
+}
+
+type ApproveTenantRoutes200ResponseHeaders struct {
+	ETag string
+}
+
+type ApproveTenantRoutes200JSONResponse struct {
+	Body    RouteDevice
+	Headers ApproveTenantRoutes200ResponseHeaders
+}
+
+func (response ApproveTenantRoutes200JSONResponse) VisitApproveTenantRoutesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveTenantRoutes202ResponseHeaders struct {
+	Location string
+}
+
+type ApproveTenantRoutes202JSONResponse struct {
+	Body    ApprovalRequest
+	Headers ApproveTenantRoutes202ResponseHeaders
+}
+
+func (response ApproveTenantRoutes202JSONResponse) VisitApproveTenantRoutesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Location", fmt.Sprint(response.Headers.Location))
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveTenantRoutes401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response ApproveTenantRoutes401ApplicationProblemPlusJSONResponse) VisitApproveTenantRoutesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveTenantRoutes403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response ApproveTenantRoutes403ApplicationProblemPlusJSONResponse) VisitApproveTenantRoutesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveTenantRoutes404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response ApproveTenantRoutes404ApplicationProblemPlusJSONResponse) VisitApproveTenantRoutesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveTenantRoutes409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response ApproveTenantRoutes409ApplicationProblemPlusJSONResponse) VisitApproveTenantRoutesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveTenantRoutes412ApplicationProblemPlusJSONResponse struct {
+	PreconditionFailedApplicationProblemPlusJSONResponse
+}
+
+func (response ApproveTenantRoutes412ApplicationProblemPlusJSONResponse) VisitApproveTenantRoutesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(412)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveTenantRoutes422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response ApproveTenantRoutes422ApplicationProblemPlusJSONResponse) VisitApproveTenantRoutesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveTenantRoutes428ApplicationProblemPlusJSONResponse struct {
+	PreconditionRequiredApplicationProblemPlusJSONResponse
+}
+
+func (response ApproveTenantRoutes428ApplicationProblemPlusJSONResponse) VisitApproveTenantRoutesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(428)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveTenantRoutes429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response ApproveTenantRoutes429ApplicationProblemPlusJSONResponse) VisitApproveTenantRoutesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveTenantRoutes502ApplicationProblemPlusJSONResponse struct {
+	UpstreamRejectedApplicationProblemPlusJSONResponse
+}
+
+func (response ApproveTenantRoutes502ApplicationProblemPlusJSONResponse) VisitApproveTenantRoutesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(502)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveTenantRoutes503ApplicationProblemPlusJSONResponse struct {
+	InstanceUnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response ApproveTenantRoutes503ApplicationProblemPlusJSONResponse) VisitApproveTenantRoutesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveTenantRoutesdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response ApproveTenantRoutesdefaultApplicationProblemPlusJSONResponse) VisitApproveTenantRoutesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeTenantRoutesRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	Params   RevokeTenantRoutesParams
+	Body     *RevokeTenantRoutesJSONRequestBody
+}
+
+type RevokeTenantRoutesResponseObject interface {
+	VisitRevokeTenantRoutesResponse(w http.ResponseWriter) error
+}
+
+type RevokeTenantRoutes200ResponseHeaders struct {
+	ETag string
+}
+
+type RevokeTenantRoutes200JSONResponse struct {
+	Body    RouteDevice
+	Headers RevokeTenantRoutes200ResponseHeaders
+}
+
+func (response RevokeTenantRoutes200JSONResponse) VisitRevokeTenantRoutesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeTenantRoutes401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response RevokeTenantRoutes401ApplicationProblemPlusJSONResponse) VisitRevokeTenantRoutesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeTenantRoutes403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response RevokeTenantRoutes403ApplicationProblemPlusJSONResponse) VisitRevokeTenantRoutesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeTenantRoutes404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response RevokeTenantRoutes404ApplicationProblemPlusJSONResponse) VisitRevokeTenantRoutesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeTenantRoutes412ApplicationProblemPlusJSONResponse struct {
+	PreconditionFailedApplicationProblemPlusJSONResponse
+}
+
+func (response RevokeTenantRoutes412ApplicationProblemPlusJSONResponse) VisitRevokeTenantRoutesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(412)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeTenantRoutes422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response RevokeTenantRoutes422ApplicationProblemPlusJSONResponse) VisitRevokeTenantRoutesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeTenantRoutes428ApplicationProblemPlusJSONResponse struct {
+	PreconditionRequiredApplicationProblemPlusJSONResponse
+}
+
+func (response RevokeTenantRoutes428ApplicationProblemPlusJSONResponse) VisitRevokeTenantRoutesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(428)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeTenantRoutes429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response RevokeTenantRoutes429ApplicationProblemPlusJSONResponse) VisitRevokeTenantRoutesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeTenantRoutes502ApplicationProblemPlusJSONResponse struct {
+	UpstreamRejectedApplicationProblemPlusJSONResponse
+}
+
+func (response RevokeTenantRoutes502ApplicationProblemPlusJSONResponse) VisitRevokeTenantRoutesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(502)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeTenantRoutes503ApplicationProblemPlusJSONResponse struct {
+	InstanceUnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response RevokeTenantRoutes503ApplicationProblemPlusJSONResponse) VisitRevokeTenantRoutesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeTenantRoutesdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response RevokeTenantRoutesdefaultApplicationProblemPlusJSONResponse) VisitRevokeTenantRoutesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetTenantSettingsRequestObject struct {
 	TenantId TenantId `json:"tenantId"`
 }
@@ -32066,6 +36750,619 @@ type PutTenantSecuritySettingsdefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response PutTenantSecuritySettingsdefaultApplicationProblemPlusJSONResponse) VisitPutTenantSecuritySettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantSupportGrantsRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	Params   ListTenantSupportGrantsParams
+}
+
+type ListTenantSupportGrantsResponseObject interface {
+	VisitListTenantSupportGrantsResponse(w http.ResponseWriter) error
+}
+
+type ListTenantSupportGrants200JSONResponse SupportGrantList
+
+func (response ListTenantSupportGrants200JSONResponse) VisitListTenantSupportGrantsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantSupportGrants401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response ListTenantSupportGrants401ApplicationProblemPlusJSONResponse) VisitListTenantSupportGrantsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantSupportGrants403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response ListTenantSupportGrants403ApplicationProblemPlusJSONResponse) VisitListTenantSupportGrantsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantSupportGrants404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response ListTenantSupportGrants404ApplicationProblemPlusJSONResponse) VisitListTenantSupportGrantsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantSupportGrants422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response ListTenantSupportGrants422ApplicationProblemPlusJSONResponse) VisitListTenantSupportGrantsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantSupportGrants429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response ListTenantSupportGrants429ApplicationProblemPlusJSONResponse) VisitListTenantSupportGrantsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantSupportGrantsdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response ListTenantSupportGrantsdefaultApplicationProblemPlusJSONResponse) VisitListTenantSupportGrantsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveTenantSupportGrantRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	GrantId  GrantId  `json:"grantId"`
+}
+
+type ApproveTenantSupportGrantResponseObject interface {
+	VisitApproveTenantSupportGrantResponse(w http.ResponseWriter) error
+}
+
+type ApproveTenantSupportGrant200JSONResponse SupportGrant
+
+func (response ApproveTenantSupportGrant200JSONResponse) VisitApproveTenantSupportGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveTenantSupportGrant401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response ApproveTenantSupportGrant401ApplicationProblemPlusJSONResponse) VisitApproveTenantSupportGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveTenantSupportGrant403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response ApproveTenantSupportGrant403ApplicationProblemPlusJSONResponse) VisitApproveTenantSupportGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveTenantSupportGrant404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response ApproveTenantSupportGrant404ApplicationProblemPlusJSONResponse) VisitApproveTenantSupportGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveTenantSupportGrant409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response ApproveTenantSupportGrant409ApplicationProblemPlusJSONResponse) VisitApproveTenantSupportGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveTenantSupportGrant429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response ApproveTenantSupportGrant429ApplicationProblemPlusJSONResponse) VisitApproveTenantSupportGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveTenantSupportGrantdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response ApproveTenantSupportGrantdefaultApplicationProblemPlusJSONResponse) VisitApproveTenantSupportGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectTenantSupportGrantRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	GrantId  GrantId  `json:"grantId"`
+}
+
+type RejectTenantSupportGrantResponseObject interface {
+	VisitRejectTenantSupportGrantResponse(w http.ResponseWriter) error
+}
+
+type RejectTenantSupportGrant200JSONResponse SupportGrant
+
+func (response RejectTenantSupportGrant200JSONResponse) VisitRejectTenantSupportGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectTenantSupportGrant401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response RejectTenantSupportGrant401ApplicationProblemPlusJSONResponse) VisitRejectTenantSupportGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectTenantSupportGrant403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response RejectTenantSupportGrant403ApplicationProblemPlusJSONResponse) VisitRejectTenantSupportGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectTenantSupportGrant404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response RejectTenantSupportGrant404ApplicationProblemPlusJSONResponse) VisitRejectTenantSupportGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectTenantSupportGrant409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response RejectTenantSupportGrant409ApplicationProblemPlusJSONResponse) VisitRejectTenantSupportGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectTenantSupportGrant429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response RejectTenantSupportGrant429ApplicationProblemPlusJSONResponse) VisitRejectTenantSupportGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectTenantSupportGrantdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response RejectTenantSupportGrantdefaultApplicationProblemPlusJSONResponse) VisitRejectTenantSupportGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeTenantSupportGrantRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	GrantId  GrantId  `json:"grantId"`
+}
+
+type RevokeTenantSupportGrantResponseObject interface {
+	VisitRevokeTenantSupportGrantResponse(w http.ResponseWriter) error
+}
+
+type RevokeTenantSupportGrant200JSONResponse SupportGrant
+
+func (response RevokeTenantSupportGrant200JSONResponse) VisitRevokeTenantSupportGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeTenantSupportGrant401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response RevokeTenantSupportGrant401ApplicationProblemPlusJSONResponse) VisitRevokeTenantSupportGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeTenantSupportGrant403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response RevokeTenantSupportGrant403ApplicationProblemPlusJSONResponse) VisitRevokeTenantSupportGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeTenantSupportGrant404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response RevokeTenantSupportGrant404ApplicationProblemPlusJSONResponse) VisitRevokeTenantSupportGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeTenantSupportGrant409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response RevokeTenantSupportGrant409ApplicationProblemPlusJSONResponse) VisitRevokeTenantSupportGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeTenantSupportGrant429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response RevokeTenantSupportGrant429ApplicationProblemPlusJSONResponse) VisitRevokeTenantSupportGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeTenantSupportGrantdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response RevokeTenantSupportGrantdefaultApplicationProblemPlusJSONResponse) VisitRevokeTenantSupportGrantResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -34170,6 +39467,18 @@ type StrictServerInterface interface {
 	// PutPlatformSetting Đặt giá trị một khóa cấu hình — Super Admin, step-up, ETag
 	// (PUT /platform/settings/{settingKey})
 	PutPlatformSetting(ctx context.Context, request PutPlatformSettingRequestObject) (PutPlatformSettingResponseObject, error)
+	// ListPlatformSupportGrants Support Access Grant của mọi tenant
+	// (GET /platform/support-grants)
+	ListPlatformSupportGrants(ctx context.Context, request ListPlatformSupportGrantsRequestObject) (ListPlatformSupportGrantsResponseObject, error)
+	// CreateSupportGrant Nhân sự nền tảng xin truy cập hỗ trợ vào một tenant (grant `pending`)
+	// (POST /platform/support-grants)
+	CreateSupportGrant(ctx context.Context, request CreateSupportGrantRequestObject) (CreateSupportGrantResponseObject, error)
+	// ApproveSupportGrantBreakglass Break-glass — Super Admin thứ hai duyệt grant khi không liên lạc được tenant (2P)
+	// (POST /platform/support-grants/{grantId}/approve-breakglass)
+	ApproveSupportGrantBreakglass(ctx context.Context, request ApproveSupportGrantBreakglassRequestObject) (ApproveSupportGrantBreakglassResponseObject, error)
+	// RevokePlatformSupportGrant Super Admin thu hồi một grant bất kỳ (đang chờ hoặc đang hiệu lực)
+	// (POST /platform/support-grants/{grantId}/revoke)
+	RevokePlatformSupportGrant(ctx context.Context, request RevokePlatformSupportGrantRequestObject) (RevokePlatformSupportGrantResponseObject, error)
 	// ListPlatformTenants Tenant Registry — chỉ metadata registry
 	// (GET /platform/tenants)
 	ListPlatformTenants(ctx context.Context, request ListPlatformTenantsRequestObject) (ListPlatformTenantsResponseObject, error)
@@ -34263,6 +39572,21 @@ type StrictServerInterface interface {
 	// SetDeviceTags Thay tập tag của thiết bị
 	// (PUT /tenants/{tenantId}/devices/{deviceId}/tags)
 	SetDeviceTags(ctx context.Context, request SetDeviceTagsRequestObject) (SetDeviceTagsResponseObject, error)
+	// GetTenantDns DNS của tenant — MagicDNS, nameserver đang hiệu lực, lần reconfigure chưa xong
+	// (GET /tenants/{tenantId}/dns)
+	GetTenantDns(ctx context.Context, request GetTenantDnsRequestObject) (GetTenantDnsResponseObject, error)
+	// ListTenantDnsRecords Extra DNS records của tenant (tối đa 1024)
+	// (GET /tenants/{tenantId}/dns/records)
+	ListTenantDnsRecords(ctx context.Context, request ListTenantDnsRecordsRequestObject) (ListTenantDnsRecordsResponseObject, error)
+	// CreateTenantDnsRecord Thêm một bản ghi A/AAAA (ghi file extra-records, không restart)
+	// (POST /tenants/{tenantId}/dns/records)
+	CreateTenantDnsRecord(ctx context.Context, request CreateTenantDnsRecordRequestObject) (CreateTenantDnsRecordResponseObject, error)
+	// DeleteTenantDnsRecord Xóa một bản ghi ⇒ 202 + job ghi file (bản ghi cuối ⇒ file [])
+	// (DELETE /tenants/{tenantId}/dns/records/{recordId})
+	DeleteTenantDnsRecord(ctx context.Context, request DeleteTenantDnsRecordRequestObject) (DeleteTenantDnsRecordResponseObject, error)
+	// UpdateTenantDnsSettings Đổi nameserver của tailnet ⇒ 202 + job instance.reconfigure (restart có kiểm soát)
+	// (PUT /tenants/{tenantId}/dns/settings)
+	UpdateTenantDnsSettings(ctx context.Context, request UpdateTenantDnsSettingsRequestObject) (UpdateTenantDnsSettingsResponseObject, error)
 	// GetEnrollmentInstructions Hướng dẫn cài client theo hệ điều hành với đúng `--login-server` của tenant
 	// (GET /tenants/{tenantId}/enrollment/instructions)
 	GetEnrollmentInstructions(ctx context.Context, request GetEnrollmentInstructionsRequestObject) (GetEnrollmentInstructionsResponseObject, error)
@@ -34392,6 +39716,30 @@ type StrictServerInterface interface {
 	// RequestTenantDeletion Tenant Owner yêu cầu nền tảng xóa tenant — step-up; không xóa gì
 	// (POST /tenants/{tenantId}/request-deletion)
 	RequestTenantDeletion(ctx context.Context, request RequestTenantDeletionRequestObject) (RequestTenantDeletionResponseObject, error)
+	// ListTenantResources Network Resource Catalog
+	// (GET /tenants/{tenantId}/resources)
+	ListTenantResources(ctx context.Context, request ListTenantResourcesRequestObject) (ListTenantResourcesResponseObject, error)
+	// CreateTenantResource Thêm một tài nguyên (alias của khóa hosts)
+	// (POST /tenants/{tenantId}/resources)
+	CreateTenantResource(ctx context.Context, request CreateTenantResourceRequestObject) (CreateTenantResourceResponseObject, error)
+	// DeleteTenantResource Xóa một tài nguyên
+	// (DELETE /tenants/{tenantId}/resources/{resourceId})
+	DeleteTenantResource(ctx context.Context, request DeleteTenantResourceRequestObject) (DeleteTenantResourceResponseObject, error)
+	// GetTenantResource Một tài nguyên của catalog
+	// (GET /tenants/{tenantId}/resources/{resourceId})
+	GetTenantResource(ctx context.Context, request GetTenantResourceRequestObject) (GetTenantResourceResponseObject, error)
+	// UpdateTenantResource Sửa một tài nguyên
+	// (PATCH /tenants/{tenantId}/resources/{resourceId})
+	UpdateTenantResource(ctx context.Context, request UpdateTenantResourceRequestObject) (UpdateTenantResourceResponseObject, error)
+	// ListTenantRoutes Route quảng bá và đã duyệt của các thiết bị (subnet router, exit node)
+	// (GET /tenants/{tenantId}/routes)
+	ListTenantRoutes(ctx context.Context, request ListTenantRoutesRequestObject) (ListTenantRoutesResponseObject, error)
+	// ApproveTenantRoutes Duyệt route quảng bá của một thiết bị (đọc–sửa–ghi có kiểm; 4-eyes ⇒ 202)
+	// (POST /tenants/{tenantId}/routes/approve)
+	ApproveTenantRoutes(ctx context.Context, request ApproveTenantRoutesRequestObject) (ApproveTenantRoutesResponseObject, error)
+	// RevokeTenantRoutes Gỡ duyệt route của một thiết bị (đọc–sửa–ghi có kiểm)
+	// (POST /tenants/{tenantId}/routes/revoke)
+	RevokeTenantRoutes(ctx context.Context, request RevokeTenantRoutesRequestObject) (RevokeTenantRoutesResponseObject, error)
 	// GetTenantSettings TenantSettings hiệu lực của tenant (§13.3)
 	// (GET /tenants/{tenantId}/settings)
 	GetTenantSettings(ctx context.Context, request GetTenantSettingsRequestObject) (GetTenantSettingsResponseObject, error)
@@ -34401,6 +39749,18 @@ type StrictServerInterface interface {
 	// PutTenantSecuritySettings Đặt thiết lập bảo mật của tenant — step-up; nới lỏng một kiểm soát hai người ⇒ 202 + phê duyệt trong tenant
 	// (PUT /tenants/{tenantId}/settings/security)
 	PutTenantSecuritySettings(ctx context.Context, request PutTenantSecuritySettingsRequestObject) (PutTenantSecuritySettingsResponseObject, error)
+	// ListTenantSupportGrants Support Access Grant vào tenant này (minh bạch — §8.7)
+	// (GET /tenants/{tenantId}/support-grants)
+	ListTenantSupportGrants(ctx context.Context, request ListTenantSupportGrantsRequestObject) (ListTenantSupportGrantsResponseObject, error)
+	// ApproveTenantSupportGrant Tenant duyệt một yêu cầu truy cập hỗ trợ (step-up) — chỉ role Support Operator
+	// (POST /tenants/{tenantId}/support-grants/{grantId}/approve)
+	ApproveTenantSupportGrant(ctx context.Context, request ApproveTenantSupportGrantRequestObject) (ApproveTenantSupportGrantResponseObject, error)
+	// RejectTenantSupportGrant Tenant từ chối một yêu cầu truy cập hỗ trợ đang chờ
+	// (POST /tenants/{tenantId}/support-grants/{grantId}/reject)
+	RejectTenantSupportGrant(ctx context.Context, request RejectTenantSupportGrantRequestObject) (RejectTenantSupportGrantResponseObject, error)
+	// RevokeTenantSupportGrant Tenant thu hồi một grant (đang chờ hoặc đang hiệu lực, kể cả grant break-glass)
+	// (POST /tenants/{tenantId}/support-grants/{grantId}/revoke)
+	RevokeTenantSupportGrant(ctx context.Context, request RevokeTenantSupportGrantRequestObject) (RevokeTenantSupportGrantResponseObject, error)
 	// ListTenantTags Danh mục tag của tenant
 	// (GET /tenants/{tenantId}/tags)
 	ListTenantTags(ctx context.Context, request ListTenantTagsRequestObject) (ListTenantTagsResponseObject, error)
@@ -35742,6 +41102,117 @@ func (sh *strictHandler) PutPlatformSetting(w http.ResponseWriter, r *http.Reque
 	}
 }
 
+// ListPlatformSupportGrants operation middleware
+func (sh *strictHandler) ListPlatformSupportGrants(w http.ResponseWriter, r *http.Request, params ListPlatformSupportGrantsParams) {
+	var request ListPlatformSupportGrantsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListPlatformSupportGrants(ctx, request.(ListPlatformSupportGrantsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListPlatformSupportGrants")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListPlatformSupportGrantsResponseObject); ok {
+		if err := validResponse.VisitListPlatformSupportGrantsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateSupportGrant operation middleware
+func (sh *strictHandler) CreateSupportGrant(w http.ResponseWriter, r *http.Request, params CreateSupportGrantParams) {
+	var request CreateSupportGrantRequestObject
+
+	request.Params = params
+
+	var body CreateSupportGrantJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateSupportGrant(ctx, request.(CreateSupportGrantRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateSupportGrant")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateSupportGrantResponseObject); ok {
+		if err := validResponse.VisitCreateSupportGrantResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ApproveSupportGrantBreakglass operation middleware
+func (sh *strictHandler) ApproveSupportGrantBreakglass(w http.ResponseWriter, r *http.Request, grantId GrantId) {
+	var request ApproveSupportGrantBreakglassRequestObject
+
+	request.GrantId = grantId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ApproveSupportGrantBreakglass(ctx, request.(ApproveSupportGrantBreakglassRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ApproveSupportGrantBreakglass")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ApproveSupportGrantBreakglassResponseObject); ok {
+		if err := validResponse.VisitApproveSupportGrantBreakglassResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RevokePlatformSupportGrant operation middleware
+func (sh *strictHandler) RevokePlatformSupportGrant(w http.ResponseWriter, r *http.Request, grantId GrantId) {
+	var request RevokePlatformSupportGrantRequestObject
+
+	request.GrantId = grantId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RevokePlatformSupportGrant(ctx, request.(RevokePlatformSupportGrantRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RevokePlatformSupportGrant")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RevokePlatformSupportGrantResponseObject); ok {
+		if err := validResponse.VisitRevokePlatformSupportGrantResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListPlatformTenants operation middleware
 func (sh *strictHandler) ListPlatformTenants(w http.ResponseWriter, r *http.Request, params ListPlatformTenantsParams) {
 	var request ListPlatformTenantsRequestObject
@@ -36627,6 +42098,154 @@ func (sh *strictHandler) SetDeviceTags(w http.ResponseWriter, r *http.Request, t
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SetDeviceTagsResponseObject); ok {
 		if err := validResponse.VisitSetDeviceTagsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetTenantDns operation middleware
+func (sh *strictHandler) GetTenantDns(w http.ResponseWriter, r *http.Request, tenantId TenantId) {
+	var request GetTenantDnsRequestObject
+
+	request.TenantId = tenantId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetTenantDns(ctx, request.(GetTenantDnsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetTenantDns")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetTenantDnsResponseObject); ok {
+		if err := validResponse.VisitGetTenantDnsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListTenantDnsRecords operation middleware
+func (sh *strictHandler) ListTenantDnsRecords(w http.ResponseWriter, r *http.Request, tenantId TenantId) {
+	var request ListTenantDnsRecordsRequestObject
+
+	request.TenantId = tenantId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListTenantDnsRecords(ctx, request.(ListTenantDnsRecordsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListTenantDnsRecords")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListTenantDnsRecordsResponseObject); ok {
+		if err := validResponse.VisitListTenantDnsRecordsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateTenantDnsRecord operation middleware
+func (sh *strictHandler) CreateTenantDnsRecord(w http.ResponseWriter, r *http.Request, tenantId TenantId, params CreateTenantDnsRecordParams) {
+	var request CreateTenantDnsRecordRequestObject
+
+	request.TenantId = tenantId
+	request.Params = params
+
+	var body CreateTenantDnsRecordJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateTenantDnsRecord(ctx, request.(CreateTenantDnsRecordRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateTenantDnsRecord")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateTenantDnsRecordResponseObject); ok {
+		if err := validResponse.VisitCreateTenantDnsRecordResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteTenantDnsRecord operation middleware
+func (sh *strictHandler) DeleteTenantDnsRecord(w http.ResponseWriter, r *http.Request, tenantId TenantId, recordId RecordId, params DeleteTenantDnsRecordParams) {
+	var request DeleteTenantDnsRecordRequestObject
+
+	request.TenantId = tenantId
+	request.RecordId = recordId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteTenantDnsRecord(ctx, request.(DeleteTenantDnsRecordRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteTenantDnsRecord")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteTenantDnsRecordResponseObject); ok {
+		if err := validResponse.VisitDeleteTenantDnsRecordResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateTenantDnsSettings operation middleware
+func (sh *strictHandler) UpdateTenantDnsSettings(w http.ResponseWriter, r *http.Request, tenantId TenantId, params UpdateTenantDnsSettingsParams) {
+	var request UpdateTenantDnsSettingsRequestObject
+
+	request.TenantId = tenantId
+	request.Params = params
+
+	var body UpdateTenantDnsSettingsJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateTenantDnsSettings(ctx, request.(UpdateTenantDnsSettingsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateTenantDnsSettings")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateTenantDnsSettingsResponseObject); ok {
+		if err := validResponse.VisitUpdateTenantDnsSettingsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -37920,6 +43539,251 @@ func (sh *strictHandler) RequestTenantDeletion(w http.ResponseWriter, r *http.Re
 	}
 }
 
+// ListTenantResources operation middleware
+func (sh *strictHandler) ListTenantResources(w http.ResponseWriter, r *http.Request, tenantId TenantId, params ListTenantResourcesParams) {
+	var request ListTenantResourcesRequestObject
+
+	request.TenantId = tenantId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListTenantResources(ctx, request.(ListTenantResourcesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListTenantResources")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListTenantResourcesResponseObject); ok {
+		if err := validResponse.VisitListTenantResourcesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateTenantResource operation middleware
+func (sh *strictHandler) CreateTenantResource(w http.ResponseWriter, r *http.Request, tenantId TenantId, params CreateTenantResourceParams) {
+	var request CreateTenantResourceRequestObject
+
+	request.TenantId = tenantId
+	request.Params = params
+
+	var body CreateTenantResourceJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateTenantResource(ctx, request.(CreateTenantResourceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateTenantResource")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateTenantResourceResponseObject); ok {
+		if err := validResponse.VisitCreateTenantResourceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteTenantResource operation middleware
+func (sh *strictHandler) DeleteTenantResource(w http.ResponseWriter, r *http.Request, tenantId TenantId, resourceId ResourceId, params DeleteTenantResourceParams) {
+	var request DeleteTenantResourceRequestObject
+
+	request.TenantId = tenantId
+	request.ResourceId = resourceId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteTenantResource(ctx, request.(DeleteTenantResourceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteTenantResource")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteTenantResourceResponseObject); ok {
+		if err := validResponse.VisitDeleteTenantResourceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetTenantResource operation middleware
+func (sh *strictHandler) GetTenantResource(w http.ResponseWriter, r *http.Request, tenantId TenantId, resourceId ResourceId) {
+	var request GetTenantResourceRequestObject
+
+	request.TenantId = tenantId
+	request.ResourceId = resourceId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetTenantResource(ctx, request.(GetTenantResourceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetTenantResource")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetTenantResourceResponseObject); ok {
+		if err := validResponse.VisitGetTenantResourceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateTenantResource operation middleware
+func (sh *strictHandler) UpdateTenantResource(w http.ResponseWriter, r *http.Request, tenantId TenantId, resourceId ResourceId, params UpdateTenantResourceParams) {
+	var request UpdateTenantResourceRequestObject
+
+	request.TenantId = tenantId
+	request.ResourceId = resourceId
+	request.Params = params
+
+	var body UpdateTenantResourceJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateTenantResource(ctx, request.(UpdateTenantResourceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateTenantResource")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateTenantResourceResponseObject); ok {
+		if err := validResponse.VisitUpdateTenantResourceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListTenantRoutes operation middleware
+func (sh *strictHandler) ListTenantRoutes(w http.ResponseWriter, r *http.Request, tenantId TenantId) {
+	var request ListTenantRoutesRequestObject
+
+	request.TenantId = tenantId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListTenantRoutes(ctx, request.(ListTenantRoutesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListTenantRoutes")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListTenantRoutesResponseObject); ok {
+		if err := validResponse.VisitListTenantRoutesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ApproveTenantRoutes operation middleware
+func (sh *strictHandler) ApproveTenantRoutes(w http.ResponseWriter, r *http.Request, tenantId TenantId, params ApproveTenantRoutesParams) {
+	var request ApproveTenantRoutesRequestObject
+
+	request.TenantId = tenantId
+	request.Params = params
+
+	var body ApproveTenantRoutesJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ApproveTenantRoutes(ctx, request.(ApproveTenantRoutesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ApproveTenantRoutes")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ApproveTenantRoutesResponseObject); ok {
+		if err := validResponse.VisitApproveTenantRoutesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RevokeTenantRoutes operation middleware
+func (sh *strictHandler) RevokeTenantRoutes(w http.ResponseWriter, r *http.Request, tenantId TenantId, params RevokeTenantRoutesParams) {
+	var request RevokeTenantRoutesRequestObject
+
+	request.TenantId = tenantId
+	request.Params = params
+
+	var body RevokeTenantRoutesJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RevokeTenantRoutes(ctx, request.(RevokeTenantRoutesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RevokeTenantRoutes")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RevokeTenantRoutesResponseObject); ok {
+		if err := validResponse.VisitRevokeTenantRoutesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetTenantSettings operation middleware
 func (sh *strictHandler) GetTenantSettings(w http.ResponseWriter, r *http.Request, tenantId TenantId) {
 	var request GetTenantSettingsRequestObject
@@ -38007,6 +43871,114 @@ func (sh *strictHandler) PutTenantSecuritySettings(w http.ResponseWriter, r *htt
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(PutTenantSecuritySettingsResponseObject); ok {
 		if err := validResponse.VisitPutTenantSecuritySettingsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListTenantSupportGrants operation middleware
+func (sh *strictHandler) ListTenantSupportGrants(w http.ResponseWriter, r *http.Request, tenantId TenantId, params ListTenantSupportGrantsParams) {
+	var request ListTenantSupportGrantsRequestObject
+
+	request.TenantId = tenantId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListTenantSupportGrants(ctx, request.(ListTenantSupportGrantsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListTenantSupportGrants")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListTenantSupportGrantsResponseObject); ok {
+		if err := validResponse.VisitListTenantSupportGrantsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ApproveTenantSupportGrant operation middleware
+func (sh *strictHandler) ApproveTenantSupportGrant(w http.ResponseWriter, r *http.Request, tenantId TenantId, grantId GrantId) {
+	var request ApproveTenantSupportGrantRequestObject
+
+	request.TenantId = tenantId
+	request.GrantId = grantId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ApproveTenantSupportGrant(ctx, request.(ApproveTenantSupportGrantRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ApproveTenantSupportGrant")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ApproveTenantSupportGrantResponseObject); ok {
+		if err := validResponse.VisitApproveTenantSupportGrantResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RejectTenantSupportGrant operation middleware
+func (sh *strictHandler) RejectTenantSupportGrant(w http.ResponseWriter, r *http.Request, tenantId TenantId, grantId GrantId) {
+	var request RejectTenantSupportGrantRequestObject
+
+	request.TenantId = tenantId
+	request.GrantId = grantId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RejectTenantSupportGrant(ctx, request.(RejectTenantSupportGrantRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RejectTenantSupportGrant")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RejectTenantSupportGrantResponseObject); ok {
+		if err := validResponse.VisitRejectTenantSupportGrantResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RevokeTenantSupportGrant operation middleware
+func (sh *strictHandler) RevokeTenantSupportGrant(w http.ResponseWriter, r *http.Request, tenantId TenantId, grantId GrantId) {
+	var request RevokeTenantSupportGrantRequestObject
+
+	request.TenantId = tenantId
+	request.GrantId = grantId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RevokeTenantSupportGrant(ctx, request.(RevokeTenantSupportGrantRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RevokeTenantSupportGrant")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RevokeTenantSupportGrantResponseObject); ok {
+		if err := validResponse.VisitRevokeTenantSupportGrantResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

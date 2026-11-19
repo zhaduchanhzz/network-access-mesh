@@ -29,6 +29,7 @@ WHERE tenant_id = sqlc.arg(tenant_id)::uuid
   AND occurred_at >= sqlc.arg(from_at)::timestamptz AND occurred_at < sqlc.arg(to_at)::timestamptz
   AND (occurred_at, id) < (sqlc.arg(before_at)::timestamptz, sqlc.arg(before_id)::uuid)
   AND (sqlc.narg(actor)::uuid IS NULL OR actor_identity_id = sqlc.narg(actor)::uuid)
+  AND (sqlc.narg(actor_type)::text IS NULL OR actor_type = sqlc.narg(actor_type)::text)
   AND (sqlc.narg(action)::text IS NULL OR action = sqlc.narg(action)::text)
   AND (sqlc.narg(outcome)::text IS NULL OR outcome = sqlc.narg(outcome)::text)
 ORDER BY occurred_at DESC, id DESC
@@ -42,6 +43,7 @@ WHERE tenant_id IS NULL
   AND occurred_at >= sqlc.arg(from_at)::timestamptz AND occurred_at < sqlc.arg(to_at)::timestamptz
   AND (occurred_at, id) < (sqlc.arg(before_at)::timestamptz, sqlc.arg(before_id)::uuid)
   AND (sqlc.narg(actor)::uuid IS NULL OR actor_identity_id = sqlc.narg(actor)::uuid)
+  AND (sqlc.narg(actor_type)::text IS NULL OR actor_type = sqlc.narg(actor_type)::text)
   AND (sqlc.narg(action)::text IS NULL OR action = sqlc.narg(action)::text)
   AND (sqlc.narg(outcome)::text IS NULL OR outcome = sqlc.narg(outcome)::text)
 ORDER BY occurred_at DESC, id DESC
