@@ -218,8 +218,11 @@ func TestEnrollment(t *testing.T) {
 		if n, ok := a.hs.Node(77); !ok || n.GivenName != "old-name" || a.hs.Calls(devicestest.OpDeleteNode) != 1 {
 			t.Fatalf("re-auth touched the node: %+v %v", n, ok)
 		}
-		// a node that existed before and belongs to someone else (inventory owner): expired, never deleted
+		// a node of the member that existed before, on a machine the inventory knows as another member's device (node 78
+		// of user2, same machine key — V-28: two users, two nodes): expired, never deleted; user2's node untouched
 		user2 := a.people["user2"]
+		a.hs.PutNode(devicestest.Node{ID: 78, MachineKey: "mkey:foreign", Hostname: "x", UserName: "mg-" + user2.membership.String(),
+			Method: "cli", CreatedAt: time.Now().Add(-2 * time.Hour)})
 		f.exec(t, `INSERT INTO device_inventory_cache (tenant_id, instance_id, headscale_node_id, machine_key, name,
 			owner_membership_id) VALUES ($1, $2, 78, 'mkey:foreign', 'x', $3)`, a.id, a.instance, user2.membership)
 		a.hs.PutNode(devicestest.Node{ID: 79, MachineKey: "mkey:foreign", Hostname: "x", UserName: un(admin),
@@ -235,6 +238,28 @@ func TestEnrollment(t *testing.T) {
 		}
 		if n, ok := a.hs.Node(79); !ok || n.Expiry == nil || n.Expiry.After(f.clk.now().Add(time.Minute)) {
 			t.Fatalf("foreign node not expired or deleted: %+v %v", n, ok)
+		}
+		if n, ok := a.hs.Node(78); !ok || n.Expiry != nil {
+			t.Fatalf("user2's node was touched: %+v %v", n, ok)
+		}
+		// user2 then removes their device and inventory.sync makes node 79 a device of the member: a node a claim
+		// rejected as foreign is still never accepted as a re-authentication (no mg-<code> check ever ran for it)
+		f.exec(t, `UPDATE device_inventory_cache SET removed_at = now() WHERE instance_id = $1 AND headscale_node_id = 78`,
+			a.instance)
+		a.hs.RemoveNode(78)
+		f.exec(t, `INSERT INTO device_inventory_cache (tenant_id, instance_id, headscale_node_id, machine_key, name,
+			owner_membership_id) VALUES ($1, $2, 79, 'mkey:foreign', 'x', $3)`, a.id, a.instance, admin.MembershipID)
+		if _, err := f.api.Create(ctx, a.id, admin, NewRequest{Method: MethodWebAuth}, idem("k-n-3b", "3b")); err != nil {
+			t.Fatal(err)
+		}
+		auth3b := "hskey-authreq-" + strings.Repeat("S", 24)
+		a.hs.PutPending(auth3b, devicestest.Node{MachineKey: "mkey:foreign", Hostname: "x"})
+		r, err = f.api.Claim(ctx, a.id, admin, Claim{AuthID: auth3b})
+		if err != nil || r.Status != StatusFailed || failureOf(r) != FailureForeignNode || r.NodeID == nil || *r.NodeID != 79 {
+			t.Fatalf("re-authentication of a node rejected as foreign: %+v %v", r, err)
+		}
+		if _, ok := a.hs.Node(79); !ok {
+			t.Fatal("the node rejected as foreign was deleted")
 		}
 		// an Auth ID Headscale no longer holds: failed, 409
 		if _, err := f.api.Create(ctx, a.id, admin, NewRequest{Method: MethodWebAuth}, idem("k-n-4", "4")); err != nil {
@@ -256,6 +281,87 @@ func TestEnrollment(t *testing.T) {
 		}
 		if _, ok := a.hs.Node(uint64(*r.NodeID)); ok { //nolint:gosec // small test ids
 			t.Fatal("the node with a guessed code was not deleted")
+		}
+	})
+
+	t.Run("CrossUserMachineKey", func(t *testing.T) {
+		// C0 (V-28): AuthRegister on the machine key of ANOTHER member's device creates a NEW node for the claimer and
+		// leaves the other node alone. The inventory row of that other node does not make the new node "existing": it
+		// is checked as new — not mg-<code> ⇒ deleted (node_mismatch); the other member's node is never expired.
+		admin := a.actor("admin", uuid.New())
+		ctx := ctxOf(admin, a.id, ActionClaim)
+		user2 := a.people["user2"]
+		const mkey = "mkey:shared-machine"
+		a.hs.PutNode(devicestest.Node{ID: 90, MachineKey: mkey, Hostname: "u2-laptop", GivenName: "u2-laptop",
+			UserName: "mg-" + user2.membership.String(), Method: "cli", CreatedAt: time.Now().Add(-time.Hour)})
+		f.exec(t, `INSERT INTO device_inventory_cache (tenant_id, instance_id, headscale_node_id, machine_key, name,
+			owner_membership_id) VALUES ($1, $2, 90, $3, 'u2-laptop', $4)`, a.id, a.instance, mkey, user2.membership)
+		claim := func(key, authID string) Request {
+			t.Helper()
+			if _, err := f.api.Create(ctx, a.id, admin, NewRequest{Method: MethodWebAuth}, idem(key, key)); err != nil {
+				t.Fatal(err)
+			}
+			a.hs.PutPending(authID, devicestest.Node{MachineKey: mkey, Hostname: "evil-box"})
+			r, err := f.api.Claim(ctx, a.id, admin, Claim{AuthID: authID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			return r
+		}
+		r := claim("k-c0-1", "hskey-authreq-"+strings.Repeat("J", 24))
+		if r.NodeID == nil || *r.NodeID == 90 {
+			t.Fatalf("claim of another member's machine: node %v", r.NodeID)
+		}
+		if r.Status != StatusFailed || failureOf(r) != FailureNodeMismatch {
+			t.Errorf("claim of another member's machine: %s/%s, want failed/%s", r.Status, failureOf(r), FailureNodeMismatch)
+		}
+		if _, ok := a.hs.Node(uint64(*r.NodeID)); ok { //nolint:gosec // small test ids
+			t.Error("the new node of the claimer was left registered")
+		}
+		if n, ok := a.hs.Node(90); !ok || n.Expiry != nil || len(a.hs.ExpireCalls(90)) != 0 {
+			t.Errorf("the other member's node was touched: %+v %v", n, ok)
+		}
+		// The delete of such a node does not go through: the node stays under the claimer. Once inventory.sync made it a
+		// device of the claimer and the other member removed theirs, the same machine signs in again through another
+		// claim: Headscale re-authenticates that node (same user, same machine key), which a claim rejected before — it
+		// is never accepted as a re-authentication (no mg-<code> check would have run): deleted now.
+		a.hs.Refuse(devicestest.OpDeleteNode, true)
+		r2 := claim("k-c0-2", "hskey-authreq-"+strings.Repeat("K", 24))
+		a.hs.Refuse(devicestest.OpDeleteNode, false)
+		if r2.Status != StatusFailed || r2.NodeID == nil {
+			t.Fatalf("second claim: %s/%s node %v", r2.Status, failureOf(r2), r2.NodeID)
+		}
+		left := uint64(*r2.NodeID) //nolint:gosec // small test ids
+		n, ok := a.hs.Node(left)
+		if !ok {
+			t.Fatal("the refused delete removed the node")
+		}
+		// … and it is old by the time of the next claim: neither created since that claim began nor since its request
+		n.CreatedAt = time.Now().Add(-time.Hour)
+		a.hs.PutNode(n)
+		f.exec(t, `INSERT INTO device_inventory_cache (tenant_id, instance_id, headscale_node_id, machine_key, name,
+			owner_membership_id) VALUES ($1, $2, $3, $4, 'evil-box', $5)`, a.id, a.instance, int64(left), mkey, //nolint:gosec // small
+			admin.MembershipID)
+		f.exec(t, `UPDATE device_inventory_cache SET removed_at = now() WHERE instance_id = $1 AND headscale_node_id = 90`,
+			a.instance)
+		a.hs.RemoveNode(90)
+		r3 := claim("k-c0-3", "hskey-authreq-"+strings.Repeat("L", 24))
+		if r3.Status != StatusFailed || failureOf(r3) != FailureNodeMismatch || r3.NodeID == nil ||
+			uint64(*r3.NodeID) != left { //nolint:gosec // small test ids
+			t.Fatalf("re-authentication of a node rejected before: %s/%s node %v, want failed/%s node %d", r3.Status,
+				failureOf(r3), r3.NodeID, FailureNodeMismatch, left)
+		}
+		if _, ok := a.hs.Node(left); ok {
+			t.Fatal("the node rejected before was not deleted")
+		}
+		if k := f.count(t, `SELECT count(*) FROM device_inventory_cache WHERE enrollment_request_id IN ($1, $2, $3)`,
+			r.ID, r2.ID, r3.ID); k != 0 {
+			t.Fatalf("%d device rows linked to rejected claims", k)
+		}
+		if k := f.count(t, `SELECT count(*) FROM security_events WHERE tenant_id = $1 AND kind = $2
+			AND details->>'request_id' IN ($3, $4, $5)`, a.id, EventNodeMismatch, r.ID.String(), r2.ID.String(),
+			r3.ID.String()); k != 3 {
+			t.Fatalf("node_mismatch security events %d, want 3", k)
 		}
 	})
 
@@ -496,6 +602,14 @@ func TestEnrollment(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
+}
+
+// failureOf is the failure code of a request ("" when none).
+func failureOf(r Request) string {
+	if r.FailureCode == nil {
+		return ""
+	}
+	return *r.FailureCode
 }
 
 // un is the Headscale user name of an actor.

@@ -100,14 +100,28 @@ FOR UPDATE;
 SELECT EXISTS (SELECT 1 FROM enrollment_requests
                WHERE tenant_id = sqlc.arg(tenant_id) AND auth_id_hash = sqlc.arg(auth_id_hash))::boolean AS seen;
 
--- name: LiveDeviceByMachineKey :one
--- Sổ thiết bị: node (machine key) đã có từ trước trên instance — §7.4 bước 8 (b): re-auth của thiết bị hiện hữu không
--- bao giờ bị xóa.
+-- name: LiveDevicesOfMachineKey :many
+-- Sổ thiết bị: mọi hàng sống của một machine key trên instance — §7.4 bước 8. Hàng của CHÍNH node AuthRegister trả về
+-- (cùng headscale_node_id) cho biết node đã có trong sổ; hàng của node KHÁC cùng machine key (node của user khác — với
+-- user khác Headscale tạo node MỚI, V-28) không làm node vừa tạo thành "đã có", nhưng một lần re-auth chỉ được chấp
+-- nhận khi mọi hàng của máy đều thuộc chính thành viên.
 SELECT * FROM device_inventory_cache
 WHERE tenant_id = sqlc.arg(tenant_id) AND instance_id = sqlc.arg(instance_id) AND machine_key = sqlc.arg(machine_key)
   AND removed_at IS NULL
-ORDER BY first_seen_at DESC, id DESC
-LIMIT 1;
+ORDER BY first_seen_at DESC, id DESC;
+
+-- name: ClaimRejectionsOfNode :one
+-- Claim (§7.4 bước 8): node này (id + machine key) đã bị một claim trước từ chối SAU khi được tạo — node_mismatch (lẽ ra
+-- đã bị xóa: DeleteNode không thành) hay foreign_node (đã expire). Node như vậy không bao giờ được chấp nhận như một
+-- lần re-auth. updated_at của yêu cầu failed là lúc từ chối (trạng thái cuối, không ghi lại); id node được cấp lại cho
+-- node mới cùng machine key thì node mới có created_at muộn hơn và không bị tính.
+SELECT COALESCE(bool_or(failure_code = 'node_mismatch'), false)::boolean AS was_mismatch,
+       COALESCE(bool_or(failure_code = 'foreign_node'), false)::boolean  AS was_foreign
+FROM enrollment_requests
+WHERE tenant_id = sqlc.arg(tenant_id) AND instance_id = sqlc.arg(instance_id) AND method = 'web_auth'
+  AND status = 'failed' AND failure_code IN ('node_mismatch', 'foreign_node')
+  AND consumed_node_id = sqlc.arg(node_id) AND registered_machine_key = sqlc.arg(machine_key)
+  AND updated_at >= sqlc.arg(node_created_at)::timestamptz - interval '1 second';
 
 -- name: LockLiveDeviceOfNode :one
 SELECT * FROM device_inventory_cache

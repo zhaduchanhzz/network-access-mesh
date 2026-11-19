@@ -192,8 +192,11 @@ func (f *Fake) Key(id uint64) Key {
 }
 
 // PutPending registers a pending web-auth registration (a client ran `tailscale up` and got /register/<authID>):
-// AuthRegister(user, authID) creates n under that user — n.ID 0 takes the next id; n.CreatedAt zero = now. A node of
-// the same user with the same machine key is re-authenticated instead (V-28): the existing node is answered.
+// AuthRegister(user, authID) behaves like 0.29.7 (V-28, P2-T10 TestP1_V28_AuthRegisterSameMachineKey): an untagged node
+// of the SAME user with the same machine key is re-authenticated — the same node is answered, with the hostname and
+// node key of the new registration; otherwise a NEW node is created under that user, even when the machine key already
+// has a node of ANOTHER user (that node stays as it is: the machine key then has two nodes). A new node takes n.ID
+// unless it is 0 or already taken (then the next id); n.CreatedAt zero = now.
 func (f *Fake) PutPending(authID string, n Node) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -617,13 +620,20 @@ func (f *Fake) answer(w http.ResponseWriter, r *http.Request, body []byte) {
 				uid = id
 			}
 		}
-		for _, x := range f.nodes { // re-authentication of the user's own node (V-28)
+		for _, x := range f.nodes { // re-authentication of the user's own node (V-28): same node, new hostname/node key
 			if x.MachineKey == n.MachineKey && x.UserName == in.User && len(x.Tags) == 0 {
+				if n.Hostname != "" {
+					x.Hostname = n.Hostname
+				}
+				if n.NodeKey != "" {
+					x.NodeKey = n.NodeKey
+				}
 				writeJSON(w, map[string]any{"node": x.wire(false)})
 				return
 			}
 		}
-		if n.ID == 0 {
+		// a new node — also when the machine key has a node of another user, which is left untouched (V-28)
+		for _, taken := f.nodes[n.ID]; n.ID == 0 || taken; _, taken = f.nodes[n.ID] {
 			f.nextID++
 			n.ID = f.nextID
 		}

@@ -13,6 +13,46 @@ import (
 	"github.com/google/uuid"
 )
 
+const claimRejectionsOfNode = `-- name: ClaimRejectionsOfNode :one
+SELECT COALESCE(bool_or(failure_code = 'node_mismatch'), false)::boolean AS was_mismatch,
+       COALESCE(bool_or(failure_code = 'foreign_node'), false)::boolean  AS was_foreign
+FROM enrollment_requests
+WHERE tenant_id = $1 AND instance_id = $2 AND method = 'web_auth'
+  AND status = 'failed' AND failure_code IN ('node_mismatch', 'foreign_node')
+  AND consumed_node_id = $3 AND registered_machine_key = $4
+  AND updated_at >= $5::timestamptz - interval '1 second'
+`
+
+type ClaimRejectionsOfNodeParams struct {
+	TenantID      uuid.UUID
+	InstanceID    uuid.UUID
+	NodeID        *int64
+	MachineKey    *string
+	NodeCreatedAt time.Time
+}
+
+type ClaimRejectionsOfNodeRow struct {
+	WasMismatch bool
+	WasForeign  bool
+}
+
+// Claim (§7.4 bước 8): node này (id + machine key) đã bị một claim trước từ chối SAU khi được tạo — node_mismatch (lẽ ra
+// đã bị xóa: DeleteNode không thành) hay foreign_node (đã expire). Node như vậy không bao giờ được chấp nhận như một
+// lần re-auth. updated_at của yêu cầu failed là lúc từ chối (trạng thái cuối, không ghi lại); id node được cấp lại cho
+// node mới cùng machine key thì node mới có created_at muộn hơn và không bị tính.
+func (q *Queries) ClaimRejectionsOfNode(ctx context.Context, arg ClaimRejectionsOfNodeParams) (ClaimRejectionsOfNodeRow, error) {
+	row := q.db.QueryRow(ctx, claimRejectionsOfNode,
+		arg.TenantID,
+		arg.InstanceID,
+		arg.NodeID,
+		arg.MachineKey,
+		arg.NodeCreatedAt,
+	)
+	var i ClaimRejectionsOfNodeRow
+	err := row.Scan(&i.WasMismatch, &i.WasForeign)
+	return i, err
+}
+
 const enrollmentAuthIDSeen = `-- name: EnrollmentAuthIDSeen :one
 SELECT EXISTS (SELECT 1 FROM enrollment_requests
                WHERE tenant_id = $1 AND auth_id_hash = $2)::boolean AS seen
@@ -482,58 +522,72 @@ func (q *Queries) ListOpenEnrollmentRequests(ctx context.Context, tenantID uuid.
 	return items, nil
 }
 
-const liveDeviceByMachineKey = `-- name: LiveDeviceByMachineKey :one
+const liveDevicesOfMachineKey = `-- name: LiveDevicesOfMachineKey :many
 SELECT id, tenant_id, instance_id, headscale_node_id, machine_key, node_key, name, given_name, ip_addresses, headscale_user_id, owner_membership_id, tags, register_method, online, last_seen, expiry, approved_routes, available_routes, subnet_routes, hs_created_at, first_seen_at, last_synced_at, sync_generation, removed_at, enrollment_request_id, revocation_state, revocation_kind, revocation_requested_at, revocation_verified_at, revocation_job_id FROM device_inventory_cache
 WHERE tenant_id = $1 AND instance_id = $2 AND machine_key = $3
   AND removed_at IS NULL
 ORDER BY first_seen_at DESC, id DESC
-LIMIT 1
 `
 
-type LiveDeviceByMachineKeyParams struct {
+type LiveDevicesOfMachineKeyParams struct {
 	TenantID   uuid.UUID
 	InstanceID uuid.UUID
 	MachineKey string
 }
 
-// Sổ thiết bị: node (machine key) đã có từ trước trên instance — §7.4 bước 8 (b): re-auth của thiết bị hiện hữu không
-// bao giờ bị xóa.
-func (q *Queries) LiveDeviceByMachineKey(ctx context.Context, arg LiveDeviceByMachineKeyParams) (DeviceInventoryCache, error) {
-	row := q.db.QueryRow(ctx, liveDeviceByMachineKey, arg.TenantID, arg.InstanceID, arg.MachineKey)
-	var i DeviceInventoryCache
-	err := row.Scan(
-		&i.ID,
-		&i.TenantID,
-		&i.InstanceID,
-		&i.HeadscaleNodeID,
-		&i.MachineKey,
-		&i.NodeKey,
-		&i.Name,
-		&i.GivenName,
-		&i.IpAddresses,
-		&i.HeadscaleUserID,
-		&i.OwnerMembershipID,
-		&i.Tags,
-		&i.RegisterMethod,
-		&i.Online,
-		&i.LastSeen,
-		&i.Expiry,
-		&i.ApprovedRoutes,
-		&i.AvailableRoutes,
-		&i.SubnetRoutes,
-		&i.HsCreatedAt,
-		&i.FirstSeenAt,
-		&i.LastSyncedAt,
-		&i.SyncGeneration,
-		&i.RemovedAt,
-		&i.EnrollmentRequestID,
-		&i.RevocationState,
-		&i.RevocationKind,
-		&i.RevocationRequestedAt,
-		&i.RevocationVerifiedAt,
-		&i.RevocationJobID,
-	)
-	return i, err
+// Sổ thiết bị: mọi hàng sống của một machine key trên instance — §7.4 bước 8. Hàng của CHÍNH node AuthRegister trả về
+// (cùng headscale_node_id) cho biết node đã có trong sổ; hàng của node KHÁC cùng machine key (node của user khác — với
+// user khác Headscale tạo node MỚI, V-28) không làm node vừa tạo thành "đã có", nhưng một lần re-auth chỉ được chấp
+// nhận khi mọi hàng của máy đều thuộc chính thành viên.
+func (q *Queries) LiveDevicesOfMachineKey(ctx context.Context, arg LiveDevicesOfMachineKeyParams) ([]DeviceInventoryCache, error) {
+	rows, err := q.db.Query(ctx, liveDevicesOfMachineKey, arg.TenantID, arg.InstanceID, arg.MachineKey)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []DeviceInventoryCache{}
+	for rows.Next() {
+		var i DeviceInventoryCache
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.InstanceID,
+			&i.HeadscaleNodeID,
+			&i.MachineKey,
+			&i.NodeKey,
+			&i.Name,
+			&i.GivenName,
+			&i.IpAddresses,
+			&i.HeadscaleUserID,
+			&i.OwnerMembershipID,
+			&i.Tags,
+			&i.RegisterMethod,
+			&i.Online,
+			&i.LastSeen,
+			&i.Expiry,
+			&i.ApprovedRoutes,
+			&i.AvailableRoutes,
+			&i.SubnetRoutes,
+			&i.HsCreatedAt,
+			&i.FirstSeenAt,
+			&i.LastSyncedAt,
+			&i.SyncGeneration,
+			&i.RemovedAt,
+			&i.EnrollmentRequestID,
+			&i.RevocationState,
+			&i.RevocationKind,
+			&i.RevocationRequestedAt,
+			&i.RevocationVerifiedAt,
+			&i.RevocationJobID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const lockEnrollmentRequest = `-- name: LockEnrollmentRequest :one

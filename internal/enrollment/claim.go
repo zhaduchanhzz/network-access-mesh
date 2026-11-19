@@ -33,6 +33,10 @@ const (
 	FailureClaimUnfinished = "claim_unfinished" // reconcile: the claim never reached a verdict
 )
 
+// clockSlack absorbs the skew between the database clock and the instance's when a node's created_at is compared with
+// the time of a request or of its claim.
+const clockSlack = time.Second
+
 // Claim is POST /tenants/{t}/enrollment/web-auth/claim (§7.4 steps 6–8): the only way an Auth ID registers a node.
 func (s *Service) Claim(ctx context.Context, tenantID uuid.UUID, a Actor, in Claim) (Request, error) {
 	if err := headscale.ValidateAuthID(in.AuthID); err != nil {
@@ -133,9 +137,19 @@ func (s *Service) securityEvent(tenantID uuid.UUID, kind, severity string, a Act
 }
 
 // register calls AuthRegister for a claimed request and checks the node it answers (§7.4 step 8).
+//
+// New or existing is decided by the node itself, never by its machine key alone: AuthRegister on a machine key that
+// already has a node of ANOTHER user creates a new node for the claiming member (V-28), so a row of that other node in
+// the inventory says nothing about the node answered. The node is new (rule a: checked, deleted on mismatch) when it
+// was created since the claim began — it can only be this AuthRegister's — or since the request was created while the
+// inventory has no row of this very node (same id, same machine key). Otherwise it existed before (rule b: never
+// deleted): accepted as a re-authentication only when it is the member's untagged node, every live row of its machine
+// belongs to the member, and no earlier claim rejected it; anything else is expired. A node an earlier claim rejected
+// as a mismatch (its delete did not go through) is deleted now instead.
 func (s *Service) register(ctx context.Context, tenantID uuid.UUID, a Actor, r sqlcdb.EnrollmentRequest, user member,
 	tc tenantContext, authID string, op audit.Operation,
 ) (Request, error) {
+	claimedAt := r.UpdatedAt // database clock of the claimed write; AuthRegister is sent after it
 	fail := func(err error, code string) (Request, error) {
 		e := fromAdapter(err)
 		if code == "" {
@@ -164,7 +178,11 @@ func (s *Service) register(ctx context.Context, tenantID uuid.UUID, a Actor, r s
 	host := clip(node.Name, 255)
 	mkey := clip(node.MachineKey, 200)
 	// registered: the node exists — recorded before any corrective call, so a crash leaves a trace for reconcile
-	var existing *sqlcdb.DeviceInventoryCache
+	var (
+		own   *sqlcdb.DeviceInventoryCache    // the live row of this very node
+		rows  []sqlcdb.DeviceInventoryCache   // every live row of its machine key (own included)
+		prior sqlcdb.ClaimRejectionsOfNodeRow // earlier claims that rejected this node
+	)
 	err = s.st.WithTenantTx(ctx, tenantID, func(q *sqlcdb.Queries) error {
 		cur, err := q.LockEnrollmentRequest(ctx, sqlcdb.LockEnrollmentRequestParams{TenantID: tenantID, ID: r.ID})
 		if err != nil {
@@ -181,26 +199,38 @@ func (s *Service) register(ctx context.Context, tenantID uuid.UUID, a Actor, r s
 		if r, err = q.SetEnrollmentRequestState(ctx, p); err != nil {
 			return err
 		}
-		d, err := q.LiveDeviceByMachineKey(ctx, sqlcdb.LiveDeviceByMachineKeyParams{TenantID: tenantID,
-			InstanceID: tc.instance, MachineKey: node.MachineKey})
-		if err == nil {
-			existing = &d
-		} else if !errors.Is(err, store.ErrNoRows) {
+		if rows, err = q.LiveDevicesOfMachineKey(ctx, sqlcdb.LiveDevicesOfMachineKeyParams{TenantID: tenantID,
+			InstanceID: tc.instance, MachineKey: node.MachineKey}); err != nil {
 			return err
 		}
-		return nil
+		for i := range rows {
+			if rows[i].HeadscaleNodeID == nid {
+				own = &rows[i]
+			}
+		}
+		prior, err = q.ClaimRejectionsOfNode(ctx, sqlcdb.ClaimRejectionsOfNodeParams{TenantID: tenantID,
+			InstanceID: tc.instance, NodeID: &nid, MachineKey: &mkey, NodeCreatedAt: node.CreatedAt})
+		return err
 	})
 	if err != nil {
 		return fail(fmt.Errorf("enrollment: record the registered node: %w", err), "record_failed")
 	}
-	isNew := existing == nil && !node.CreatedAt.Before(r.CreatedAt.Add(-time.Second))
+	isNew := createdSince(node, claimedAt) || own == nil && createdSince(node, r.CreatedAt)
 	ownUser := node.User != nil && node.User.Name == user.user
 	if !isNew {
+		if prior.WasMismatch {
+			// rejected before as a new node that failed the checks, and still there: it never becomes a device
+			derr := inst.DeleteNode(ctx, node.ID)
+			if errors.Is(derr, headscale.ErrNotFound) {
+				derr = nil
+			}
+			return s.rejected(ctx, tenantID, a, r, EventNodeMismatch, FailureNodeMismatch, audit.Details{"node_id": nid,
+				"checks_failed": []string{"rejected_before"}, "deleted": derr == nil}, op)
+		}
 		// (b) a node that existed before is never deleted: the member's own device re-authenticates; anything else is
 		// expired and left to its owner's decision
-		if ownUser && !node.IsTagged() && (existing == nil || (existing.OwnerMembershipID != nil &&
-			*existing.OwnerMembershipID == a.MembershipID)) {
-			return s.verified(ctx, tenantID, a, r, node, tc, existing, false, op)
+		if ownUser && !node.IsTagged() && !prior.WasForeign && ownedBy(rows, a.MembershipID) {
+			return s.verified(ctx, tenantID, a, r, node, tc, own, false, op)
 		}
 		now := s.now().UTC()
 		_, xerr := inst.ExpireNode(ctx, node.ID, &now)
@@ -239,6 +269,22 @@ func (s *Service) register(ctx context.Context, tenantID uuid.UUID, a Actor, r s
 		}
 	}
 	return s.verified(ctx, tenantID, a, r, node, tc, nil, true, op)
+}
+
+// createdSince reports whether node n was created at or after t (within the clock slack).
+func createdSince(n headscale.Node, t time.Time) bool {
+	return !n.CreatedAt.Before(t.Add(-clockSlack))
+}
+
+// ownedBy reports whether every live inventory row of a machine belongs to member m (no row: a device the inventory
+// has not seen yet).
+func ownedBy(rows []sqlcdb.DeviceInventoryCache, m uuid.UUID) bool {
+	for _, d := range rows {
+		if d.OwnerMembershipID == nil || *d.OwnerMembershipID != m {
+			return false
+		}
+	}
+	return true
 }
 
 func clip(s string, n int) string {
