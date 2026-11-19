@@ -151,7 +151,7 @@ bật `available: true`, các test đó tự chuyển sang kiểm màn hình th�
 |---|---|---|---|
 | 1 | Trang Identity Provider của tenant, nhánh chỉ-đọc (Tenant Admin — không có quyền sửa): `Field` (`<div><dt/><dd/></div>`) nằm ngoài `<dl>` ⇒ axe `dlitem` (**serious**) ở cả vi/en. Owner (form sửa) không bị | serious | **Đã sửa**: bọc `Field` trong `<dl>` (`IdentityProviderPage.tsx`) — dev 3 trở đi PASS |
 | 2 | Không vi phạm axe nào khác ở mọi mức (kể cả minor/moderate, gồm `color-contrast` ở giao diện sáng và tối) trên 93 trang/trạng thái × 2 ngôn ngữ; không chuỗi chưa dịch / khóa thô; không vi phạm CSP, không lỗi JS chưa bắt, không 5xx | — | — |
-| 3 | Quan sát (không sửa, nhỏ): ô slug của trang đăng nhập thay gợi ý bằng thông báo lỗi tại chỗ (`aria-describedby` + `aria-invalid`) nhưng không có vùng `aria-live` — trình đọc màn hình không tự đọc lỗi khi bấm "Tiếp tục" | gợi ý | Ghi lại cho rà soát UX G4b |
+| 3 | Quan sát (nhỏ): ô slug của trang đăng nhập thay gợi ý bằng thông báo lỗi tại chỗ (`aria-describedby` + `aria-invalid`) nhưng không có vùng `aria-live` — trình đọc màn hình không tự đọc lỗi khi bấm "Tiếp tục" | gợi ý | **Đã sửa ở follow-up `fu-p4b` (2026-11-19, commit `0007a6d`)**: lỗi nằm trong vùng `role="alert"` có sẵn trong DOM từ đầu (nội dung được thay ở mỗi lần bấm lặp lại), ô nhập trỏ tới lỗi qua `aria-describedby` + `aria-errormessage` và nhận lại focus; `apps/web/src/pages/LoginPage.test.tsx` (vi/en, axe sạch ở trạng thái lỗi). Ca `auth.spec.ts` (Playwright) không đổi — vẫn tìm thấy câu lỗi và `aria-invalid` |
 
 ## 7. Hạn chế, bàn giao
 
