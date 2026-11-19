@@ -461,6 +461,9 @@ func (s *Service) beginIdempotent(ctx context.Context, tenantID uuid.UUID, a Act
 		if err != nil {
 			return nil, nil, errors.New("enrollment: kept credential unreadable")
 		}
+		if (c.Kind == CredentialEnrollCode && sp.EnrollCode == "") || (c.Kind == CredentialPreauthKey && sp.PreauthKey == "") {
+			return nil, nil, secretGone() // fail closed: no hostname mg- nor command without the credential they carry
+		}
 		c.PreauthKey, c.EnrollCode = headscale.NewSecret(sp.PreauthKey), headscale.NewSecret(sp.EnrollCode)
 		if c.Kind == CredentialEnrollCode { // never stored: both carry the code (issueCode)
 			c.Hostname = HostnamePrefix + sp.EnrollCode

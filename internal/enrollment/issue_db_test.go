@@ -76,6 +76,18 @@ func TestIssueAndRevoke(t *testing.T) {
 			!again.Credential.ExpiresAt.Equal(c.ExpiresAt) {
 			t.Fatalf("replay of the web-auth issue: %+v %v", again.Credential, err)
 		}
+		// a kept payload without the code (fail closed): 410, never the hostname mg- nor its command
+		ref := f.str(t, `SELECT secret_ref FROM idempotency_keys WHERE tenant_id = $1 AND key = $2`, a.id, "k-i-0")
+		f.vault.mu.Lock()
+		x := f.vault.vals[ref]
+		x.v = []byte(`{}`)
+		f.vault.vals[ref] = x
+		f.vault.mu.Unlock()
+		if gone, err := f.api.Create(ctxOf(owner, a.id, ActionRequest), a.id, owner,
+			NewRequest{Method: MethodWebAuth, DeviceLabel: &label}, idem("k-i-0", "0")); codeOf(err) != CodeSecretGone ||
+			gone.Credential != nil {
+			t.Fatalf("replay of a payload without the code: %+v %v", gone.Credential, err)
+		}
 	})
 
 	t.Run("RevokeDuringIssuance", func(t *testing.T) {
