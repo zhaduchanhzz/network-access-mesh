@@ -72,7 +72,7 @@ func TestWriteDNSRecords(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	content, _ := os.ReadFile(file)
+	content, _ := os.ReadFile(file) //nolint:gosec // G304: the instance file under t.TempDir()
 	want, _ := RenderRecords(recs)
 	sum := sha256.Sum256(want)
 	if string(content) != string(want) || resp.GetRecordsSha256() != hex.EncodeToString(sum[:]) {
@@ -98,7 +98,7 @@ func TestWriteDNSRecords(t *testing.T) {
 	if _, err := rg.d.WriteDNSRecords(ctx, agentspec.DNSRecords{Call: rg.call()}); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := os.ReadFile(file); string(got) != "[]\n" {
+	if got, _ := os.ReadFile(file); string(got) != "[]\n" { //nolint:gosec // G304: under t.TempDir()
 		t.Fatalf("empty set wrote %q", got)
 	}
 	// an instance without its directory

@@ -89,7 +89,8 @@
       "settings": "Thiết lập",
       "identityProvider": "Identity Provider",
       "usage": "Mức sử dụng",
-      "billing": "Gói và thanh toán"
+      "billing": "Gói và thanh toán",
+      "tags": "Danh mục tag"
     },
     "platform": {
       "health": "Platform Health",
@@ -944,6 +945,371 @@
         "expired": "Yêu cầu hết hạn — thành viên không đổi."
       }
     }
+  },
+  "policies": {
+    "intro": "Policy được soạn trên mô hình có kiểu (thành viên, group, tag, tài nguyên chọn theo id), kiểm bằng lint L1–L13 và CheckPolicy trên instance, duyệt rồi mới áp dụng. Groups, hosts và tagOwners được render từ bảng của tenant lúc áp dụng.",
+    "newVersion": "Soạn version mới",
+    "history": "Lịch sử version",
+    "noVersions": "Tenant chưa có version policy nào.",
+    "versionN": "Version {{n}}",
+    "desiredBadge": "Đang mong muốn",
+    "rollbackBadge": "Rollback",
+    "backToList": "← Danh sách version",
+    "col": {
+      "version": "Version",
+      "state": "Trạng thái",
+      "kind": "Loại",
+      "createdBy": "Người soạn",
+      "review": "Gửi / duyệt",
+      "updated": "Cập nhật",
+      "submitted": "Gửi: {{name}}",
+      "approved": "Duyệt: {{name}}",
+      "rejected": "Từ chối: {{name}}"
+    },
+    "states": {
+      "draft": "Bản nháp",
+      "validated": "Đã kiểm tra",
+      "pending_approval": "Chờ duyệt",
+      "approved": "Đã duyệt",
+      "rejected": "Bị từ chối",
+      "superseded": "Đã thay thế"
+    },
+    "kinds": {
+      "user": "Do admin soạn",
+      "baseline": "Nền tảng (baseline)",
+      "suspension": "Nền tảng (tạm ngưng)"
+    },
+    "reviewModes": {
+      "peer": "người khác duyệt",
+      "self": "tự xác nhận"
+    },
+    "ptype": {
+      "user": "thành viên",
+      "group": "group",
+      "tag": "tag",
+      "resource": "tài nguyên",
+      "autogroup": "autogroup",
+      "cidr": "địa chỉ"
+    },
+    "severity": {
+      "error": "Lỗi",
+      "warning": "Cảnh báo",
+      "info": "Thông tin"
+    },
+    "editor": {
+      "noPrincipal": "Chưa có principal nào.",
+      "removePrincipal": "Gỡ {{name}} khỏi {{list}}",
+      "principalType": "Kiểu principal — {{list}}",
+      "principalValue": "Giá trị — {{list}}",
+      "cidrHint": "* hoặc địa chỉ IP / prefix (ví dụ 10.0.0.0/24).",
+      "noResources": "Danh mục tài nguyên mạng chưa có API đọc (P4-T12): chỉ tài nguyên đã được tham chiếu mới chọn được; dùng chế độ HuJSON với tên alias.",
+      "noChoices": "Không có mục nào để chọn.",
+      "choose": "— chọn —",
+      "addTo": "Thêm vào {{list}}",
+      "add": "Thêm",
+      "grants": "Luật truy cập (grants)",
+      "addGrant": "Thêm luật",
+      "denyAll": "Không có luật nào: policy này chặn mọi kết nối (deny-all).",
+      "ssh": "Luật SSH",
+      "addSsh": "Thêm luật SSH",
+      "sshHint": "Mặc định không có. accept luôn cho phép port forwarding và không ghi phiên (L10 — cần xác nhận); check bị chặn.",
+      "grantN": "Luật {{n}}",
+      "removeGrant": "Gỡ luật {{n}}",
+      "remove": "Gỡ",
+      "srcN": "Nguồn (src) của luật {{n}}",
+      "dstN": "Đích (dst) của luật {{n}}",
+      "ipN": "Giao thức/cổng (ip) của luật {{n}}",
+      "ipHint": "Cách nhau bởi dấu phẩy, ví dụ tcp:443, udp:53, * (mọi cổng).",
+      "viaN": "Qua (via — chỉ tag) của luật {{n}}",
+      "app": "Capability ứng dụng (app)",
+      "appHint": "Chỉ hiển thị ở biểu mẫu — sửa trong chế độ HuJSON.",
+      "sshN": "Luật SSH {{n}}",
+      "removeSsh": "Gỡ luật SSH {{n}}",
+      "sshAction": "Hành động",
+      "sshActions": {
+        "accept": "accept (cần xác nhận L10)",
+        "check": "check (bị chặn — sau MVP)"
+      },
+      "sshSrcN": "Nguồn của luật SSH {{n}}",
+      "sshDstN": "Đích của luật SSH {{n}}",
+      "sshUsersN": "Tài khoản đăng nhập của luật SSH {{n}}",
+      "sshUsersHint": "Ví dụ root, autogroup:nonroot, ubuntu.",
+      "autoApprovers": "Tự duyệt route (autoApprovers)",
+      "autoApproversHint": "Mặc định không có. Chỉ tag router/exit của nền tảng không cần xác nhận (L7); autoApprovers chạy lại ở mọi lần áp dụng.",
+      "routeApprovers": "Người tự duyệt route {{prefix}}",
+      "removeRoute": "Gỡ route {{prefix}}",
+      "routePrefix": "Route (prefix)",
+      "addRoute": "Thêm route",
+      "exitApprovers": "Người tự duyệt exit node"
+    },
+    "ack": {
+      "title": "Xác nhận luật",
+      "hint": "Luật cần xác nhận chỉ qua kiểm tra khi có xác nhận kèm lý do (≥ 5 ký tự). Xác nhận không nằm trong văn bản HuJSON.",
+      "rule": "Xác nhận {{rule}}",
+      "desc": {
+        "L4": "* hoặc route mặc định làm đích (gồm subnet route và exit node).",
+        "L7": "autogroup:internet không kèm via, hoặc autoApprovers ngoài tag nền tảng.",
+        "L10": "luật SSH accept (port forwarding luôn bật).",
+        "L12": "tagOwners có owner (nền tảng luôn render owner rỗng).",
+        "L13": "autogroup:member khi tenant dùng danh tính headscale_oidc."
+      },
+      "ownerOnly": "chỉ Tenant Owner duyệt",
+      "needed": "báo cáo yêu cầu",
+      "reason": "Lý do xác nhận {{rule}}",
+      "reasonHint": "5–500 ký tự; được ghi vào nội dung version và người duyệt thấy."
+    },
+    "report": {
+      "findings": "Phát hiện",
+      "line": "dòng {{line}}",
+      "acknowledged": "đã xác nhận",
+      "needsAck": "cần xác nhận",
+      "title": "Kết quả kiểm tra",
+      "none": "Version này chưa được kiểm tra.",
+      "result": "Kết quả",
+      "results": {
+        "passed": "Đạt",
+        "failed": "Không đạt"
+      },
+      "check": "CheckPolicy trên instance",
+      "checks": {
+        "passed": "Headscale chấp nhận",
+        "failed": "Headscale từ chối",
+        "skipped": "Bỏ qua (lint chặn)"
+      },
+      "rendered": "sha256 của bản đã render",
+      "at": "Kiểm lúc",
+      "stale": "Báo cáo của một revision cũ — kiểm tra lại.",
+      "errors": "Lỗi",
+      "warnings": "Cảnh báo",
+      "info": "Thông tin",
+      "clean": "Không có phát hiện nào.",
+      "testsNote": "tests/sshTests chưa được sinh (PL-04); kiểm tác động dựa vào CheckPolicy và diff — không phải mô phỏng quyền hiệu lực."
+    },
+    "finding": {
+      "wildcard_destination": "* hoặc route mặc định làm đích — bị chặn trừ khi Tenant Owner xác nhận kèm lý do (L4).",
+      "danger_all_source": "autogroup:danger-all làm nguồn — luôn bị chặn (L5).",
+      "undeclared_group": "Group được tham chiếu không tồn tại trong tenant (L6).",
+      "undeclared_tag": "Tag không có trong danh mục tag của tenant (L6).",
+      "undeclared_user": "Thành viên không tồn tại, đã offboard, hoặc e-mail không thuộc thành viên nào (L6).",
+      "undeclared_resource": "Không có tài nguyên mạng nào mang tên (alias) này (L6).",
+      "unresolved_reference": "Tham chiếu không còn tồn tại trong tenant — sửa trước khi lưu.",
+      "ambiguous_user": "Nhiều thành viên có e-mail này — viết thành viên dạng mg-<membership>@.",
+      "ambiguous_resource": "Nhiều tài nguyên mạng có tên này.",
+      "internet_without_via": "autogroup:internet không kèm via tag (exit node) — cần xác nhận L7.",
+      "auto_approver_not_platform": "autoApprovers ngoài tag router/exit của nền tảng — cần xác nhận L7.",
+      "ssh_check": "SSH check bị chặn (V-26 — sau MVP).",
+      "ssh_accept": "SSH accept luôn cho phép port forwarding và không ghi phiên — cần xác nhận L10.",
+      "self_large_tenant": "autogroup:self ở tenant lớn tốn chi phí ở mọi thay đổi (L8).",
+      "member_oidc": "autogroup:member ở chế độ headscale_oidc gồm mọi user của IdP — cần xác nhận L13.",
+      "tag_owners": "tagOwners có owner (L12).",
+      "user_token": "Token user của đầu ra không đúng dạng mg-<membership>@ (L11).",
+      "acls_legacy": "Có phần acls (legacy — L9).",
+      "check_rejected": "Headscale từ chối chuỗi đã render (CheckPolicy).",
+      "missing_grants": "Thiếu khóa grants — Headscale sẽ cho phép mọi kết nối (L1). Dùng \"grants\": [] cho deny-all.",
+      "null_grants": "\"grants\": null nghĩa là cho phép tất cả (L1) — dùng mảng tường minh.",
+      "grants_not_array": "grants phải là mảng (L1).",
+      "empty": "Văn bản policy rỗng — Headscale sẽ lưu và cho phép mọi kết nối ở lần khởi động sau (L2). Không gửi.",
+      "managed_key": "Khóa này được render từ bảng của tenant (groups, tài nguyên, danh mục tag) — gỡ khỏi văn bản và quản lý ở trang tương ứng (L3).",
+      "acls_unsupported": "acls là định dạng cũ — viết luật bằng grants (L3).",
+      "node_attrs": "nodeAttrs bị từ chối ở MVP (L3, HS-22).",
+      "tests_generated": "tests/sshTests được sinh lúc áp dụng, không viết tay (L3).",
+      "unsupported_key": "Khóa này không thuộc policy của tenant (L3).",
+      "unknown_key": "Khóa không hợp lệ ở vị trí này (L3).",
+      "misspelled_key": "Tên khóa sai hoa/thường — Headscale so khớp không phân biệt hoa thường nên khóa này bị từ chối.",
+      "comment_key": "Khóa bắt đầu bằng # bị Headscale lặng lẽ bỏ qua — bị từ chối.",
+      "duplicate_key": "Khóa lặp lại (so sánh không phân biệt hoa thường).",
+      "null_value": "null không được phép ở đây (có thể che giấu luật).",
+      "invalid_hujson": "Không phải HuJSON hợp lệ.",
+      "invalid_json": "Không phải HuJSON hợp lệ.",
+      "not_an_object": "Cần một object.",
+      "not_an_array": "Cần một mảng.",
+      "not_a_string": "Cần một chuỗi.",
+      "unknown_autogroup": "Autogroup không tồn tại.",
+      "invalid_cidr": "Prefix còn bit host.",
+      "invalid_prefix": "Route phải là prefix IP chuẩn.",
+      "empty_principal": "Principal rỗng."
+    },
+    "hujson": {
+      "label": "Văn bản HuJSON",
+      "hint": "Chú thích và dấu phẩy cuối được phép. Thành viên viết bằng e-mail hoặc mg-<membership>@; group:, tag: theo tên; tài nguyên theo alias. Thay đổi chỉ có hiệu lực sau khi bấm \"Dịch sang biểu mẫu\" và lưu.",
+      "readOnlyHint": "Chỉ xem — version này không sửa được.",
+      "exportWarnings": "Cảnh báo khi xuất",
+      "import": "Dịch sang biểu mẫu",
+      "failed_other": "Không dịch được: {{count}} lỗi. Nội dung của biểu mẫu không đổi.",
+      "errors": "Lỗi của văn bản HuJSON",
+      "imported": "Đã dịch sang biểu mẫu — xem lại rồi lưu."
+    },
+    "diff": {
+      "title": "Diff",
+      "against": "So với",
+      "desired": "Version mong muốn hiện tại",
+      "blocking": "Báo cáo kiểm tra của version này đang có lỗi chặn.",
+      "grantsAdded_other": "Grants thêm ({{count}})",
+      "grantsRemoved_other": "Grants bớt ({{count}})",
+      "omitted": "Tài liệu quá lớn: bỏ diff dòng (diff grants vẫn có).",
+      "lines": "Diff dòng của chuỗi đã render",
+      "note": "Cả hai bên render với bảng hiện tại ({{from}} → {{to}}).",
+      "empty": "rỗng"
+    },
+    "applied": {
+      "states": {
+        "pending": "Đang áp dụng",
+        "applied": "Đã áp dụng",
+        "failed": "Áp dụng lỗi",
+        "unknown": "Chưa rõ kết quả"
+      },
+      "triggers": {
+        "bootstrap": "khởi tạo",
+        "manual": "áp dụng thủ công",
+        "group_change": "đổi thành viên group",
+        "resource_change": "đổi tài nguyên",
+        "tag_change": "đổi danh mục tag",
+        "suspend": "tạm ngưng",
+        "resume": "khôi phục",
+        "restore": "khôi phục từ backup",
+        "drift_repair": "sửa drift",
+        "rollback": "rollback"
+      },
+      "version": "Xem version",
+      "at": "Đã áp dụng lên Headscale lúc",
+      "sha": "sha256 đã gửi và đọc lại khớp:",
+      "error": "Mã lỗi:"
+    },
+    "current": {
+      "title": "Trạng thái hiện hành",
+      "desired": "Version mong muốn",
+      "noDesired": "Chưa có",
+      "applied": "Đang áp dụng trên Headscale",
+      "notApplied": "Chưa có lần áp dụng nào",
+      "latest": "Lần áp dụng gần nhất",
+      "converged": "Client đã hội tụ",
+      "convergedUnknown": "Không quan sát được từ Headscale — mỗi client nhận policy mới ở lần cập nhật kế tiếp (T-18).",
+      "review": "Duyệt",
+      "fourEyesOn": "4-eyes: bật",
+      "fourEyesOff": "4-eyes: tắt (tự xác nhận)",
+      "stepUp": "Áp dụng/rollback cần đăng nhập lại trong 15 phút"
+    },
+    "job": {
+      "title": "Job policy.apply",
+      "final": "trạng thái cuối",
+      "polling": "đang tự cập nhật",
+      "steps": "Các bước của job",
+      "succeeded": "Đã áp dụng: Headscale giữ đúng chuỗi đã gửi (đọc lại khớp sha256)."
+    },
+    "stale": {
+      "title": "Version đã thay đổi ở nơi khác (412)",
+      "body": "Bản bạn đang xem đã cũ (revision khác). Tải lại bản mới nhất rồi thao tác lại — thay đổi chưa lưu sẽ bị bỏ.",
+      "reload": "Tải lại bản mới nhất"
+    },
+    "meta": {
+      "title": "Thông tin version",
+      "revision": "Revision (If-Match)",
+      "content": "content_sha256",
+      "createdBy": "Người soạn",
+      "submittedBy": "Người gửi duyệt",
+      "approvedBy": "Người duyệt",
+      "rejectedBy": "Người từ chối",
+      "parent": "Dựa trên",
+      "staleBase": "base đã cũ",
+      "rollbackOf": "Rollback từ"
+    },
+    "actions": {
+      "title": "Vòng đời",
+      "saveFirst": "Có thay đổi chưa lưu — lưu trước khi kiểm tra hoặc duyệt.",
+      "fourEyesSelf": "4-eyes đang bật: bạn là người soạn hoặc người gửi nên không duyệt được — cần một Owner/Admin khác duyệt.",
+      "ownerOnly": "Version có xác nhận chỉ Tenant Owner được chấp nhận (L4/L12) — cần Tenant Owner duyệt.",
+      "validate": "Kiểm tra",
+      "submit": "Gửi duyệt",
+      "approve": "Duyệt",
+      "selfApprove": "Xác nhận và duyệt",
+      "reject": "Từ chối",
+      "reapply": "Áp dụng lại",
+      "apply": "Áp dụng",
+      "rollback": "Rollback về nội dung này",
+      "newDraft": "Tạo bản nháp mới từ nội dung này"
+    },
+    "staleBase": {
+      "title": "Base đã cũ (409 stale_base)",
+      "body": "Version này được soạn trên một version mong muốn cũ; version mong muốn đã đổi từ đó. Tạo bản nháp mới từ nội dung này (dựa trên version mong muốn hiện tại), kiểm tra và duyệt lại."
+    },
+    "content": {
+      "title": "Nội dung",
+      "mode": "Chế độ soạn",
+      "form": "Biểu mẫu",
+      "hujson": "HuJSON",
+      "platformText": "Version của nền tảng (văn bản HuJSON, không có mô hình có kiểu) — chỉ xem.",
+      "save": "Lưu bản nháp",
+      "discard": "Bỏ thay đổi",
+      "unsaved": "Chưa lưu",
+      "localProblems_other": "{{count}} vấn đề cần sửa trước khi lưu",
+      "backToDraft": "Lưu sẽ đưa version về bản nháp và xóa phê duyệt cùng kết quả kiểm tra."
+    },
+    "approve": {
+      "title": "Duyệt version {{n}}?",
+      "peer": "Bạn duyệt với tư cách người thứ hai (4-eyes). Duyệt gắn với đúng nội dung bạn đã xem.",
+      "self": "Tenant không bật 4-eyes: bạn tự xác nhận diff và kết quả kiểm tra của bản đã render (review_mode = self).",
+      "sha": "Nội dung được duyệt (content_sha256):",
+      "reviewed": "Tôi đã xem diff và kết quả kiểm tra của version này."
+    },
+    "reject": {
+      "title": "Từ chối version {{n}}?",
+      "description": "Version sẽ ở trạng thái bị từ chối; người soạn có thể tạo bản nháp mới.",
+      "reason": "Lý do từ chối"
+    },
+    "rollback": {
+      "title": "Rollback về nội dung của version {{n}}?",
+      "description": "Tạo version mới với nội dung này (phê duyệt được kế thừa vì nội dung đã từng được duyệt), đặt làm mong muốn và áp dụng ngay (job policy.apply)."
+    },
+    "apply": {
+      "title": "Áp dụng version {{n}}?",
+      "description": "Version thành mong muốn và job policy.apply render với bảng hiện tại → lint → CheckPolicy → SetPolicy → đọc lại sha256.",
+      "stepUp": "Thao tác cần đăng nhập lại trong 15 phút (step-up) — nếu được yêu cầu, xác thực lại rồi thử lại.",
+      "converged": "\"Đã áp dụng lên Headscale\" không có nghĩa mọi client đã nhận policy mới."
+    },
+    "local": {
+      "principalsRequired": "cần ít nhất một principal.",
+      "badCidr": "không phải địa chỉ/prefix hợp lệ.",
+      "grantsRequired": "grants phải là danh sách.",
+      "ipRequired": "cần ít nhất một giao thức/cổng (ip).",
+      "badIp": "giao thức/cổng không hợp lệ.",
+      "usersRequired": "cần ít nhất một tài khoản.",
+      "badSshUser": "tài khoản SSH không hợp lệ.",
+      "ackReason": "lý do cần 5–500 ký tự."
+    }
+  },
+  "tags": {
+    "intro": "Danh mục tag của tenant: chỉ tag có ở đây mới được gắn cho thiết bị, khóa enrollment hay dùng trong policy. Mọi tag được render vào tagOwners với owner rỗng — chỉ nền tảng gắn tag. Mỗi thay đổi danh mục áp lại policy.",
+    "catalog": "Danh mục",
+    "empty": "Chưa có tag nào.",
+    "col": {
+      "name": "Tên tag",
+      "purpose": "Mục đích",
+      "description": "Mô tả",
+      "updated": "Cập nhật",
+      "actions": "Thao tác"
+    },
+    "purposes": {
+      "router": "router (nền tảng)",
+      "exit": "exit (nền tảng)",
+      "server": "server",
+      "custom": "tùy chỉnh"
+    },
+    "platformManaged": "nền tảng quản lý",
+    "readOnly": "chỉ đọc",
+    "edit": "Sửa mô tả",
+    "editOf": "Sửa mô tả của {{name}}",
+    "delete": "Xóa",
+    "deleteOf": "Xóa {{name}}",
+    "deleteTitle": "Xóa tag {{name}}?",
+    "deleteDescription": "Tag còn được thiết bị, khóa enrollment, tài nguyên mạng hoặc policy tham chiếu thì không xóa được (409, kèm số lượng).",
+    "inUse": "Tag còn được tham chiếu — gỡ tham chiếu (thiết bị, khóa, tài nguyên, version policy) rồi xóa lại.",
+    "create": "Khai báo tag",
+    "nameHint": "Dạng tag:<chữ thường, số, gạch nối>, tối đa 54 ký tự; không đổi được về sau.",
+    "createAction": "Khai báo",
+    "created": "Đã khai báo {{name}}.",
+    "editTitle": "Mô tả của {{name}}",
+    "stale": "Tag đã được sửa ở nơi khác — đóng hộp và mở lại để sửa bản mới.",
+    "save": "Lưu"
   },
   "network": {
     "job": {

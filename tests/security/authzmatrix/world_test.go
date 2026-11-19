@@ -260,6 +260,8 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 		Admin: adminapi.New(platform.New(w.Store), dir, appr),
 		// Policies (P4-T10): the policy lifecycle over the production registry (validate's dry run — unreachable)
 		Policies: policiesapi.New(versions),
+		// PolicyHuJSON (P4-T11): the HuJSON translator of the editor, the same handler set
+		PolicyHuJSON: policiesapi.New(versions),
 		// Network (P4-T12): routes over the register (Headscale unreachable — every write is refused 428 first), DNS,
 		// the resource catalog with the catalog check of P4-T15 (no worker: jobs stay queued)
 		Network: networkapi.New(netw, appr),

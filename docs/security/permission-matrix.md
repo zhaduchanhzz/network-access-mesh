@@ -146,8 +146,8 @@ Quy tắc 2P: thao tác đánh dấu **2P** trả `202` kèm `Location: /api/v1/
 | `tenant.enrollment:issue_privileged` | `POST /enrollment/keys` (key gắn tag / reusable / ephemeral / cho người khác) | ✔ | ✔ | — | — | — | — |
 | `tenant.enrollment:read` | `GET /enrollment/requests[/{id}]`, `GET /enrollment/instructions` | ✔ | ✔ | ✔ | ✔ | ○ | G |
 | `tenant.enrollment:revoke` | `POST /enrollment/requests/{id}/revoke` | ✔ | ✔ | ✔ | — | ○ | G |
-| `tenant.policy:read` | `GET /policies`, `/policies/current`, `/policies/{v}`, `/policies/{v}/diff` | ✔ | ✔ | ✔ | ✔ | — | G |
-| `tenant.policy:edit` | `POST /policies`, `PATCH /policies/{v}`, `/validate`, `/submit` | ✔ | ✔ | — | — | — | — |
+| `tenant.policy:read` | `GET /policies`, `/policies/current`, `/policies/{v}`, `/policies/{v}/diff`, `POST /policies/export` (viết nội dung thành HuJSON có tên, không lưu — P4-T11) | ✔ | ✔ | ✔ | ✔ | — | G |
+| `tenant.policy:edit` | `POST /policies`, `PATCH /policies/{v}`, `/validate`, `/submit`, `POST /policies/import` (dịch HuJSON sang mô hình có kiểu, không lưu — P4-T11) | ✔ | ✔ | — | — | — | — |
 | `tenant.policy:approve` | `POST /policies/{v}/approve`, `/reject` (tenant bật 4-eyes: không tự duyệt bản của mình; không bật: người soạn tự xác nhận — `review_mode=self`, §7.3) | ✔ | ✔ | — | — | — | — |
 | `tenant.policy:apply` | `POST /policies/{v}/apply`, `/rollback` | ✔ | ✔ | — | — | — | G (Admin) |
 | `tenant.dns:read` / `:update` | `GET /dns`, `GET /dns/records` / `PUT /dns/settings`, `POST,DELETE /dns/records` | ✔ / ✔ | ✔ / ✔ | ✔ / — | ✔ / — | — | G / — |

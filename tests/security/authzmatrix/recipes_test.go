@@ -243,6 +243,10 @@ var recipes = map[string]recipe{
 		ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
 	"applyTenantPolicy":    {idempotent: true, ok: answer{http.StatusConflict, gen.ProblemCodeConflict}},
 	"rollbackTenantPolicy": {idempotent: true, ok: answer{http.StatusConflict, gen.ProblemCodeConflict}},
+	// HuJSON translator of the editor (P4-T11, policiesapi — mounted): pure functions over the tenant's names, nothing
+	// stored — a granted import or export answers 200 (the import of an empty grants list passes).
+	"importTenantPolicy": {body: `{"hujson":"{\"grants\": []}"}`, ok: answer{status: http.StatusOK}},
+	"exportTenantPolicy": {body: `{"source":{"grants":[]}}`, ok: answer{status: http.StatusOK}},
 	// network (P4-T12, networkapi — mounted). Every write that needs If-Match is sent without it: a granted caller is
 	// answered 428 before any read or write (the route approvals check it first — the body's device need not exist; the
 	// objects stay for every caller); the reads answer 200 from the register and the tables; a DNS record whose value is

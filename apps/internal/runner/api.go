@@ -192,6 +192,7 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 	jobsH := jobsapi.New(jobs.NewService(d.st))
 	relayH := relayapi.New(relays)
 	inbox := notificationsapi.New(notifications.NewReader(d.st)) // P3-T05b list + P4-T04 read state
+	policiesH := policiesapi.New(versions)                       // P4-T10 lifecycle + P4-T11 HuJSON translator
 	public, err := httpapi.New(httpapi.Options{
 		Logger:         log,
 		TrustedProxies: cfg.TrustedProxies,
@@ -203,7 +204,8 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 			Tenants:       tenantsH,
 			Devices:       devicesapi.New(dev),
 			Tags:          tagsapi.New(tags, devicesapi.New(dev)),
-			Policies:      policiesapi.New(versions),
+			Policies:      policiesH,
+			PolicyHuJSON:  policiesH, // P4-T11
 			Audit:         auditapi.New(audit.NewReader(d.st)),
 			Jobs:          jobsH,
 			Monitoring:    monitoringapi.New(mon),

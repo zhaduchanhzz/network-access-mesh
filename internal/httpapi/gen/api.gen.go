@@ -904,6 +904,24 @@ func (e PolicyFindingSeverity) Valid() bool {
 	}
 }
 
+// Defines values for PolicyImportResult.
+const (
+	PolicyImportResultFailed PolicyImportResult = "failed"
+	PolicyImportResultPassed PolicyImportResult = "passed"
+)
+
+// Valid indicates whether the value is a known member of the PolicyImportResult enum.
+func (e PolicyImportResult) Valid() bool {
+	switch e {
+	case PolicyImportResultFailed:
+		return true
+	case PolicyImportResultPassed:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PolicyPrincipalType.
 const (
 	PolicyPrincipalTypeAutogroup PolicyPrincipalType = "autogroup"
@@ -928,6 +946,36 @@ func (e PolicyPrincipalType) Valid() bool {
 	case PolicyPrincipalTypeTag:
 		return true
 	case PolicyPrincipalTypeUser:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PolicyPrincipalNameType.
+const (
+	PolicyPrincipalNameTypeAutogroup PolicyPrincipalNameType = "autogroup"
+	PolicyPrincipalNameTypeCidr      PolicyPrincipalNameType = "cidr"
+	PolicyPrincipalNameTypeGroup     PolicyPrincipalNameType = "group"
+	PolicyPrincipalNameTypeResource  PolicyPrincipalNameType = "resource"
+	PolicyPrincipalNameTypeTag       PolicyPrincipalNameType = "tag"
+	PolicyPrincipalNameTypeUser      PolicyPrincipalNameType = "user"
+)
+
+// Valid indicates whether the value is a known member of the PolicyPrincipalNameType enum.
+func (e PolicyPrincipalNameType) Valid() bool {
+	switch e {
+	case PolicyPrincipalNameTypeAutogroup:
+		return true
+	case PolicyPrincipalNameTypeCidr:
+		return true
+	case PolicyPrincipalNameTypeGroup:
+		return true
+	case PolicyPrincipalNameTypeResource:
+		return true
+	case PolicyPrincipalNameTypeTag:
+		return true
+	case PolicyPrincipalNameTypeUser:
 		return true
 	default:
 		return false
@@ -2749,16 +2797,33 @@ type PolicyDiffLine struct {
 // PolicyDiffLineOp defines model for PolicyDiffLine.Op.
 type PolicyDiffLineOp string
 
+// PolicyExport defines model for PolicyExport.
+type PolicyExport struct {
+	Hujson     string                `json:"hujson"`
+	Principals []PolicyPrincipalName `json:"principals"`
+	Warnings   []PolicyFinding       `json:"warnings"`
+}
+
+// PolicyExportRequest defines model for PolicyExportRequest.
+type PolicyExportRequest struct {
+	// Source Nội dung có kiểu của một version (§13.3): `groups`, `hosts` và `tagOwners` **không** nằm ở đây — được render từ
+	// bảng `groups`/`group_members`, `network_resources`, `tenant_tags` lúc áp dụng.
+	Source PolicySource `json:"source"`
+}
+
 // PolicyFinding defines model for PolicyFinding.
 type PolicyFinding struct {
-	Acknowledged *bool                 `json:"acknowledged,omitempty"`
-	Code         string                `json:"code"`
-	Message      string                `json:"message"`
-	OwnerOnly    *bool                 `json:"owner_only,omitempty"`
-	Path         *string               `json:"path,omitempty"`
-	RequiresAck  *bool                 `json:"requires_ack,omitempty"`
-	Rule         string                `json:"rule"`
-	Severity     PolicyFindingSeverity `json:"severity"`
+	Acknowledged *bool  `json:"acknowledged,omitempty"`
+	Code         string `json:"code"`
+
+	// Line Dòng của văn bản HuJSON (chỉ ở kết quả `import`)
+	Line        *int                  `json:"line,omitempty"`
+	Message     string                `json:"message"`
+	OwnerOnly   *bool                 `json:"owner_only,omitempty"`
+	Path        *string               `json:"path,omitempty"`
+	RequiresAck *bool                 `json:"requires_ack,omitempty"`
+	Rule        string                `json:"rule"`
+	Severity    PolicyFindingSeverity `json:"severity"`
 }
 
 // PolicyFindingSeverity defines model for PolicyFinding.Severity.
@@ -2776,6 +2841,27 @@ type PolicyGrant struct {
 	Via *[]PolicyPrincipal `json:"via,omitempty"`
 }
 
+// PolicyImport defines model for PolicyImport.
+type PolicyImport struct {
+	Errors     []PolicyFinding       `json:"errors"`
+	Principals []PolicyPrincipalName `json:"principals"`
+	Result     PolicyImportResult    `json:"result"`
+
+	// Source Nội dung có kiểu của một version (§13.3): `groups`, `hosts` và `tagOwners` **không** nằm ở đây — được render từ
+	// bảng `groups`/`group_members`, `network_resources`, `tenant_tags` lúc áp dụng.
+	Source   *PolicySource   `json:"source,omitempty"`
+	Warnings []PolicyFinding `json:"warnings"`
+}
+
+// PolicyImportResult defines model for PolicyImport.Result.
+type PolicyImportResult string
+
+// PolicyImportRequest defines model for PolicyImportRequest.
+type PolicyImportRequest struct {
+	// Hujson Văn bản HuJSON của admin (chú thích và dấu phẩy cuối được phép)
+	Hujson string `json:"hujson"`
+}
+
 // PolicyPrincipal Tham chiếu principal có kiểu (§7.2): `user` — `ref` = membership id (render `mg-<membership>@`); `group` — group id;
 // `tag` — tag id của danh mục; `resource` — id tài nguyên mạng (render alias trong `hosts`); `autogroup` — `member`,
 // `tagged`, `self`, `internet`, `danger-all` (tùy vị trí); `cidr` — `*`, một địa chỉ IP hoặc prefix.
@@ -2786,6 +2872,16 @@ type PolicyPrincipal struct {
 
 // PolicyPrincipalType defines model for PolicyPrincipal.Type.
 type PolicyPrincipalType string
+
+// PolicyPrincipalName Tên HuJSON của một principal có kiểu (`import`/`export` — P4-T11)
+type PolicyPrincipalName struct {
+	Name string                  `json:"name"`
+	Ref  string                  `json:"ref"`
+	Type PolicyPrincipalNameType `json:"type"`
+}
+
+// PolicyPrincipalNameType defines model for PolicyPrincipalName.Type.
+type PolicyPrincipalNameType string
 
 // PolicyReject defines model for PolicyReject.
 type PolicyReject struct {
@@ -4550,6 +4646,12 @@ type TransferTenantOwnershipJSONRequestBody = OwnershipTransfer
 // CreateTenantPolicyJSONRequestBody defines body for CreateTenantPolicy for application/json ContentType.
 type CreateTenantPolicyJSONRequestBody = PolicyCreate
 
+// ExportTenantPolicyJSONRequestBody defines body for ExportTenantPolicy for application/json ContentType.
+type ExportTenantPolicyJSONRequestBody = PolicyExportRequest
+
+// ImportTenantPolicyJSONRequestBody defines body for ImportTenantPolicy for application/json ContentType.
+type ImportTenantPolicyJSONRequestBody = PolicyImportRequest
+
 // UpdateTenantPolicyJSONRequestBody defines body for UpdateTenantPolicy for application/json ContentType.
 type UpdateTenantPolicyJSONRequestBody = PolicyUpdate
 
@@ -4897,6 +4999,12 @@ type ServerInterface interface {
 	// GetCurrentTenantPolicy Version mong muốn và trạng thái áp dụng
 	// (GET /tenants/{tenantId}/policies/current)
 	GetCurrentTenantPolicy(w http.ResponseWriter, r *http.Request, tenantId TenantId)
+	// ExportTenantPolicy Viết một PolicySource thành HuJSON có tên (không lưu)
+	// (POST /tenants/{tenantId}/policies/export)
+	ExportTenantPolicy(w http.ResponseWriter, r *http.Request, tenantId TenantId)
+	// ImportTenantPolicy Dịch HuJSON của admin sang mô hình có kiểu (không lưu, không gọi Headscale)
+	// (POST /tenants/{tenantId}/policies/import)
+	ImportTenantPolicy(w http.ResponseWriter, r *http.Request, tenantId TenantId)
 	// GetTenantPolicy Một version policy
 	// (GET /tenants/{tenantId}/policies/{versionId})
 	GetTenantPolicy(w http.ResponseWriter, r *http.Request, tenantId TenantId, versionId PolicyVersionId)
@@ -9917,6 +10025,58 @@ func (siw *ServerInterfaceWrapper) GetCurrentTenantPolicy(w http.ResponseWriter,
 	handler.ServeHTTP(w, r)
 }
 
+// ExportTenantPolicy operation middleware
+func (siw *ServerInterfaceWrapper) ExportTenantPolicy(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ExportTenantPolicy(w, r, tenantId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ImportTenantPolicy operation middleware
+func (siw *ServerInterfaceWrapper) ImportTenantPolicy(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ImportTenantPolicy(w, r, tenantId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetTenantPolicy operation middleware
 func (siw *ServerInterfaceWrapper) GetTenantPolicy(w http.ResponseWriter, r *http.Request) {
 
@@ -11869,6 +12029,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants/{tenantId}/policies/{versionId}/apply", wrapper.ApplyTenantPolicy)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants/{tenantId}/policies/{versionId}/rollback", wrapper.RollbackTenantPolicy)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tenants/{tenantId}/policies/{versionId}/diff", wrapper.DiffTenantPolicy)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants/{tenantId}/policies/import", wrapper.ImportTenantPolicy)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants/{tenantId}/policies/export", wrapper.ExportTenantPolicy)
 
 	return m
 }
@@ -27983,6 +28145,308 @@ func (response GetCurrentTenantPolicydefaultApplicationProblemPlusJSONResponse) 
 	return err
 }
 
+type ExportTenantPolicyRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	Body     *ExportTenantPolicyJSONRequestBody
+}
+
+type ExportTenantPolicyResponseObject interface {
+	VisitExportTenantPolicyResponse(w http.ResponseWriter) error
+}
+
+type ExportTenantPolicy200JSONResponse PolicyExport
+
+func (response ExportTenantPolicy200JSONResponse) VisitExportTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ExportTenantPolicy401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response ExportTenantPolicy401ApplicationProblemPlusJSONResponse) VisitExportTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ExportTenantPolicy403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response ExportTenantPolicy403ApplicationProblemPlusJSONResponse) VisitExportTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ExportTenantPolicy404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response ExportTenantPolicy404ApplicationProblemPlusJSONResponse) VisitExportTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ExportTenantPolicy422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response ExportTenantPolicy422ApplicationProblemPlusJSONResponse) VisitExportTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ExportTenantPolicy429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response ExportTenantPolicy429ApplicationProblemPlusJSONResponse) VisitExportTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ExportTenantPolicydefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response ExportTenantPolicydefaultApplicationProblemPlusJSONResponse) VisitExportTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ImportTenantPolicyRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	Body     *ImportTenantPolicyJSONRequestBody
+}
+
+type ImportTenantPolicyResponseObject interface {
+	VisitImportTenantPolicyResponse(w http.ResponseWriter) error
+}
+
+type ImportTenantPolicy200JSONResponse PolicyImport
+
+func (response ImportTenantPolicy200JSONResponse) VisitImportTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ImportTenantPolicy401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response ImportTenantPolicy401ApplicationProblemPlusJSONResponse) VisitImportTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ImportTenantPolicy403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response ImportTenantPolicy403ApplicationProblemPlusJSONResponse) VisitImportTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ImportTenantPolicy404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response ImportTenantPolicy404ApplicationProblemPlusJSONResponse) VisitImportTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ImportTenantPolicy422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response ImportTenantPolicy422ApplicationProblemPlusJSONResponse) VisitImportTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ImportTenantPolicy429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response ImportTenantPolicy429ApplicationProblemPlusJSONResponse) VisitImportTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ImportTenantPolicydefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response ImportTenantPolicydefaultApplicationProblemPlusJSONResponse) VisitImportTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetTenantPolicyRequestObject struct {
 	TenantId  TenantId        `json:"tenantId"`
 	VersionId PolicyVersionId `json:"versionId"`
@@ -34430,6 +34894,12 @@ type StrictServerInterface interface {
 	// GetCurrentTenantPolicy Version mong muốn và trạng thái áp dụng
 	// (GET /tenants/{tenantId}/policies/current)
 	GetCurrentTenantPolicy(ctx context.Context, request GetCurrentTenantPolicyRequestObject) (GetCurrentTenantPolicyResponseObject, error)
+	// ExportTenantPolicy Viết một PolicySource thành HuJSON có tên (không lưu)
+	// (POST /tenants/{tenantId}/policies/export)
+	ExportTenantPolicy(ctx context.Context, request ExportTenantPolicyRequestObject) (ExportTenantPolicyResponseObject, error)
+	// ImportTenantPolicy Dịch HuJSON của admin sang mô hình có kiểu (không lưu, không gọi Headscale)
+	// (POST /tenants/{tenantId}/policies/import)
+	ImportTenantPolicy(ctx context.Context, request ImportTenantPolicyRequestObject) (ImportTenantPolicyResponseObject, error)
 	// GetTenantPolicy Một version policy
 	// (GET /tenants/{tenantId}/policies/{versionId})
 	GetTenantPolicy(ctx context.Context, request GetTenantPolicyRequestObject) (GetTenantPolicyResponseObject, error)
@@ -37442,6 +37912,72 @@ func (sh *strictHandler) GetCurrentTenantPolicy(w http.ResponseWriter, r *http.R
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetCurrentTenantPolicyResponseObject); ok {
 		if err := validResponse.VisitGetCurrentTenantPolicyResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ExportTenantPolicy operation middleware
+func (sh *strictHandler) ExportTenantPolicy(w http.ResponseWriter, r *http.Request, tenantId TenantId) {
+	var request ExportTenantPolicyRequestObject
+
+	request.TenantId = tenantId
+
+	var body ExportTenantPolicyJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ExportTenantPolicy(ctx, request.(ExportTenantPolicyRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ExportTenantPolicy")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ExportTenantPolicyResponseObject); ok {
+		if err := validResponse.VisitExportTenantPolicyResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ImportTenantPolicy operation middleware
+func (sh *strictHandler) ImportTenantPolicy(w http.ResponseWriter, r *http.Request, tenantId TenantId) {
+	var request ImportTenantPolicyRequestObject
+
+	request.TenantId = tenantId
+
+	var body ImportTenantPolicyJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ImportTenantPolicy(ctx, request.(ImportTenantPolicyRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ImportTenantPolicy")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ImportTenantPolicyResponseObject); ok {
+		if err := validResponse.VisitImportTenantPolicyResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

@@ -49,7 +49,6 @@ type Driver interface {
 // Backup, Restore, PostRestoreReconcile (P3-T11); UpgradeInstance, InspectImage, PreflightUpgrade (P3-T13a);
 // WriteDnsRecords (P4-T12 — records/extra-records.json, tmp + rename).
 type composeDriver struct {
-	noDriver
 	c *compose.Driver
 }
 
@@ -127,8 +126,8 @@ func (d composeDriver) EdgeCycle(ctx context.Context, tryLock func(uuid.UUID) (f
 }
 func (d composeDriver) EdgeStarts(ctx context.Context) <-chan struct{} { return d.c.EdgeStarts(ctx) }
 
-// noDriver answers UNIMPLEMENTED for every operation (MG_AGENT_DRIVER=none, and the operations composeDriver does not
-// implement yet) — after the request was validated, authorised, locked and guarded.
+// noDriver answers UNIMPLEMENTED for every operation (MG_AGENT_DRIVER=none; composeDriver implements every one since
+// P4-T12) — after the request was validated, authorised, locked and guarded.
 type noDriver struct{}
 
 func unimplemented() error {

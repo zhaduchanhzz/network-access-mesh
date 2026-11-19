@@ -89,7 +89,8 @@
       "settings": "Settings",
       "identityProvider": "Identity provider",
       "usage": "Usage",
-      "billing": "Plan and billing"
+      "billing": "Plan and billing",
+      "tags": "Tags"
     },
     "platform": {
       "health": "Platform health",
@@ -950,6 +951,375 @@
         "expired": "The request expired — the members did not change."
       }
     }
+  },
+  "policies": {
+    "intro": "Policies are written on a typed model (members, groups, tags and resources chosen by id), checked by lint L1–L13 and CheckPolicy on the instance, and reviewed before they are applied. Groups, hosts and tagOwners are rendered from the tenant's tables when a version is applied.",
+    "newVersion": "New version",
+    "history": "Version history",
+    "noVersions": "The tenant has no policy version yet.",
+    "versionN": "Version {{n}}",
+    "desiredBadge": "Desired",
+    "rollbackBadge": "Rollback",
+    "backToList": "← Version list",
+    "col": {
+      "version": "Version",
+      "state": "State",
+      "kind": "Kind",
+      "createdBy": "Author",
+      "review": "Submitted / reviewed",
+      "updated": "Updated",
+      "submitted": "Submitted: {{name}}",
+      "approved": "Approved: {{name}}",
+      "rejected": "Rejected: {{name}}"
+    },
+    "states": {
+      "draft": "Draft",
+      "validated": "Validated",
+      "pending_approval": "Pending approval",
+      "approved": "Approved",
+      "rejected": "Rejected",
+      "superseded": "Superseded"
+    },
+    "kinds": {
+      "user": "Written by an admin",
+      "baseline": "Platform (baseline)",
+      "suspension": "Platform (suspension)"
+    },
+    "reviewModes": {
+      "peer": "peer review",
+      "self": "self-review"
+    },
+    "ptype": {
+      "user": "member",
+      "group": "group",
+      "tag": "tag",
+      "resource": "resource",
+      "autogroup": "autogroup",
+      "cidr": "address"
+    },
+    "severity": {
+      "error": "Error",
+      "warning": "Warning",
+      "info": "Info"
+    },
+    "editor": {
+      "noPrincipal": "No principal yet.",
+      "removePrincipal": "Remove {{name}} from {{list}}",
+      "principalType": "Principal type — {{list}}",
+      "principalValue": "Value — {{list}}",
+      "cidrHint": "* or an IP address / prefix (e.g. 10.0.0.0/24).",
+      "noResources": "The network resource catalog has no read API yet (P4-T12): only resources already referenced can be chosen; use the HuJSON mode with the alias name.",
+      "noChoices": "Nothing to choose from.",
+      "choose": "— choose —",
+      "addTo": "Add to {{list}}",
+      "add": "Add",
+      "grants": "Access rules (grants)",
+      "addGrant": "Add rule",
+      "denyAll": "No rule: this policy blocks every connection (deny-all).",
+      "ssh": "SSH rules",
+      "addSsh": "Add SSH rule",
+      "sshHint": "None by default. accept always allows port forwarding and is not recorded (L10 — needs an acknowledgement); check is refused.",
+      "grantN": "Rule {{n}}",
+      "removeGrant": "Remove rule {{n}}",
+      "remove": "Remove",
+      "srcN": "Sources (src) of rule {{n}}",
+      "dstN": "Destinations (dst) of rule {{n}}",
+      "ipN": "Protocols/ports (ip) of rule {{n}}",
+      "ipHint": "Comma-separated, e.g. tcp:443, udp:53, * (every port).",
+      "viaN": "Via (tags only) of rule {{n}}",
+      "app": "Application capabilities (app)",
+      "appHint": "Shown read-only in the form — edit them in the HuJSON mode.",
+      "sshN": "SSH rule {{n}}",
+      "removeSsh": "Remove SSH rule {{n}}",
+      "sshAction": "Action",
+      "sshActions": {
+        "accept": "accept (needs L10 acknowledgement)",
+        "check": "check (refused — post-MVP)"
+      },
+      "sshSrcN": "Sources of SSH rule {{n}}",
+      "sshDstN": "Destinations of SSH rule {{n}}",
+      "sshUsersN": "Login accounts of SSH rule {{n}}",
+      "sshUsersHint": "e.g. root, autogroup:nonroot, ubuntu.",
+      "autoApprovers": "Route auto-approvers (autoApprovers)",
+      "autoApproversHint": "None by default. Only the platform's router/exit tags need no acknowledgement (L7); autoApprovers run again on every apply.",
+      "routeApprovers": "Auto-approvers of route {{prefix}}",
+      "removeRoute": "Remove route {{prefix}}",
+      "routePrefix": "Route (prefix)",
+      "addRoute": "Add route",
+      "exitApprovers": "Exit node auto-approvers"
+    },
+    "ack": {
+      "title": "Rule acknowledgements",
+      "hint": "A rule that needs an acknowledgement passes validation only with one and a reason (≥ 5 characters). Acknowledgements are not part of the HuJSON text.",
+      "rule": "Acknowledge {{rule}}",
+      "desc": {
+        "L4": "* or a default route as a destination (subnet routes and exit nodes included).",
+        "L7": "autogroup:internet without via, or autoApprovers other than platform tags.",
+        "L10": "an SSH accept rule (port forwarding always on).",
+        "L12": "tagOwners with owners (the platform always renders empty owners).",
+        "L13": "autogroup:member when the tenant uses the headscale_oidc identity mode."
+      },
+      "ownerOnly": "Tenant Owner approval only",
+      "needed": "required by the report",
+      "reason": "Reason for {{rule}}",
+      "reasonHint": "5–500 characters; stored in the version's content and shown to the reviewer."
+    },
+    "report": {
+      "findings": "Findings",
+      "line": "line {{line}}",
+      "acknowledged": "acknowledged",
+      "needsAck": "needs acknowledgement",
+      "title": "Validation result",
+      "none": "This version has not been validated.",
+      "result": "Result",
+      "results": {
+        "passed": "Passed",
+        "failed": "Failed"
+      },
+      "check": "CheckPolicy on the instance",
+      "checks": {
+        "passed": "Accepted by Headscale",
+        "failed": "Refused by Headscale",
+        "skipped": "Skipped (blocked by lint)"
+      },
+      "rendered": "sha256 of the rendered policy",
+      "at": "Checked at",
+      "stale": "This report is about an older revision — validate again.",
+      "errors": "Errors",
+      "warnings": "Warnings",
+      "info": "Information",
+      "clean": "No finding.",
+      "testsNote": "tests/sshTests are not generated yet (PL-04); impact checks rely on CheckPolicy and the diff — not a simulation of effective access."
+    },
+    "finding": {
+      "wildcard_destination": "* or a default route as a destination — blocked unless a Tenant Owner acknowledges it with a reason (L4).",
+      "danger_all_source": "autogroup:danger-all as a source — always blocked (L5).",
+      "undeclared_group": "The group referenced does not exist in the tenant (L6).",
+      "undeclared_tag": "The tag is not in the tenant's tag catalog (L6).",
+      "undeclared_user": "The member does not exist, is offboarded, or the e-mail belongs to no member (L6).",
+      "undeclared_resource": "No network resource has this name (alias) (L6).",
+      "unresolved_reference": "The reference no longer exists in the tenant — fix it before saving.",
+      "ambiguous_user": "Several members have this e-mail — write the member as mg-<membership>@.",
+      "ambiguous_resource": "Several network resources have this name.",
+      "internet_without_via": "autogroup:internet without a via tag (exit node) — needs an L7 acknowledgement.",
+      "auto_approver_not_platform": "autoApprovers other than the platform's router/exit tags — needs an L7 acknowledgement.",
+      "ssh_check": "SSH check is refused (V-26 — post-MVP).",
+      "ssh_accept": "SSH accept always allows port forwarding and is not recorded — needs an L10 acknowledgement.",
+      "self_large_tenant": "autogroup:self in a large tenant costs on every change (L8).",
+      "member_oidc": "autogroup:member in headscale_oidc mode includes every user of the IdP — needs an L13 acknowledgement.",
+      "tag_owners": "tagOwners has owners (L12).",
+      "user_token": "A user token of the output is not mg-<membership>@ (L11).",
+      "acls_legacy": "An acls section (legacy — L9).",
+      "check_rejected": "Headscale refused the rendered policy (CheckPolicy).",
+      "missing_grants": "No grants key — Headscale would allow all traffic (L1). Use \"grants\": [] for deny-all.",
+      "null_grants": "\"grants\": null means allow-all (L1) — use an explicit array.",
+      "grants_not_array": "grants must be an array (L1).",
+      "empty": "The policy text is empty — Headscale would store it and allow all traffic at its next start (L2). Not sent.",
+      "managed_key": "This key is rendered from the tenant's tables (groups, resources, tag catalog) — remove it from the text and manage it on its page (L3).",
+      "acls_unsupported": "acls is the legacy format — write the rules as grants (L3).",
+      "node_attrs": "nodeAttrs is refused in the MVP (L3, HS-22).",
+      "tests_generated": "tests/sshTests are generated at apply time, not written by hand (L3).",
+      "unsupported_key": "This key is not part of a tenant policy (L3).",
+      "unknown_key": "Unknown key at this position (L3).",
+      "misspelled_key": "The key's case is wrong — Headscale matches keys case-insensitively, so it is refused.",
+      "comment_key": "A key starting with # is silently ignored by Headscale — refused.",
+      "duplicate_key": "The key is repeated (compared case-insensitively).",
+      "null_value": "null is not allowed here (it could hide a rule).",
+      "invalid_hujson": "Not valid HuJSON.",
+      "invalid_json": "Not valid HuJSON.",
+      "not_an_object": "An object is expected.",
+      "not_an_array": "An array is expected.",
+      "not_a_string": "A string is expected.",
+      "unknown_autogroup": "Unknown autogroup.",
+      "invalid_cidr": "The prefix has host bits set.",
+      "invalid_prefix": "A route must be a masked IP prefix.",
+      "empty_principal": "Empty principal."
+    },
+    "hujson": {
+      "label": "HuJSON text",
+      "hint": "Comments and trailing commas are allowed. Members by e-mail or mg-<membership>@; group: and tag: by name; resources by alias. Changes take effect only after \"Translate to form\" and save.",
+      "readOnlyHint": "Read-only — this version cannot be edited.",
+      "exportWarnings": "Export warnings",
+      "import": "Translate to form",
+      "failed_one": "Could not translate: {{count}} error. The form is unchanged.",
+      "failed_other": "Could not translate: {{count}} errors. The form is unchanged.",
+      "errors": "Errors of the HuJSON text",
+      "imported": "Translated into the form — review it, then save."
+    },
+    "diff": {
+      "title": "Diff",
+      "against": "Compared with",
+      "desired": "Current desired version",
+      "blocking": "This version's validation report has blocking errors.",
+      "grantsAdded_one": "Grant added ({{count}})",
+      "grantsAdded_other": "Grants added ({{count}})",
+      "grantsRemoved_one": "Grant removed ({{count}})",
+      "grantsRemoved_other": "Grants removed ({{count}})",
+      "omitted": "The document is too large: line diff omitted (the grants diff is still there).",
+      "lines": "Line diff of the rendered policy",
+      "note": "Both sides are rendered over the current tables ({{from}} → {{to}}).",
+      "empty": "empty"
+    },
+    "applied": {
+      "states": {
+        "pending": "Applying",
+        "applied": "Applied",
+        "failed": "Apply failed",
+        "unknown": "Outcome unknown"
+      },
+      "triggers": {
+        "bootstrap": "bootstrap",
+        "manual": "manual apply",
+        "group_change": "group membership change",
+        "resource_change": "resource change",
+        "tag_change": "tag catalog change",
+        "suspend": "suspension",
+        "resume": "resume",
+        "restore": "restore from backup",
+        "drift_repair": "drift repair",
+        "rollback": "rollback"
+      },
+      "version": "View version",
+      "at": "Applied to Headscale at",
+      "sha": "sha256 sent and read back:",
+      "error": "Error code:"
+    },
+    "current": {
+      "title": "Current state",
+      "desired": "Desired version",
+      "noDesired": "None",
+      "applied": "Applied on Headscale",
+      "notApplied": "No application yet",
+      "latest": "Latest application",
+      "converged": "Clients converged",
+      "convergedUnknown": "Not observable from Headscale — each client receives the new policy at its next update (T-18).",
+      "review": "Review",
+      "fourEyesOn": "4-eyes: on",
+      "fourEyesOff": "4-eyes: off (self-review)",
+      "stepUp": "Apply/rollback need a sign-in within 15 minutes"
+    },
+    "job": {
+      "title": "policy.apply job",
+      "final": "final state",
+      "polling": "refreshing automatically",
+      "steps": "Job steps",
+      "succeeded": "Applied: Headscale holds exactly the policy sent (read-back sha256 matches)."
+    },
+    "stale": {
+      "title": "The version changed elsewhere (412)",
+      "body": "The copy you are looking at is outdated (another revision). Reload the latest one and try again — unsaved changes are discarded.",
+      "reload": "Reload the latest version"
+    },
+    "meta": {
+      "title": "Version information",
+      "revision": "Revision (If-Match)",
+      "content": "content_sha256",
+      "createdBy": "Author",
+      "submittedBy": "Submitted by",
+      "approvedBy": "Approved by",
+      "rejectedBy": "Rejected by",
+      "parent": "Based on",
+      "staleBase": "stale base",
+      "rollbackOf": "Rollback of"
+    },
+    "actions": {
+      "title": "Lifecycle",
+      "saveFirst": "There are unsaved changes — save before validating or reviewing.",
+      "fourEyesSelf": "4-eyes is on: you wrote or submitted this version, so you cannot approve it — another Owner/Admin approves it.",
+      "ownerOnly": "The version acknowledges a rule only a Tenant Owner may accept (L4/L12) — a Tenant Owner approves it.",
+      "validate": "Validate",
+      "submit": "Submit for review",
+      "approve": "Approve",
+      "selfApprove": "Confirm and approve",
+      "reject": "Reject",
+      "reapply": "Apply again",
+      "apply": "Apply",
+      "rollback": "Roll back to this content",
+      "newDraft": "New draft from this content"
+    },
+    "staleBase": {
+      "title": "Stale base (409 stale_base)",
+      "body": "This version was written on an older desired version; the desired version has changed since. Create a new draft from this content (based on the current desired version), validate and review it again."
+    },
+    "content": {
+      "title": "Content",
+      "mode": "Editing mode",
+      "form": "Form",
+      "hujson": "HuJSON",
+      "platformText": "A platform version (HuJSON text, no typed model) — read-only.",
+      "save": "Save draft",
+      "discard": "Discard changes",
+      "unsaved": "Unsaved",
+      "localProblems_one": "{{count}} problem to fix before saving",
+      "localProblems_other": "{{count}} problems to fix before saving",
+      "backToDraft": "Saving returns the version to draft and clears its approval and validation result."
+    },
+    "approve": {
+      "title": "Approve version {{n}}?",
+      "peer": "You approve as the second person (4-eyes). The approval is bound to the exact content you reviewed.",
+      "self": "4-eyes is off: you confirm the diff and the validation result of the rendered policy yourself (review_mode = self).",
+      "sha": "Content approved (content_sha256):",
+      "reviewed": "I have reviewed the diff and the validation result of this version."
+    },
+    "reject": {
+      "title": "Reject version {{n}}?",
+      "description": "The version becomes rejected; its author can create a new draft.",
+      "reason": "Reason"
+    },
+    "rollback": {
+      "title": "Roll back to the content of version {{n}}?",
+      "description": "Creates a new version with this content (its approval is inherited — the content was approved before), makes it desired and applies it at once (policy.apply job)."
+    },
+    "apply": {
+      "title": "Apply version {{n}}?",
+      "description": "The version becomes desired and the policy.apply job renders it over the current tables → lint → CheckPolicy → SetPolicy → read-back sha256.",
+      "stepUp": "This needs a sign-in within the last 15 minutes (step-up) — when asked, sign in again and retry.",
+      "converged": "\"Applied to Headscale\" does not mean every client has the new policy."
+    },
+    "local": {
+      "principalsRequired": "needs at least one principal.",
+      "badCidr": "is not a valid address/prefix.",
+      "grantsRequired": "grants must be a list.",
+      "ipRequired": "needs at least one protocol/port (ip).",
+      "badIp": "invalid protocol/port.",
+      "usersRequired": "needs at least one account.",
+      "badSshUser": "invalid SSH account.",
+      "ackReason": "the reason needs 5–500 characters."
+    }
+  },
+  "tags": {
+    "intro": "The tenant's tag catalog: only tags listed here can be set on devices, enrollment keys or used in a policy. Every tag is rendered into tagOwners with no owner — only the platform sets tags. Every catalog change applies the policy again.",
+    "catalog": "Catalog",
+    "empty": "No tag yet.",
+    "col": {
+      "name": "Tag name",
+      "purpose": "Purpose",
+      "description": "Description",
+      "updated": "Updated",
+      "actions": "Actions"
+    },
+    "purposes": {
+      "router": "router (platform)",
+      "exit": "exit (platform)",
+      "server": "server",
+      "custom": "custom"
+    },
+    "platformManaged": "platform-managed",
+    "readOnly": "read-only",
+    "edit": "Edit description",
+    "editOf": "Edit the description of {{name}}",
+    "delete": "Delete",
+    "deleteOf": "Delete {{name}}",
+    "deleteTitle": "Delete tag {{name}}?",
+    "deleteDescription": "A tag still referenced by devices, enrollment keys, network resources or policies cannot be deleted (409, with the counts).",
+    "inUse": "The tag is still referenced — remove the references (devices, keys, resources, policy versions) and delete it again.",
+    "create": "Declare a tag",
+    "nameHint": "tag:<lowercase letters, digits, hyphens>, at most 54 characters; cannot be changed later.",
+    "createAction": "Declare",
+    "created": "{{name}} declared.",
+    "editTitle": "Description of {{name}}",
+    "stale": "The tag was changed elsewhere — close the dialog and open it again to edit the latest copy.",
+    "save": "Save"
   },
   "network": {
     "job": {
