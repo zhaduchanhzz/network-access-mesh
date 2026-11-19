@@ -4,6 +4,8 @@
 //   /tenants                       chọn tenant (membership hoặc support grant)
 //   /t/:tenantId/<mục>             Tenant Portal (TENANT_NAV; màn hình đã xây: tenant/pages.tsx)
 //   /t/:tenantId/devices/:deviceId chi tiết thiết bị (P4-T04)
+//   /enroll/claim?tenant=&auth_id= trang claim web-auth (P4-T08 — đích chuyển hướng của edge v10, P4-T07); tự đưa tới
+//                                  /login?tenant=<slug> khi chưa đăng nhập
 //   /platform/<mục>                Platform Console — chỉ trên admin. (PLATFORM_NAV)
 import { Outlet, type RouteObject } from "react-router";
 import { MaintenanceBanner, RateLimitNotice, StepUpPrompt } from "../components/Banners";
@@ -15,6 +17,7 @@ import { PLATFORM_SCREENS } from "../platform/screens";
 import { TENANT_EXTRA_ROUTES } from "../tenant/pages";
 import { TenantHome, TenantNavRoute, TenantScope } from "../tenant/TenantScope";
 import { TenantSelectPage } from "../tenant/TenantSelectPage";
+import { ClaimPage } from "../tenant/enrollment/ClaimPage";
 import { HomeRedirect, RequireSession } from "./guards";
 
 function RootLayout() {
@@ -45,6 +48,7 @@ export const routes: RouteObject[] = [
     children: [
       { index: true, element: <HomeRedirect /> },
       { path: "login", element: <LoginPage /> },
+      { path: "enroll/claim", element: <ClaimPage /> },
       {
         element: <RequireSession />,
         children: [

@@ -2,7 +2,7 @@
 // đọc của ma trận §8.5/§8.6 để hiện (UX — server vẫn quyết định). Mục chưa xây (`available: false`) hiện trang
 // "chưa khả dụng" kèm task sẽ xây nó (§12.4: không mock, không số liệu giả); task UI thay `available` khi hoàn tất.
 // Thứ tự trong mảng = thứ tự ưu tiên của trang chủ tenant (mục đầu tiên role được xem); sidebar nhóm theo NAV_GROUPS.
-import { can } from "../auth/permissions";
+import { can, canAny } from "../auth/permissions";
 
 export interface NavItem {
   /** segment đường dẫn dưới /t/:tenantId hoặc /platform */
@@ -11,6 +11,8 @@ export interface NavItem {
   labelKey: string;
   group: NavGroup;
   permission: string;
+  /** chỉ hiện khi permission có phạm vi `any` (không phải ô ○ "của mình" của §8.6) — P4-T08: End User dùng "Thêm thiết bị" */
+  scope?: "any";
   /** task ở §20 xây màn hình này */
   task: string;
   /** "mvp" hoặc "post_mvp" (Phase 6+, §12.3) */
@@ -23,8 +25,8 @@ export type NavGroup = "overview" | "devices" | "access" | "network" | "people" 
 export const TENANT_NAV: readonly NavItem[] = [
   { path: "overview", labelKey: "nav.tenant.overview", group: "overview", permission: "tenant.dashboard:read", task: "P4-T04", phase: "mvp", available: true },
   { path: "devices", labelKey: "nav.tenant.devices", group: "devices", permission: "tenant.device:read", task: "P4-T04", phase: "mvp", available: true },
-  { path: "enroll", labelKey: "nav.tenant.enroll", group: "devices", permission: "tenant.enrollment:read", task: "P4-T08", phase: "mvp", available: false },
-  { path: "enrollment-keys", labelKey: "nav.tenant.enrollmentKeys", group: "devices", permission: "tenant.enrollment:issue_privileged", task: "P4-T08", phase: "mvp", available: false },
+  { path: "enroll", labelKey: "nav.tenant.enroll", group: "devices", permission: "tenant.enrollment:read", task: "P4-T08", phase: "mvp", available: true },
+  { path: "enrollment-keys", labelKey: "nav.tenant.enrollmentKeys", group: "devices", permission: "tenant.enrollment:read", scope: "any", task: "P4-T08", phase: "mvp", available: true },
   { path: "notifications", labelKey: "nav.tenant.notifications", group: "overview", permission: "tenant.notification:read", task: "P4-T04", phase: "mvp", available: true },
   { path: "relay", labelKey: "nav.tenant.relay", group: "network", permission: "tenant.relay:read", task: "P4-T04", phase: "mvp", available: true },
   { path: "policies", labelKey: "nav.tenant.policies", group: "access", permission: "tenant.policy:read", task: "P4-T11", phase: "mvp", available: true },
@@ -66,6 +68,11 @@ export const PLATFORM_NAV: readonly NavItem[] = [
 
 export const NAV_GROUPS: readonly NavGroup[] = ["overview", "devices", "access", "network", "people", "governance", "operations"];
 
+/** Role được xem mục này (UX — server quyết định). */
+export function navAllowed(item: NavItem, role: string | null | undefined): boolean {
+  return item.scope === "any" ? canAny(role, item.permission) : can(role, item.permission);
+}
+
 export function visibleItems(items: readonly NavItem[], role: string | null | undefined): NavItem[] {
-  return items.filter((i) => can(role, i.permission));
+  return items.filter((i) => navAllowed(i, role));
 }

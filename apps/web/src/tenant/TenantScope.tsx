@@ -14,7 +14,7 @@ import { useNotices } from "../app/notices";
 import { can } from "../auth/permissions";
 import { tenantRole, useSession } from "../auth/session";
 import { AppShell } from "../layout/AppShell";
-import { TENANT_NAV, visibleItems, type NavItem } from "../nav/navModel";
+import { navAllowed, TENANT_NAV, visibleItems, type NavItem } from "../nav/navModel";
 import { ProblemAlert } from "../components/ProblemAlert";
 import { ForbiddenPage, NotFoundPage, UnavailablePage } from "../pages/StatusPages";
 import { TENANT_PAGES } from "./pages";
@@ -121,7 +121,7 @@ export function TenantHome() {
 
 export function TenantNavRoute({ item }: { item: NavItem }) {
   const { role } = useTenant();
-  if (!can(role, item.permission)) return <ForbiddenPage />;
+  if (!navAllowed(item, role)) return <ForbiddenPage />;
   const Screen = item.available ? TENANT_PAGES[item.path] : undefined;
   return Screen ? <Screen /> : <UnavailablePage item={item} />;
 }

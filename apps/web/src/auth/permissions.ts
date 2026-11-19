@@ -7,3 +7,8 @@ export function can(role: string | null | undefined, permission: string): boolea
   const grants = ROLE_PERMISSIONS[role];
   return grants !== undefined && Object.hasOwn(grants, permission);
 }
+
+/** Như `can`, nhưng chỉ với phạm vi `any` (ô ○ "chỉ của mình" của §8.6 không tính). */
+export function canAny(role: string | null | undefined, permission: string): boolean {
+  return can(role, permission) && ROLE_PERMISSIONS[role ?? ""]?.[permission] === "any";
+}

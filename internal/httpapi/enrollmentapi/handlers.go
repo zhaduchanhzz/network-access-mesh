@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"regexp"
 	"strconv"
 
 	"github.com/google/uuid"
@@ -111,18 +112,32 @@ func failure(err error) error {
 		return problem.Internal(err)
 	}
 	p := &problem.Error{Code: code, Detail: e.Detail, Cause: cause, RetryAfter: e.RetryAfter}
-	if code == gen.ProblemCodeValidationFailed {
+	if p.Detail == "" {
+		p.Detail = "The request could not be completed."
+	}
+	switch {
+	case code == gen.ProblemCodeValidationFailed:
 		field := e.Field
 		if field == "" {
 			field = "body"
 		}
 		p.Fields = []gen.FieldError{problem.Field(field, e.Reason, e.Detail)}
-	}
-	if p.Detail == "" {
-		p.Detail = "The request could not be completed."
+	case code == gen.ProblemCodeConflict && conflictReason.MatchString(e.Reason):
+		// P4-T08: the client tells the conflicts apart by a stable code, never by detail — the claim page shows the
+		// phishing warning only for no_pending_request, "link used or expired" for auth_id_already_claimed /
+		// auth_id_not_pending. A conflict happens after the object was found in the caller's scope, so the reason
+		// tells nothing a 404 hides.
+		field := e.Field
+		if field == "" {
+			field = "request"
+		}
+		p.Fields = []gen.FieldError{problem.Field(field, e.Reason, p.Detail)}
 	}
 	return p
 }
+
+// conflictReason is a reason code that is safe to echo in Problem.errors[].code of a 409.
+var conflictReason = regexp.MustCompile(`^[a-z][a-z_]{0,63}$`)
 
 func toRequest(r enrollment.Request) gen.EnrollmentRequest {
 	out := gen.EnrollmentRequest{Id: r.ID, Method: gen.EnrollmentMethod(r.Method), Status: gen.EnrollmentRequestStatus(r.Status),

@@ -253,6 +253,20 @@
       "applied": "Đang hiệu lực",
       "superseded": "Đã thay",
       "failed": "Lỗi (đã lùi)"
+    },
+    "enrollment": {
+      "requested": "Đang tạo",
+      "pending_approval": "Chờ duyệt",
+      "approved": "Đã duyệt",
+      "rejected": "Bị từ chối",
+      "issued": "Chờ thiết bị",
+      "claimed": "Đang xác nhận",
+      "registered": "Đang kiểm tra",
+      "verified": "Đã xác minh",
+      "consumed": "Đã dùng",
+      "expired": "Hết hạn",
+      "revoked": "Đã thu hồi",
+      "failed": "Thất bại"
     }
   },
   "platform": {
@@ -879,7 +893,10 @@
     "loadMore": "Tải thêm",
     "pagination": "Phân trang",
     "prevPage": "Trang trước",
-    "nextPage": "Trang sau"
+    "nextPage": "Trang sau",
+    "copy": "Sao chép",
+    "copied": "Đã sao chép.",
+    "copyFailed": "Không sao chép được — hãy chọn và sao chép thủ công."
   },
   "notif": {
     "filterLabel": "Lọc thông báo",
@@ -2094,6 +2111,239 @@
         "udp": "UDP",
         "icmp": "ICMP"
       }
+    }
+  },
+  "enroll": {
+    "intro": "Thêm thiết bị của bạn vào mạng của tenant bằng Tailscale client chính thức. Thiết bị cá nhân có trình duyệt dùng web-auth (không có key nào để sao chép); server, container, CI và điện thoại dùng pre-auth key một lần.",
+    "you": "Bạn",
+    "memberShort": "Thành viên {{id}}…",
+    "noLabel": "(chưa đặt nhãn)",
+    "tagOnly": "Chỉ tag (không chủ)",
+    "selfEnrollHint": "Tenant có thể chưa cho phép người dùng tự thêm thiết bị — liên hệ quản trị viên của tenant.",
+    "method": {
+      "web_auth": "Web-auth (đăng nhập qua Portal)",
+      "preauth_key": "Pre-auth key một lần",
+      "oidc": "OIDC gốc của Headscale"
+    },
+    "col": {
+      "device": "Thiết bị",
+      "method": "Phương thức",
+      "status": "Trạng thái",
+      "requester": "Người yêu cầu",
+      "owner": "Chủ thiết bị",
+      "options": "Tag / tùy chọn",
+      "created": "Tạo lúc",
+      "expires": "Mã/key hết hạn",
+      "actions": "Thao tác"
+    },
+    "os": {
+      "linux": {
+        "name": "Linux",
+        "step1": "Cài Tailscale client chính thức từ kho gói của bản phân phối (pkgs.tailscale.com).",
+        "step2": "Tạo yêu cầu thiết bị ở trang này và giữ trang mở trong chính trình duyệt này (cùng phiên).",
+        "step3": "Chạy lệnh trang hiển thị bằng sudo; lệnh in ra một link đăng nhập — mở link đó và xác nhận trong Portal."
+      },
+      "windows": {
+        "name": "Windows",
+        "step1": "Cài Tailscale client chính thức cho Windows (gói MSI từ trang tải về của Tailscale) — có thể đặt sẵn LoginURL của tenant khi cài (bên dưới).",
+        "step2": "Tạo yêu cầu thiết bị ở trang này và giữ trang mở trong chính trình duyệt này (cùng phiên).",
+        "step3": "Chạy lệnh trang hiển thị trong PowerShell quyền quản trị; mở link đăng nhập lệnh in ra và xác nhận trong Portal."
+      },
+      "macos": {
+        "name": "macOS",
+        "step1": "Cài Tailscale client chính thức cho macOS (gói standalone hoặc App Store).",
+        "step2": "Tạo yêu cầu thiết bị ở trang này và giữ trang mở trong chính trình duyệt này (cùng phiên).",
+        "step3": "Chạy lệnh trang hiển thị trong Terminal; mở link đăng nhập lệnh in ra và xác nhận trong Portal."
+      },
+      "ios": {
+        "name": "iOS",
+        "step1": "Cài app Tailscale chính thức từ App Store.",
+        "step2": "Client di động không đặt được hostname: dùng pre-auth key một lần do Portal cấp (phương thức key bên dưới).",
+        "step3": "Trong app, chọn máy chủ điều phối tùy chỉnh (Settings → Accounts → Use a custom coordination server), nhập login server ở đây và key."
+      },
+      "android": {
+        "name": "Android",
+        "step1": "Cài app Tailscale chính thức từ Google Play.",
+        "step2": "Client di động không đặt được hostname: dùng pre-auth key một lần do Portal cấp (phương thức key bên dưới).",
+        "step3": "Trong app, chọn máy chủ khác (Accounts → Use an alternate server), nhập login server ở đây và key."
+      }
+    },
+    "privacy": "Client Tailscale chính thức có thể gửi log chẩn đoán tới Tailscale Inc. trước lần kết nối đầu tiên vào mạng này. Cài đặt có quản lý nên đặt TS_NO_LOGS_NO_SUPPORT=true (hoặc chạy với --no-logs-no-support).",
+    "instructions": {
+      "noInstance": "Tenant chưa có control plane đang chạy — chưa thể thêm thiết bị. Thử lại sau hoặc liên hệ quản trị viên.",
+      "loginServer": "Login server của tenant",
+      "copyLoginServer": "Sao chép login server",
+      "windowsMsi": "Cài bằng MSI với LoginURL của tenant",
+      "copyMsi": "Sao chép lệnh cài MSI",
+      "windowsPolicy": "Hoặc đặt chính sách hệ thống LoginURL (máy đã cài)",
+      "copyPolicy": "Sao chép lệnh đặt chính sách LoginURL",
+      "mobileNote": "Web-auth không dùng được trên điện thoại (không đặt được hostname mang mã enrollment) — dùng pre-auth key một lần.",
+      "managedEnv": "Biến môi trường cho cài đặt có quản lý"
+    },
+    "wizard": {
+      "title": "Đăng ký thiết bị mới",
+      "os": "1. Hệ điều hành của thiết bị",
+      "method": "2. Phương thức đăng ký",
+      "webHint": "Mặc định cho thiết bị cá nhân: chạy lệnh, mở link client in ra trong trình duyệt này rồi xác nhận. Không có key nào để sao chép.",
+      "webMobile": "Không dùng được trên điện thoại.",
+      "webOff": "Tenant đã tắt web-auth — dùng pre-auth key.",
+      "keyHint": "Cho server, container, CI hoặc thiết bị không có trình duyệt: key một lần, hạn ngắn, hiển thị một lần.",
+      "label": "Nhãn thiết bị (tùy chọn)",
+      "labelHint": "Tên thiết bị sau khi đăng ký: chữ thường, số, dấu gạch ngang (tối đa 63 ký tự).",
+      "labelInvalid": "Nhãn chỉ gồm chữ thường a–z, số và dấu gạch ngang, không bắt đầu/kết thúc bằng gạch ngang.",
+      "ttl": "Hạn của key (phút)",
+      "ttlHint": "Từ 1 đến {{max}} phút (tenant có thể đặt trần thấp hơn).",
+      "submitWeb": "Tạo lệnh đăng ký",
+      "submitKey": "Tạo pre-auth key",
+      "noRequest": "Role của bạn chỉ xem được hướng dẫn và yêu cầu — không tạo được yêu cầu thiết bị."
+    },
+    "pendingApproval": {
+      "title": "Đã gửi yêu cầu — chờ duyệt",
+      "body": "Tenant yêu cầu duyệt trước khi phát lệnh hoặc key. Khi yêu cầu được duyệt, quay lại trang Thêm thiết bị và bấm nút nhận lệnh/key ở danh sách yêu cầu của bạn (trong 24 giờ)."
+    },
+    "issued": {
+      "title": "Yêu cầu thiết bị: {{label}}",
+      "runCommand": "Chạy lệnh này trên thiết bị (một lần, gắn với phiên Portal này):",
+      "copyCommand": "Sao chép lệnh",
+      "hostname": "Hostname bắt buộc:",
+      "expires": "Hết hạn:",
+      "next1": "Chạy đúng lệnh trên thiết bị của bạn — không sửa hostname.",
+      "next2": "Client in ra một link đăng nhập: mở link đó trong CHÍNH trình duyệt này; Portal hiện trang xác nhận.",
+      "next3": "Nếu link mở ở trình duyệt khác, dán link vào ô \"Dán link hoặc Auth ID\" bên dưới.",
+      "dismiss": "Đóng",
+      "ended": {
+        "expired": "Lệnh đã hết hạn — tạo yêu cầu mới.",
+        "revoked": "Yêu cầu đã bị thu hồi."
+      }
+    },
+    "key": {
+      "onceWarning": "Key chỉ hiển thị MỘT lần và không được lưu ở nền tảng. Sao chép ngay vào nơi an toàn; đóng hộp này là mất key (cần thu hồi rồi cấp key mới).",
+      "value": "Pre-auth key",
+      "copy": "Sao chép pre-auth key",
+      "command": "Lệnh trên thiết bị",
+      "envHint": "Đặt key vào biến môi trường TS_AUTHKEY trước khi chạy lệnh — không dán key vào dòng lệnh để key không vào lịch sử shell.",
+      "dialogTitle": "Pre-auth key (hiển thị một lần)",
+      "saved": "Tôi đã lưu key ở nơi an toàn.",
+      "close": "Đóng và xóa key khỏi màn hình",
+      "create": "Tạo pre-auth key",
+      "createTitle": "Tạo pre-auth key",
+      "createHint": "Key dùng một lần, hạn tối đa {{max}} phút, luôn có hạn tường minh.",
+      "owner": "Thiết bị thuộc về",
+      "owners": {
+        "self": "Tôi",
+        "member": "Thành viên khác",
+        "tags": "Chỉ tag (không chủ — thiết bị dùng chung, server)"
+      },
+      "member": "Thành viên",
+      "pickMember": "Chọn thành viên…",
+      "tags": "Tag (từ danh mục)",
+      "tagsHint": "Chỉ tag đã khai báo trong danh mục của tenant; key chỉ-tag phải có ít nhất một tag.",
+      "noTags": "Danh mục tag trống — khai báo tag ở trang Danh mục tag.",
+      "reusable": "Dùng nhiều lần (reusable)",
+      "reusableHint": "Một key đăng ký được nhiều thiết bị cho tới khi hết hạn — chỉ dùng cho tự động hóa.",
+      "ephemeral": "Ephemeral",
+      "ephemeralHint": "Node tự bị xóa khi ngắt kết nối (container, CI).",
+      "submit": "Tạo key",
+      "secretGone": "Key của lần gửi này đã hết hạn giữ tạm nên không hiển thị lại được: thu hồi yêu cầu trong danh sách rồi tạo key mới."
+    },
+    "keys": {
+      "intro": "Pre-auth key và yêu cầu thêm thiết bị của tenant. Key luôn có hạn ngắn và chỉ hiển thị một lần; thu hồi expire key ở control plane và chỉ báo xong sau khi đọc lại.",
+      "all": "Mọi yêu cầu và key",
+      "empty": "Chưa có yêu cầu nào."
+    },
+    "queue": {
+      "title": "Yêu cầu chờ duyệt",
+      "empty": "Không có yêu cầu nào chờ duyệt."
+    },
+    "mine": {
+      "title": "Yêu cầu của bạn",
+      "empty": "Bạn chưa có yêu cầu thiết bị nào.",
+      "allLink": "Xem mọi yêu cầu và key của tenant"
+    },
+    "paste": {
+      "title": "Dán link hoặc Auth ID",
+      "hint": "Đã chạy lệnh nhưng link mở ở trình duyệt khác? Dán link client in ra (…/register/hskey-authreq-…) hoặc Auth ID vào đây.",
+      "label": "Link hoặc Auth ID",
+      "check": "Tiếp tục",
+      "errors": {
+        "none": "Không thấy Auth ID hợp lệ (hskey-authreq- và 24 ký tự).",
+        "several": "Có nhiều Auth ID — chỉ dán một link.",
+        "other_server": "Link thuộc control plane hoặc tenant khác — không gửi tới tenant này."
+      }
+    },
+    "claim": {
+      "title": "Xác nhận thiết bị",
+      "tenant": "Tenant: {{name}}",
+      "cautionTitle": "Chỉ xác nhận nếu chính bạn vừa chạy lệnh",
+      "caution": "Xác nhận sẽ gắn thiết bị đang chờ vào tài khoản của bạn. Chỉ tiếp tục nếu CHÍNH BẠN vừa chạy lệnh tailscale up trên thiết bị của mình trong vài phút qua.",
+      "cautionNever": "Nếu ai đó gửi link này cho bạn (e-mail, chat), đừng xác nhận — đó có thể là lừa đảo để đưa thiết bị lạ vào mạng.",
+      "noPendingSeen": "Không thấy yêu cầu thêm thiết bị nào của bạn đang chờ. Nếu bạn không vừa tạo yêu cầu ở trang Thêm thiết bị, đừng xác nhận.",
+      "pendingOne": "Yêu cầu đang chờ: {{label}} — hết hạn",
+      "pick": "Bạn có nhiều yêu cầu đang chờ: chọn yêu cầu của thiết bị vừa chạy lệnh",
+      "ack": "Tôi vừa chạy lệnh trên thiết bị của chính tôi và muốn thêm thiết bị đó.",
+      "confirm": "Xác nhận thiết bị",
+      "verified": "Đã thêm thiết bị {{label}}.",
+      "verifiedHint": "Thiết bị đã đăng ký và được xác minh; policy hiện hành áp dụng ngay (chưa có grant ⇒ chưa truy cập được gì).",
+      "toDevices": "Tới danh sách thiết bị",
+      "failed": "Thiết bị không qua bước kiểm tra",
+      "usedTitle": "Link đã dùng hoặc đã hết hạn",
+      "used": "Link đăng nhập chỉ dùng được một lần và sống 15 phút. Chạy lại lệnh tailscale up để nhận link mới.",
+      "disabledTitle": "Tenant không nhận web-auth",
+      "disabled": "Tenant đã tắt đăng ký bằng web-auth — dùng pre-auth key một lần ở trang Thêm thiết bị.",
+      "phishingTitle": "Cảnh báo: bạn không có yêu cầu thiết bị nào đang chờ",
+      "phishing": "Không có yêu cầu thêm thiết bị nào của bạn đang chờ trong phiên này, nên link này không được xác nhận. Nếu bạn không tự chạy lệnh, rất có thể ai đó đang lừa bạn đưa thiết bị của họ vào mạng — sự việc đã được ghi nhận.",
+      "phishingSession": "Nếu chính bạn vừa chạy lệnh: tạo yêu cầu ở trang Thêm thiết bị trong trình duyệt này rồi chạy lại đúng lệnh trang hiển thị.",
+      "invalidTitle": "Link không hợp lệ",
+      "invalid": "Link xác nhận thiếu hoặc sai định dạng (hoặc đã được xử lý). Mở lại link mà client in ra, hoặc dán link ở trang Thêm thiết bị.",
+      "notMemberTitle": "Link không thuộc tenant của bạn",
+      "notMember": "Bạn không phải thành viên của tenant trong link này (hoặc đang đăng nhập bằng tài khoản khác). Không có gì được xác nhận.",
+      "toEnroll": "Tới trang Thêm thiết bị"
+    },
+    "failure": {
+      "node_mismatch": "Thiết bị đăng ký không khớp yêu cầu (hostname khác lệnh đã phát, sai người dùng hoặc có tag) — đã bị xóa ngay. Chạy đúng lệnh trang hiển thị.",
+      "foreign_node": "Thiết bị đã thuộc người khác — đã bị vô hiệu (expire) và chờ chủ thiết bị xử lý.",
+      "auth_id_not_pending": "Control plane không còn phiên đăng nhập này (sống 15 phút) — chạy lại lệnh.",
+      "claim_unfinished": "Lần xác nhận không hoàn tất — tạo yêu cầu mới.",
+      "issue_unfinished": "Không phát được lệnh/key — tạo yêu cầu mới.",
+      "key_missing": "Key không còn ở control plane.",
+      "node_gone": "Thiết bị đã đăng ký bằng key này không còn.",
+      "record_failed": "Không ghi được thiết bị đã đăng ký — thử lại hoặc liên hệ quản trị viên."
+    },
+    "actions": {
+      "approve": "Duyệt",
+      "reject": "Từ chối",
+      "revoke": "Thu hồi",
+      "startWeb": "Nhận lệnh đăng ký",
+      "startKey": "Nhận pre-auth key",
+      "approveFor": "Duyệt yêu cầu {{label}}",
+      "rejectFor": "Từ chối yêu cầu {{label}}",
+      "revokeFor": "Thu hồi yêu cầu {{label}}",
+      "startFor": "Nhận lệnh hoặc key cho {{label}}",
+      "needsOther": "Chờ người khác duyệt",
+      "revoking": "Đang thu hồi — chờ control plane xác nhận…",
+      "revokeNotApplied": "Chưa thu hồi: control plane không phản hồi nên yêu cầu và key vẫn giữ nguyên. Thử lại.",
+      "done": {
+        "approve": "Đã duyệt yêu cầu {{label}} — người yêu cầu nhận lệnh/key ở trang Thêm thiết bị.",
+        "reject": "Đã từ chối yêu cầu {{label}}.",
+        "revoke": "Đã thu hồi {{label}} — control plane xác nhận key/mã không còn dùng được."
+      },
+      "title": {
+        "approve": "Duyệt yêu cầu {{label}}?",
+        "reject": "Từ chối yêu cầu {{label}}?",
+        "revoke": "Thu hồi {{label}}?"
+      },
+      "desc": {
+        "approve": "Sau khi duyệt, chính người yêu cầu nhận lệnh hoặc key (một lần) trong phiên Portal của họ. Bạn không thể duyệt yêu cầu của chính mình.",
+        "reject": "Yêu cầu kết thúc; người yêu cầu phải tạo yêu cầu mới.",
+        "revoke": "Key/mã đã phát bị vô hiệu ở control plane và đọc lại xác minh trước khi báo xong. Thiết bị đã đăng ký không bị đụng — thu hồi thiết bị ở trang Thiết bị."
+      }
+    },
+    "startConflict": {
+      "already_started": "Lệnh/key của yêu cầu này đã được phát (chỉ hiển thị một lần) — thu hồi rồi tạo yêu cầu mới nếu đã mất.",
+      "request_expired": "Yêu cầu đã chờ quá 24 giờ và hết hạn — tạo yêu cầu mới.",
+      "not_approved": "Yêu cầu chưa được duyệt.",
+      "not_requester": "Chỉ người tạo yêu cầu mới nhận được lệnh/key.",
+      "other": "Trạng thái yêu cầu đã đổi — tải lại danh sách."
     }
   }
 }

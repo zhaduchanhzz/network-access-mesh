@@ -49,6 +49,14 @@ const TONES: Record<string, Tone> = {
   pending_approval: "warn",
   superseded: "neutral",
   applied: "ok",
+  // yêu cầu enrollment (P4-T08)
+  requested: "warn",
+  issued: "info",
+  claimed: "warn",
+  registered: "warn",
+  verified: "ok",
+  consumed: "ok",
+  revoked: "neutral",
 };
 
 export function toneOf(status: string): Tone {

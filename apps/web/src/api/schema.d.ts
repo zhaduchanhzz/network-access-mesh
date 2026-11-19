@@ -2033,8 +2033,10 @@ export interface paths {
         /**
          * Xác nhận đăng ký web-auth bằng Auth ID (luồng A, §7.4 bước 6–8)
          * @description Chỉ nhận khi **chính người gọi** có yêu cầu `web_auth` đang chờ thiết bị (`issued`), phát trong **phiên Portal
-         *     này**, chưa quá hạn 10 phút — không có ⇒ `409` (trang claim hiển thị cảnh báo phishing, **không** có nút xác
-         *     nhận) và một `security_event` `enrollment.claim_without_request`. Nhiều yêu cầu đang chờ ⇒ phải nêu
+         *     này**, chưa quá hạn 10 phút — không có ⇒ `409` với `errors[0].code = no_pending_request` (trang claim hiển thị
+         *     cảnh báo phishing, **không** có nút xác nhận) và một `security_event` `enrollment.claim_without_request`; link đã
+         *     claim ⇒ `409` `auth_id_already_claimed`, Headscale không còn pending registration (15 phút) ⇒ `409`
+         *     `auth_id_not_pending` (P4-T08). Nhiều yêu cầu đang chờ ⇒ phải nêu
          *     `request_id`. Auth ID dạng `hskey-authreq-` + 24 ký tự; chỉ hash SHA-256 được lưu. Giới hạn tần suất theo
          *     thành viên (vượt ⇒ `429`). Tenant tắt `enrollment.web_auth_enabled` ⇒ `422`.
          *
@@ -2880,7 +2882,7 @@ export interface components {
             code: components["schemas"]["ProblemCode"];
             /** @description Giá trị `X-Request-Id` của request */
             request_id: string;
-            /** @description Lỗi theo từng trường (với `validation_failed`) */
+            /** @description Lỗi theo từng trường (với `validation_failed`). Với `conflict` (409) của nhóm `enrollment` (P4-T08): đúng một phần tử, `code` là lý do ổn định để client phân biệt các xung đột — `no_pending_request`, `auth_id_already_claimed`, `auth_id_not_pending`, `not_requester`, `not_approved`, `already_started`, `not_pending_approval`, `request_expired`, `claim_in_progress`, `already_final`, `no_instance`, `identity_mode_headscale_oidc` */
             errors?: components["schemas"]["FieldError"][];
         };
         /**
