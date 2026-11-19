@@ -273,6 +273,11 @@ func failCancelledReconfigure(ctx context.Context, tx *store.Tx, rec sqlcdb.Prov
 	if err := json.Unmarshal(rec.Input, &in); err != nil || in.Operation.ID == uuid.Nil {
 		return nil //nolint:nilerr // an unreadable input has no operation to close
 	}
+	if in.Operation.TenantID != nil {
+		// an operation of a tenant-scope caller (PUT /dns/settings — P4-T12): this platform transaction cannot write the
+		// tenant's event (RLS) — it stays open for reconcile (Logger.OpenOperations), the job itself is cancelled
+		return nil
+	}
 	done, err := operationFinished(ctx, tx.Q, in.Operation)
 	if err != nil || done {
 		return err

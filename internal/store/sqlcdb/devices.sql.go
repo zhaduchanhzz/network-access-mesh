@@ -535,6 +535,65 @@ func (q *Queries) ListExpiringDevices(ctx context.Context, arg ListExpiringDevic
 	return items, nil
 }
 
+const listLiveDevicesForRoutes = `-- name: ListLiveDevicesForRoutes :many
+SELECT id, tenant_id, instance_id, headscale_node_id, machine_key, node_key, name, given_name, ip_addresses, headscale_user_id, owner_membership_id, tags, register_method, online, last_seen, expiry, approved_routes, available_routes, subnet_routes, hs_created_at, first_seen_at, last_synced_at, sync_generation, removed_at, enrollment_request_id, revocation_state, revocation_kind, revocation_requested_at, revocation_verified_at, revocation_job_id FROM device_inventory_cache
+WHERE tenant_id = $1 AND removed_at IS NULL
+ORDER BY COALESCE(given_name, name, ''), id
+`
+
+// P4-T12 (network, qua devices.RouteRegister — §13.6): sổ thiết bị sống của tenant cho GET /routes (quảng bá vs đã
+// duyệt) và lint bản ghi DNS (IP tailnet của thiết bị, prefix đã duyệt).
+func (q *Queries) ListLiveDevicesForRoutes(ctx context.Context, tenantID uuid.UUID) ([]DeviceInventoryCache, error) {
+	rows, err := q.db.Query(ctx, listLiveDevicesForRoutes, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []DeviceInventoryCache{}
+	for rows.Next() {
+		var i DeviceInventoryCache
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.InstanceID,
+			&i.HeadscaleNodeID,
+			&i.MachineKey,
+			&i.NodeKey,
+			&i.Name,
+			&i.GivenName,
+			&i.IpAddresses,
+			&i.HeadscaleUserID,
+			&i.OwnerMembershipID,
+			&i.Tags,
+			&i.RegisterMethod,
+			&i.Online,
+			&i.LastSeen,
+			&i.Expiry,
+			&i.ApprovedRoutes,
+			&i.AvailableRoutes,
+			&i.SubnetRoutes,
+			&i.HsCreatedAt,
+			&i.FirstSeenAt,
+			&i.LastSyncedAt,
+			&i.SyncGeneration,
+			&i.RemovedAt,
+			&i.EnrollmentRequestID,
+			&i.RevocationState,
+			&i.RevocationKind,
+			&i.RevocationRequestedAt,
+			&i.RevocationVerifiedAt,
+			&i.RevocationJobID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOrphanedRevocations = `-- name: ListOrphanedRevocations :many
 SELECT d.id, d.revocation_job_id, d.revocation_kind,
        COALESCE(j.status, '')::text           AS job_status,
@@ -908,6 +967,31 @@ type SetDeviceRevocationJobParams struct {
 
 func (q *Queries) SetDeviceRevocationJob(ctx context.Context, arg SetDeviceRevocationJobParams) error {
 	_, err := q.db.Exec(ctx, setDeviceRevocationJob, arg.JobID, arg.TenantID, arg.ID)
+	return err
+}
+
+const setDeviceRoutes = `-- name: SetDeviceRoutes :exec
+UPDATE device_inventory_cache
+SET approved_routes = $1::cidr[], available_routes = $2::cidr[]
+WHERE tenant_id = $3 AND id = $4 AND removed_at IS NULL
+`
+
+type SetDeviceRoutesParams struct {
+	ApprovedRoutes  []netip.Prefix
+	AvailableRoutes []netip.Prefix
+	TenantID        uuid.UUID
+	ID              uuid.UUID
+}
+
+// P4-T12: route quảng bá/đã duyệt vừa đọc trực tiếp từ Headscale (đọc lại sau SetApprovedRoutes) — hàng đã khóa FOR
+// UPDATE trong cùng transaction.
+func (q *Queries) SetDeviceRoutes(ctx context.Context, arg SetDeviceRoutesParams) error {
+	_, err := q.db.Exec(ctx, setDeviceRoutes,
+		arg.ApprovedRoutes,
+		arg.AvailableRoutes,
+		arg.TenantID,
+		arg.ID,
+	)
 	return err
 }
 

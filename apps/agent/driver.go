@@ -46,8 +46,8 @@ type Driver interface {
 // composeDriver is the driver of the agent: the compose driver for EnsureInstance (storage → config → network →
 // container), status, inventory, start/stop/restart and remove (P3-T02); ValidateConfig (configtest in a throw-away
 // container), BootstrapPolicy, BootstrapApiKey, the edge attachment, the start guard and the edge supervisor (P3-T03);
-// Backup, Restore, PostRestoreReconcile (P3-T11); UpgradeInstance, InspectImage, PreflightUpgrade (P3-T13a). Still
-// UNIMPLEMENTED (after validation, authorisation, lock and guard): WriteDnsRecords (P4-T12).
+// Backup, Restore, PostRestoreReconcile (P3-T11); UpgradeInstance, InspectImage, PreflightUpgrade (P3-T13a);
+// WriteDnsRecords (P4-T12 — records/extra-records.json, tmp + rename).
 type composeDriver struct {
 	noDriver
 	c *compose.Driver
@@ -86,6 +86,9 @@ func (d composeDriver) InspectImage(ctx context.Context, i agentspec.Inspect) (*
 }
 func (d composeDriver) PreflightUpgrade(ctx context.Context, p agentspec.Preflight) (*agentv1.PreflightUpgradeResponse, error) {
 	return d.c.PreflightUpgrade(ctx, p)
+}
+func (d composeDriver) WriteDNSRecords(ctx context.Context, r agentspec.DNSRecords) (*agentv1.WriteDnsRecordsResponse, error) {
+	return d.c.WriteDNSRecords(ctx, r)
 }
 func (d composeDriver) BootstrapPolicy(ctx context.Context, c agentspec.Call, kind agentv1.PolicyKind) (*agentv1.BootstrapPolicyResponse, error) {
 	return d.c.BootstrapPolicy(ctx, c, kind)

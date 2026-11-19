@@ -224,6 +224,13 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 	if err := quar.Register(w); err != nil {
 		return nil, err
 	}
+	netw, err := newNetwork(cfg, d) // P4-T12: dns.records_write (the Host Agent writes records/extra-records.json)
+	if err != nil {
+		return nil, err
+	}
+	if err := registerRecordsJob(d, w, netw, agent); err != nil {
+		return nil, err
+	}
 	rcfg, err := newReconfigurer(cfg, d, agent) // P3-T13: instance.reconfigure (new version, restart, health gate, rollback)
 	if err != nil {
 		return nil, err

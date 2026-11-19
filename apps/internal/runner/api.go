@@ -30,6 +30,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/lifecycleapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/membersapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/monitoringapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/networkapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/notificationsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/provisioningapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/quarantineapi"
@@ -43,6 +44,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/jobs"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/members"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/monitoring"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/network"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/notifications"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/platform"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/policies"
@@ -146,8 +148,12 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 	if err != nil {
 		return nil, err
 	}
-	plat := platform.New(d.st) // P4-T03a: platform administration (users, settings, plans, IdPs, tenant registry fields)
-	actions, err := approvalActions(backups, deprov, mem, plat, d.tenants)
+	plat := platform.New(d.st)      // P4-T03a: platform administration (users, settings, plans, IdPs, tenant registry fields)
+	netw, err := newNetwork(cfg, d) // P4-T12: routes, DNS, resource catalog
+	if err != nil {
+		return nil, err
+	}
+	actions, err := approvalActions(backups, deprov, mem, plat, d.tenants, netw)
 	if err != nil {
 		return nil, err
 	}
@@ -210,6 +216,7 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 			Members:       membersapi.New(mem, appr),
 			Portal:        inbox,                               // P4-T04: POST …/notifications/{id}/read
 			Admin:         adminapi.New(plat, d.tenants, appr), // P4-T03a
+			Network:       networkapi.New(netw, appr),          // P4-T12
 		},
 	})
 	if err != nil {
@@ -237,9 +244,9 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 // break-glass (P4-T13). A request of an action not registered here can be read and rejected, never approved (409
 // action_unavailable).
 func approvalActions(backups *backup.Service, deprov *deprovision.Requester, mem *members.Service, plat *platform.Service,
-	ten *tenants.Service) (*approvals.Registry, error) {
+	ten *tenants.Service, net *network.Service) (*approvals.Registry, error) {
 	actions := []approvals.Action{consoleSessionAction(), restoreAction(backups), releaseAction(), deprovisionAction(deprov),
-		groupMembersAction(mem)}
+		groupMembersAction(mem), routeApprovalAction(net)}
 	return approvals.NewRegistry(append(actions, adminActions(plat, ten)...)...)
 }
 
