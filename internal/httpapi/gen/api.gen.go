@@ -2136,15 +2136,18 @@ type EnrollmentOS string
 type EnrollmentRequest struct {
 	ApprovedAt *time.Time `json:"approved_at,omitempty"`
 
-	// ApproverMembershipId Người duyệt hoặc từ chối
+	// ApproverMembershipId Người duyệt hoặc từ chối khi đó là thành viên của tenant; `null` khi chưa quyết định hoặc người quyết định là nhân viên nền tảng (`approver_support_grant_id`)
 	ApproverMembershipId *openapi_types.UUID `json:"approver_membership_id,omitempty"`
-	ClaimedAt            *time.Time          `json:"claimed_at,omitempty"`
-	CreatedAt            time.Time           `json:"created_at"`
-	CredentialExpiresAt  *time.Time          `json:"credential_expires_at,omitempty"`
-	DeviceLabel          *string             `json:"device_label,omitempty"`
-	Ephemeral            bool                `json:"ephemeral"`
-	FailureCode          *string             `json:"failure_code,omitempty"`
-	Id                   openapi_types.UUID  `json:"id"`
+
+	// ApproverSupportGrantId Người duyệt hoặc từ chối là nhân viên nền tảng qua Support Access Grant này (§8.7; grant vào chính tenant — `GET /support-grants`). Đã quyết định ⇒ đúng một trong `approver_membership_id` và trường này khác `null`
+	ApproverSupportGrantId *openapi_types.UUID `json:"approver_support_grant_id,omitempty"`
+	ClaimedAt              *time.Time          `json:"claimed_at,omitempty"`
+	CreatedAt              time.Time           `json:"created_at"`
+	CredentialExpiresAt    *time.Time          `json:"credential_expires_at,omitempty"`
+	DeviceLabel            *string             `json:"device_label,omitempty"`
+	Ephemeral              bool                `json:"ephemeral"`
+	FailureCode            *string             `json:"failure_code,omitempty"`
+	Id                     openapi_types.UUID  `json:"id"`
 
 	// IssuedAt Lúc phát mã/lệnh hoặc key
 	IssuedAt *time.Time `json:"issued_at,omitempty"`

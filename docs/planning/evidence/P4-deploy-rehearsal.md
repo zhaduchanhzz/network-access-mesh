@@ -182,8 +182,8 @@ recipient sau nghi thức khóa).
 
 ## 10. Chủ dự án cần duyệt
 
-- [ ] Đợt Phase 4 lên staging theo deploy-backend mục o (migration `0020`–`0027` có backup trước — `0027` thêm sau
-      diễn tập, expand-only; api/worker/web/agent
+- [ ] Đợt Phase 4 lên staging theo deploy-backend mục o (migration `0020`–`0028` có backup trước — `0027`, `0028` thêm
+      sau diễn tập, expand-only; api/worker/web/agent
       mới) — **thông báo trước** giờ reload edge (stream đóng sau 5 phút, client tự nối lại).
 - [ ] Dừng ở edge **v9** đợt này; v10 cùng đợt có P4-T08 (hoặc chấp nhận v10 ngay, với hệ quả: `tailscale up` không key ⇒
       link mở trang "không tìm thấy" của SPA; đăng ký bằng pre-auth key không ảnh hưởng).

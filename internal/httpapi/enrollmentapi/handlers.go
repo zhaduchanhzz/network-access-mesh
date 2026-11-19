@@ -6,7 +6,8 @@
 // createEnrollmentKey (`tenant.enrollment:issue_privileged`). It translates between the generated types and
 // internal/enrollment, which takes every decision; the only fact it adds is whether the caller may approve (its request
 // then skips the approval — §7.4), asked to the authorizer. Platform staff acting through a Support Access Grant (§8.7)
-// read and revoke like a tenant role of scope any; the operations that record a membership refuse them (memberOf).
+// read, revoke, approve and reject like a tenant role of scope any (the cells G of §8.6; a decision records the grant as
+// its decider — 0028); the operations that record a membership as the requester refuse them (memberOf).
 //
 // Wiring (apps/internal/runner — api process):
 //
@@ -72,8 +73,8 @@ func New(svc Service, auth Authorizer) *Handlers { return &Handlers{svc: svc, au
 
 var errNoDecision = errors.New("enrollmentapi: no session or decision in the request context (hooks missing)")
 
-// ReasonSupportNotMember is the reason (audit, logs) of the 403 an operation that records the caller's membership
-// answers to platform staff acting through a Support Access Grant (memberOf).
+// ReasonSupportNotMember is the reason (audit, logs) of the 403 an operation that records the caller's membership as
+// the requester answers to platform staff acting through a Support Access Grant (memberOf).
 const ReasonSupportNotMember = "support_actor_not_member"
 
 // actorOf is the caller: identity, Portal session, membership and the obligations of the decision.
@@ -88,9 +89,10 @@ func actorOf(ctx context.Context) (enrollment.Actor, error) {
 
 // actorFrom builds the caller from the session and the decision of the request. A decision is either a member's
 // (MembershipID) or — platform staff on the admin origin through a live Support Access Grant (§8.7, P4-T13; the
-// cells G of §8.6) — a support actor's: MembershipID is then uuid.Nil and the grant never has scope own,
-// so the reads and the revoke cover every request of the tenant (the audit of the request already carries
-// actor_type=support and the grant). Neither, both, or a session of another identity ⇒ 500 (hooks missing).
+// cells G of §8.6) — a support actor's: MembershipID is then uuid.Nil, SupportGrantID the grant (the decider an
+// approval or a rejection records — 0028) and the grant never has scope own, so the reads, the revoke and the
+// decisions cover every request of the tenant (the audit of the request already carries actor_type=support and the
+// grant). Neither, both, or a session of another identity ⇒ 500 (hooks missing).
 func actorFrom(s *identity.Session, d authz.Decision, ip netip.Addr) (enrollment.Actor, error) {
 	member, support := d.MembershipID != uuid.Nil, d.Support()
 	if s == nil || member == support || d.Principal.IdentityID != s.IdentityID {
@@ -102,16 +104,15 @@ func actorFrom(s *identity.Session, d authz.Decision, ip netip.Addr) (enrollment
 	}
 	return enrollment.Actor{IdentityID: s.IdentityID, MembershipID: d.MembershipID, Display: display,
 		ClientIP: ip, SessionID: s.PublicID, OwnOnly: d.OwnOnly,
-		SelfEnrollOnly: d.Condition == authz.CondSelfEnroll}, nil
+		SelfEnrollOnly: d.Condition == authz.CondSelfEnroll, SupportGrantID: d.SupportGrantID}, nil
 }
 
-// memberOf is actorOf for an operation that records the caller's membership in the request: its requester (create,
-// privileged key), the requester it must be (start, claim) or its decider (approve, reject —
-// enrollment_requests.approver_membership_id, which 0020 requires of every decision and which can only name a member
-// of the tenant). A support actor holds no membership, so it is refused there with 403 forbidden (reason
-// ReasonSupportNotMember, audited in the tenant's trail), before the service and whatever the object: §8.6 grants
-// staff tenant.enrollment:approve (cell G) but no decision of staff can be recorded until the schema can name one;
-// tenant.enrollment:request and :issue_privileged are not granted to staff at all (layer 1 refuses them first).
+// memberOf is actorOf for an operation that records the caller's membership in the request as its requester (create,
+// privileged key) or that the requester must perform itself (start, claim). A support actor holds no membership, so it
+// is refused there with 403 forbidden (reason ReasonSupportNotMember, audited in the tenant's trail), before the
+// service and whatever the object — tenant.enrollment:request and :issue_privileged are not granted to staff at all
+// (layer 1 refuses them first; this is the second line). The decisions (approve, reject) take actorOf: staff decide
+// through their grant (cell G of §8.6), recorded as approver_support_grant_id (0028).
 func memberOf(ctx context.Context) (enrollment.Actor, error) { return asMember(actorOf(ctx)) }
 
 // asMember refuses a caller without a membership (memberOf).
@@ -181,7 +182,8 @@ func toRequest(r enrollment.Request) gen.EnrollmentRequest {
 	out := gen.EnrollmentRequest{Id: r.ID, Method: gen.EnrollmentMethod(r.Method), Status: gen.EnrollmentRequestStatus(r.Status),
 		DeviceLabel: r.DeviceLabel, Tags: r.Tags, Ephemeral: r.Ephemeral, Reusable: r.Reusable,
 		RequestedByMembershipId: r.RequestedBy, TargetMembershipId: r.Target, ApproverMembershipId: r.Approver,
-		ApprovedAt: r.ApprovedAt, IssuedAt: r.IssuedAt, CredentialExpiresAt: r.CredentialExpiresAt, ClaimedAt: r.ClaimedAt,
+		ApproverSupportGrantId: r.ApproverGrant, ApprovedAt: r.ApprovedAt, IssuedAt: r.IssuedAt,
+		CredentialExpiresAt: r.CredentialExpiresAt, ClaimedAt: r.ClaimedAt,
 		FailureCode: r.FailureCode, LoginServer: r.LoginServer, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
 		Version: r.Version}
 	if out.Tags == nil {
@@ -304,7 +306,7 @@ func (h *Handlers) GetEnrollmentRequest(ctx context.Context, req gen.GetEnrollme
 
 // ApproveEnrollmentRequest implements POST …/enrollment/requests/{enrollmentRequestId}/approve.
 func (h *Handlers) ApproveEnrollmentRequest(ctx context.Context, req gen.ApproveEnrollmentRequestRequestObject) (gen.ApproveEnrollmentRequestResponseObject, error) {
-	a, err := memberOf(ctx)
+	a, err := actorOf(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -317,7 +319,7 @@ func (h *Handlers) ApproveEnrollmentRequest(ctx context.Context, req gen.Approve
 
 // RejectEnrollmentRequest implements POST …/enrollment/requests/{enrollmentRequestId}/reject.
 func (h *Handlers) RejectEnrollmentRequest(ctx context.Context, req gen.RejectEnrollmentRequestRequestObject) (gen.RejectEnrollmentRequestResponseObject, error) {
-	a, err := memberOf(ctx)
+	a, err := actorOf(ctx)
 	if err != nil {
 		return nil, err
 	}

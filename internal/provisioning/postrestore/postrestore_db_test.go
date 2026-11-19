@@ -585,10 +585,12 @@ func TestPostRestoreRefusals(t *testing.T) {
 }
 
 // TestPostRestoreSchemaWithoutSupportGrants — a dump of a schema before migration 0023 (P4-T05) has no
-// support_access_grants table: the step reports not_in_schema and the run completes.
+// support_access_grants table: the step reports not_in_schema and the run completes. CASCADE drops only the foreign key
+// enrollment_requests → support_access_grants of 0028 (the decider of a request through a grant), which such a schema
+// does not have either.
 func TestPostRestoreSchemaWithoutSupportGrants(t *testing.T) {
 	w := newWorld(t, true)
-	w.exec(`DROP TABLE support_access_grants`)
+	w.exec(`DROP TABLE support_access_grants CASCADE`)
 	rep := w.run(false)
 	if rep.Status != postrestore.StatusCompleted || rep.SupportGrants.Status != postrestore.SupportGrantsNotInSchema ||
 		rep.SupportGrants.Revoked != 0 || rep.SupportGrants.Expired != 0 || rep.Sessions.Revoked != int64(w.sessionsTotal) {

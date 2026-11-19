@@ -22,7 +22,7 @@
 | l | P3-T15 — kiểm soát quản trị IdP: api/worker mới (job `idp.audit_sync`, cổng console), `realm-update.sh` (`frontendUrl` của master, `view-events` của danh tính provisioning), Caddyfile **v8** | Ủy quyền Phase 3 (người điều phối) + **thông báo trước reload edge** | Xem bảng của mục l |
 | m | P4-T01a — SPA sau edge: service `web` trong `mg-app`, Caddyfile **v9** (`app.`/`admin.` ngoài `/api/*` ⇒ `web:8080`) | **[CHỦ DỰ ÁN/NGƯỜI ĐIỀU PHỐI DUYỆT]** + **thông báo trước reload edge** | Xem mục m |
 | n | P4-T07 — Caddyfile **v10**: `/register/<auth_id>` không `via=portal` ⇒ 302 tới trang claim của Portal; chỉ sau khi API claim (P4-T06) và trang `/enroll/claim` (P4-T08) đã chạy | **[CHỦ DỰ ÁN DUYỆT]** + **thông báo trước reload edge** | Xem mục n |
-| o | Lô Phase 4 đầu tiên lên staging (`8840590` → `9736636`): migration `0020`–`0027`, api/worker/web/**agent** mới, Caddyfile v9 (v10 khi có P4-T08) — trình tự đã diễn tập trên VM 110 | **[CHỦ DỰ ÁN DUYỆT]** + **thông báo trước reload edge** | Xem mục o |
+| o | Lô Phase 4 đầu tiên lên staging (`8840590` → `9736636`): migration `0020`–`0028`, api/worker/web/**agent** mới, Caddyfile v9 (v10 khi có P4-T08) — trình tự đã diễn tập trên VM 110 | **[CHỦ DỰ ÁN DUYỆT]** + **thông báo trước reload edge** | Xem mục o |
 
 Lệch thứ tự so với danh sách của brief: **idp-bootstrap và đăng nhập thử nằm sau (h)** — worker chỉ tới được Admin API của Keycloak qua site `auth.` mới của edge, đăng nhập cần site `app.`/`admin.`. Adopt, client secret, bootstrap SA/seed (e, f) không cần edge mới.
 
@@ -335,7 +335,7 @@ Hoàn tác: cài lại Caddyfile v9 đã sao lưu + `validate` + reload. Ghi và
 
 ## o. Lô Phase 4 đầu tiên lên staging (`8840590` → `9736636`) — trình tự đã diễn tập
 
-Áp mục m (web + v9) và — khi có P4-T08 — mục n trong **một** đợt, cùng migration `0020`–`0027`, api/worker/web mới và
+Áp mục m (web + v9) và — khi có P4-T08 — mục n trong **một** đợt, cùng migration `0020`–`0028`, api/worker/web mới và
 **Host Agent mới** (P4-T12 `WriteDnsRecords`: Agent cũ trả UNIMPLEMENTED ⇒ job `dns.records_write` `failed
 agent_refused`). Diễn tập đầy đủ (nâng, kiểm, hoàn tác A và B, nâng lại) trên VM 110 với chính các script của host:
 [P4-deploy-rehearsal](../planning/evidence/P4-deploy-rehearsal.md) — số đo, lỗi runbook đã sửa (F-1…F-5), mục chỉ kiểm
@@ -345,6 +345,17 @@ agent_refused`). Diễn tập đầy đủ (nâng, kiểm, hoàn tác A và B, n
 image idp/edge/headscale/backup/probe/node-exporter, `compose.edge.yaml` (chỉ dòng chú thích), firewall, network,
 secret file, `staging.env`, VPS (gateway v2 đã lên từ F-G3-1). Biến mới tùy chọn: `MG_IDP_CONSOLE_LOGIN_NOTIFY_WINDOW`
 (worker, mặc định 10m — không render vào compose).
+
+**Migration `0028`** (P4-T06/C4, thêm sau diễn tập — người quyết định enrollment là nhân viên nền tảng qua Support Access
+Grant): expand-only, đi cùng `0020`–`0027` trong **cùng** lần `migrate.sh` ở bước 4 — script tự chạy backup
+`pre-migration` trước và dừng nếu backup lỗi; bộ đó là điểm hoàn tác B. Nội dung: cột NULL
+`enrollment_requests.approver_support_grant_id` + FK ghép `(tenant_id, approver_support_grant_id)` →
+`support_access_grants (tenant_id, id)`, hai CHECK không tên của `0020` (`enrollment_requests_check7`, `_check10` — người
+quyết định phải là membership) thay bằng dạng "đúng một trong membership/grant", quyền `UPDATE` cột cho
+`mg_api_tenant`. Không preflight thêm: cột mới NULL ở mọi hàng nên FK không có gì để kiểm; hàng cũ hợp lệ dưới CHECK
+mới. Migration tự kiểm định nghĩa của hai CHECK trước khi xóa — tên lệch (schema bị sửa tay) ⇒ migration dừng nguyên
+khối, schema giữ 27, `migrate.sh` exit ≠ 0 (không xóa nhầm ràng buộc): khi đó dừng đợt, giữ api/worker cũ và báo lại.
+api/worker cũ (trước `0028`) chạy được trên schema 28: truy vấn sqlc liệt kê cột tường minh, không ghi cột mới.
 
 ```bash
 # 0. máy vận hành: workflow `images` xanh cho commit D (≥ 9736636) ⇒ MỘT commit pin [images.mg-api], [images.mg-worker],
@@ -374,9 +385,9 @@ diff /opt/meshguard/core/compose.app.yaml /tmp/mg-app/compose.app.yaml   # templ
 python3 tools/render_agent.py infrastructure/environments/staging/staging.env /tmp/agent
 diff /opt/meshguard/core/compose.agent.yaml /tmp/agent/compose.agent.yaml # chỉ image + MG_AGENT_HELPER_IMAGE
 diff /opt/meshguard/core/agent/allowlist /tmp/agent/agent/allowlist       # không đổi
-# 4. compose mới TRƯỚC, rồi backup pre-migration + migrate 0020–0027 (api/worker cũ vẫn chạy được trên schema 27)
+# 4. compose mới TRƯỚC, rồi backup pre-migration + migrate 0020–0028 (api/worker cũ vẫn chạy được trên schema 28)
 sudo install -m 0644 /tmp/mg-app/compose.app.yaml /opt/meshguard/core/compose.app.yaml
-sudo bash infrastructure/host/migrate.sh        # mong đợi "schema_version":27,"latest_migration":27 … "current":true + OK
+sudo bash infrastructure/host/migrate.sh        # mong đợi "schema_version":28,"latest_migration":28 … "current":true + OK
 sudo ls /opt/meshguard/backups/postgres | grep pre-migration | tail -1   # ghi id bộ — điểm hoàn tác B
 # 5. Host Agent mới (recreate ~4 s; tenant không bị đụng)
 sudo install -m 0644 /tmp/agent/compose.agent.yaml /opt/meshguard/core/compose.agent.yaml
@@ -404,8 +415,9 @@ sudo bash ~/mg-v9/tests/security/edge/run_staging.sh "mesh.$MG_BASE_DOMAIN" "$MG
 
 **Hoàn tác** (đo trên VM 110 — `P4-deploy-rehearsal` mục 6):
 
-- **A — nhanh, giữ DB** (schema 27 expand-only; api/worker/agent cũ đã kiểm 34/34 + tenant C 12/12 trên schema mới —
-  diễn tập đo trên 26, `0027` chỉ thêm cột NULL `enrollment_requests.requested_ttl_minutes` + CHECK):
+- **A — nhanh, giữ DB** (schema 28 expand-only; api/worker/agent cũ đã kiểm 34/34 + tenant C 12/12 trên schema mới —
+  diễn tập đo trên 26, `0027` chỉ thêm cột NULL `enrollment_requests.requested_ttl_minutes` + CHECK, `0028` cột NULL
+  `approver_support_grant_id` + FK + nới hai CHECK của người quyết định — mọi hàng api cũ ghi vẫn hợp lệ):
   cài lại `/root/Caddyfile.v8.$TS` + `/root/compose.edge.yaml.$TS` → `validate` → reload; cài lại
   `/root/compose.agent.yaml.$TS` → `up -d --wait`; cài lại `/root/compose.app.yaml.$TS` →
   `$APP up -d --wait --remove-orphans api worker mail-bridge` (gỡ `web`); `~/mg` = `~/mg.bak-$TS`. Gián đoạn `app.`

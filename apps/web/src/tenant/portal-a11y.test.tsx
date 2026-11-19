@@ -11,7 +11,7 @@ import en from "../i18n/locales/en.json";
 import vi from "../i18n/locales/vi.json";
 import { json, mockApi, renderApp, TENANT_A, tenantBody, tenantSession } from "../test/helpers";
 import { DASHBOARD, DEV_1, device, notification, RELAY, tagged } from "../test/portal";
-import { i18nKeyOfKind, NOTIFICATION_KINDS } from "./notifications/notificationText";
+import { i18nKeyOf, i18nKeyOfKind, NOTIFICATION_KINDS } from "./notifications/notificationText";
 
 async function violations(): Promise<string[]> {
   const r = await axe.run(document.body, {
@@ -86,6 +86,7 @@ describe("khóa i18n động của P4-T04", () => {
       "relay.verify.in_process",
       "relay.verify.verify_url",
       ...NOTIFICATION_KINDS.map(i18nKeyOfKind),
+      ...["enrollment.approved", "enrollment.rejected"].map((k) => i18nKeyOf(k, { by_support: true })),
       "notif.kinds.unknown",
       ...["never_synced", "no_source", "not_served"].map((r) => `dashboard.reasons.${r}`),
       ...["traffic_bytes", "throughput", "connections", "auth_failures", "client_latency"].map((m) => `relay.metrics.${m}`),

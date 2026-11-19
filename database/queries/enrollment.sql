@@ -13,8 +13,9 @@ WHERE t.id = sqlc.arg(tenant_id);
 
 -- name: GetEnrollmentMember :one
 -- Thành viên của tenant (chủ thiết bị, người yêu cầu): trạng thái, tên Headscale user ổn định mg-<membership> (cột sinh
--- của 0002) và tên hiển thị (CreateUser chỉ nhận display name — không gửi email, §7.4 bước 3).
-SELECT m.id, m.status, m.headscale_username, COALESCE(i.display_name, '')::text AS display_name
+-- của 0002), tên hiển thị (CreateUser chỉ nhận display name — không gửi email, §7.4 bước 3) và identity (quyết định của
+-- support actor: người quyết định không bao giờ là identity của người yêu cầu — 0028).
+SELECT m.id, m.status, m.headscale_username, COALESCE(i.display_name, '')::text AS display_name, m.identity_id
 FROM tenant_memberships m
 JOIN identities i ON i.tenant_id = m.tenant_id AND i.id = m.identity_id
 WHERE m.tenant_id = sqlc.arg(tenant_id) AND m.id = sqlc.arg(id);
@@ -51,11 +52,13 @@ ORDER BY created_at DESC, id DESC
 LIMIT sqlc.arg(row_limit);
 
 -- name: SetEnrollmentRequestState :one
--- api: mọi cột trạng thái (quyền UPDATE cột của mg_api_tenant — 0020); nội dung được duyệt (người yêu cầu, chủ thiết
--- bị, phương thức, nhãn, tag, cờ key) không có ở đây — bất biến ở DB. version tăng ở mọi lần ghi.
+-- api: mọi cột trạng thái (quyền UPDATE cột của mg_api_tenant — 0020, 0028); nội dung được duyệt (người yêu cầu, chủ thiết
+-- bị, phương thức, nhãn, tag, cờ key) không có ở đây — bất biến ở DB. Người quyết định: membership hoặc support grant
+-- (0028 — đúng một khi đã quyết định). version tăng ở mọi lần ghi.
 UPDATE enrollment_requests
 SET status                 = sqlc.arg(status),
     approver_membership_id = sqlc.narg(approver_membership_id),
+    approver_support_grant_id = sqlc.narg(approver_support_grant_id),
     approved_at            = sqlc.narg(approved_at),
     issued_at              = sqlc.narg(issued_at),
     headscale_preauthkey_id = sqlc.narg(headscale_preauthkey_id),
@@ -73,6 +76,17 @@ SET status                 = sqlc.arg(status),
     version                = version + 1
 WHERE tenant_id = sqlc.arg(tenant_id) AND id = sqlc.arg(id)
 RETURNING *;
+
+-- name: LockLiveSupportGrant :one
+-- Quyết định của support actor (0028 — §8.6 ô G của tenant.enrollment:approve, §8.7): grant của CHÍNH người gọi vào
+-- tenant còn hiệu lực ở lúc quyết định (approved ∧ starts_at ≤ now() < expires_at — như kiểm của WithTenantTx), khóa FOR
+-- SHARE tới hết transaction: một lần thu hồi/hết hạn đã commit ⇒ không hàng (EvalPlanQual đọc lại bản mới), một lần
+-- đang chạy ⇒ chờ rồi đọc lại; thu hồi đến sau chờ quyết định commit. Pool tenant: RLS (tenant_id = app.tenant_id) +
+-- quyền UPDATE cột của 0023 (FOR SHARE cần quyền UPDATE trên một cột).
+SELECT id FROM support_access_grants
+WHERE tenant_id = sqlc.arg(tenant_id) AND id = sqlc.arg(id) AND grantee_platform_user_id = sqlc.arg(grantee)
+  AND status = 'approved' AND starts_at <= now() AND expires_at > now()
+FOR SHARE;
 
 -- name: SetEnrollmentRequestOutcome :one
 -- worker (enrollment.reconcile): chỉ các cột mg_worker_tenant được ghi (0020) — hết hạn, đã dùng, lỗi.

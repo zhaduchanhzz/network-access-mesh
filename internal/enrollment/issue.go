@@ -88,7 +88,7 @@ func loadMember(ctx context.Context, q *sqlcdb.Queries, tenantID, id uuid.UUID, 
 // stateOf copies a row into the parameters of SetEnrollmentRequestState (the caller changes what it moves).
 func stateOf(r sqlcdb.EnrollmentRequest) sqlcdb.SetEnrollmentRequestStateParams {
 	return sqlcdb.SetEnrollmentRequestStateParams{Status: r.Status, ApproverMembershipID: r.ApproverMembershipID,
-		ApprovedAt: r.ApprovedAt, IssuedAt: r.IssuedAt, HeadscalePreauthkeyID: r.HeadscalePreauthkeyID,
+		ApproverSupportGrantID: r.ApproverSupportGrantID, ApprovedAt: r.ApprovedAt, IssuedAt: r.IssuedAt, HeadscalePreauthkeyID: r.HeadscalePreauthkeyID,
 		AuthIDHash: r.AuthIDHash, SessionIDHash: r.SessionIDHash, EnrollCodeHash: r.EnrollCodeHash, ClaimedAt: r.ClaimedAt,
 		ClaimedFromIp: r.ClaimedFromIp, RegisteredMachineKey: r.RegisteredMachineKey, ReportedHostname: r.ReportedHostname,
 		CredentialExpiresAt: r.CredentialExpiresAt, ConsumedNodeID: r.ConsumedNodeID, FailureCode: r.FailureCode,

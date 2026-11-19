@@ -8,7 +8,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import type { QueryClient } from "@tanstack/react-query";
-import { CSRF, json, mockApi, problem, renderApp, TENANT_A, tenantBody, tenantSession } from "../../test/helpers";
+import { CSRF, json, mockApi, platformSession, problem, renderApp, TENANT_A, tenantBody, tenantSession } from "../../test/helpers";
 import { tag } from "../../test/network";
 import {
   AUTH_ID,
@@ -484,6 +484,53 @@ describe("Enrollment key + hàng chờ duyệt", () => {
     expect(await screen.findByText("Không có yêu cầu nào chờ duyệt.")).toBeInTheDocument();
     expect(screen.getByRole("alertdialog")).toHaveTextContent(/Xung đột với trạng thái hiện tại/);
     expect(n).toBe(1);
+  });
+
+  it("nhân viên nền tảng có Support Access Grant (support_operator, admin.): nút Duyệt/Từ chối theo rbac của role hiệu lực; duyệt ⇒ POST approve có CSRF; quyết định của support hiện 'bởi nhân viên hỗ trợ'; không nút tạo key", async () => {
+    const GRANT = "0190a100-0000-7000-8000-0000000000c4";
+    const REQ_4 = "0190b100-0000-7000-8000-000000000004";
+    let items = [
+      ...queue,
+      request(REQ_2, { status: "rejected", method: "preauth_key", device_label: "nas-binh", requested_by_membership_id: OTHER, target_membership_id: OTHER, issued_at: null, credential_expires_at: null, approver_support_grant_id: GRANT }),
+      request(REQ_4, { status: "approved", device_label: "pc-binh", requested_by_membership_id: OTHER, target_membership_id: OTHER, issued_at: null, credential_expires_at: null, approved_at: T0, approver_membership_id: THIRD }),
+    ];
+    const { requests } = mockApi({
+      ...apiFor("end_user", {
+        [`GET ${base}/users`]: users,
+        [`GET ${base}/enrollment/requests`]: (r) => listFor(items)(r),
+        [`POST ${base}/enrollment/requests/${REQ_1}/approve`]: () => {
+          items = items.map((x) => (x.id === REQ_1 ? { ...x, status: "approved" as const, approved_at: T0, approver_support_grant_id: GRANT } : x));
+          return json(200, items.find((x) => x.id === REQ_1));
+        },
+      }),
+      "GET /auth/session": json(200, platformSession("platform_support", [
+        { id: GRANT, tenant_id: TENANT_A, effective_role: "support_operator", expires_at: new Date(Date.now() + 3600_000).toISOString() },
+      ])),
+    });
+    renderApp({ path: `/t/${TENANT_A}/enrollment-keys`, console: "platform" });
+    const q = await screen.findByTestId("approval-queue");
+    const rows = within(q).getAllByTestId("enroll-row");
+    expect(rows).toHaveLength(2);
+    // staff không có membership: cả hai yêu cầu đều của "người khác" ⇒ cả hai có nút
+    expect(within(rows[1]!).getByRole("button", { name: "Duyệt yêu cầu my-own" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Tạo pre-auth key" })).toBeNull();
+    const all = screen.getByTestId("all-requests");
+    const rejected = within(all).getAllByTestId("enroll-row").find((r) => r.getAttribute("data-request") === REQ_2);
+    expect(within(rejected!).getByTestId("decided-by-support")).toHaveTextContent("Từ chối bởi nhân viên hỗ trợ của nền tảng");
+    await userEvent.click(within(rows[0]!).getByRole("button", { name: "Duyệt yêu cầu phone-binh" }));
+    await userEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Duyệt" }));
+    expect(await screen.findByTestId("enroll-done")).toHaveTextContent("Đã duyệt yêu cầu phone-binh");
+    const sent = posts(requests, `/enrollment/requests/${REQ_1}/approve`);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.headers.get("X-CSRF-Token")).toBe(CSRF);
+    await waitFor(() => {
+      const row = within(screen.getByTestId("all-requests")).getAllByTestId("enroll-row").find((r) => r.getAttribute("data-request") === REQ_1);
+      expect(within(row!).getByTestId("decided-by-support")).toHaveTextContent("Duyệt bởi nhân viên hỗ trợ của nền tảng");
+    });
+    // quyết định của thành viên (REQ_4) không mang dòng này
+    const byMember = within(screen.getByTestId("all-requests")).getAllByTestId("enroll-row").find((r) => r.getAttribute("data-request") === REQ_4);
+    expect(within(byMember!).queryByTestId("decided-by-support")).toBeNull();
+    expect(within(screen.getByTestId("all-requests")).getAllByTestId("decided-by-support")).toHaveLength(2);
   });
 
   it("key reusable đã dùng (consumed) còn hạn ⇒ vẫn có nút Thu hồi ⇒ POST revoke; hết hạn hoặc không reusable ⇒ không có nút", async () => {

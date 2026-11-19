@@ -21,10 +21,6 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/tests/security/sessionfixture"
 )
 
-// reasonSupportNotMember is the reason enrollmentapi gives the refusal of a decision by platform staff (written out by
-// hand like the matrices: a change of the reason must be reviewed here).
-const reasonSupportNotMember = "support_actor_not_member"
-
 // supportStaff is a platform staff member holding a live Support Access Grant into tenant A.
 type supportStaff struct {
 	*actor
@@ -87,9 +83,10 @@ func (m *matrix) liveKey(t *testing.T, member uuid.UUID, keyID int64) uuid.UUID 
 
 // expectStaff derives the answer to a staff call from the Staff column of §8.6 (master_test.go): no grant into the
 // tenant of the path ⇒ 403 no_support_grant; a cell — (or G (Admin) for support_operator) ⇒ 403 no_grant; a cell G ⇒
-// the handler answers as for a tenant role of scope any — except the decisions (tenant.enrollment:approve), which
-// record a member of the tenant as their decider: 403 forbidden, never a 500. A request of another tenant or a missing
-// one is 404 (reason no_request); the revoke of a live key expires it at the fake Headscale of A: 200.
+// the handler answers as for a tenant role of scope any — the decisions (tenant.enrollment:approve) included: the
+// grant is recorded as their decider (approver_support_grant_id — 0028, the project owner's decision of 2026-11-19).
+// A request of another tenant or a missing one is 404 (reason no_request); the revoke of a live key expires it at the
+// fake Headscale of A: 200.
 func (m *matrix) expectStaff(t *testing.T, c *call) expectation {
 	t.Helper()
 	refused := func(reason string) expectation {
@@ -110,10 +107,7 @@ func (m *matrix) expectStaff(t *testing.T, c *call) expectation {
 	default:
 		t.Fatalf("staff cell %q of %s", cell, c.op.Permission)
 	}
-	switch {
-	case c.op.Permission == "tenant.enrollment:approve":
-		return expectation{status: http.StatusForbidden, code: gen.ProblemCodeForbidden, decision: decGrant}
-	case c.objectCase == "other-tenant" || c.objectCase == "missing":
+	if c.objectCase == "other-tenant" || c.objectCase == "missing" {
 		return expectation{status: http.StatusNotFound, code: gen.ProblemCodeNotFound, decision: decGrant,
 			reason: "no_request"}
 	}
@@ -130,13 +124,13 @@ func (m *matrix) expectStaff(t *testing.T, c *call) expectation {
 // revoke of a live pre-auth key takes the remote branch: the operation's requested event, the key expired at the fake
 // Headscale of A (the matrix reaches it through the production Locator and adapter — A6), the operation closed
 // succeeded and the request revoked (the refusal of a revoked grant: TestSupportActorRevokesLiveKey of
-// internal/enrollment) —; approve and reject
-// (cell G, but enrollment_requests.approver_membership_id can only name a member of the tenant) 403 forbidden with
-// reason support_actor_not_member and the request unchanged. Every answer of a granted call carries the decision of
-// the grant (role, grant, platform user); every refusal leaves exactly one denied audit event — in A as the support
-// actor when the grant decided (§8.7 step 3), with the reason of the refusal; in the platform's trail otherwise —, a
-// revoke one success event in A as the support actor, the revoke of a live key the requested and succeeded events of
-// its operation there.
+// internal/enrollment) —; approve and reject (cell G — migration 0028) decide the request (200 approved / rejected)
+// with the grant recorded as the decider (approver_support_grant_id, no membership) and the requester notified
+// (by_support), a request of B or a missing one 404 (the refusals of an ended grant: TestSupportActorDecides of
+// internal/enrollment). Every answer of a granted call carries the decision of the grant (role, grant, platform user);
+// every refusal leaves exactly one denied audit event — in A as the support actor when the grant decided (§8.7 step 3),
+// with the reason of the refusal; in the platform's trail otherwise —, a revoke or a decision one success event in A as
+// the support actor, the revoke of a live key the requested and succeeded events of its operation there.
 func TestSupportGrantEnrollment(t *testing.T) {
 	m := &matrix{matrixWorld: newMatrixWorld(t), byFixture: map[*sessionfixture.Actor]*actor{}}
 	staff := []supportStaff{m.newSupportStaff(t, authz.RoleSupportOperator), m.newSupportStaff(t, authz.RoleSupportAdmin)}
@@ -197,7 +191,7 @@ func TestSupportGrantEnrollment(t *testing.T) {
 	}
 	m.run(m.calls)
 
-	var granted, refused, handler int
+	var granted, refused, decided int
 	for _, c := range m.calls {
 		bad := m.check(t, c)
 		add := func(format string, a ...any) { bad = append(bad, fmt.Sprintf(format, a...)) }
@@ -209,8 +203,29 @@ func TestSupportGrantEnrollment(t *testing.T) {
 		bad = append(bad, m.checkStaffAudit(t, c, grantOf[c.actor])...)
 		if id, ok := fresh[c]; ok {
 			want := "pending_approval"
-			if c.op.Permission == "tenant.enrollment:revoke" {
+			switch c.op.ID {
+			case "revokeEnrollmentRequest":
 				want = "revoked"
+			case "approveEnrollmentRequest":
+				want = "approved"
+			case "rejectEnrollmentRequest":
+				want = "rejected"
+			}
+			if c.op.Permission == "tenant.enrollment:approve" { // the grant is the decider; the requester is told
+				var member, grant *uuid.UUID
+				var told string
+				m.Scan(t, `SELECT approver_membership_id, approver_support_grant_id, (SELECT coalesce(string_agg(n.kind || '|' ||
+						n.recipient_membership_id || '|' || coalesce(n.payload->>'by_support', '-'), ','), '-')
+						FROM notification_outbox n WHERE n.payload->>'request_id' = r.id::text)
+					FROM enrollment_requests r WHERE r.id = $1`, []any{id}, &member, &grant, &told)
+				kind := "enrollment.approved"
+				if c.op.ID == "rejectEnrollmentRequest" {
+					kind = "enrollment.rejected"
+				}
+				if member != nil || grant == nil || *grant != grantOf[c.actor] ||
+					told != kind+"|"+members[c.objectCase].String()+"|true" {
+					add("decider membership %v grant %v (want the grant %s), notifications %q", member, grant, grantOf[c.actor], told)
+				}
 			}
 			if c.objectCase == "live-key" { // the key itself expired at Headscale
 				var kid int64
@@ -244,8 +259,8 @@ func TestSupportGrantEnrollment(t *testing.T) {
 		switch {
 		case c.exp.decision == decDeny:
 			refused++
-		case c.exp.status == http.StatusForbidden:
-			handler++
+		case c.exp.status == http.StatusOK && c.op.Permission == "tenant.enrollment:approve":
+			decided++
 		default:
 			granted++
 		}
@@ -253,17 +268,18 @@ func TestSupportGrantEnrollment(t *testing.T) {
 			t.Errorf("%s: %s", c, b)
 		}
 	}
-	if granted == 0 || refused == 0 || handler == 0 {
-		t.Fatalf("degenerate: %d granted, %d refused by layer 1, %d refused by the handler", granted, refused, handler)
+	if granted == 0 || refused == 0 || decided == 0 {
+		t.Fatalf("degenerate: %d granted, %d refused by layer 1, %d decisions", granted, refused, decided)
 	}
-	t.Logf("support staff × enrollment: %d requests — %d answered, %d refused by layer 1, %d decisions refused by "+
-		"the handler (%s)", len(m.calls), granted, refused, handler, reasonSupportNotMember)
+	t.Logf("support staff × enrollment: %d requests — %d answered, %d refused by layer 1, %d decisions recorded "+
+		"under the grant", len(m.calls), granted, refused, decided)
 }
 
 // checkStaffAudit checks the audit trail of one staff call: a refusal (layer 1 or the handler) leaves exactly one
 // denied event — in A as the support actor of the grant when the grant decided, with the reason of the refusal; in the
 // platform's trail (no tenant) when the staff member holds no grant into the tenant of the path —, a revoke a success
-// event enrollment.revoke in A as the support actor.
+// event enrollment.revoke in A as the support actor, a decision a success event enrollment.approve / enrollment.reject
+// there.
 func (m *matrix) checkStaffAudit(t *testing.T, c *call, grant uuid.UUID) []string {
 	t.Helper()
 	var rows string
@@ -286,7 +302,7 @@ func (m *matrix) checkStaffAudit(t *testing.T, c *call, grant uuid.UUID) []strin
 		return e.T != nil && *e.T == m.A.ID && e.At == audit.ActorSupport && e.G != nil && *e.G == grant
 	}
 	var denied []int
-	revoked, requested, succeeded := false, false, false
+	revoked, requested, succeeded, decision := false, false, false, false
 	for i, e := range events {
 		if e.O == "denied" {
 			denied = append(denied, i)
@@ -295,6 +311,8 @@ func (m *matrix) checkStaffAudit(t *testing.T, c *call, grant uuid.UUID) []strin
 		case !asSupport(i):
 		case e.O == "success" && e.A == "enrollment.revoke":
 			revoked = true
+		case e.O == "success" && e.A == c.op.AuditAction && c.op.Permission == "tenant.enrollment:approve":
+			decision = true
 		case e.O == "success" && e.A == "enrollment.revoke"+audit.SuffixRequested:
 			requested = true
 		case e.O == "success" && e.A == "enrollment.revoke"+audit.SuffixSucceeded:
@@ -302,9 +320,6 @@ func (m *matrix) checkStaffAudit(t *testing.T, c *call, grant uuid.UUID) []strin
 		}
 	}
 	wantWhy := c.exp.reason
-	if c.exp.decision == decGrant && c.exp.status == http.StatusForbidden {
-		wantWhy = reasonSupportNotMember
-	}
 	switch {
 	case c.objectCase == "live-key":
 		if !requested || !succeeded || revoked || len(denied) != 0 || len(events) != 2 {
@@ -314,6 +329,10 @@ func (m *matrix) checkStaffAudit(t *testing.T, c *call, grant uuid.UUID) []strin
 	case c.exp.status == http.StatusOK && c.op.Permission == "tenant.enrollment:revoke":
 		if !revoked || len(denied) != 0 {
 			return []string{fmt.Sprintf("audit %s: want a success enrollment.revoke in A as the support actor", rows)}
+		}
+	case c.exp.status == http.StatusOK && c.op.Permission == "tenant.enrollment:approve":
+		if !decision || len(denied) != 0 {
+			return []string{fmt.Sprintf("audit %s: want a success %s in A as the support actor", rows, c.op.AuditAction)}
 		}
 	case c.exp.status == http.StatusOK:
 		if len(denied) != 0 {

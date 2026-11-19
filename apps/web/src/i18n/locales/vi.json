@@ -925,6 +925,8 @@
       "instance_restored": "Control plane của tenant đã được khôi phục từ bản backup lúc {{backup_created_at}}.",
       "enrollment_approved": "Yêu cầu thêm thiết bị của bạn ({{device_label}}) đã được duyệt — bấm Bắt đầu trước {{expires_at}}.",
       "enrollment_rejected": "Yêu cầu thêm thiết bị của bạn ({{device_label}}) đã bị từ chối.",
+      "enrollment_approved_support": "Yêu cầu thêm thiết bị của bạn ({{device_label}}) đã được nhân viên hỗ trợ của nền tảng duyệt (Support Access Grant tenant đã cấp) — bấm Bắt đầu trước {{expires_at}}.",
+      "enrollment_rejected_support": "Yêu cầu thêm thiết bị của bạn ({{device_label}}) đã bị nhân viên hỗ trợ của nền tảng từ chối (Support Access Grant tenant đã cấp).",
       "route_approved": "Route {{prefixes}} đã được duyệt trên thiết bị {{device_name}}.",
       "route_revoked": "Route {{prefixes}} đã bị gỡ duyệt trên thiết bị {{device_name}}.",
       "unknown": "Thông báo {{kind}}."
@@ -2123,6 +2125,10 @@
     "memberShort": "Thành viên {{id}}…",
     "noLabel": "(chưa đặt nhãn)",
     "tagOnly": "Chỉ tag (không chủ)",
+    "decider": {
+      "supportApproved": "Duyệt bởi nhân viên hỗ trợ của nền tảng (Support Access Grant)",
+      "supportRejected": "Từ chối bởi nhân viên hỗ trợ của nền tảng (Support Access Grant)"
+    },
     "selfEnrollHint": "Tenant có thể chưa cho phép người dùng tự thêm thiết bị — liên hệ quản trị viên của tenant.",
     "method": {
       "web_auth": "Web-auth (đăng nhập qua Portal)",

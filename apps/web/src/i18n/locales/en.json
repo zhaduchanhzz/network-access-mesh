@@ -930,6 +930,8 @@
       "instance_restored": "The tenant's control plane was restored from the backup of {{backup_created_at}}.",
       "enrollment_approved": "Your device request ({{device_label}}) was approved — choose Start before {{expires_at}}.",
       "enrollment_rejected": "Your device request ({{device_label}}) was rejected.",
+      "enrollment_approved_support": "Your device request ({{device_label}}) was approved by platform support staff (through the support access grant of the tenant) — choose Start before {{expires_at}}.",
+      "enrollment_rejected_support": "Your device request ({{device_label}}) was rejected by platform support staff (through the support access grant of the tenant).",
       "route_approved": "Routes {{prefixes}} were approved on device {{device_name}}.",
       "route_revoked": "Routes {{prefixes}} were revoked on device {{device_name}}.",
       "unknown": "Notification {{kind}}."
@@ -2136,6 +2138,10 @@
     "memberShort": "Member {{id}}…",
     "noLabel": "(no label)",
     "tagOnly": "Tags only (no owner)",
+    "decider": {
+      "supportApproved": "Approved by platform support staff (support access grant)",
+      "supportRejected": "Rejected by platform support staff (support access grant)"
+    },
     "selfEnrollHint": "The tenant may not let users add their own devices — contact the tenant's administrator.",
     "method": {
       "web_auth": "Web-auth (sign in through the Portal)",

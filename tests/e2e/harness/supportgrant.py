@@ -6,8 +6,10 @@ app. (Owners and an Admin of tenant-a), PostgreSQL of the stack, the worker's gr
           tenant-a (201 pending; the tenant's trail records the request, its Owner is notified support.grant_requested);
           before the decision a tenant route on admin. ⇒ 403; the Owner approves (step-up) ⇒ the staff session lists the
           grant; the staff member syncs tenant-a's devices from admin. (202) and is refused a write its role lacks (403);
-          the tenant's audit filtered actor_type=support lists both — actor.type support with the grant id —, the platform
-          audit does not; the Owner revokes ⇒ the very next staff request ⇒ 403
+          it approves a pending enrollment request of tenant-a (C4, migration 0028: 200 approved, the grant recorded as
+          the decider, the requester notified by_support); the tenant's audit filtered actor_type=support lists all three
+          — actor.type support with the grant id —, the platform audit does not; the Owner revokes ⇒ the very next staff
+          request ⇒ 403
   E2E-107 break-glass needs a second Super Admin; an Admin never grants beyond the ceiling: effective_role tenant_owner ⇒
           422; a support_admin request: the tenant's Admin and Owner approving ⇒ 403 (support_admin only through
           break-glass); the requester's own break-glass ⇒ 403; the second Super Admin ⇒ 200 approval_kind breakglass, a high
@@ -97,14 +99,31 @@ def check_support_actions(r, st: Stack, state: dict) -> None:
                         admin_unsafe(st, s1, **{"Idempotency-Key": "e2e106-" + secrets.token_hex(6)}))
     c("staff syncs (202) and reads (200); write beyond the role ⇒ 403", sync.status == 202 and read == 200 and denied.status == 403,
       f"sync {sync.status}; read {read}; tag create {denied.status}")
+    # C4 (migration 0028): the staff member decides a pending enrollment request of tenant-a through the grant (§8.6 cell G)
+    member = psql_one(st, f"SELECT id FROM tenant_memberships WHERE tenant_id = '{a_id}' AND status = 'active' "
+                          "ORDER BY created_at, id LIMIT 1")
+    inst = psql_one(st, f"SELECT id FROM tenant_instances WHERE tenant_id = '{a_id}' AND status <> 'removed' LIMIT 1")
+    rid = psql_one(st, "INSERT INTO enrollment_requests (tenant_id, instance_id, requested_by_membership_id, method, "
+                       f"target_membership_id, device_label, status) VALUES ('{a_id}', '{inst}', '{member}', 'web_auth', "
+                       f"'{member}', 'e2e106-c4', 'pending_approval') RETURNING id")
+    ap = b1.request("POST", f"{ten}/enrollment/requests/{rid}/approve", None, admin_unsafe(st, s1))
+    apj = ap.json() if ap.status == 200 else {}
+    told = psql_one(st, "SELECT count(*) FROM notification_outbox WHERE kind = 'enrollment.approved' "
+                        f"AND recipient_membership_id = '{member}' AND payload->>'request_id' = '{rid}' "
+                        "AND payload->>'by_support' = 'true'")
+    c("staff approves an enrollment request: the grant is the decider, the requester is told by_support",
+      ap.status == 200 and apj.get("status") == "approved" and apj.get("approver_support_grant_id") == gid
+      and apj.get("approver_membership_id") is None and told == "1",
+      f"approve {ap.status} {apj.get('status')}; decider grant {apj.get('approver_support_grant_id') == gid}; notified {told}")
     time.sleep(2)
     aud = ob.get(f"{_app(st)}/tenants/{a_id}/audit?actor_type=support&limit=100").json().get("items", [])
     mine = [e for e in aud if (e.get("actor") or {}).get("support_grant_id") == gid]
     actions = sorted({e.get("action") for e in mine})
     all_support = all((e.get("actor") or {}).get("type") == "support" for e in aud)
-    c("tenant audit: actor_type=support + grant id (sync + denial)", all_support
+    c("tenant audit: actor_type=support + grant id (sync + denial + enrollment approval)", all_support
       and any(a.startswith("device.sync") for a in actions)
-      and any(e.get("outcome") == "denied" and e.get("action") == "tag.create" for e in mine),
+      and any(e.get("outcome") == "denied" and e.get("action") == "tag.create" for e in mine)
+      and any(e.get("outcome") == "success" and e.get("action") == "enrollment.approve" for e in mine),
       f"support events {len(mine)}: {actions}")
     plat = psql_one(st, "SELECT count(*) FROM audit_events WHERE tenant_id IS NULL AND actor_type = 'support'")
     c("no support event on the platform trail", plat == "0", f"platform support events {plat}")
@@ -114,7 +133,8 @@ def check_support_actions(r, st: Stack, state: dict) -> None:
       f"revoke {rv.status} {rv.json().get('status')}; next staff request {after}")
     r.add("E2E-106", "P4-T13: support thao tác ⇒ audit tenant thấy actor_type=support — xin grant (pending, tenant thấy, Owner "
           "được báo; chưa duyệt ⇒ 403); Owner duyệt ⇒ session của staff có grant; staff sync thiết bị (202), đọc (200), ghi "
-          "ngoài role ⇒ 403; audit tenant lọc actor_type=support có cả hai kèm support_grant_id, audit platform không; Owner thu "
+          "ngoài role ⇒ 403, duyệt yêu cầu enrollment đang chờ (C4/0028: 200, người quyết định là grant, người yêu cầu được báo "
+          "by_support); audit tenant lọc actor_type=support có cả ba kèm support_grant_id, audit platform không; Owner thu "
           "hồi ⇒ request kế tiếp 403", c.ok, "; ".join(c.rows))
 
 

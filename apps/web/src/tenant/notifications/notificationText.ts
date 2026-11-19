@@ -48,6 +48,16 @@ function text(v: unknown, lng: string): string {
   return "—";
 }
 
+/** Quyết định enrollment của nhân viên nền tảng qua Support Access Grant (payload `by_support` — 0028) có câu riêng nói
+ * rõ người quyết định là nhân viên hỗ trợ. */
+const SUPPORT_DECIDED: ReadonlySet<string> = new Set(["enrollment.approved", "enrollment.rejected"]);
+
+/** Khóa i18n của câu một thông báo đã biết kind. */
+export function i18nKeyOf(kind: string, payload: Record<string, unknown>): string {
+  const key = i18nKeyOfKind(kind);
+  return SUPPORT_DECIDED.has(kind) && payload.by_support === true ? `${key}_support` : key;
+}
+
 /** Câu của thông báo theo ngôn ngữ hiện tại. */
 export function notificationText(t: TFunction, lng: string, kind: string, payload: Record<string, unknown>): string {
   const values: Record<string, string> = { kind };
@@ -57,7 +67,7 @@ export function notificationText(t: TFunction, lng: string, kind: string, payloa
     "backup_created_at", "keys_destroy_after", "device_label", "prefixes"]) {
     values[f] ??= "—";
   }
-  return KNOWN.has(kind) ? t(i18nKeyOfKind(kind), values) : t("notif.kinds.unknown", values);
+  return KNOWN.has(kind) ? t(i18nKeyOf(kind, payload), values) : t("notif.kinds.unknown", values);
 }
 
 /** Thiết bị mà thông báo nói tới (device.*, route.*) — để dẫn tới trang chi tiết; id lạ ⇒ null. */
