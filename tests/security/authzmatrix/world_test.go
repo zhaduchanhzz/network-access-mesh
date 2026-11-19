@@ -40,6 +40,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/membersapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/monitoringapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/notificationsapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/policiesapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/provisioningapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/quarantineapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/reconfigureapi"
@@ -161,6 +162,10 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 	if err != nil {
 		t.Fatal(err)
 	}
+	versions, err := policies.NewVersions(w.Store, policies.VersionsConfig{Registry: reg})
+	if err != nil {
+		t.Fatal(err)
+	}
 	mem, err := members.New(w.Store, members.Config{Tenants: dir, Logger: log,
 		Guard: func(ctx context.Context, q *sqlcdb.Queries, tenantID uuid.UUID, c members.Change) error {
 			return authz.GuardMembershipChange(ctx, q, tenantID, authz.MembershipChange{Actor: c.Actor, Target: c.Target,
@@ -216,6 +221,8 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 		Tags: tagsapi.New(tagSvc, devicesapi.New(dev)),
 		// Members (P4-T09): membership writes under authz.GuardMembershipChange, groups (no worker: jobs stay queued)
 		Members: membersapi.New(mem, appr),
+		// Policies (P4-T10): the policy lifecycle over the production registry (validate's dry run — unreachable)
+		Policies: policiesapi.New(versions),
 	}
 }
 
@@ -223,6 +230,12 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 // Operators (restore_only) decide it — and a route-approval request per tenant (tenant.route:approve: TO and TA),
 // each made by an identity that is not an actor of the matrix (no caller is its requester). The payloads are stored in
 // canonical form, so the recipes approve with their constant hash.
+// matrixPolicySource is the content of the matrix's draft policy version (P4-T10) and its sha256.
+const (
+	matrixPolicySource = `{"grants":[],"ssh":[]}`
+	matrixPolicySHA    = "d0eb6d21884cf2aabd42491db0e65dcb307cc14a51ac8c41698602f274e164c4"
+)
+
 const (
 	matrixPlatformAction  = "platform.matrix_restore"
 	matrixTenantAction    = "tenant.matrix_route_approval"
@@ -302,6 +315,7 @@ type objects struct {
 	approval, invitation         map[string]uuid.UUID    // a pending approval request and invitation of the tenant
 	tag                          map[string]uuid.UUID    // the tenant's catalog tag tag:server (carried by devEUTagged)
 	target, group                map[string]uuid.UUID    // P4-T09: an end-user member no actor is (membership writes), a group
+	policy                       map[string]uuid.UUID    // P4-T10: a typed draft policy version of the tenant (never approved)
 	platformApproval             uuid.UUID               // a pending approval request of scope platform
 	host                         uuid.UUID               // the host of the instances (P3-T04: /platform/hosts/{hostId})
 	notifOwn                     map[uuid.UUID]uuid.UUID // P4-T04: membership of a tenant actor → a notification addressed to it
@@ -400,7 +414,7 @@ func (m *matrixWorld) createObjects(t *testing.T) objects {
 		devOther: map[string]uuid.UUID{}, job: map[string]uuid.UUID{}, platformJob: uuid.Must(uuid.NewV7()),
 		approval: map[string]uuid.UUID{}, invitation: map[string]uuid.UUID{}, platformApproval: uuid.Must(uuid.NewV7()),
 		tag:    map[string]uuid.UUID{},
-		target: map[string]uuid.UUID{}, group: map[string]uuid.UUID{},
+		target: map[string]uuid.UUID{}, group: map[string]uuid.UUID{}, policy: map[string]uuid.UUID{},
 		notifOwn: map[uuid.UUID]uuid.UUID{}, notifOther: map[string]uuid.UUID{},
 		canaries: []string{m.edgeToken},
 	}
@@ -471,6 +485,10 @@ func (m *matrixWorld) createObjects(t *testing.T) objects {
 		group := uuid.Must(uuid.NewV7())
 		o.group[ten.Name] = group
 		m.Exec(t, `INSERT INTO groups (id, tenant_id, name) VALUES ($1, $2, 'matrix-group')`, group, ten.ID)
+		pol := uuid.Must(uuid.NewV7())
+		o.policy[ten.Name] = pol
+		m.Exec(t, `INSERT INTO policy_versions (id, tenant_id, version, kind, source, content_sha256, state)
+			VALUES ($1, $2, 1, 'user', '`+matrixPolicySource+`', '`+matrixPolicySHA+`', 'draft')`, pol, ten.ID)
 		inv := uuid.Must(uuid.NewV7())
 		o.invitation[ten.Name] = inv
 		m.Exec(t, `INSERT INTO tenant_invitations (id, tenant_id, idp_id, email, role_id, token_hash, expires_at)

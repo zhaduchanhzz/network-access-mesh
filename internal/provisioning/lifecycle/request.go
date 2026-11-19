@@ -11,6 +11,7 @@ import (
 
 	"github.com/zhaduchanhzz/network-access-mesh/internal/audit"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/jobs"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/policies"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store/sqlcdb"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/tenants"
@@ -234,8 +235,19 @@ func enqueue(ctx context.Context, tx *store.Tx, kind string, actor, tenantID uui
 		return Requested{}, conflict(ReasonLifecycleJobActive)
 	}
 	tid := t.ID
-	if err := jobs.EnqueueFinishedStep(ctx, tx, enq.Job.ID, &tid, StepValidate, jobs.StepSucceeded, map[string]any{
-		"status": t.Status, "restore_version_id": *t.DesiredPolicyVersionID}); err != nil {
+	detail := map[string]any{"status": t.Status, "restore_version_id": *t.DesiredPolicyVersionID}
+	if kind == KindSuspend {
+		// P4-T10 (§11.4, §13.5): the deny-all policy is its own policy.apply job (dedupe tenant:<id>:policy.apply), in
+		// this transaction — it does not wait for the lifecycle lock (an instance.upgrade in progress); the job reads
+		// the unfinished tenant.suspend and applies the suspension policy. Step policy.suspend asserts it again.
+		pa, err := jobs.Enqueue(ctx, tx, jobs.Spec{Kind: policies.KindApply, TenantID: &tid,
+			Input: policies.ApplyJobInput{Trigger: policies.TriggerSuspend}, RequestedBy: &actor})
+		if err != nil {
+			return Requested{}, err
+		}
+		detail["policy_apply_job_id"] = pa.Job.ID
+	}
+	if err := jobs.EnqueueFinishedStep(ctx, tx, enq.Job.ID, &tid, StepValidate, jobs.StepSucceeded, detail); err != nil {
 		return Requested{}, err
 	}
 	audit.HandOff(ctx, opn)

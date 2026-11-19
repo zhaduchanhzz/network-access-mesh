@@ -583,6 +583,297 @@ func (e OwnershipTransferPreviousOwnerRole) Valid() bool {
 	}
 }
 
+// Defines values for PolicyAcknowledgementRule.
+const (
+	PolicyAcknowledgementRuleL10 PolicyAcknowledgementRule = "L10"
+	PolicyAcknowledgementRuleL12 PolicyAcknowledgementRule = "L12"
+	PolicyAcknowledgementRuleL13 PolicyAcknowledgementRule = "L13"
+	PolicyAcknowledgementRuleL4  PolicyAcknowledgementRule = "L4"
+	PolicyAcknowledgementRuleL7  PolicyAcknowledgementRule = "L7"
+)
+
+// Valid indicates whether the value is a known member of the PolicyAcknowledgementRule enum.
+func (e PolicyAcknowledgementRule) Valid() bool {
+	switch e {
+	case PolicyAcknowledgementRuleL10:
+		return true
+	case PolicyAcknowledgementRuleL12:
+		return true
+	case PolicyAcknowledgementRuleL13:
+		return true
+	case PolicyAcknowledgementRuleL4:
+		return true
+	case PolicyAcknowledgementRuleL7:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PolicyApplicationState.
+const (
+	PolicyApplicationStateApplied PolicyApplicationState = "applied"
+	PolicyApplicationStateFailed  PolicyApplicationState = "failed"
+	PolicyApplicationStatePending PolicyApplicationState = "pending"
+	PolicyApplicationStateUnknown PolicyApplicationState = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the PolicyApplicationState enum.
+func (e PolicyApplicationState) Valid() bool {
+	switch e {
+	case PolicyApplicationStateApplied:
+		return true
+	case PolicyApplicationStateFailed:
+		return true
+	case PolicyApplicationStatePending:
+		return true
+	case PolicyApplicationStateUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PolicyApplicationTrigger.
+const (
+	PolicyApplicationTriggerBootstrap      PolicyApplicationTrigger = "bootstrap"
+	PolicyApplicationTriggerDriftRepair    PolicyApplicationTrigger = "drift_repair"
+	PolicyApplicationTriggerGroupChange    PolicyApplicationTrigger = "group_change"
+	PolicyApplicationTriggerManual         PolicyApplicationTrigger = "manual"
+	PolicyApplicationTriggerResourceChange PolicyApplicationTrigger = "resource_change"
+	PolicyApplicationTriggerRestore        PolicyApplicationTrigger = "restore"
+	PolicyApplicationTriggerResume         PolicyApplicationTrigger = "resume"
+	PolicyApplicationTriggerRollback       PolicyApplicationTrigger = "rollback"
+	PolicyApplicationTriggerSuspend        PolicyApplicationTrigger = "suspend"
+	PolicyApplicationTriggerTagChange      PolicyApplicationTrigger = "tag_change"
+)
+
+// Valid indicates whether the value is a known member of the PolicyApplicationTrigger enum.
+func (e PolicyApplicationTrigger) Valid() bool {
+	switch e {
+	case PolicyApplicationTriggerBootstrap:
+		return true
+	case PolicyApplicationTriggerDriftRepair:
+		return true
+	case PolicyApplicationTriggerGroupChange:
+		return true
+	case PolicyApplicationTriggerManual:
+		return true
+	case PolicyApplicationTriggerResourceChange:
+		return true
+	case PolicyApplicationTriggerRestore:
+		return true
+	case PolicyApplicationTriggerResume:
+		return true
+	case PolicyApplicationTriggerRollback:
+		return true
+	case PolicyApplicationTriggerSuspend:
+		return true
+	case PolicyApplicationTriggerTagChange:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PolicyDiffLineOp.
+const (
+	PolicyDiffLineOpAdded   PolicyDiffLineOp = "added"
+	PolicyDiffLineOpRemoved PolicyDiffLineOp = "removed"
+	PolicyDiffLineOpSame    PolicyDiffLineOp = "same"
+)
+
+// Valid indicates whether the value is a known member of the PolicyDiffLineOp enum.
+func (e PolicyDiffLineOp) Valid() bool {
+	switch e {
+	case PolicyDiffLineOpAdded:
+		return true
+	case PolicyDiffLineOpRemoved:
+		return true
+	case PolicyDiffLineOpSame:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PolicyFindingSeverity.
+const (
+	PolicyFindingSeverityError   PolicyFindingSeverity = "error"
+	PolicyFindingSeverityInfo    PolicyFindingSeverity = "info"
+	PolicyFindingSeverityWarning PolicyFindingSeverity = "warning"
+)
+
+// Valid indicates whether the value is a known member of the PolicyFindingSeverity enum.
+func (e PolicyFindingSeverity) Valid() bool {
+	switch e {
+	case PolicyFindingSeverityError:
+		return true
+	case PolicyFindingSeverityInfo:
+		return true
+	case PolicyFindingSeverityWarning:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PolicyPrincipalType.
+const (
+	PolicyPrincipalTypeAutogroup PolicyPrincipalType = "autogroup"
+	PolicyPrincipalTypeCidr      PolicyPrincipalType = "cidr"
+	PolicyPrincipalTypeGroup     PolicyPrincipalType = "group"
+	PolicyPrincipalTypeResource  PolicyPrincipalType = "resource"
+	PolicyPrincipalTypeTag       PolicyPrincipalType = "tag"
+	PolicyPrincipalTypeUser      PolicyPrincipalType = "user"
+)
+
+// Valid indicates whether the value is a known member of the PolicyPrincipalType enum.
+func (e PolicyPrincipalType) Valid() bool {
+	switch e {
+	case PolicyPrincipalTypeAutogroup:
+		return true
+	case PolicyPrincipalTypeCidr:
+		return true
+	case PolicyPrincipalTypeGroup:
+		return true
+	case PolicyPrincipalTypeResource:
+		return true
+	case PolicyPrincipalTypeTag:
+		return true
+	case PolicyPrincipalTypeUser:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PolicySSHRuleAction.
+const (
+	PolicySSHRuleActionAccept PolicySSHRuleAction = "accept"
+	PolicySSHRuleActionCheck  PolicySSHRuleAction = "check"
+)
+
+// Valid indicates whether the value is a known member of the PolicySSHRuleAction enum.
+func (e PolicySSHRuleAction) Valid() bool {
+	switch e {
+	case PolicySSHRuleActionAccept:
+		return true
+	case PolicySSHRuleActionCheck:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PolicyValidationReportCheck.
+const (
+	PolicyValidationReportCheckFailed  PolicyValidationReportCheck = "failed"
+	PolicyValidationReportCheckPassed  PolicyValidationReportCheck = "passed"
+	PolicyValidationReportCheckSkipped PolicyValidationReportCheck = "skipped"
+)
+
+// Valid indicates whether the value is a known member of the PolicyValidationReportCheck enum.
+func (e PolicyValidationReportCheck) Valid() bool {
+	switch e {
+	case PolicyValidationReportCheckFailed:
+		return true
+	case PolicyValidationReportCheckPassed:
+		return true
+	case PolicyValidationReportCheckSkipped:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PolicyValidationReportResult.
+const (
+	PolicyValidationReportResultFailed PolicyValidationReportResult = "failed"
+	PolicyValidationReportResultPassed PolicyValidationReportResult = "passed"
+)
+
+// Valid indicates whether the value is a known member of the PolicyValidationReportResult enum.
+func (e PolicyValidationReportResult) Valid() bool {
+	switch e {
+	case PolicyValidationReportResultFailed:
+		return true
+	case PolicyValidationReportResultPassed:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PolicyVersionKind.
+const (
+	PolicyVersionKindBaseline   PolicyVersionKind = "baseline"
+	PolicyVersionKindSuspension PolicyVersionKind = "suspension"
+	PolicyVersionKindUser       PolicyVersionKind = "user"
+)
+
+// Valid indicates whether the value is a known member of the PolicyVersionKind enum.
+func (e PolicyVersionKind) Valid() bool {
+	switch e {
+	case PolicyVersionKindBaseline:
+		return true
+	case PolicyVersionKindSuspension:
+		return true
+	case PolicyVersionKindUser:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PolicyVersionReviewMode.
+const (
+	PolicyVersionReviewModePeer PolicyVersionReviewMode = "peer"
+	PolicyVersionReviewModeSelf PolicyVersionReviewMode = "self"
+)
+
+// Valid indicates whether the value is a known member of the PolicyVersionReviewMode enum.
+func (e PolicyVersionReviewMode) Valid() bool {
+	switch e {
+	case PolicyVersionReviewModePeer:
+		return true
+	case PolicyVersionReviewModeSelf:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PolicyVersionState.
+const (
+	PolicyVersionStateApproved        PolicyVersionState = "approved"
+	PolicyVersionStateDraft           PolicyVersionState = "draft"
+	PolicyVersionStatePendingApproval PolicyVersionState = "pending_approval"
+	PolicyVersionStateRejected        PolicyVersionState = "rejected"
+	PolicyVersionStateSuperseded      PolicyVersionState = "superseded"
+	PolicyVersionStateValidated       PolicyVersionState = "validated"
+)
+
+// Valid indicates whether the value is a known member of the PolicyVersionState enum.
+func (e PolicyVersionState) Valid() bool {
+	switch e {
+	case PolicyVersionStateApproved:
+		return true
+	case PolicyVersionStateDraft:
+		return true
+	case PolicyVersionStatePendingApproval:
+		return true
+	case PolicyVersionStateRejected:
+		return true
+	case PolicyVersionStateSuperseded:
+		return true
+	case PolicyVersionStateValidated:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PrincipalScope.
 const (
 	PrincipalScopePlatform PrincipalScope = "platform"
@@ -1815,6 +2106,248 @@ type PlatformRelayRegion struct {
 	Version   int64               `json:"version"`
 }
 
+// PolicyAcknowledgement defines model for PolicyAcknowledgement.
+type PolicyAcknowledgement struct {
+	Reason string `json:"reason"`
+
+	// Rule L4 và L12 chỉ có hiệu lực khi một Tenant Owner duyệt version
+	Rule PolicyAcknowledgementRule `json:"rule"`
+}
+
+// PolicyAcknowledgementRule L4 và L12 chỉ có hiệu lực khi một Tenant Owner duyệt version
+type PolicyAcknowledgementRule string
+
+// PolicyApplication Một lần áp dụng (`policy_applications` — §13.3)
+type PolicyApplication struct {
+	AppliedSha256      string                   `json:"applied_sha256"`
+	CreatedAt          time.Time                `json:"created_at"`
+	ErrorCode          *string                  `json:"error_code,omitempty"`
+	FinishedAt         *time.Time               `json:"finished_at,omitempty"`
+	HeadscaleUpdatedAt *time.Time               `json:"headscale_updated_at,omitempty"`
+	Id                 openapi_types.UUID       `json:"id"`
+	PolicyVersionId    openapi_types.UUID       `json:"policy_version_id"`
+	RequestedBy        *openapi_types.UUID      `json:"requested_by,omitempty"`
+	State              PolicyApplicationState   `json:"state"`
+	Trigger            PolicyApplicationTrigger `json:"trigger"`
+}
+
+// PolicyApplicationState defines model for PolicyApplication.State.
+type PolicyApplicationState string
+
+// PolicyApplicationTrigger defines model for PolicyApplication.Trigger.
+type PolicyApplicationTrigger string
+
+// PolicyApplyAccepted defines model for PolicyApplyAccepted.
+type PolicyApplyAccepted struct {
+	// Job Job — phép chiếu an toàn cho người gọi phạm vi tenant (§13.3)
+	Job Job `json:"job"`
+
+	// Version Một version policy (`policy_versions` — §7.3); không chứa trạng thái áp dụng
+	Version PolicyVersion `json:"version"`
+}
+
+// PolicyApprove defines model for PolicyApprove.
+type PolicyApprove struct {
+	ContentSha256 string `json:"content_sha256"`
+}
+
+// PolicyAutoApprovers Mặc định không sinh; principal không phải tag router/exit của nền tảng cần xác nhận (L7)
+type PolicyAutoApprovers struct {
+	ExitNode *[]PolicyPrincipal            `json:"exit_node,omitempty"`
+	Routes   *map[string][]PolicyPrincipal `json:"routes,omitempty"`
+}
+
+// PolicyCreate defines model for PolicyCreate.
+type PolicyCreate struct {
+	ParentVersionId *openapi_types.UUID `json:"parent_version_id,omitempty"`
+
+	// Source Nội dung có kiểu của một version (§13.3): `groups`, `hosts` và `tagOwners` **không** nằm ở đây — được render từ
+	// bảng `groups`/`group_members`, `network_resources`, `tenant_tags` lúc áp dụng.
+	Source PolicySource `json:"source"`
+}
+
+// PolicyCurrent defines model for PolicyCurrent.
+type PolicyCurrent struct {
+	// Applied Một lần áp dụng (`policy_applications` — §13.3)
+	Applied     *PolicyApplication `json:"applied,omitempty"`
+	ApplyStepUp bool               `json:"apply_step_up"`
+
+	// Desired Một version policy (`policy_versions` — §7.3); không chứa trạng thái áp dụng
+	Desired  *PolicyVersion `json:"desired,omitempty"`
+	FourEyes bool           `json:"four_eyes"`
+
+	// Latest Một lần áp dụng (`policy_applications` — §13.3)
+	Latest *PolicyApplication `json:"latest,omitempty"`
+}
+
+// PolicyDiff defines model for PolicyDiff.
+type PolicyDiff struct {
+	AgainstId      *openapi_types.UUID `json:"against_id,omitempty"`
+	FromSha256     *string             `json:"from_sha256,omitempty"`
+	GrantsAdded    []string            `json:"grants_added"`
+	GrantsRemoved  []string            `json:"grants_removed"`
+	Lines          []PolicyDiffLine    `json:"lines"`
+	LinesOmitted   bool                `json:"lines_omitted"`
+	ReportBlocking bool                `json:"report_blocking"`
+	ToSha256       *string             `json:"to_sha256,omitempty"`
+	VersionId      openapi_types.UUID  `json:"version_id"`
+}
+
+// PolicyDiffLine defines model for PolicyDiffLine.
+type PolicyDiffLine struct {
+	Op   PolicyDiffLineOp `json:"op"`
+	Text string           `json:"text"`
+}
+
+// PolicyDiffLineOp defines model for PolicyDiffLine.Op.
+type PolicyDiffLineOp string
+
+// PolicyFinding defines model for PolicyFinding.
+type PolicyFinding struct {
+	Acknowledged *bool                 `json:"acknowledged,omitempty"`
+	Code         string                `json:"code"`
+	Message      string                `json:"message"`
+	OwnerOnly    *bool                 `json:"owner_only,omitempty"`
+	Path         *string               `json:"path,omitempty"`
+	RequiresAck  *bool                 `json:"requires_ack,omitempty"`
+	Rule         string                `json:"rule"`
+	Severity     PolicyFindingSeverity `json:"severity"`
+}
+
+// PolicyFindingSeverity defines model for PolicyFinding.Severity.
+type PolicyFindingSeverity string
+
+// PolicyGrant defines model for PolicyGrant.
+type PolicyGrant struct {
+	// App Capability ứng dụng (tên → danh sách đối tượng), mã hóa lại khi render
+	App *map[string][]map[string]interface{} `json:"app,omitempty"`
+	Dst []PolicyPrincipal                    `json:"dst"`
+	Ip  *[]string                            `json:"ip,omitempty"`
+	Src []PolicyPrincipal                    `json:"src"`
+
+	// Via Chỉ principal `tag`
+	Via *[]PolicyPrincipal `json:"via,omitempty"`
+}
+
+// PolicyPrincipal Tham chiếu principal có kiểu (§7.2): `user` — `ref` = membership id (render `mg-<membership>@`); `group` — group id;
+// `tag` — tag id của danh mục; `resource` — id tài nguyên mạng (render alias trong `hosts`); `autogroup` — `member`,
+// `tagged`, `self`, `internet`, `danger-all` (tùy vị trí); `cidr` — `*`, một địa chỉ IP hoặc prefix.
+type PolicyPrincipal struct {
+	Ref  string              `json:"ref"`
+	Type PolicyPrincipalType `json:"type"`
+}
+
+// PolicyPrincipalType defines model for PolicyPrincipal.Type.
+type PolicyPrincipalType string
+
+// PolicyReject defines model for PolicyReject.
+type PolicyReject struct {
+	Reason string `json:"reason"`
+}
+
+// PolicySSHRule defines model for PolicySSHRule.
+type PolicySSHRule struct {
+	// Action `accept` cần xác nhận (L10 — forwarding luôn bật); `check` bị chặn (V-26)
+	Action      PolicySSHRuleAction `json:"action"`
+	CheckPeriod *string             `json:"check_period,omitempty"`
+	Dst         []PolicyPrincipal   `json:"dst"`
+	Src         []PolicyPrincipal   `json:"src"`
+	Users       []string            `json:"users"`
+}
+
+// PolicySSHRuleAction `accept` cần xác nhận (L10 — forwarding luôn bật); `check` bị chặn (V-26)
+type PolicySSHRuleAction string
+
+// PolicySource Nội dung có kiểu của một version (§13.3): `groups`, `hosts` và `tagOwners` **không** nằm ở đây — được render từ
+// bảng `groups`/`group_members`, `network_resources`, `tenant_tags` lúc áp dụng.
+type PolicySource struct {
+	Acknowledgements *[]PolicyAcknowledgement `json:"acknowledgements,omitempty"`
+
+	// AutoApprovers Mặc định không sinh; principal không phải tag router/exit của nền tảng cần xác nhận (L7)
+	AutoApprovers *PolicyAutoApprovers `json:"auto_approvers,omitempty"`
+	Grants        []PolicyGrant        `json:"grants"`
+	Ssh           *[]PolicySSHRule     `json:"ssh,omitempty"`
+}
+
+// PolicyUpdate defines model for PolicyUpdate.
+type PolicyUpdate struct {
+	// Source Nội dung có kiểu của một version (§13.3): `groups`, `hosts` và `tagOwners` **không** nằm ở đây — được render từ
+	// bảng `groups`/`group_members`, `network_resources`, `tenant_tags` lúc áp dụng.
+	Source PolicySource `json:"source"`
+}
+
+// PolicyValidationReport Kết quả lint/render/CheckPolicy (`policy_versions.validation_report`); `tests` luôn rỗng (chưa sinh)
+type PolicyValidationReport struct {
+	Check          *PolicyValidationReportCheck `json:"check,omitempty"`
+	Engine         string                       `json:"engine"`
+	Errors         []PolicyFinding              `json:"errors"`
+	Info           []PolicyFinding              `json:"info"`
+	RenderedSha256 *string                      `json:"rendered_sha256,omitempty"`
+	Result         PolicyValidationReportResult `json:"result"`
+	Revision       *int64                       `json:"revision,omitempty"`
+	Tests          []interface{}                `json:"tests"`
+	ValidatedAt    *time.Time                   `json:"validated_at,omitempty"`
+	Warnings       []PolicyFinding              `json:"warnings"`
+}
+
+// PolicyValidationReportCheck defines model for PolicyValidationReport.Check.
+type PolicyValidationReportCheck string
+
+// PolicyValidationReportResult defines model for PolicyValidationReport.Result.
+type PolicyValidationReportResult string
+
+// PolicyVersion Một version policy (`policy_versions` — §7.3); không chứa trạng thái áp dụng
+type PolicyVersion struct {
+	ApprovedAt    *time.Time          `json:"approved_at,omitempty"`
+	ApprovedBy    *openapi_types.UUID `json:"approved_by,omitempty"`
+	ContentSha256 string              `json:"content_sha256"`
+	CreatedAt     time.Time           `json:"created_at"`
+	CreatedBy     *openapi_types.UUID `json:"created_by,omitempty"`
+	Desired       bool                `json:"desired"`
+
+	// Etag Giá trị `If-Match` của mọi thao tác trên version
+	Etag string `json:"etag"`
+
+	// Hujson Văn bản HuJSON của version do nền tảng phát hành hoặc nhập lại (không có `source`)
+	Hujson          *string                  `json:"hujson,omitempty"`
+	Id              openapi_types.UUID       `json:"id"`
+	Kind            PolicyVersionKind        `json:"kind"`
+	ParentVersionId *openapi_types.UUID      `json:"parent_version_id,omitempty"`
+	RejectedAt      *time.Time               `json:"rejected_at,omitempty"`
+	RejectedBy      *openapi_types.UUID      `json:"rejected_by,omitempty"`
+	RejectedReason  *string                  `json:"rejected_reason,omitempty"`
+	ReviewMode      *PolicyVersionReviewMode `json:"review_mode,omitempty"`
+	Revision        int64                    `json:"revision"`
+	RollbackOf      *openapi_types.UUID      `json:"rollback_of,omitempty"`
+
+	// Source Nội dung có kiểu của một version (§13.3): `groups`, `hosts` và `tagOwners` **không** nằm ở đây — được render từ
+	// bảng `groups`/`group_members`, `network_resources`, `tenant_tags` lúc áp dụng.
+	Source      *PolicySource       `json:"source,omitempty"`
+	State       PolicyVersionState  `json:"state"`
+	SubmittedAt *time.Time          `json:"submitted_at,omitempty"`
+	SubmittedBy *openapi_types.UUID `json:"submitted_by,omitempty"`
+	UpdatedAt   time.Time           `json:"updated_at"`
+
+	// ValidationReport Kết quả lint/render/CheckPolicy (`policy_versions.validation_report`); `tests` luôn rỗng (chưa sinh)
+	ValidationReport *PolicyValidationReport `json:"validation_report,omitempty"`
+	Version          int                     `json:"version"`
+}
+
+// PolicyVersionKind defines model for PolicyVersion.Kind.
+type PolicyVersionKind string
+
+// PolicyVersionReviewMode defines model for PolicyVersion.ReviewMode.
+type PolicyVersionReviewMode string
+
+// PolicyVersionState defines model for PolicyVersion.State.
+type PolicyVersionState string
+
+// PolicyVersionList defines model for PolicyVersionList.
+type PolicyVersionList struct {
+	Items      []PolicyVersion `json:"items"`
+	NextCursor *string         `json:"next_cursor"`
+}
+
 // Principal Danh tính đã đăng nhập (`identities`, §8.1)
 type Principal struct {
 	DisplayName string             `json:"display_name"`
@@ -2313,6 +2846,12 @@ type NotificationId = openapi_types.UUID
 // OutcomeFilter defines model for OutcomeFilter.
 type OutcomeFilter = AuditOutcome
 
+// PolicyAgainst defines model for PolicyAgainst.
+type PolicyAgainst = openapi_types.UUID
+
+// PolicyVersionId defines model for PolicyVersionId.
+type PolicyVersionId = openapi_types.UUID
+
 // SessionId defines model for SessionId.
 type SessionId = openapi_types.UUID
 
@@ -2797,6 +3336,69 @@ type ListNotificationsParams struct {
 	Unread *bool `form:"unread,omitempty" json:"unread,omitempty"`
 }
 
+// ListTenantPoliciesParams defines parameters for ListTenantPolicies.
+type ListTenantPoliciesParams struct {
+	// Limit Số phần tử tối đa của trang
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Con trỏ mờ lấy từ `next_cursor` của trang trước
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
+// CreateTenantPolicyParams defines parameters for CreateTenantPolicy.
+type CreateTenantPolicyParams struct {
+	// IdempotencyKey Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// UpdateTenantPolicyParams defines parameters for UpdateTenantPolicy.
+type UpdateTenantPolicyParams struct {
+	// IfMatch `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428`
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// ApplyTenantPolicyParams defines parameters for ApplyTenantPolicy.
+type ApplyTenantPolicyParams struct {
+	// IdempotencyKey Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// ApproveTenantPolicyParams defines parameters for ApproveTenantPolicy.
+type ApproveTenantPolicyParams struct {
+	// IfMatch `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428`
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// DiffTenantPolicyParams defines parameters for DiffTenantPolicy.
+type DiffTenantPolicyParams struct {
+	// Against Version so sánh (mặc định version mong muốn)
+	Against *PolicyAgainst `form:"against,omitempty" json:"against,omitempty"`
+}
+
+// RejectTenantPolicyParams defines parameters for RejectTenantPolicy.
+type RejectTenantPolicyParams struct {
+	// IfMatch `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428`
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// RollbackTenantPolicyParams defines parameters for RollbackTenantPolicy.
+type RollbackTenantPolicyParams struct {
+	// IdempotencyKey Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// SubmitTenantPolicyParams defines parameters for SubmitTenantPolicy.
+type SubmitTenantPolicyParams struct {
+	// IfMatch `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428`
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// ValidateTenantPolicyParams defines parameters for ValidateTenantPolicy.
+type ValidateTenantPolicyParams struct {
+	// IfMatch `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428`
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
 // ListTenantTagsParams defines parameters for ListTenantTags.
 type ListTenantTagsParams struct {
 	// Limit Số phần tử tối đa của trang
@@ -2919,6 +3521,18 @@ type ResendTenantInvitationJSONRequestBody = InvitationResend
 
 // TransferTenantOwnershipJSONRequestBody defines body for TransferTenantOwnership for application/json ContentType.
 type TransferTenantOwnershipJSONRequestBody = OwnershipTransfer
+
+// CreateTenantPolicyJSONRequestBody defines body for CreateTenantPolicy for application/json ContentType.
+type CreateTenantPolicyJSONRequestBody = PolicyCreate
+
+// UpdateTenantPolicyJSONRequestBody defines body for UpdateTenantPolicy for application/json ContentType.
+type UpdateTenantPolicyJSONRequestBody = PolicyUpdate
+
+// ApproveTenantPolicyJSONRequestBody defines body for ApproveTenantPolicy for application/json ContentType.
+type ApproveTenantPolicyJSONRequestBody = PolicyApprove
+
+// RejectTenantPolicyJSONRequestBody defines body for RejectTenantPolicy for application/json ContentType.
+type RejectTenantPolicyJSONRequestBody = PolicyReject
 
 // CreateTenantTagJSONRequestBody defines body for CreateTenantTag for application/json ContentType.
 type CreateTenantTagJSONRequestBody = TagCreate
@@ -3147,6 +3761,42 @@ type ServerInterface interface {
 	// TransferTenantOwnership Cấp/chuyển role Tenant Owner cho một thành viên đang hoạt động (chỉ Owner; step-up)
 	// (POST /tenants/{tenantId}/ownership-transfer)
 	TransferTenantOwnership(w http.ResponseWriter, r *http.Request, tenantId TenantId)
+	// ListTenantPolicies Các version policy của tenant
+	// (GET /tenants/{tenantId}/policies)
+	ListTenantPolicies(w http.ResponseWriter, r *http.Request, tenantId TenantId, params ListTenantPoliciesParams)
+	// CreateTenantPolicy Soạn một version policy mới (draft)
+	// (POST /tenants/{tenantId}/policies)
+	CreateTenantPolicy(w http.ResponseWriter, r *http.Request, tenantId TenantId, params CreateTenantPolicyParams)
+	// GetCurrentTenantPolicy Version mong muốn và trạng thái áp dụng
+	// (GET /tenants/{tenantId}/policies/current)
+	GetCurrentTenantPolicy(w http.ResponseWriter, r *http.Request, tenantId TenantId)
+	// GetTenantPolicy Một version policy
+	// (GET /tenants/{tenantId}/policies/{versionId})
+	GetTenantPolicy(w http.ResponseWriter, r *http.Request, tenantId TenantId, versionId PolicyVersionId)
+	// UpdateTenantPolicy Sửa nội dung một version (về draft, xóa phê duyệt)
+	// (PATCH /tenants/{tenantId}/policies/{versionId})
+	UpdateTenantPolicy(w http.ResponseWriter, r *http.Request, tenantId TenantId, versionId PolicyVersionId, params UpdateTenantPolicyParams)
+	// ApplyTenantPolicy Đặt version đã duyệt làm mong muốn và áp dụng (202 + job policy.apply)
+	// (POST /tenants/{tenantId}/policies/{versionId}/apply)
+	ApplyTenantPolicy(w http.ResponseWriter, r *http.Request, tenantId TenantId, versionId PolicyVersionId, params ApplyTenantPolicyParams)
+	// ApproveTenantPolicy Duyệt version (peer hoặc self-review)
+	// (POST /tenants/{tenantId}/policies/{versionId}/approve)
+	ApproveTenantPolicy(w http.ResponseWriter, r *http.Request, tenantId TenantId, versionId PolicyVersionId, params ApproveTenantPolicyParams)
+	// DiffTenantPolicy Diff của version so với version khác (mặc định version mong muốn)
+	// (GET /tenants/{tenantId}/policies/{versionId}/diff)
+	DiffTenantPolicy(w http.ResponseWriter, r *http.Request, tenantId TenantId, versionId PolicyVersionId, params DiffTenantPolicyParams)
+	// RejectTenantPolicy Từ chối version đang chờ duyệt
+	// (POST /tenants/{tenantId}/policies/{versionId}/reject)
+	RejectTenantPolicy(w http.ResponseWriter, r *http.Request, tenantId TenantId, versionId PolicyVersionId, params RejectTenantPolicyParams)
+	// RollbackTenantPolicy Rollback về nội dung của một version trước (202 + job policy.apply)
+	// (POST /tenants/{tenantId}/policies/{versionId}/rollback)
+	RollbackTenantPolicy(w http.ResponseWriter, r *http.Request, tenantId TenantId, versionId PolicyVersionId, params RollbackTenantPolicyParams)
+	// SubmitTenantPolicy Gửi duyệt (validated → pending_approval)
+	// (POST /tenants/{tenantId}/policies/{versionId}/submit)
+	SubmitTenantPolicy(w http.ResponseWriter, r *http.Request, tenantId TenantId, versionId PolicyVersionId, params SubmitTenantPolicyParams)
+	// ValidateTenantPolicy Kiểm tra version (render + lint + CheckPolicy dry-run)
+	// (POST /tenants/{tenantId}/policies/{versionId}/validate)
+	ValidateTenantPolicy(w http.ResponseWriter, r *http.Request, tenantId TenantId, versionId PolicyVersionId, params ValidateTenantPolicyParams)
 	// GetTenantRelay Relay DERP của tenant — region được gán và kết quả probe gần nhất kèm `checked_at`
 	// (GET /tenants/{tenantId}/relay)
 	GetTenantRelay(w http.ResponseWriter, r *http.Request, tenantId TenantId)
@@ -6795,6 +7445,648 @@ func (siw *ServerInterfaceWrapper) TransferTenantOwnership(w http.ResponseWriter
 	handler.ServeHTTP(w, r)
 }
 
+// ListTenantPolicies operation middleware
+func (siw *ServerInterfaceWrapper) ListTenantPolicies(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListTenantPoliciesParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListTenantPolicies(w, r, tenantId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateTenantPolicy operation middleware
+func (siw *ServerInterfaceWrapper) CreateTenantPolicy(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateTenantPolicyParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateTenantPolicy(w, r, tenantId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetCurrentTenantPolicy operation middleware
+func (siw *ServerInterfaceWrapper) GetCurrentTenantPolicy(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetCurrentTenantPolicy(w, r, tenantId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetTenantPolicy operation middleware
+func (siw *ServerInterfaceWrapper) GetTenantPolicy(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "versionId" -------------
+	var versionId PolicyVersionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "versionId", r.PathValue("versionId"), &versionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "versionId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetTenantPolicy(w, r, tenantId, versionId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateTenantPolicy operation middleware
+func (siw *ServerInterfaceWrapper) UpdateTenantPolicy(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "versionId" -------------
+	var versionId PolicyVersionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "versionId", r.PathValue("versionId"), &versionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "versionId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpdateTenantPolicyParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateTenantPolicy(w, r, tenantId, versionId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ApplyTenantPolicy operation middleware
+func (siw *ServerInterfaceWrapper) ApplyTenantPolicy(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "versionId" -------------
+	var versionId PolicyVersionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "versionId", r.PathValue("versionId"), &versionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "versionId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ApplyTenantPolicyParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ApplyTenantPolicy(w, r, tenantId, versionId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ApproveTenantPolicy operation middleware
+func (siw *ServerInterfaceWrapper) ApproveTenantPolicy(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "versionId" -------------
+	var versionId PolicyVersionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "versionId", r.PathValue("versionId"), &versionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "versionId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ApproveTenantPolicyParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ApproveTenantPolicy(w, r, tenantId, versionId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DiffTenantPolicy operation middleware
+func (siw *ServerInterfaceWrapper) DiffTenantPolicy(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "versionId" -------------
+	var versionId PolicyVersionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "versionId", r.PathValue("versionId"), &versionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "versionId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DiffTenantPolicyParams
+
+	// ------------- Optional query parameter "against" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "against", r.URL.Query(), &params.Against, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "against"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "against", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DiffTenantPolicy(w, r, tenantId, versionId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RejectTenantPolicy operation middleware
+func (siw *ServerInterfaceWrapper) RejectTenantPolicy(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "versionId" -------------
+	var versionId PolicyVersionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "versionId", r.PathValue("versionId"), &versionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "versionId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RejectTenantPolicyParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RejectTenantPolicy(w, r, tenantId, versionId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RollbackTenantPolicy operation middleware
+func (siw *ServerInterfaceWrapper) RollbackTenantPolicy(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "versionId" -------------
+	var versionId PolicyVersionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "versionId", r.PathValue("versionId"), &versionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "versionId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RollbackTenantPolicyParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RollbackTenantPolicy(w, r, tenantId, versionId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SubmitTenantPolicy operation middleware
+func (siw *ServerInterfaceWrapper) SubmitTenantPolicy(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "versionId" -------------
+	var versionId PolicyVersionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "versionId", r.PathValue("versionId"), &versionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "versionId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SubmitTenantPolicyParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SubmitTenantPolicy(w, r, tenantId, versionId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ValidateTenantPolicy operation middleware
+func (siw *ServerInterfaceWrapper) ValidateTenantPolicy(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "versionId" -------------
+	var versionId PolicyVersionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "versionId", r.PathValue("versionId"), &versionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "versionId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ValidateTenantPolicyParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ValidateTenantPolicy(w, r, tenantId, versionId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetTenantRelay operation middleware
 func (siw *ServerInterfaceWrapper) GetTenantRelay(w http.ResponseWriter, r *http.Request) {
 
@@ -7626,6 +8918,18 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants/{tenantId}/tags", wrapper.CreateTenantTag)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/tenants/{tenantId}/tags/{tagId}", wrapper.DeleteTenantTag)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/tenants/{tenantId}/tags/{tagId}", wrapper.UpdateTenantTag)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tenants/{tenantId}/policies", wrapper.ListTenantPolicies)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants/{tenantId}/policies", wrapper.CreateTenantPolicy)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tenants/{tenantId}/policies/current", wrapper.GetCurrentTenantPolicy)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tenants/{tenantId}/policies/{versionId}", wrapper.GetTenantPolicy)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/tenants/{tenantId}/policies/{versionId}", wrapper.UpdateTenantPolicy)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants/{tenantId}/policies/{versionId}/validate", wrapper.ValidateTenantPolicy)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants/{tenantId}/policies/{versionId}/submit", wrapper.SubmitTenantPolicy)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants/{tenantId}/policies/{versionId}/approve", wrapper.ApproveTenantPolicy)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants/{tenantId}/policies/{versionId}/reject", wrapper.RejectTenantPolicy)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants/{tenantId}/policies/{versionId}/apply", wrapper.ApplyTenantPolicy)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants/{tenantId}/policies/{versionId}/rollback", wrapper.RollbackTenantPolicy)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tenants/{tenantId}/policies/{versionId}/diff", wrapper.DiffTenantPolicy)
 
 	return m
 }
@@ -18785,6 +20089,2289 @@ func (response TransferTenantOwnershipdefaultApplicationProblemPlusJSONResponse)
 	return err
 }
 
+type ListTenantPoliciesRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	Params   ListTenantPoliciesParams
+}
+
+type ListTenantPoliciesResponseObject interface {
+	VisitListTenantPoliciesResponse(w http.ResponseWriter) error
+}
+
+type ListTenantPolicies200JSONResponse PolicyVersionList
+
+func (response ListTenantPolicies200JSONResponse) VisitListTenantPoliciesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantPolicies401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response ListTenantPolicies401ApplicationProblemPlusJSONResponse) VisitListTenantPoliciesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantPolicies403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response ListTenantPolicies403ApplicationProblemPlusJSONResponse) VisitListTenantPoliciesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantPolicies404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response ListTenantPolicies404ApplicationProblemPlusJSONResponse) VisitListTenantPoliciesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantPolicies422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response ListTenantPolicies422ApplicationProblemPlusJSONResponse) VisitListTenantPoliciesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantPolicies429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response ListTenantPolicies429ApplicationProblemPlusJSONResponse) VisitListTenantPoliciesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantPoliciesdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response ListTenantPoliciesdefaultApplicationProblemPlusJSONResponse) VisitListTenantPoliciesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTenantPolicyRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	Params   CreateTenantPolicyParams
+	Body     *CreateTenantPolicyJSONRequestBody
+}
+
+type CreateTenantPolicyResponseObject interface {
+	VisitCreateTenantPolicyResponse(w http.ResponseWriter) error
+}
+
+type CreateTenantPolicy201ResponseHeaders struct {
+	ETag string
+}
+
+type CreateTenantPolicy201JSONResponse struct {
+	Body    PolicyVersion
+	Headers CreateTenantPolicy201ResponseHeaders
+}
+
+func (response CreateTenantPolicy201JSONResponse) VisitCreateTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTenantPolicy401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateTenantPolicy401ApplicationProblemPlusJSONResponse) VisitCreateTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTenantPolicy403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response CreateTenantPolicy403ApplicationProblemPlusJSONResponse) VisitCreateTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTenantPolicy404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response CreateTenantPolicy404ApplicationProblemPlusJSONResponse) VisitCreateTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTenantPolicy409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response CreateTenantPolicy409ApplicationProblemPlusJSONResponse) VisitCreateTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTenantPolicy422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateTenantPolicy422ApplicationProblemPlusJSONResponse) VisitCreateTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTenantPolicy429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateTenantPolicy429ApplicationProblemPlusJSONResponse) VisitCreateTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTenantPolicydefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response CreateTenantPolicydefaultApplicationProblemPlusJSONResponse) VisitCreateTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCurrentTenantPolicyRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+}
+
+type GetCurrentTenantPolicyResponseObject interface {
+	VisitGetCurrentTenantPolicyResponse(w http.ResponseWriter) error
+}
+
+type GetCurrentTenantPolicy200JSONResponse PolicyCurrent
+
+func (response GetCurrentTenantPolicy200JSONResponse) VisitGetCurrentTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCurrentTenantPolicy401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response GetCurrentTenantPolicy401ApplicationProblemPlusJSONResponse) VisitGetCurrentTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCurrentTenantPolicy403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response GetCurrentTenantPolicy403ApplicationProblemPlusJSONResponse) VisitGetCurrentTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCurrentTenantPolicy404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response GetCurrentTenantPolicy404ApplicationProblemPlusJSONResponse) VisitGetCurrentTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCurrentTenantPolicy422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response GetCurrentTenantPolicy422ApplicationProblemPlusJSONResponse) VisitGetCurrentTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCurrentTenantPolicy429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response GetCurrentTenantPolicy429ApplicationProblemPlusJSONResponse) VisitGetCurrentTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCurrentTenantPolicydefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response GetCurrentTenantPolicydefaultApplicationProblemPlusJSONResponse) VisitGetCurrentTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTenantPolicyRequestObject struct {
+	TenantId  TenantId        `json:"tenantId"`
+	VersionId PolicyVersionId `json:"versionId"`
+}
+
+type GetTenantPolicyResponseObject interface {
+	VisitGetTenantPolicyResponse(w http.ResponseWriter) error
+}
+
+type GetTenantPolicy200ResponseHeaders struct {
+	ETag string
+}
+
+type GetTenantPolicy200JSONResponse struct {
+	Body    PolicyVersion
+	Headers GetTenantPolicy200ResponseHeaders
+}
+
+func (response GetTenantPolicy200JSONResponse) VisitGetTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTenantPolicy401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response GetTenantPolicy401ApplicationProblemPlusJSONResponse) VisitGetTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTenantPolicy403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response GetTenantPolicy403ApplicationProblemPlusJSONResponse) VisitGetTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTenantPolicy404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response GetTenantPolicy404ApplicationProblemPlusJSONResponse) VisitGetTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTenantPolicy422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response GetTenantPolicy422ApplicationProblemPlusJSONResponse) VisitGetTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTenantPolicy429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response GetTenantPolicy429ApplicationProblemPlusJSONResponse) VisitGetTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTenantPolicydefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response GetTenantPolicydefaultApplicationProblemPlusJSONResponse) VisitGetTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTenantPolicyRequestObject struct {
+	TenantId  TenantId        `json:"tenantId"`
+	VersionId PolicyVersionId `json:"versionId"`
+	Params    UpdateTenantPolicyParams
+	Body      *UpdateTenantPolicyJSONRequestBody
+}
+
+type UpdateTenantPolicyResponseObject interface {
+	VisitUpdateTenantPolicyResponse(w http.ResponseWriter) error
+}
+
+type UpdateTenantPolicy200ResponseHeaders struct {
+	ETag string
+}
+
+type UpdateTenantPolicy200JSONResponse struct {
+	Body    PolicyVersion
+	Headers UpdateTenantPolicy200ResponseHeaders
+}
+
+func (response UpdateTenantPolicy200JSONResponse) VisitUpdateTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTenantPolicy401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateTenantPolicy401ApplicationProblemPlusJSONResponse) VisitUpdateTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTenantPolicy403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateTenantPolicy403ApplicationProblemPlusJSONResponse) VisitUpdateTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTenantPolicy404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateTenantPolicy404ApplicationProblemPlusJSONResponse) VisitUpdateTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTenantPolicy409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateTenantPolicy409ApplicationProblemPlusJSONResponse) VisitUpdateTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTenantPolicy412ApplicationProblemPlusJSONResponse struct {
+	PreconditionFailedApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateTenantPolicy412ApplicationProblemPlusJSONResponse) VisitUpdateTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(412)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTenantPolicy422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateTenantPolicy422ApplicationProblemPlusJSONResponse) VisitUpdateTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTenantPolicy428ApplicationProblemPlusJSONResponse struct {
+	PreconditionRequiredApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateTenantPolicy428ApplicationProblemPlusJSONResponse) VisitUpdateTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(428)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTenantPolicy429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateTenantPolicy429ApplicationProblemPlusJSONResponse) VisitUpdateTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTenantPolicydefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response UpdateTenantPolicydefaultApplicationProblemPlusJSONResponse) VisitUpdateTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApplyTenantPolicyRequestObject struct {
+	TenantId  TenantId        `json:"tenantId"`
+	VersionId PolicyVersionId `json:"versionId"`
+	Params    ApplyTenantPolicyParams
+}
+
+type ApplyTenantPolicyResponseObject interface {
+	VisitApplyTenantPolicyResponse(w http.ResponseWriter) error
+}
+
+type ApplyTenantPolicy202ResponseHeaders struct {
+	Location string
+}
+
+type ApplyTenantPolicy202JSONResponse struct {
+	Body    PolicyApplyAccepted
+	Headers ApplyTenantPolicy202ResponseHeaders
+}
+
+func (response ApplyTenantPolicy202JSONResponse) VisitApplyTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Location", fmt.Sprint(response.Headers.Location))
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApplyTenantPolicy401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response ApplyTenantPolicy401ApplicationProblemPlusJSONResponse) VisitApplyTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApplyTenantPolicy403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response ApplyTenantPolicy403ApplicationProblemPlusJSONResponse) VisitApplyTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApplyTenantPolicy404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response ApplyTenantPolicy404ApplicationProblemPlusJSONResponse) VisitApplyTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApplyTenantPolicy409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response ApplyTenantPolicy409ApplicationProblemPlusJSONResponse) VisitApplyTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApplyTenantPolicy422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response ApplyTenantPolicy422ApplicationProblemPlusJSONResponse) VisitApplyTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApplyTenantPolicy429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response ApplyTenantPolicy429ApplicationProblemPlusJSONResponse) VisitApplyTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApplyTenantPolicydefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response ApplyTenantPolicydefaultApplicationProblemPlusJSONResponse) VisitApplyTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveTenantPolicyRequestObject struct {
+	TenantId  TenantId        `json:"tenantId"`
+	VersionId PolicyVersionId `json:"versionId"`
+	Params    ApproveTenantPolicyParams
+	Body      *ApproveTenantPolicyJSONRequestBody
+}
+
+type ApproveTenantPolicyResponseObject interface {
+	VisitApproveTenantPolicyResponse(w http.ResponseWriter) error
+}
+
+type ApproveTenantPolicy200ResponseHeaders struct {
+	ETag string
+}
+
+type ApproveTenantPolicy200JSONResponse struct {
+	Body    PolicyVersion
+	Headers ApproveTenantPolicy200ResponseHeaders
+}
+
+func (response ApproveTenantPolicy200JSONResponse) VisitApproveTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveTenantPolicy401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response ApproveTenantPolicy401ApplicationProblemPlusJSONResponse) VisitApproveTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveTenantPolicy403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response ApproveTenantPolicy403ApplicationProblemPlusJSONResponse) VisitApproveTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveTenantPolicy404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response ApproveTenantPolicy404ApplicationProblemPlusJSONResponse) VisitApproveTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveTenantPolicy409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response ApproveTenantPolicy409ApplicationProblemPlusJSONResponse) VisitApproveTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveTenantPolicy412ApplicationProblemPlusJSONResponse struct {
+	PreconditionFailedApplicationProblemPlusJSONResponse
+}
+
+func (response ApproveTenantPolicy412ApplicationProblemPlusJSONResponse) VisitApproveTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(412)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveTenantPolicy422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response ApproveTenantPolicy422ApplicationProblemPlusJSONResponse) VisitApproveTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveTenantPolicy428ApplicationProblemPlusJSONResponse struct {
+	PreconditionRequiredApplicationProblemPlusJSONResponse
+}
+
+func (response ApproveTenantPolicy428ApplicationProblemPlusJSONResponse) VisitApproveTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(428)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveTenantPolicy429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response ApproveTenantPolicy429ApplicationProblemPlusJSONResponse) VisitApproveTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveTenantPolicydefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response ApproveTenantPolicydefaultApplicationProblemPlusJSONResponse) VisitApproveTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DiffTenantPolicyRequestObject struct {
+	TenantId  TenantId        `json:"tenantId"`
+	VersionId PolicyVersionId `json:"versionId"`
+	Params    DiffTenantPolicyParams
+}
+
+type DiffTenantPolicyResponseObject interface {
+	VisitDiffTenantPolicyResponse(w http.ResponseWriter) error
+}
+
+type DiffTenantPolicy200JSONResponse PolicyDiff
+
+func (response DiffTenantPolicy200JSONResponse) VisitDiffTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DiffTenantPolicy401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response DiffTenantPolicy401ApplicationProblemPlusJSONResponse) VisitDiffTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DiffTenantPolicy403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response DiffTenantPolicy403ApplicationProblemPlusJSONResponse) VisitDiffTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DiffTenantPolicy404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response DiffTenantPolicy404ApplicationProblemPlusJSONResponse) VisitDiffTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DiffTenantPolicy422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response DiffTenantPolicy422ApplicationProblemPlusJSONResponse) VisitDiffTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DiffTenantPolicy429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response DiffTenantPolicy429ApplicationProblemPlusJSONResponse) VisitDiffTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DiffTenantPolicydefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response DiffTenantPolicydefaultApplicationProblemPlusJSONResponse) VisitDiffTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectTenantPolicyRequestObject struct {
+	TenantId  TenantId        `json:"tenantId"`
+	VersionId PolicyVersionId `json:"versionId"`
+	Params    RejectTenantPolicyParams
+	Body      *RejectTenantPolicyJSONRequestBody
+}
+
+type RejectTenantPolicyResponseObject interface {
+	VisitRejectTenantPolicyResponse(w http.ResponseWriter) error
+}
+
+type RejectTenantPolicy200ResponseHeaders struct {
+	ETag string
+}
+
+type RejectTenantPolicy200JSONResponse struct {
+	Body    PolicyVersion
+	Headers RejectTenantPolicy200ResponseHeaders
+}
+
+func (response RejectTenantPolicy200JSONResponse) VisitRejectTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectTenantPolicy401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response RejectTenantPolicy401ApplicationProblemPlusJSONResponse) VisitRejectTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectTenantPolicy403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response RejectTenantPolicy403ApplicationProblemPlusJSONResponse) VisitRejectTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectTenantPolicy404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response RejectTenantPolicy404ApplicationProblemPlusJSONResponse) VisitRejectTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectTenantPolicy409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response RejectTenantPolicy409ApplicationProblemPlusJSONResponse) VisitRejectTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectTenantPolicy412ApplicationProblemPlusJSONResponse struct {
+	PreconditionFailedApplicationProblemPlusJSONResponse
+}
+
+func (response RejectTenantPolicy412ApplicationProblemPlusJSONResponse) VisitRejectTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(412)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectTenantPolicy422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response RejectTenantPolicy422ApplicationProblemPlusJSONResponse) VisitRejectTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectTenantPolicy428ApplicationProblemPlusJSONResponse struct {
+	PreconditionRequiredApplicationProblemPlusJSONResponse
+}
+
+func (response RejectTenantPolicy428ApplicationProblemPlusJSONResponse) VisitRejectTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(428)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectTenantPolicy429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response RejectTenantPolicy429ApplicationProblemPlusJSONResponse) VisitRejectTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectTenantPolicydefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response RejectTenantPolicydefaultApplicationProblemPlusJSONResponse) VisitRejectTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RollbackTenantPolicyRequestObject struct {
+	TenantId  TenantId        `json:"tenantId"`
+	VersionId PolicyVersionId `json:"versionId"`
+	Params    RollbackTenantPolicyParams
+}
+
+type RollbackTenantPolicyResponseObject interface {
+	VisitRollbackTenantPolicyResponse(w http.ResponseWriter) error
+}
+
+type RollbackTenantPolicy202ResponseHeaders struct {
+	Location string
+}
+
+type RollbackTenantPolicy202JSONResponse struct {
+	Body    PolicyApplyAccepted
+	Headers RollbackTenantPolicy202ResponseHeaders
+}
+
+func (response RollbackTenantPolicy202JSONResponse) VisitRollbackTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Location", fmt.Sprint(response.Headers.Location))
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RollbackTenantPolicy401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response RollbackTenantPolicy401ApplicationProblemPlusJSONResponse) VisitRollbackTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RollbackTenantPolicy403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response RollbackTenantPolicy403ApplicationProblemPlusJSONResponse) VisitRollbackTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RollbackTenantPolicy404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response RollbackTenantPolicy404ApplicationProblemPlusJSONResponse) VisitRollbackTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RollbackTenantPolicy409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response RollbackTenantPolicy409ApplicationProblemPlusJSONResponse) VisitRollbackTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RollbackTenantPolicy422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response RollbackTenantPolicy422ApplicationProblemPlusJSONResponse) VisitRollbackTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RollbackTenantPolicy429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response RollbackTenantPolicy429ApplicationProblemPlusJSONResponse) VisitRollbackTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RollbackTenantPolicydefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response RollbackTenantPolicydefaultApplicationProblemPlusJSONResponse) VisitRollbackTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SubmitTenantPolicyRequestObject struct {
+	TenantId  TenantId        `json:"tenantId"`
+	VersionId PolicyVersionId `json:"versionId"`
+	Params    SubmitTenantPolicyParams
+}
+
+type SubmitTenantPolicyResponseObject interface {
+	VisitSubmitTenantPolicyResponse(w http.ResponseWriter) error
+}
+
+type SubmitTenantPolicy200ResponseHeaders struct {
+	ETag string
+}
+
+type SubmitTenantPolicy200JSONResponse struct {
+	Body    PolicyVersion
+	Headers SubmitTenantPolicy200ResponseHeaders
+}
+
+func (response SubmitTenantPolicy200JSONResponse) VisitSubmitTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SubmitTenantPolicy401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response SubmitTenantPolicy401ApplicationProblemPlusJSONResponse) VisitSubmitTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SubmitTenantPolicy403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response SubmitTenantPolicy403ApplicationProblemPlusJSONResponse) VisitSubmitTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SubmitTenantPolicy404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response SubmitTenantPolicy404ApplicationProblemPlusJSONResponse) VisitSubmitTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SubmitTenantPolicy409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response SubmitTenantPolicy409ApplicationProblemPlusJSONResponse) VisitSubmitTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SubmitTenantPolicy412ApplicationProblemPlusJSONResponse struct {
+	PreconditionFailedApplicationProblemPlusJSONResponse
+}
+
+func (response SubmitTenantPolicy412ApplicationProblemPlusJSONResponse) VisitSubmitTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(412)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SubmitTenantPolicy422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response SubmitTenantPolicy422ApplicationProblemPlusJSONResponse) VisitSubmitTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SubmitTenantPolicy428ApplicationProblemPlusJSONResponse struct {
+	PreconditionRequiredApplicationProblemPlusJSONResponse
+}
+
+func (response SubmitTenantPolicy428ApplicationProblemPlusJSONResponse) VisitSubmitTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(428)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SubmitTenantPolicy429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response SubmitTenantPolicy429ApplicationProblemPlusJSONResponse) VisitSubmitTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SubmitTenantPolicydefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response SubmitTenantPolicydefaultApplicationProblemPlusJSONResponse) VisitSubmitTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ValidateTenantPolicyRequestObject struct {
+	TenantId  TenantId        `json:"tenantId"`
+	VersionId PolicyVersionId `json:"versionId"`
+	Params    ValidateTenantPolicyParams
+}
+
+type ValidateTenantPolicyResponseObject interface {
+	VisitValidateTenantPolicyResponse(w http.ResponseWriter) error
+}
+
+type ValidateTenantPolicy200ResponseHeaders struct {
+	ETag string
+}
+
+type ValidateTenantPolicy200JSONResponse struct {
+	Body    PolicyVersion
+	Headers ValidateTenantPolicy200ResponseHeaders
+}
+
+func (response ValidateTenantPolicy200JSONResponse) VisitValidateTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ValidateTenantPolicy401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response ValidateTenantPolicy401ApplicationProblemPlusJSONResponse) VisitValidateTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ValidateTenantPolicy403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response ValidateTenantPolicy403ApplicationProblemPlusJSONResponse) VisitValidateTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ValidateTenantPolicy404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response ValidateTenantPolicy404ApplicationProblemPlusJSONResponse) VisitValidateTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ValidateTenantPolicy409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response ValidateTenantPolicy409ApplicationProblemPlusJSONResponse) VisitValidateTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ValidateTenantPolicy412ApplicationProblemPlusJSONResponse struct {
+	PreconditionFailedApplicationProblemPlusJSONResponse
+}
+
+func (response ValidateTenantPolicy412ApplicationProblemPlusJSONResponse) VisitValidateTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(412)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ValidateTenantPolicy422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response ValidateTenantPolicy422ApplicationProblemPlusJSONResponse) VisitValidateTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ValidateTenantPolicy428ApplicationProblemPlusJSONResponse struct {
+	PreconditionRequiredApplicationProblemPlusJSONResponse
+}
+
+func (response ValidateTenantPolicy428ApplicationProblemPlusJSONResponse) VisitValidateTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(428)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ValidateTenantPolicy429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response ValidateTenantPolicy429ApplicationProblemPlusJSONResponse) VisitValidateTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ValidateTenantPolicy503ApplicationProblemPlusJSONResponse struct {
+	InstanceUnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response ValidateTenantPolicy503ApplicationProblemPlusJSONResponse) VisitValidateTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ValidateTenantPolicydefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response ValidateTenantPolicydefaultApplicationProblemPlusJSONResponse) VisitValidateTenantPolicyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetTenantRelayRequestObject struct {
 	TenantId TenantId `json:"tenantId"`
 }
@@ -21081,6 +24668,42 @@ type StrictServerInterface interface {
 	// TransferTenantOwnership Cấp/chuyển role Tenant Owner cho một thành viên đang hoạt động (chỉ Owner; step-up)
 	// (POST /tenants/{tenantId}/ownership-transfer)
 	TransferTenantOwnership(ctx context.Context, request TransferTenantOwnershipRequestObject) (TransferTenantOwnershipResponseObject, error)
+	// ListTenantPolicies Các version policy của tenant
+	// (GET /tenants/{tenantId}/policies)
+	ListTenantPolicies(ctx context.Context, request ListTenantPoliciesRequestObject) (ListTenantPoliciesResponseObject, error)
+	// CreateTenantPolicy Soạn một version policy mới (draft)
+	// (POST /tenants/{tenantId}/policies)
+	CreateTenantPolicy(ctx context.Context, request CreateTenantPolicyRequestObject) (CreateTenantPolicyResponseObject, error)
+	// GetCurrentTenantPolicy Version mong muốn và trạng thái áp dụng
+	// (GET /tenants/{tenantId}/policies/current)
+	GetCurrentTenantPolicy(ctx context.Context, request GetCurrentTenantPolicyRequestObject) (GetCurrentTenantPolicyResponseObject, error)
+	// GetTenantPolicy Một version policy
+	// (GET /tenants/{tenantId}/policies/{versionId})
+	GetTenantPolicy(ctx context.Context, request GetTenantPolicyRequestObject) (GetTenantPolicyResponseObject, error)
+	// UpdateTenantPolicy Sửa nội dung một version (về draft, xóa phê duyệt)
+	// (PATCH /tenants/{tenantId}/policies/{versionId})
+	UpdateTenantPolicy(ctx context.Context, request UpdateTenantPolicyRequestObject) (UpdateTenantPolicyResponseObject, error)
+	// ApplyTenantPolicy Đặt version đã duyệt làm mong muốn và áp dụng (202 + job policy.apply)
+	// (POST /tenants/{tenantId}/policies/{versionId}/apply)
+	ApplyTenantPolicy(ctx context.Context, request ApplyTenantPolicyRequestObject) (ApplyTenantPolicyResponseObject, error)
+	// ApproveTenantPolicy Duyệt version (peer hoặc self-review)
+	// (POST /tenants/{tenantId}/policies/{versionId}/approve)
+	ApproveTenantPolicy(ctx context.Context, request ApproveTenantPolicyRequestObject) (ApproveTenantPolicyResponseObject, error)
+	// DiffTenantPolicy Diff của version so với version khác (mặc định version mong muốn)
+	// (GET /tenants/{tenantId}/policies/{versionId}/diff)
+	DiffTenantPolicy(ctx context.Context, request DiffTenantPolicyRequestObject) (DiffTenantPolicyResponseObject, error)
+	// RejectTenantPolicy Từ chối version đang chờ duyệt
+	// (POST /tenants/{tenantId}/policies/{versionId}/reject)
+	RejectTenantPolicy(ctx context.Context, request RejectTenantPolicyRequestObject) (RejectTenantPolicyResponseObject, error)
+	// RollbackTenantPolicy Rollback về nội dung của một version trước (202 + job policy.apply)
+	// (POST /tenants/{tenantId}/policies/{versionId}/rollback)
+	RollbackTenantPolicy(ctx context.Context, request RollbackTenantPolicyRequestObject) (RollbackTenantPolicyResponseObject, error)
+	// SubmitTenantPolicy Gửi duyệt (validated → pending_approval)
+	// (POST /tenants/{tenantId}/policies/{versionId}/submit)
+	SubmitTenantPolicy(ctx context.Context, request SubmitTenantPolicyRequestObject) (SubmitTenantPolicyResponseObject, error)
+	// ValidateTenantPolicy Kiểm tra version (render + lint + CheckPolicy dry-run)
+	// (POST /tenants/{tenantId}/policies/{versionId}/validate)
+	ValidateTenantPolicy(ctx context.Context, request ValidateTenantPolicyRequestObject) (ValidateTenantPolicyResponseObject, error)
 	// GetTenantRelay Relay DERP của tenant — region được gán và kết quả probe gần nhất kèm `checked_at`
 	// (GET /tenants/{tenantId}/relay)
 	GetTenantRelay(ctx context.Context, request GetTenantRelayRequestObject) (GetTenantRelayResponseObject, error)
@@ -23154,6 +26777,365 @@ func (sh *strictHandler) TransferTenantOwnership(w http.ResponseWriter, r *http.
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(TransferTenantOwnershipResponseObject); ok {
 		if err := validResponse.VisitTransferTenantOwnershipResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListTenantPolicies operation middleware
+func (sh *strictHandler) ListTenantPolicies(w http.ResponseWriter, r *http.Request, tenantId TenantId, params ListTenantPoliciesParams) {
+	var request ListTenantPoliciesRequestObject
+
+	request.TenantId = tenantId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListTenantPolicies(ctx, request.(ListTenantPoliciesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListTenantPolicies")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListTenantPoliciesResponseObject); ok {
+		if err := validResponse.VisitListTenantPoliciesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateTenantPolicy operation middleware
+func (sh *strictHandler) CreateTenantPolicy(w http.ResponseWriter, r *http.Request, tenantId TenantId, params CreateTenantPolicyParams) {
+	var request CreateTenantPolicyRequestObject
+
+	request.TenantId = tenantId
+	request.Params = params
+
+	var body CreateTenantPolicyJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateTenantPolicy(ctx, request.(CreateTenantPolicyRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateTenantPolicy")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateTenantPolicyResponseObject); ok {
+		if err := validResponse.VisitCreateTenantPolicyResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetCurrentTenantPolicy operation middleware
+func (sh *strictHandler) GetCurrentTenantPolicy(w http.ResponseWriter, r *http.Request, tenantId TenantId) {
+	var request GetCurrentTenantPolicyRequestObject
+
+	request.TenantId = tenantId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetCurrentTenantPolicy(ctx, request.(GetCurrentTenantPolicyRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetCurrentTenantPolicy")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetCurrentTenantPolicyResponseObject); ok {
+		if err := validResponse.VisitGetCurrentTenantPolicyResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetTenantPolicy operation middleware
+func (sh *strictHandler) GetTenantPolicy(w http.ResponseWriter, r *http.Request, tenantId TenantId, versionId PolicyVersionId) {
+	var request GetTenantPolicyRequestObject
+
+	request.TenantId = tenantId
+	request.VersionId = versionId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetTenantPolicy(ctx, request.(GetTenantPolicyRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetTenantPolicy")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetTenantPolicyResponseObject); ok {
+		if err := validResponse.VisitGetTenantPolicyResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateTenantPolicy operation middleware
+func (sh *strictHandler) UpdateTenantPolicy(w http.ResponseWriter, r *http.Request, tenantId TenantId, versionId PolicyVersionId, params UpdateTenantPolicyParams) {
+	var request UpdateTenantPolicyRequestObject
+
+	request.TenantId = tenantId
+	request.VersionId = versionId
+	request.Params = params
+
+	var body UpdateTenantPolicyJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateTenantPolicy(ctx, request.(UpdateTenantPolicyRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateTenantPolicy")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateTenantPolicyResponseObject); ok {
+		if err := validResponse.VisitUpdateTenantPolicyResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ApplyTenantPolicy operation middleware
+func (sh *strictHandler) ApplyTenantPolicy(w http.ResponseWriter, r *http.Request, tenantId TenantId, versionId PolicyVersionId, params ApplyTenantPolicyParams) {
+	var request ApplyTenantPolicyRequestObject
+
+	request.TenantId = tenantId
+	request.VersionId = versionId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ApplyTenantPolicy(ctx, request.(ApplyTenantPolicyRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ApplyTenantPolicy")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ApplyTenantPolicyResponseObject); ok {
+		if err := validResponse.VisitApplyTenantPolicyResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ApproveTenantPolicy operation middleware
+func (sh *strictHandler) ApproveTenantPolicy(w http.ResponseWriter, r *http.Request, tenantId TenantId, versionId PolicyVersionId, params ApproveTenantPolicyParams) {
+	var request ApproveTenantPolicyRequestObject
+
+	request.TenantId = tenantId
+	request.VersionId = versionId
+	request.Params = params
+
+	var body ApproveTenantPolicyJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ApproveTenantPolicy(ctx, request.(ApproveTenantPolicyRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ApproveTenantPolicy")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ApproveTenantPolicyResponseObject); ok {
+		if err := validResponse.VisitApproveTenantPolicyResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DiffTenantPolicy operation middleware
+func (sh *strictHandler) DiffTenantPolicy(w http.ResponseWriter, r *http.Request, tenantId TenantId, versionId PolicyVersionId, params DiffTenantPolicyParams) {
+	var request DiffTenantPolicyRequestObject
+
+	request.TenantId = tenantId
+	request.VersionId = versionId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DiffTenantPolicy(ctx, request.(DiffTenantPolicyRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DiffTenantPolicy")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DiffTenantPolicyResponseObject); ok {
+		if err := validResponse.VisitDiffTenantPolicyResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RejectTenantPolicy operation middleware
+func (sh *strictHandler) RejectTenantPolicy(w http.ResponseWriter, r *http.Request, tenantId TenantId, versionId PolicyVersionId, params RejectTenantPolicyParams) {
+	var request RejectTenantPolicyRequestObject
+
+	request.TenantId = tenantId
+	request.VersionId = versionId
+	request.Params = params
+
+	var body RejectTenantPolicyJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RejectTenantPolicy(ctx, request.(RejectTenantPolicyRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RejectTenantPolicy")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RejectTenantPolicyResponseObject); ok {
+		if err := validResponse.VisitRejectTenantPolicyResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RollbackTenantPolicy operation middleware
+func (sh *strictHandler) RollbackTenantPolicy(w http.ResponseWriter, r *http.Request, tenantId TenantId, versionId PolicyVersionId, params RollbackTenantPolicyParams) {
+	var request RollbackTenantPolicyRequestObject
+
+	request.TenantId = tenantId
+	request.VersionId = versionId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RollbackTenantPolicy(ctx, request.(RollbackTenantPolicyRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RollbackTenantPolicy")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RollbackTenantPolicyResponseObject); ok {
+		if err := validResponse.VisitRollbackTenantPolicyResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SubmitTenantPolicy operation middleware
+func (sh *strictHandler) SubmitTenantPolicy(w http.ResponseWriter, r *http.Request, tenantId TenantId, versionId PolicyVersionId, params SubmitTenantPolicyParams) {
+	var request SubmitTenantPolicyRequestObject
+
+	request.TenantId = tenantId
+	request.VersionId = versionId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SubmitTenantPolicy(ctx, request.(SubmitTenantPolicyRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SubmitTenantPolicy")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SubmitTenantPolicyResponseObject); ok {
+		if err := validResponse.VisitSubmitTenantPolicyResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ValidateTenantPolicy operation middleware
+func (sh *strictHandler) ValidateTenantPolicy(w http.ResponseWriter, r *http.Request, tenantId TenantId, versionId PolicyVersionId, params ValidateTenantPolicyParams) {
+	var request ValidateTenantPolicyRequestObject
+
+	request.TenantId = tenantId
+	request.VersionId = versionId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ValidateTenantPolicy(ctx, request.(ValidateTenantPolicyRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ValidateTenantPolicy")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ValidateTenantPolicyResponseObject); ok {
+		if err := validResponse.VisitValidateTenantPolicyResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

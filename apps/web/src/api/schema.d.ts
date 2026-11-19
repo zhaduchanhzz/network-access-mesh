@@ -739,7 +739,8 @@ export interface paths {
          *     nguyên) → `status=suspended` (từ đây mọi thao tác ghi của role tenant ⇒ `403 tenant_suspended`, §8.4 bất biến
          *     5) → expire mọi pre-auth key còn hiệu lực → thông báo Owner/Admin; audit `platform.tenant.suspend.requested` →
          *     `.succeeded`. Instance vẫn chạy để phân phối policy deny-all. Lỗi vĩnh viễn ⇒ `failed_resumable` (không tự
-         *     hoàn tác — `/rollback` của job đưa tenant về `active`).
+         *     hoàn tác — `/rollback` của job đưa tenant về `active`). P4-T10: cùng transaction còn enqueue job `policy.apply`
+         *     (trigger `suspend`) áp policy deny-all ngay, không chờ khóa vòng đời (một `instance.upgrade` đang chạy).
          */
         post: operations["suspendPlatformTenant"];
         delete?: never;
@@ -1534,6 +1535,241 @@ export interface paths {
          *     job `policy.apply` (trigger `tag_change`).
          */
         patch: operations["updateTenantTag"];
+        trace?: never;
+    };
+    "/tenants/{tenantId}/policies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Các version policy của tenant
+         * @description Mới nhất trước (theo `version`); `next_cursor` là số version của mục cuối. Mỗi version mang `etag` (= `revision`,
+         *     giá trị `If-Match` của mọi thao tác trên version) và `desired` (đang là version mong muốn). Không chứa trạng thái
+         *     áp dụng — xem `GET /policies/current` (§7.3).
+         */
+        get: operations["listTenantPolicies"];
+        put?: never;
+        /**
+         * Soạn một version policy mới (draft)
+         * @description `source` là mô hình có kiểu (§7.2, §13.3 `PolicySource`): mọi principal là tham chiếu `{type, ref}` — `user`
+         *     (membership id), `group` (group id), `tag` (tag id của danh mục), `resource` (id tài nguyên mạng), `autogroup`,
+         *     `cidr` — không bao giờ là chuỗi tự do; `grants: null`, kiểu principal không hợp vị trí, `ref` sai dạng ⇒ `422`
+         *     (trường lỗi trong `errors[]`). Version mới là `N+1`, trạng thái `draft`, `parent_version_id` = version mong muốn hiện tại
+         *     (hoặc version chỉ định của chính tenant). `201` + `ETag`; audit `policy.create`.
+         */
+        post: operations["createTenantPolicy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/policies/current": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Version mong muốn và trạng thái áp dụng
+         * @description `desired` = version mong muốn; `applied` = lần áp dụng hiện hành của instance ("đã áp dụng lên Headscale lúc …" —
+         *     **không** phải "client đã hội tụ", điều không quan sát được, T-18); `latest` = lần áp dụng gần nhất bất kể trạng
+         *     thái (`pending`/`applied`/`failed`/`unknown`). `four_eyes` (đọc từ `TenantSettings.policy.four_eyes`) và
+         *     `apply_step_up` cho biết apply/rollback có cần người duyệt thứ hai và step-up.
+         */
+        get: operations["getCurrentTenantPolicy"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/policies/{versionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Một version policy */
+        get: operations["getTenantPolicy"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Sửa nội dung một version (về draft, xóa phê duyệt)
+         * @description Thay `source`; mọi `PATCH` đưa version về `draft` và xóa phê duyệt cùng báo cáo lint (§6.3). Cần `If-Match` =
+         *     `etag` (thiếu ⇒ `428`, cũ ⇒ `412`). Version đang là desired, version của nền tảng (`baseline`/`suspension`),
+         *     version HuJSON và version đã `superseded`/`rejected` ⇒ `409` (soạn version mới).
+         */
+        patch: operations["updateTenantPolicy"];
+        trace?: never;
+    };
+    "/tenants/{tenantId}/policies/{versionId}/validate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Kiểm tra version (render + lint + CheckPolicy dry-run)
+         * @description Render tất định với bảng hiện tại (`groups`, `hosts`, `tagOwners`), lint L1–L13 trên mô hình và trên đầu ra, rồi
+         *     `CheckPolicy` chuỗi đã render trên instance của tenant (dry-run, không áp dụng). Đạt ⇒ `validated`; không đạt ⇒
+         *     `draft` kèm `validation_report` (`200` cả hai trường hợp). Luật "cần xác nhận" (L7, L10 `accept`, L13) và L4 chỉ
+         *     qua khi `source.acknowledgements` có luật đó kèm lý do. Instance không phản hồi ⇒ `503`, version không đổi. Cần
+         *     `If-Match`.
+         */
+        post: operations["validateTenantPolicy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/policies/{versionId}/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Gửi duyệt (validated → pending_approval)
+         * @description Bắt buộc khi tenant bật 4-eyes (`TenantSettings.policy.four_eyes`): người duyệt phải khác người soạn và người
+         *     gửi. Cần `If-Match`.
+         */
+        post: operations["submitTenantPolicy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/policies/{versionId}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Duyệt version (peer hoặc self-review)
+         * @description `content_sha256` = nội dung người duyệt đã xem (lệch ⇒ `409`). Tenant bật 4-eyes: chỉ từ `pending_approval`, người
+         *     duyệt khác người soạn và người gửi (tự duyệt ⇒ `403`), `review_mode=peer`; từ `validated` ⇒ `409` (gửi duyệt
+         *     trước). Không bật: duyệt thẳng từ `validated`, `review_mode=self` — lần xác nhận tường minh diff và lint đã render
+         *     (§7.3). Báo cáo có xác nhận chỉ Owner được làm (L4, L12) ⇒ người duyệt phải là Tenant Owner (`403`). Cần `If-Match`;
+         *     audit `policy.approved` kèm `review_mode`.
+         */
+        post: operations["approveTenantPolicy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/policies/{versionId}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Từ chối version đang chờ duyệt
+         * @description `pending_approval` → `rejected` kèm `reason` (1–2000 ký tự). Cần `If-Match`; audit `policy.rejected`.
+         */
+        post: operations["rejectTenantPolicy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/policies/{versionId}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Đặt version đã duyệt làm mong muốn và áp dụng (202 + job policy.apply)
+         * @description Version phải `approved` (khác ⇒ `409`) và `parent_version_id` phải là version mong muốn hiện tại (khác ⇒ `409`
+         *     `stale_base` — hai bản nháp cùng gốc không ghi đè nhau, §7.3). Cùng transaction: version thành desired, version
+         *     mong muốn cũ ⇒ `superseded`, audit `policy.desired_set`, job `policy.apply` (trigger `manual`; job chưa xong của
+         *     tenant được dùng lại). Áp dụng lại version đang là desired ⇒ chỉ thêm job. Tenant bật 4-eyes ⇒ cần step-up
+         *     (`401 reauth_required`). Job: render với bảng hiện tại → lint → `CheckPolicy` → `SetPolicy` → `GetPolicy` khớp
+         *     `applied_sha256`, ghi `policy_applications`.
+         */
+        post: operations["applyTenantPolicy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/policies/{versionId}/rollback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rollback về nội dung của một version trước (202 + job policy.apply)
+         * @description Tạo version `N+1` với nội dung của `{versionId}` (`rollback_of`), `parent_version_id` = version mong muốn hiện
+         *     tại. Phê duyệt chỉ được kế thừa khi `content_sha256` trùng một nội dung đã từng được duyệt (§7.3) — nội dung chưa
+         *     từng được duyệt hoặc version không có kiểu ⇒ `409`. Lint trên bảng hiện tại (không gọi Headscale) chặn ⇒ `422`.
+         *     Cùng transaction: version mới thành desired, version cũ `superseded`, audit `policy.rollback`, job `policy.apply`
+         *     (trigger `rollback`). Tenant bật 4-eyes ⇒ cần step-up.
+         */
+        post: operations["rollbackTenantPolicy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/policies/{versionId}/diff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Diff của version so với version khác (mặc định version mong muốn)
+         * @description Cả hai bên render với bảng hiện tại: diff dòng của chuỗi đã render (bỏ khi tài liệu quá lớn — `lines_omitted`)
+         *     và diff có cấu trúc của `grants` (thêm/bớt). `against` mặc định = version mong muốn; không có ⇒ so với rỗng.
+         */
+        get: operations["diffTenantPolicy"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
 }
@@ -2704,6 +2940,206 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
+        /**
+         * @description Tham chiếu principal có kiểu (§7.2): `user` — `ref` = membership id (render `mg-<membership>@`); `group` — group id;
+         *     `tag` — tag id của danh mục; `resource` — id tài nguyên mạng (render alias trong `hosts`); `autogroup` — `member`,
+         *     `tagged`, `self`, `internet`, `danger-all` (tùy vị trí); `cidr` — `*`, một địa chỉ IP hoặc prefix.
+         */
+        PolicyPrincipal: {
+            /** @enum {string} */
+            type: "user" | "group" | "tag" | "resource" | "autogroup" | "cidr";
+            ref: string;
+        };
+        PolicyGrant: {
+            src: components["schemas"]["PolicyPrincipal"][];
+            dst: components["schemas"]["PolicyPrincipal"][];
+            ip?: string[];
+            /** @description Capability ứng dụng (tên → danh sách đối tượng), mã hóa lại khi render */
+            app?: {
+                [key: string]: {
+                    [key: string]: unknown;
+                }[];
+            };
+            /** @description Chỉ principal `tag` */
+            via?: components["schemas"]["PolicyPrincipal"][];
+        };
+        PolicySSHRule: {
+            /**
+             * @description `accept` cần xác nhận (L10 — forwarding luôn bật); `check` bị chặn (V-26)
+             * @enum {string}
+             */
+            action: "accept" | "check";
+            src: components["schemas"]["PolicyPrincipal"][];
+            dst: components["schemas"]["PolicyPrincipal"][];
+            users: string[];
+            check_period?: string;
+        };
+        /** @description Mặc định không sinh; principal không phải tag router/exit của nền tảng cần xác nhận (L7) */
+        PolicyAutoApprovers: {
+            routes?: {
+                [key: string]: components["schemas"]["PolicyPrincipal"][];
+            };
+            exit_node?: components["schemas"]["PolicyPrincipal"][];
+        };
+        PolicyAcknowledgement: {
+            /**
+             * @description L4 và L12 chỉ có hiệu lực khi một Tenant Owner duyệt version
+             * @enum {string}
+             */
+            rule: "L4" | "L7" | "L10" | "L12" | "L13";
+            reason: string;
+        };
+        /**
+         * @description Nội dung có kiểu của một version (§13.3): `groups`, `hosts` và `tagOwners` **không** nằm ở đây — được render từ
+         *     bảng `groups`/`group_members`, `network_resources`, `tenant_tags` lúc áp dụng.
+         */
+        PolicySource: {
+            grants: components["schemas"]["PolicyGrant"][];
+            ssh?: components["schemas"]["PolicySSHRule"][];
+            auto_approvers?: components["schemas"]["PolicyAutoApprovers"];
+            acknowledgements?: components["schemas"]["PolicyAcknowledgement"][];
+        };
+        PolicyFinding: {
+            rule: string;
+            /** @enum {string} */
+            severity: "error" | "warning" | "info";
+            code: string;
+            path?: string;
+            message: string;
+            requires_ack?: boolean;
+            owner_only?: boolean;
+            acknowledged?: boolean;
+        };
+        /** @description Kết quả lint/render/CheckPolicy (`policy_versions.validation_report`); `tests` luôn rỗng (chưa sinh) */
+        PolicyValidationReport: {
+            engine: string;
+            /** @enum {string} */
+            result: "passed" | "failed";
+            errors: components["schemas"]["PolicyFinding"][];
+            warnings: components["schemas"]["PolicyFinding"][];
+            info: components["schemas"]["PolicyFinding"][];
+            tests: unknown[];
+            rendered_sha256?: string;
+            /** @enum {string} */
+            check?: "passed" | "failed" | "skipped";
+            /** Format: int64 */
+            revision?: number;
+            /** Format: date-time */
+            validated_at?: string;
+        };
+        /** @description Một version policy (`policy_versions` — §7.3); không chứa trạng thái áp dụng */
+        PolicyVersion: {
+            /** Format: uuid */
+            id: string;
+            version: number;
+            /** Format: int64 */
+            revision: number;
+            /** @description Giá trị `If-Match` của mọi thao tác trên version */
+            etag: string;
+            /** @enum {string} */
+            kind: "user" | "baseline" | "suspension";
+            /** @enum {string} */
+            state: "draft" | "validated" | "pending_approval" | "approved" | "rejected" | "superseded";
+            content_sha256: string;
+            source?: components["schemas"]["PolicySource"];
+            /** @description Văn bản HuJSON của version do nền tảng phát hành hoặc nhập lại (không có `source`) */
+            hujson?: string;
+            validation_report?: components["schemas"]["PolicyValidationReport"];
+            /** Format: uuid */
+            parent_version_id?: string;
+            /** Format: uuid */
+            rollback_of?: string;
+            /** Format: uuid */
+            created_by?: string;
+            /** Format: uuid */
+            submitted_by?: string;
+            /** Format: date-time */
+            submitted_at?: string;
+            /** Format: uuid */
+            approved_by?: string;
+            /** Format: date-time */
+            approved_at?: string;
+            /** @enum {string} */
+            review_mode?: "peer" | "self";
+            /** Format: uuid */
+            rejected_by?: string;
+            /** Format: date-time */
+            rejected_at?: string;
+            rejected_reason?: string;
+            desired: boolean;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        PolicyVersionList: {
+            items: components["schemas"]["PolicyVersion"][];
+            next_cursor: string | null;
+        };
+        /** @description Một lần áp dụng (`policy_applications` — §13.3) */
+        PolicyApplication: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            policy_version_id: string;
+            /** @enum {string} */
+            trigger: "bootstrap" | "manual" | "group_change" | "resource_change" | "tag_change" | "suspend" | "resume" | "restore" | "drift_repair" | "rollback";
+            /** @enum {string} */
+            state: "pending" | "applied" | "failed" | "unknown";
+            applied_sha256: string;
+            /** Format: date-time */
+            headscale_updated_at?: string;
+            error_code?: string;
+            /** Format: uuid */
+            requested_by?: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            finished_at?: string;
+        };
+        PolicyCurrent: {
+            desired?: components["schemas"]["PolicyVersion"];
+            applied?: components["schemas"]["PolicyApplication"];
+            latest?: components["schemas"]["PolicyApplication"];
+            four_eyes: boolean;
+            apply_step_up: boolean;
+        };
+        PolicyCreate: {
+            source: components["schemas"]["PolicySource"];
+            /** Format: uuid */
+            parent_version_id?: string;
+        };
+        PolicyUpdate: {
+            source: components["schemas"]["PolicySource"];
+        };
+        PolicyApprove: {
+            content_sha256: string;
+        };
+        PolicyReject: {
+            reason: string;
+        };
+        PolicyApplyAccepted: {
+            version: components["schemas"]["PolicyVersion"];
+            job: components["schemas"]["Job"];
+        };
+        PolicyDiffLine: {
+            /** @enum {string} */
+            op: "same" | "removed" | "added";
+            text: string;
+        };
+        PolicyDiff: {
+            /** Format: uuid */
+            version_id: string;
+            /** Format: uuid */
+            against_id?: string;
+            from_sha256?: string;
+            to_sha256?: string;
+            lines: components["schemas"]["PolicyDiffLine"][];
+            lines_omitted: boolean;
+            grants_added: string[];
+            grants_removed: string[];
+            report_blocking: boolean;
+        };
         TagList: {
             items: components["schemas"]["Tag"][];
             next_cursor: string | null;
@@ -2926,6 +3362,10 @@ export interface components {
         InvitationId: string;
         /** @description ID tag (`tenant_tags.id`) */
         TagId: string;
+        /** @description ID version policy (`policy_versions.id`) */
+        PolicyVersionId: string;
+        /** @description Version so sánh (mặc định version mong muốn) */
+        PolicyAgainst: string;
         /** @description Lọc theo trạng thái hiệu lực */
         InvitationStatusFilter: components["schemas"]["InvitationStatus"];
     };
@@ -5733,6 +6173,448 @@ export interface operations {
             412: components["responses"]["PreconditionFailed"];
             422: components["responses"]["ValidationFailed"];
             428: components["responses"]["PreconditionRequired"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    listTenantPolicies: {
+        parameters: {
+            query?: {
+                /** @description Số phần tử tối đa của trang */
+                limit?: components["parameters"]["Limit"];
+                /** @description Con trỏ mờ lấy từ `next_cursor` của trang trước */
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Một trang version */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyVersionList"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    createTenantPolicy: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyCreate"];
+            };
+        };
+        responses: {
+            /** @description Bản nháp đã tạo */
+            201: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyVersion"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    getCurrentTenantPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Trạng thái policy của tenant */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyCurrent"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    getTenantPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+                /** @description ID version policy (`policy_versions.id`) */
+                versionId: components["parameters"]["PolicyVersionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Version */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyVersion"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    updateTenantPolicy: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428` */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+                /** @description ID version policy (`policy_versions.id`) */
+                versionId: components["parameters"]["PolicyVersionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyUpdate"];
+            };
+        };
+        responses: {
+            /** @description Version sau khi sửa */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyVersion"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["ValidationFailed"];
+            428: components["responses"]["PreconditionRequired"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    validateTenantPolicy: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428` */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+                /** @description ID version policy (`policy_versions.id`) */
+                versionId: components["parameters"]["PolicyVersionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Version sau khi kiểm (`validated` hoặc `draft` kèm báo cáo) */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyVersion"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["ValidationFailed"];
+            428: components["responses"]["PreconditionRequired"];
+            429: components["responses"]["RateLimited"];
+            503: components["responses"]["InstanceUnavailable"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    submitTenantPolicy: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428` */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+                /** @description ID version policy (`policy_versions.id`) */
+                versionId: components["parameters"]["PolicyVersionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Version chờ duyệt */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyVersion"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["ValidationFailed"];
+            428: components["responses"]["PreconditionRequired"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    approveTenantPolicy: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428` */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+                /** @description ID version policy (`policy_versions.id`) */
+                versionId: components["parameters"]["PolicyVersionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyApprove"];
+            };
+        };
+        responses: {
+            /** @description Version đã duyệt */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyVersion"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["ValidationFailed"];
+            428: components["responses"]["PreconditionRequired"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    rejectTenantPolicy: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428` */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+                /** @description ID version policy (`policy_versions.id`) */
+                versionId: components["parameters"]["PolicyVersionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyReject"];
+            };
+        };
+        responses: {
+            /** @description Version đã bị từ chối */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyVersion"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["ValidationFailed"];
+            428: components["responses"]["PreconditionRequired"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    applyTenantPolicy: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+                /** @description ID version policy (`policy_versions.id`) */
+                versionId: components["parameters"]["PolicyVersionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Version là mong muốn; job policy.apply ở `Location` */
+            202: {
+                headers: {
+                    Location: components["headers"]["JobLocation"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyApplyAccepted"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    rollbackTenantPolicy: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+                /** @description ID version policy (`policy_versions.id`) */
+                versionId: components["parameters"]["PolicyVersionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Version rollback là mong muốn; job policy.apply ở `Location` */
+            202: {
+                headers: {
+                    Location: components["headers"]["JobLocation"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyApplyAccepted"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    diffTenantPolicy: {
+        parameters: {
+            query?: {
+                /** @description Version so sánh (mặc định version mong muốn) */
+                against?: components["parameters"]["PolicyAgainst"];
+            };
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+                /** @description ID version policy (`policy_versions.id`) */
+                versionId: components["parameters"]["PolicyVersionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Diff */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyDiff"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationFailed"];
             429: components["responses"]["RateLimited"];
             default: components["responses"]["Unexpected"];
         };

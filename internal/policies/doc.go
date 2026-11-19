@@ -1,7 +1,16 @@
-// Package policies is the policy module of the Management Plane (§4.2 module `policies`, §7.2, §7.3). This is its
-// minimal core (P3-T08a), the precursor of the full module of P4-T10 (typed model, render, lint L3–L13, lifecycle,
-// drift): it applies a policy given as raw HuJSON — the deny-all baseline, the suspension policy, a test fixture — to a
-// tenant's Headscale and records it.
+// Package policies is the policy module of the Management Plane (§4.2 module `policies`, §7.2, §7.3):
+//
+//   - the core (P3-T08a, below): applies a policy given as HuJSON — the deny-all baseline, the suspension policy, a
+//     test fixture — to a tenant's Headscale and records it;
+//   - the tag catalog (P4-T15 — tags.go, tagref.go);
+//   - the typed model and its deterministic render (P4-T10 — model.go, render.go: principals by id, groups, hosts and
+//     tagOwners rendered from the tables), the lint L3–L13 on the model and on the output (lintmodel.go — the output
+//     rules run on every path of the core, before any Headscale call);
+//   - the lifecycle of a version on the api's store (versions.go — draft → validated → pending_approval → approved,
+//     4-eyes, If-Match, stale base, apply/rollback through the job, diff);
+//   - ONE policy.apply handler (job.go, pipeline.go: the desired version rendered with the tables of now, the
+//     suspension policy of a tenant being suspended, convergence rounds) and policy.drift_check with its schedule
+//     (drift.go).
 //
 // # Flow (Service.Apply)
 //

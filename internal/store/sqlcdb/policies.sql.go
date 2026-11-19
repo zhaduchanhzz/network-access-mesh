@@ -12,6 +12,62 @@ import (
 	"github.com/google/uuid"
 )
 
+const approvePolicyVersion = `-- name: ApprovePolicyVersion :one
+UPDATE policy_versions
+SET state = 'approved', approved_by = $1, approved_at = now(), approved_content_sha256 = content_sha256,
+    review_mode = $2, revision = revision + 1, updated_at = now()
+WHERE tenant_id = $3 AND id = $4 AND revision = $5
+  AND state IN ('validated', 'pending_approval')
+RETURNING id, tenant_id, version, revision, kind, source, source_hujson, content_sha256, state, validation_report, parent_version_id, rollback_of, created_by, submitted_by, submitted_at, approved_by, approved_at, approved_content_sha256, review_mode, rejected_by, rejected_at, rejected_reason, created_at, updated_at
+`
+
+type ApprovePolicyVersionParams struct {
+	ApprovedBy *uuid.UUID
+	ReviewMode *string
+	TenantID   uuid.UUID
+	ID         uuid.UUID
+	Revision   int64
+}
+
+// approved_content_sha256 = content_sha256 (CHECK của 0013) — người duyệt đã xác nhận đúng nội dung này.
+func (q *Queries) ApprovePolicyVersion(ctx context.Context, arg ApprovePolicyVersionParams) (PolicyVersion, error) {
+	row := q.db.QueryRow(ctx, approvePolicyVersion,
+		arg.ApprovedBy,
+		arg.ReviewMode,
+		arg.TenantID,
+		arg.ID,
+		arg.Revision,
+	)
+	var i PolicyVersion
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.Version,
+		&i.Revision,
+		&i.Kind,
+		&i.Source,
+		&i.SourceHujson,
+		&i.ContentSha256,
+		&i.State,
+		&i.ValidationReport,
+		&i.ParentVersionID,
+		&i.RollbackOf,
+		&i.CreatedBy,
+		&i.SubmittedBy,
+		&i.SubmittedAt,
+		&i.ApprovedBy,
+		&i.ApprovedAt,
+		&i.ApprovedContentSha256,
+		&i.ReviewMode,
+		&i.RejectedBy,
+		&i.RejectedAt,
+		&i.RejectedReason,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const finishPolicyApplication = `-- name: FinishPolicyApplication :one
 UPDATE policy_applications
 SET state = $1, finished_at = now(), error_code = $2,
@@ -93,6 +149,55 @@ func (q *Queries) GetCurrentPolicyApplication(ctx context.Context, arg GetCurren
 	return i, err
 }
 
+const getLatestPolicyApplication = `-- name: GetLatestPolicyApplication :one
+SELECT id, tenant_id, instance_id, policy_version_id, trigger, inputs_sha256, applied_hujson, applied_sha256, state, headscale_updated_at, error_code, requested_by_identity_id, created_at, finished_at, superseded_at FROM policy_applications
+WHERE tenant_id = $1
+ORDER BY created_at DESC, id DESC
+LIMIT 1
+`
+
+func (q *Queries) GetLatestPolicyApplication(ctx context.Context, tenantID uuid.UUID) (PolicyApplication, error) {
+	row := q.db.QueryRow(ctx, getLatestPolicyApplication, tenantID)
+	var i PolicyApplication
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.InstanceID,
+		&i.PolicyVersionID,
+		&i.Trigger,
+		&i.InputsSha256,
+		&i.AppliedHujson,
+		&i.AppliedSha256,
+		&i.State,
+		&i.HeadscaleUpdatedAt,
+		&i.ErrorCode,
+		&i.RequestedByIdentityID,
+		&i.CreatedAt,
+		&i.FinishedAt,
+		&i.SupersededAt,
+	)
+	return i, err
+}
+
+const getMembershipRoleKey = `-- name: GetMembershipRoleKey :one
+SELECT r.key FROM tenant_memberships m
+JOIN roles r ON r.id = m.role_id AND r.scope = m.role_scope
+WHERE m.tenant_id = $1 AND m.identity_id = $2 AND m.status = 'active'
+`
+
+type GetMembershipRoleKeyParams struct {
+	TenantID   uuid.UUID
+	IdentityID uuid.UUID
+}
+
+// Role của người duyệt (L4/L12 cần Tenant Owner — §7.2).
+func (q *Queries) GetMembershipRoleKey(ctx context.Context, arg GetMembershipRoleKeyParams) (string, error) {
+	row := q.db.QueryRow(ctx, getMembershipRoleKey, arg.TenantID, arg.IdentityID)
+	var key string
+	err := row.Scan(&key)
+	return key, err
+}
+
 const getPolicyVersion = `-- name: GetPolicyVersion :one
 SELECT id, tenant_id, version, revision, kind, source, source_hujson, content_sha256, state, validation_report, parent_version_id, rollback_of, created_by, submitted_by, submitted_at, approved_by, approved_at, approved_content_sha256, review_mode, rejected_by, rejected_at, rejected_reason, created_at, updated_at FROM policy_versions
 WHERE tenant_id = $1 AND id = $2
@@ -132,6 +237,29 @@ func (q *Queries) GetPolicyVersion(ctx context.Context, arg GetPolicyVersionPara
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
+	return i, err
+}
+
+const getTenantPolicySettings = `-- name: GetTenantPolicySettings :one
+SELECT COALESCE(t.settings -> 'enrollment' ->> 'identity_mode', 'portal')::text AS identity_mode,
+       COALESCE(jsonb_typeof(t.settings -> 'policy' -> 'four_eyes') = 'boolean'
+                AND (t.settings -> 'policy' ->> 'four_eyes')::boolean, false)::boolean AS four_eyes,
+       (SELECT count(*) FROM device_inventory_cache d WHERE d.tenant_id = t.id AND d.removed_at IS NULL)::bigint AS devices
+FROM tenants t WHERE t.id = $1
+`
+
+type GetTenantPolicySettingsRow struct {
+	IdentityMode string
+	FourEyes     bool
+	Devices      int64
+}
+
+// TenantSettings (§13.3) mà vòng đời policy đọc: identity_mode (L13), policy.four_eyes (duyệt peer + step-up khi apply)
+// — chỉ đọc; đường ghi là PUT /settings/security (P4-T03a) — và số thiết bị chưa removed (L8).
+func (q *Queries) GetTenantPolicySettings(ctx context.Context, tenantID uuid.UUID) (GetTenantPolicySettingsRow, error) {
+	row := q.db.QueryRow(ctx, getTenantPolicySettings, tenantID)
+	var i GetTenantPolicySettingsRow
+	err := row.Scan(&i.IdentityMode, &i.FourEyes, &i.Devices)
 	return i, err
 }
 
@@ -328,6 +456,131 @@ func (q *Queries) InsertPolicyApplication(ctx context.Context, arg InsertPolicyA
 	return i, err
 }
 
+const insertTypedPolicyVersion = `-- name: InsertTypedPolicyVersion :one
+INSERT INTO policy_versions (tenant_id, version, kind, source, content_sha256, state, parent_version_id, rollback_of,
+                             created_by, submitted_by, submitted_at, approved_by, approved_at, approved_content_sha256,
+                             review_mode, validation_report)
+VALUES ($1, $2, 'user', $3, $4, $5,
+        $6, $7, $8, $9,
+        $10, $11, $12, $13,
+        $14, $15)
+RETURNING id, tenant_id, version, revision, kind, source, source_hujson, content_sha256, state, validation_report, parent_version_id, rollback_of, created_by, submitted_by, submitted_at, approved_by, approved_at, approved_content_sha256, review_mode, rejected_by, rejected_at, rejected_reason, created_at, updated_at
+`
+
+type InsertTypedPolicyVersionParams struct {
+	TenantID              uuid.UUID
+	Version               int32
+	Source                []byte
+	ContentSha256         string
+	State                 string
+	ParentVersionID       *uuid.UUID
+	RollbackOf            *uuid.UUID
+	CreatedBy             *uuid.UUID
+	SubmittedBy           *uuid.UUID
+	SubmittedAt           *time.Time
+	ApprovedBy            *uuid.UUID
+	ApprovedAt            *time.Time
+	ApprovedContentSha256 *string
+	ReviewMode            *string
+	ValidationReport      []byte
+}
+
+// Version kind user có nội dung kiểu (source — §13.3): bản nháp (state draft) hoặc bản rollback kế thừa phê duyệt
+// (state approved, các trường duyệt chép từ version đã duyệt cùng nội dung — §7.3).
+func (q *Queries) InsertTypedPolicyVersion(ctx context.Context, arg InsertTypedPolicyVersionParams) (PolicyVersion, error) {
+	row := q.db.QueryRow(ctx, insertTypedPolicyVersion,
+		arg.TenantID,
+		arg.Version,
+		arg.Source,
+		arg.ContentSha256,
+		arg.State,
+		arg.ParentVersionID,
+		arg.RollbackOf,
+		arg.CreatedBy,
+		arg.SubmittedBy,
+		arg.SubmittedAt,
+		arg.ApprovedBy,
+		arg.ApprovedAt,
+		arg.ApprovedContentSha256,
+		arg.ReviewMode,
+		arg.ValidationReport,
+	)
+	var i PolicyVersion
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.Version,
+		&i.Revision,
+		&i.Kind,
+		&i.Source,
+		&i.SourceHujson,
+		&i.ContentSha256,
+		&i.State,
+		&i.ValidationReport,
+		&i.ParentVersionID,
+		&i.RollbackOf,
+		&i.CreatedBy,
+		&i.SubmittedBy,
+		&i.SubmittedAt,
+		&i.ApprovedBy,
+		&i.ApprovedAt,
+		&i.ApprovedContentSha256,
+		&i.ReviewMode,
+		&i.RejectedBy,
+		&i.RejectedAt,
+		&i.RejectedReason,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const latestApprovalOfContent = `-- name: LatestApprovalOfContent :one
+SELECT id, tenant_id, version, revision, kind, source, source_hujson, content_sha256, state, validation_report, parent_version_id, rollback_of, created_by, submitted_by, submitted_at, approved_by, approved_at, approved_content_sha256, review_mode, rejected_by, rejected_at, rejected_reason, created_at, updated_at FROM policy_versions
+WHERE tenant_id = $1 AND kind = 'user' AND approved_content_sha256 = $2
+  AND approved_by IS NOT NULL AND review_mode IS NOT NULL
+ORDER BY approved_at DESC, version DESC
+LIMIT 1
+`
+
+type LatestApprovalOfContentParams struct {
+	TenantID      uuid.UUID
+	ContentSha256 *string
+}
+
+// Rollback (§7.3): phê duyệt chỉ được kế thừa khi nội dung trùng một nội dung đã từng được duyệt.
+func (q *Queries) LatestApprovalOfContent(ctx context.Context, arg LatestApprovalOfContentParams) (PolicyVersion, error) {
+	row := q.db.QueryRow(ctx, latestApprovalOfContent, arg.TenantID, arg.ContentSha256)
+	var i PolicyVersion
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.Version,
+		&i.Revision,
+		&i.Kind,
+		&i.Source,
+		&i.SourceHujson,
+		&i.ContentSha256,
+		&i.State,
+		&i.ValidationReport,
+		&i.ParentVersionID,
+		&i.RollbackOf,
+		&i.CreatedBy,
+		&i.SubmittedBy,
+		&i.SubmittedAt,
+		&i.ApprovedBy,
+		&i.ApprovedAt,
+		&i.ApprovedContentSha256,
+		&i.ReviewMode,
+		&i.RejectedBy,
+		&i.RejectedAt,
+		&i.RejectedReason,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const latestHuJSONPolicyVersion = `-- name: LatestHuJSONPolicyVersion :one
 SELECT id, tenant_id, version, revision, kind, source, source_hujson, content_sha256, state, validation_report, parent_version_id, rollback_of, created_by, submitted_by, submitted_at, approved_by, approved_at, approved_content_sha256, review_mode, rejected_by, rejected_at, rejected_reason, created_at, updated_at FROM policy_versions
 WHERE tenant_id = $1 AND kind = $2 AND content_sha256 = $3
@@ -457,6 +710,316 @@ func (q *Queries) ListPolicyApplications(ctx context.Context, arg ListPolicyAppl
 	return items, nil
 }
 
+const listPolicyDriftTargets = `-- name: ListPolicyDriftTargets :many
+SELECT i.id AS instance_id, i.tenant_id FROM tenant_instances i
+JOIN tenants t ON t.id = i.tenant_id
+WHERE i.status = 'running' AND t.status IN ('active', 'suspended') AND t.desired_policy_version_id IS NOT NULL
+ORDER BY i.id
+`
+
+type ListPolicyDriftTargetsRow struct {
+	InstanceID uuid.UUID
+	TenantID   uuid.UUID
+}
+
+// policy.drift_check theo lịch (§13.5): instance running của tenant active/suspended có version mong muốn (pool platform).
+func (q *Queries) ListPolicyDriftTargets(ctx context.Context) ([]ListPolicyDriftTargetsRow, error) {
+	rows, err := q.db.Query(ctx, listPolicyDriftTargets)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPolicyDriftTargetsRow{}
+	for rows.Next() {
+		var i ListPolicyDriftTargetsRow
+		if err := rows.Scan(&i.InstanceID, &i.TenantID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPolicyGroupMembers = `-- name: ListPolicyGroupMembers :many
+SELECT gm.group_id, gm.membership_id FROM group_members gm
+JOIN tenant_memberships m ON m.tenant_id = gm.tenant_id AND m.id = gm.membership_id
+WHERE gm.tenant_id = $1 AND m.status <> 'offboarded'
+ORDER BY gm.group_id, gm.membership_id
+`
+
+type ListPolicyGroupMembersRow struct {
+	GroupID      uuid.UUID
+	MembershipID uuid.UUID
+}
+
+// Thành viên group được render: membership chưa offboarded (locked vẫn giữ mạng — 0024).
+func (q *Queries) ListPolicyGroupMembers(ctx context.Context, tenantID uuid.UUID) ([]ListPolicyGroupMembersRow, error) {
+	rows, err := q.db.Query(ctx, listPolicyGroupMembers, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPolicyGroupMembersRow{}
+	for rows.Next() {
+		var i ListPolicyGroupMembersRow
+		if err := rows.Scan(&i.GroupID, &i.MembershipID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPolicyGroups = `-- name: ListPolicyGroups :many
+
+SELECT id, name FROM groups
+WHERE tenant_id = $1
+ORDER BY name
+`
+
+type ListPolicyGroupsRow struct {
+	ID   uuid.UUID
+	Name string
+}
+
+// ---------------------------------------------------------------------------------------------------- P4-T10
+// Đầu vào của render (§7.2): đọc trong một transaction tenant (api: validate/diff; worker: policy.apply).
+func (q *Queries) ListPolicyGroups(ctx context.Context, tenantID uuid.UUID) ([]ListPolicyGroupsRow, error) {
+	rows, err := q.db.Query(ctx, listPolicyGroups, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPolicyGroupsRow{}
+	for rows.Next() {
+		var i ListPolicyGroupsRow
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPolicyMemberships = `-- name: ListPolicyMemberships :many
+SELECT id, status FROM tenant_memberships
+WHERE tenant_id = $1
+`
+
+type ListPolicyMembershipsRow struct {
+	ID     uuid.UUID
+	Status string
+}
+
+func (q *Queries) ListPolicyMemberships(ctx context.Context, tenantID uuid.UUID) ([]ListPolicyMembershipsRow, error) {
+	rows, err := q.db.Query(ctx, listPolicyMemberships, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPolicyMembershipsRow{}
+	for rows.Next() {
+		var i ListPolicyMembershipsRow
+		if err := rows.Scan(&i.ID, &i.Status); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPolicyResources = `-- name: ListPolicyResources :many
+SELECT id, name, address::text AS address FROM network_resources
+WHERE tenant_id = $1
+ORDER BY name
+`
+
+type ListPolicyResourcesRow struct {
+	ID      uuid.UUID
+	Name    string
+	Address string
+}
+
+func (q *Queries) ListPolicyResources(ctx context.Context, tenantID uuid.UUID) ([]ListPolicyResourcesRow, error) {
+	rows, err := q.db.Query(ctx, listPolicyResources, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPolicyResourcesRow{}
+	for rows.Next() {
+		var i ListPolicyResourcesRow
+		if err := rows.Scan(&i.ID, &i.Name, &i.Address); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPolicyTags = `-- name: ListPolicyTags :many
+SELECT id, name, platform_managed FROM tenant_tags
+WHERE tenant_id = $1
+ORDER BY name
+`
+
+type ListPolicyTagsRow struct {
+	ID              uuid.UUID
+	Name            string
+	PlatformManaged bool
+}
+
+func (q *Queries) ListPolicyTags(ctx context.Context, tenantID uuid.UUID) ([]ListPolicyTagsRow, error) {
+	rows, err := q.db.Query(ctx, listPolicyTags, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPolicyTagsRow{}
+	for rows.Next() {
+		var i ListPolicyTagsRow
+		if err := rows.Scan(&i.ID, &i.Name, &i.PlatformManaged); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPolicyVersions = `-- name: ListPolicyVersions :many
+SELECT id, tenant_id, version, revision, kind, source, source_hujson, content_sha256, state, validation_report, parent_version_id, rollback_of, created_by, submitted_by, submitted_at, approved_by, approved_at, approved_content_sha256, review_mode, rejected_by, rejected_at, rejected_reason, created_at, updated_at FROM policy_versions
+WHERE tenant_id = $1 AND ($2::integer = 0 OR version < $2::integer)
+ORDER BY version DESC
+LIMIT $3
+`
+
+type ListPolicyVersionsParams struct {
+	TenantID      uuid.UUID
+	BeforeVersion int32
+	PageLimit     int32
+}
+
+// GET /tenants/{t}/policies: mới nhất trước; con trỏ = số version cuối của trang trước (0 = trang đầu).
+func (q *Queries) ListPolicyVersions(ctx context.Context, arg ListPolicyVersionsParams) ([]PolicyVersion, error) {
+	rows, err := q.db.Query(ctx, listPolicyVersions, arg.TenantID, arg.BeforeVersion, arg.PageLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []PolicyVersion{}
+	for rows.Next() {
+		var i PolicyVersion
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.Version,
+			&i.Revision,
+			&i.Kind,
+			&i.Source,
+			&i.SourceHujson,
+			&i.ContentSha256,
+			&i.State,
+			&i.ValidationReport,
+			&i.ParentVersionID,
+			&i.RollbackOf,
+			&i.CreatedBy,
+			&i.SubmittedBy,
+			&i.SubmittedAt,
+			&i.ApprovedBy,
+			&i.ApprovedAt,
+			&i.ApprovedContentSha256,
+			&i.ReviewMode,
+			&i.RejectedBy,
+			&i.RejectedAt,
+			&i.RejectedReason,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockPolicyVersion = `-- name: LockPolicyVersion :one
+SELECT id, tenant_id, version, revision, kind, source, source_hujson, content_sha256, state, validation_report, parent_version_id, rollback_of, created_by, submitted_by, submitted_at, approved_by, approved_at, approved_content_sha256, review_mode, rejected_by, rejected_at, rejected_reason, created_at, updated_at FROM policy_versions
+WHERE tenant_id = $1 AND id = $2
+FOR UPDATE
+`
+
+type LockPolicyVersionParams struct {
+	TenantID uuid.UUID
+	ID       uuid.UUID
+}
+
+func (q *Queries) LockPolicyVersion(ctx context.Context, arg LockPolicyVersionParams) (PolicyVersion, error) {
+	row := q.db.QueryRow(ctx, lockPolicyVersion, arg.TenantID, arg.ID)
+	var i PolicyVersion
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.Version,
+		&i.Revision,
+		&i.Kind,
+		&i.Source,
+		&i.SourceHujson,
+		&i.ContentSha256,
+		&i.State,
+		&i.ValidationReport,
+		&i.ParentVersionID,
+		&i.RollbackOf,
+		&i.CreatedBy,
+		&i.SubmittedBy,
+		&i.SubmittedAt,
+		&i.ApprovedBy,
+		&i.ApprovedAt,
+		&i.ApprovedContentSha256,
+		&i.ReviewMode,
+		&i.RejectedBy,
+		&i.RejectedAt,
+		&i.RejectedReason,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const lockTenantDesiredPolicy = `-- name: LockTenantDesiredPolicy :one
+SELECT desired_policy_version_id FROM tenants
+WHERE id = $1
+FOR UPDATE
+`
+
+// Khóa hàng tenant trong transaction đặt version mong muốn (stale base — §7.3): hai lần apply đồng thời nối tiếp nhau.
+func (q *Queries) LockTenantDesiredPolicy(ctx context.Context, tenantID uuid.UUID) (*uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, lockTenantDesiredPolicy, tenantID)
+	var desired_policy_version_id *uuid.UUID
+	err := row.Scan(&desired_policy_version_id)
+	return desired_policy_version_id, err
+}
+
 const markPolicyApplicationUnknown = `-- name: MarkPolicyApplicationUnknown :exec
 UPDATE policy_applications SET state = 'unknown'
 WHERE tenant_id = $1 AND id = $2 AND state = 'pending'
@@ -485,6 +1048,60 @@ func (q *Queries) NextPolicyVersionNumber(ctx context.Context, tenantID uuid.UUI
 	return next_version, err
 }
 
+const rejectPolicyVersion = `-- name: RejectPolicyVersion :one
+UPDATE policy_versions
+SET state = 'rejected', rejected_by = $1, rejected_at = now(), rejected_reason = $2,
+    revision = revision + 1, updated_at = now()
+WHERE tenant_id = $3 AND id = $4 AND revision = $5 AND state = 'pending_approval'
+RETURNING id, tenant_id, version, revision, kind, source, source_hujson, content_sha256, state, validation_report, parent_version_id, rollback_of, created_by, submitted_by, submitted_at, approved_by, approved_at, approved_content_sha256, review_mode, rejected_by, rejected_at, rejected_reason, created_at, updated_at
+`
+
+type RejectPolicyVersionParams struct {
+	RejectedBy     *uuid.UUID
+	RejectedReason *string
+	TenantID       uuid.UUID
+	ID             uuid.UUID
+	Revision       int64
+}
+
+func (q *Queries) RejectPolicyVersion(ctx context.Context, arg RejectPolicyVersionParams) (PolicyVersion, error) {
+	row := q.db.QueryRow(ctx, rejectPolicyVersion,
+		arg.RejectedBy,
+		arg.RejectedReason,
+		arg.TenantID,
+		arg.ID,
+		arg.Revision,
+	)
+	var i PolicyVersion
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.Version,
+		&i.Revision,
+		&i.Kind,
+		&i.Source,
+		&i.SourceHujson,
+		&i.ContentSha256,
+		&i.State,
+		&i.ValidationReport,
+		&i.ParentVersionID,
+		&i.RollbackOf,
+		&i.CreatedBy,
+		&i.SubmittedBy,
+		&i.SubmittedAt,
+		&i.ApprovedBy,
+		&i.ApprovedAt,
+		&i.ApprovedContentSha256,
+		&i.ReviewMode,
+		&i.RejectedBy,
+		&i.RejectedAt,
+		&i.RejectedReason,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const setPolicyVersionState = `-- name: SetPolicyVersionState :exec
 UPDATE policy_versions
 SET state = $1, revision = revision + 1, updated_at = now()
@@ -503,6 +1120,61 @@ func (q *Queries) SetPolicyVersionState(ctx context.Context, arg SetPolicyVersio
 	return err
 }
 
+const setPolicyVersionValidation = `-- name: SetPolicyVersionValidation :one
+UPDATE policy_versions
+SET state = $1, validation_report = $2, revision = revision + 1, updated_at = now()
+WHERE tenant_id = $3 AND id = $4 AND revision = $5
+  AND state IN ('draft', 'validated')
+RETURNING id, tenant_id, version, revision, kind, source, source_hujson, content_sha256, state, validation_report, parent_version_id, rollback_of, created_by, submitted_by, submitted_at, approved_by, approved_at, approved_content_sha256, review_mode, rejected_by, rejected_at, rejected_reason, created_at, updated_at
+`
+
+type SetPolicyVersionValidationParams struct {
+	State            string
+	ValidationReport []byte
+	TenantID         uuid.UUID
+	ID               uuid.UUID
+	Revision         int64
+}
+
+// validate: draft|validated → validated (lint + render + CheckPolicy đạt) hoặc draft (báo cáo có lỗi).
+func (q *Queries) SetPolicyVersionValidation(ctx context.Context, arg SetPolicyVersionValidationParams) (PolicyVersion, error) {
+	row := q.db.QueryRow(ctx, setPolicyVersionValidation,
+		arg.State,
+		arg.ValidationReport,
+		arg.TenantID,
+		arg.ID,
+		arg.Revision,
+	)
+	var i PolicyVersion
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.Version,
+		&i.Revision,
+		&i.Kind,
+		&i.Source,
+		&i.SourceHujson,
+		&i.ContentSha256,
+		&i.State,
+		&i.ValidationReport,
+		&i.ParentVersionID,
+		&i.RollbackOf,
+		&i.CreatedBy,
+		&i.SubmittedBy,
+		&i.SubmittedAt,
+		&i.ApprovedBy,
+		&i.ApprovedAt,
+		&i.ApprovedContentSha256,
+		&i.ReviewMode,
+		&i.RejectedBy,
+		&i.RejectedAt,
+		&i.RejectedReason,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const setTenantDesiredPolicy = `-- name: SetTenantDesiredPolicy :exec
 UPDATE tenants SET desired_policy_version_id = $1
 WHERE id = $2
@@ -517,6 +1189,58 @@ type SetTenantDesiredPolicyParams struct {
 func (q *Queries) SetTenantDesiredPolicy(ctx context.Context, arg SetTenantDesiredPolicyParams) error {
 	_, err := q.db.Exec(ctx, setTenantDesiredPolicy, arg.VersionID, arg.TenantID)
 	return err
+}
+
+const submitPolicyVersion = `-- name: SubmitPolicyVersion :one
+UPDATE policy_versions
+SET state = 'pending_approval', submitted_by = $1, submitted_at = now(), revision = revision + 1,
+    updated_at = now()
+WHERE tenant_id = $2 AND id = $3 AND revision = $4 AND state = 'validated'
+RETURNING id, tenant_id, version, revision, kind, source, source_hujson, content_sha256, state, validation_report, parent_version_id, rollback_of, created_by, submitted_by, submitted_at, approved_by, approved_at, approved_content_sha256, review_mode, rejected_by, rejected_at, rejected_reason, created_at, updated_at
+`
+
+type SubmitPolicyVersionParams struct {
+	SubmittedBy *uuid.UUID
+	TenantID    uuid.UUID
+	ID          uuid.UUID
+	Revision    int64
+}
+
+func (q *Queries) SubmitPolicyVersion(ctx context.Context, arg SubmitPolicyVersionParams) (PolicyVersion, error) {
+	row := q.db.QueryRow(ctx, submitPolicyVersion,
+		arg.SubmittedBy,
+		arg.TenantID,
+		arg.ID,
+		arg.Revision,
+	)
+	var i PolicyVersion
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.Version,
+		&i.Revision,
+		&i.Kind,
+		&i.Source,
+		&i.SourceHujson,
+		&i.ContentSha256,
+		&i.State,
+		&i.ValidationReport,
+		&i.ParentVersionID,
+		&i.RollbackOf,
+		&i.CreatedBy,
+		&i.SubmittedBy,
+		&i.SubmittedAt,
+		&i.ApprovedBy,
+		&i.ApprovedAt,
+		&i.ApprovedContentSha256,
+		&i.ReviewMode,
+		&i.RejectedBy,
+		&i.RejectedAt,
+		&i.RejectedReason,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const supersedeCurrentPolicyApplication = `-- name: SupersedeCurrentPolicyApplication :execrows
@@ -539,4 +1263,77 @@ func (q *Queries) SupersedeCurrentPolicyApplication(ctx context.Context, arg Sup
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const supersedePolicyVersion = `-- name: SupersedePolicyVersion :exec
+UPDATE policy_versions
+SET state = 'superseded', revision = revision + 1, updated_at = now()
+WHERE tenant_id = $1 AND id = $2 AND state IN ('approved', 'validated')
+`
+
+type SupersedePolicyVersionParams struct {
+	TenantID uuid.UUID
+	ID       uuid.UUID
+}
+
+// Version mong muốn cũ khi version khác trở thành desired (§7.3 approved → superseded).
+func (q *Queries) SupersedePolicyVersion(ctx context.Context, arg SupersedePolicyVersionParams) error {
+	_, err := q.db.Exec(ctx, supersedePolicyVersion, arg.TenantID, arg.ID)
+	return err
+}
+
+const updatePolicyVersionSource = `-- name: UpdatePolicyVersionSource :one
+UPDATE policy_versions
+SET source = $1, content_sha256 = $2, state = 'draft', validation_report = NULL,
+    submitted_by = NULL, submitted_at = NULL, approved_by = NULL, approved_at = NULL, approved_content_sha256 = NULL,
+    review_mode = NULL, revision = revision + 1, updated_at = now()
+WHERE tenant_id = $3 AND id = $4 AND revision = $5
+RETURNING id, tenant_id, version, revision, kind, source, source_hujson, content_sha256, state, validation_report, parent_version_id, rollback_of, created_by, submitted_by, submitted_at, approved_by, approved_at, approved_content_sha256, review_mode, rejected_by, rejected_at, rejected_reason, created_at, updated_at
+`
+
+type UpdatePolicyVersionSourceParams struct {
+	Source        []byte
+	ContentSha256 string
+	TenantID      uuid.UUID
+	ID            uuid.UUID
+	Revision      int64
+}
+
+// PATCH (§6.3): mọi sửa đổi đưa version về draft và xóa phê duyệt, báo cáo lint; revision tăng (ETag).
+func (q *Queries) UpdatePolicyVersionSource(ctx context.Context, arg UpdatePolicyVersionSourceParams) (PolicyVersion, error) {
+	row := q.db.QueryRow(ctx, updatePolicyVersionSource,
+		arg.Source,
+		arg.ContentSha256,
+		arg.TenantID,
+		arg.ID,
+		arg.Revision,
+	)
+	var i PolicyVersion
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.Version,
+		&i.Revision,
+		&i.Kind,
+		&i.Source,
+		&i.SourceHujson,
+		&i.ContentSha256,
+		&i.State,
+		&i.ValidationReport,
+		&i.ParentVersionID,
+		&i.RollbackOf,
+		&i.CreatedBy,
+		&i.SubmittedBy,
+		&i.SubmittedAt,
+		&i.ApprovedBy,
+		&i.ApprovedAt,
+		&i.ApprovedContentSha256,
+		&i.ReviewMode,
+		&i.RejectedBy,
+		&i.RejectedAt,
+		&i.RejectedReason,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
