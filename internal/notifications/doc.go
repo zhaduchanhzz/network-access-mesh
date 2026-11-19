@@ -7,7 +7,9 @@
 //
 // A producer builds an Event with a constructor of this package — TenantActivated, Invitation, TenantSuspended,
 // TenantResumed, DeviceNew, DeviceExpiring, APIKeyExpiring (platform), PolicyApplied, SupportGrantRequested,
-// BreakGlass, SupportGrantUsed, ApprovalRequested — and calls Enqueue(ctx, tx, ev) in its own transaction
+// BreakGlass, SupportGrantUsed, ApprovalRequested, EnrollmentApproved/EnrollmentRejected (the requester only),
+// RouteApproved/RouteRevoked (Tenant Owners/Admins, not switchable — T-08) … — and calls Enqueue(ctx, tx, ev) in its
+// own transaction
 // (store.WithTenantJobTx for a tenant event, WithPlatformJobTx for a platform event): the rows and their jobs commit or
 // roll back with the event. The constructor fixes the recipient rule of §6.3: security notifications (break-glass,
 // support grant used) → every Tenant Owner; a new device → its owner + the Tenant Owners; an approval request → the

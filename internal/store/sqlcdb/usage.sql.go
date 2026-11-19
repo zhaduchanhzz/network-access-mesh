@@ -13,12 +13,17 @@ import (
 
 const countLiveEnrollmentCredentials = `-- name: CountLiveEnrollmentCredentials :one
 SELECT count(*) FROM enrollment_requests
-WHERE tenant_id = $1 AND credential_expires_at > now()
-  AND (status IN ('awaiting_device', 'claimed', 'credential_issued') OR (status = 'consumed' AND reusable))
+WHERE tenant_id = $1
+  AND (status = 'requested'
+       OR (credential_expires_at > now()
+           AND (status IN ('awaiting_device', 'claimed', 'credential_issued') OR (status = 'consumed' AND reusable))))
 `
 
 // Credential enrollment còn hạn (PlanLimits.max_live_enrollment_credentials): mã/lệnh web-auth và pre-auth key đã phát
-// chưa dùng, cộng key reusable đã dùng nhưng còn hạn.
+// chưa dùng, cộng key reusable đã dùng nhưng còn hạn, cộng yêu cầu đang phát (requested — pre-auth key được tạo ở
+// Headscale SAU khi transaction quota commit: chưa có hạn nhưng sắp là một credential sống; dở dang quá 15 phút thì
+// enrollment.reconcile chuyển failed). /start đang phát key giữ khóa tenant `enrollment` tới khi ghi xong — lần tạo yêu
+// cầu chờ khóa đó trước khi đếm.
 func (q *Queries) CountLiveEnrollmentCredentials(ctx context.Context, tenantID uuid.UUID) (int64, error) {
 	row := q.db.QueryRow(ctx, countLiveEnrollmentCredentials, tenantID)
 	var count int64
@@ -57,6 +62,22 @@ func (q *Queries) CountOpenEnrollmentRequests(ctx context.Context, tenantID uuid
 	return count, err
 }
 
+const countOpenTaggedEnrollmentRequests = `-- name: CountOpenTaggedEnrollmentRequests :one
+SELECT count(*) FROM enrollment_requests
+WHERE tenant_id = $1 AND cardinality(requested_tags) > 0
+  AND status IN ('requested', 'pending_approval', 'approved', 'awaiting_device', 'claimed', 'registered',
+                 'credential_issued')
+`
+
+// Yêu cầu enrollment chưa kết thúc mang tag (pre-auth key gắn tag — §7.4 phương thức B): còn có thể sinh một tagged
+// node, tính vào max_tagged_devices như CountOpenEnrollmentRequests tính vào max_devices.
+func (q *Queries) CountOpenTaggedEnrollmentRequests(ctx context.Context, tenantID uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countOpenTaggedEnrollmentRequests, tenantID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countTenantDevices = `-- name: CountTenantDevices :one
 SELECT count(*) FROM device_inventory_cache d
 JOIN tenant_instances i ON i.tenant_id = d.tenant_id AND i.id = d.instance_id
@@ -67,6 +88,22 @@ WHERE d.tenant_id = $1 AND d.removed_at IS NULL AND i.status <> 'removed'
 // không còn tính. tenant_id lọc ở truy vấn ngoài RLS (§8.8).
 func (q *Queries) CountTenantDevices(ctx context.Context, tenantID uuid.UUID) (int64, error) {
 	row := q.db.QueryRow(ctx, countTenantDevices, tenantID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countTenantTaggedDevices = `-- name: CountTenantTaggedDevices :one
+SELECT count(*) FROM device_inventory_cache d
+JOIN tenant_instances i ON i.tenant_id = d.tenant_id AND i.id = d.instance_id
+WHERE d.tenant_id = $1 AND d.removed_at IS NULL AND i.status <> 'removed'
+  AND cardinality(d.tags) > 0
+`
+
+// PlanLimits.max_tagged_devices (P4-T06): thiết bị gắn tag đang có trong sổ của instance chưa removed — tag và chủ sở
+// hữu loại trừ nhau (HS-10, PL-09) nên tags khác rỗng ⇔ tagged node. Đếm dưới khóa hàng subscription của người gọi.
+func (q *Queries) CountTenantTaggedDevices(ctx context.Context, tenantID uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countTenantTaggedDevices, tenantID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err

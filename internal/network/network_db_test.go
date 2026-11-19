@@ -230,12 +230,23 @@ func idem(key string) *Idempotency {
 	return &Idempotency{Key: key, Hash: jobs.RequestHash("POST", "/x/"+key, []byte(`{}`))}
 }
 
+// routeNotices lists the route notifications of a tenant, oldest first, as kind|prefixes|exit_node|untagged|actor|
+// approval_id|recipients (T-08 "audit + thông báo" — P4-T12 follow-up).
+func (f *fixture) routeNotices(t *testing.T, ten *tenantFx) []string {
+	t.Helper()
+	return f.strings(t, `SELECT kind || '|' || (payload->>'prefixes') || '|' || (payload->>'exit_node') || '|' ||
+			COALESCE(payload->>'untagged_router', 'false') || '|' || COALESCE(payload->>'actor', '') || '|' ||
+			COALESCE(payload->>'approval_id', '') || '|' || count(*)
+		FROM notification_outbox WHERE tenant_id = $1 AND kind LIKE 'route.%'
+		GROUP BY kind, payload, payload->>'ref' ORDER BY min(created_at)`, ten.id)
+}
+
 // TestRoutesApprove: the read–check–write of PL-10 with every refusal before Headscale is written; the register and
 // the paired audit follow the read-back; the warnings of T-08.
 func TestRoutesApprove(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t)
-	a := Actor{IdentityID: f.a.admin}
+	a := Actor{IdentityID: f.a.admin, Display: "Alice Admin"}
 	r1 := f.router(t, f.a, 1, "100.64.0.1", nil, pfx("10.10.0.0/24", "10.20.0.0/24", "0.0.0.0/0", "::/0"), nil)
 	r2 := f.router(t, f.a, 2, "100.64.0.2", []string{"tag:server"}, pfx("10.10.0.0/16"), pfx("10.10.0.0/16"))
 	f.router(t, f.b, 1, "100.64.0.1", nil, pfx("10.10.0.0/24"), nil)
@@ -309,6 +320,19 @@ func TestRoutesApprove(t *testing.T) {
 	if !slices.Contains(audit, "route.approve.requested") || !slices.Contains(audit, "route.approve.succeeded") {
 		t.Fatalf("audit: %v", audit)
 	}
+	// T-08 "audit + thông báo": one route.approved for the Tenant Owners/Admins (here the tenant's one admin), with the
+	// warning of an untagged router; the replay above notified nothing more
+	want := []string{"route.approved|10.10.0.0/24|false|true|Alice Admin||1"}
+	if got := f.routeNotices(t, f.a); !slices.Equal(got, want) {
+		t.Fatalf("notifications %v, want %v", got, want)
+	}
+	// approving a prefix already approved changes nothing at Headscale: no notification
+	if _, err := f.svc.ApproveRoutes(ctx, f.a.id, a, res.Device.ETag, in, nil); err != nil {
+		t.Fatalf("approve again: %v", err)
+	}
+	if got := f.routeNotices(t, f.a); !slices.Equal(got, want) {
+		t.Fatalf("a change that changed nothing was notified: %v", got)
+	}
 
 	// exit node: both families, with the confirmation
 	etag := res.Device.ETag
@@ -318,6 +342,10 @@ func TestRoutesApprove(t *testing.T) {
 	}
 	if got := f.approved(t, f.a, 1); !slices.Equal(got, []string{"0.0.0.0/0", "10.10.0.0/24", "::/0"}) {
 		t.Fatalf("exit node on Headscale: %v", got)
+	}
+	want = append(want, "route.approved|0.0.0.0/0, ::/0|true|true|Alice Admin||1")
+	if got := f.routeNotices(t, f.a); !slices.Equal(got, want) {
+		t.Fatalf("exit node notifications %v, want %v", got, want)
 	}
 
 	// revoke: only approved prefixes; the exit node leaves with both families
@@ -332,6 +360,10 @@ func TestRoutesApprove(t *testing.T) {
 	if got := f.approved(t, f.a, 1); !slices.Equal(got, []string{"10.10.0.0/24"}) {
 		t.Fatalf("after revoke: %v", got)
 	}
+	want = append(want, "route.revoked|0.0.0.0/0, ::/0|true|true|Alice Admin||1")
+	if got := f.routeNotices(t, f.a); !slices.Equal(got, want) {
+		t.Fatalf("revoke notifications %v, want %v", got, want)
+	}
 
 	// Headscale acknowledges but does not apply ⇒ 502 readback_mismatch, route.approve.failed
 	f.a.hs.Ignore(devicestest.OpSetApprovedRoutes, true)
@@ -344,6 +376,13 @@ func TestRoutesApprove(t *testing.T) {
 		f.a.id, r1.String())
 	if len(failed) != 1 {
 		t.Fatalf("failed events: %v", failed)
+	}
+	// a change that failed (and every refusal above) notified nothing; tenant B has no route notification at all
+	if got := f.routeNotices(t, f.a); !slices.Equal(got, want) {
+		t.Fatalf("after a failed change: %v", got)
+	}
+	if got := f.routeNotices(t, f.b); len(got) != 0 {
+		t.Fatalf("tenant B notified: %v", got)
 	}
 	_ = r2
 }
@@ -407,9 +446,13 @@ func TestRoutesFourEyes(t *testing.T) {
 	if _, err := f.svc.ApproveRoutes(ctx, f.a.id, a, etag, RouteChangeInput{DeviceID: r, Prefixes: []string{"10.7.0.0/24"}}, nil); codeOf(err) != CodeValidationFailed+"/route_not_advertised" {
 		t.Fatalf("four eyes, not advertised: %s", codeOf(err))
 	}
+	if got := f.routeNotices(t, f.a); len(got) != 0 {
+		t.Fatalf("a request waiting for the second person was notified as a change: %v", got)
+	}
+	approval := uuid.New()
 	exec := func(p RouteApprovalPayload) error {
 		return f.st.WithTenantJobTx(ctx, f.a.id, func(tx *store.Tx) error {
-			_, err := f.svc.ExecuteRouteApproval(ctx, tx, f.a.id, uuid.New(), p.DeviceID.String(), f.a.admin, p)
+			_, err := f.svc.ExecuteRouteApproval(ctx, tx, f.a.id, approval, p.DeviceID.String(), f.a.admin, p)
 			return err
 		})
 	}
@@ -419,7 +462,12 @@ func TestRoutesFourEyes(t *testing.T) {
 	if got := f.approved(t, f.a, 3); !slices.Equal(got, []string{"10.5.0.0/24"}) {
 		t.Fatalf("after execution: %v", got)
 	}
-	// the same approval again: the set no longer has the approved ETag ⇒ refused, nothing written
+	// the execution notifies the Owners/Admins once, keyed by the approval (tagged router: no warning)
+	want := []string{"route.approved|10.5.0.0/24|false|false||" + approval.String() + "|1"}
+	if got := f.routeNotices(t, f.a); !slices.Equal(got, want) {
+		t.Fatalf("execution notifications %v, want %v", got, want)
+	}
+	// the same approval again: the set no longer has the approved ETag ⇒ refused, nothing written, nothing notified
 	if err := exec(p); codeOf(err) != CodePreconditionFailed+"/"+ReasonStaleRoutes {
 		t.Fatalf("stale execution: %s", codeOf(err))
 	}
@@ -433,6 +481,15 @@ func TestRoutesFourEyes(t *testing.T) {
 	// revocation never needs the second person
 	if _, err := f.svc.RevokeRoutes(ctx, f.a.id, a, RoutesETag(pfx("10.5.0.0/24")), RouteChangeInput{DeviceID: r, Prefixes: []string{"10.5.0.0/24"}}); err != nil {
 		t.Fatalf("revoke under four eyes: %v", err)
+	}
+	want = append(want, "route.revoked|10.5.0.0/24|false|false|||1")
+	// the same approval executed once more and applied (the set is back to the request's ETag): the change is real, but
+	// the approval was already notified — never twice
+	if err := exec(p); err != nil {
+		t.Fatalf("execute again: %v", err)
+	}
+	if got := f.routeNotices(t, f.a); !slices.Equal(got, want) {
+		t.Fatalf("notifications %v, want %v", got, want)
 	}
 }
 

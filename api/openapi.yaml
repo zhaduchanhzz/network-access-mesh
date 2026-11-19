@@ -3617,7 +3617,8 @@ paths:
         `202` + yêu cầu phê duyệt phạm vi tenant `tenant.route.approve` (payload = prefix thêm, tập đã duyệt sau khi thêm,
         `If-Match`; người gọi phải step-up) — người thứ hai có `tenant.approval:decide` và `tenant.route:approve` duyệt ở
         `Location`; Headscale chỉ được gọi khi đó, và chỉ khi tập đã duyệt vẫn mang đúng ETag đã duyệt. Audit cặp
-        `route.approve`.
+        `route.approve`; tập đã duyệt thực sự đổi ⇒ thông báo `route.approved` cho Tenant Owner/Admin trong cùng
+        transaction (T-08), cả khi thực thi qua phê duyệt — mỗi thay đổi (mỗi yêu cầu phê duyệt) một lần.
       security:
         - sessionCookie: []
           csrfToken: []
@@ -3683,7 +3684,8 @@ paths:
       description: |-
         Như `approve` (khóa hàng, đọc trực tiếp từ Headscale, `If-Match` bắt buộc — `428`/`412`, đọc lại sau
         `SetApprovedRoutes`) với tập mới = tập hiện tại trừ `prefixes`; prefix chưa được duyệt ⇒ `422`; exit node gỡ cả
-        hai họ địa chỉ. Gỡ duyệt thu hẹp truy cập nên không cần người thứ hai. Audit cặp `route.revoke`.
+        hai họ địa chỉ. Gỡ duyệt thu hẹp truy cập nên không cần người thứ hai. Audit cặp `route.revoke`; thông báo
+        `route.revoked` cho Tenant Owner/Admin.
       security:
         - sessionCookie: []
           csrfToken: []
@@ -4444,7 +4446,8 @@ paths:
       description: |-
         Chỉ yêu cầu `pending_approval` (khác ⇒ `409`); người duyệt khác người yêu cầu (⇒ `403`). Phê duyệt gắn với
         **request** (người yêu cầu, nhãn, phương thức) — không với Auth ID; sau đó chính người yêu cầu gọi `/start`.
-        Chưa dùng sau 24 giờ ⇒ `expired` (job `enrollment.reconcile`).
+        Chưa dùng sau 24 giờ ⇒ `expired` (job `enrollment.reconcile`). Người yêu cầu nhận thông báo
+        `enrollment.approved` (cùng transaction).
       security:
         - sessionCookie: []
           csrfToken: []
@@ -4478,7 +4481,9 @@ paths:
       tags: [enrollment]
       operationId: rejectEnrollmentRequest
       summary: Từ chối yêu cầu đang chờ
-      description: Chỉ yêu cầu `pending_approval` (khác ⇒ `409`); người quyết định khác người yêu cầu (⇒ `403`).
+      description: |-
+        Chỉ yêu cầu `pending_approval` (khác ⇒ `409`); người quyết định khác người yêu cầu (⇒ `403`). Người yêu cầu
+        nhận thông báo `enrollment.rejected` (cùng transaction).
       security:
         - sessionCookie: []
           csrfToken: []
@@ -4604,7 +4609,9 @@ paths:
         (`target_membership_id`) hoặc key chỉ-tag (không chủ — phải có `tags`). `tags` chỉ nhận tag có trong danh mục
         của tenant (P4-T15 — ngoài danh mục ⇒ `422`), khóa chia sẻ tới hết transaction. Luôn có hạn ≤ 15 phút
         (`ttl_minutes`, không vượt `enrollment.preauth_key_ttl_max`), `expiration` tường minh; plaintext hiển thị một lần
-        (`x-secret-once`). Không qua bước duyệt (đã cần quyền đặc quyền); quota như `POST /enrollment/requests`.
+        (`x-secret-once`). Không qua bước duyệt (đã cần quyền đặc quyền); quota như `POST /enrollment/requests`, và key
+        có `tags` còn tính vào `max_tagged_devices` (thiết bị gắn tag trong sổ + yêu cầu chưa kết thúc có tag, đếm dưới
+        cùng khóa hàng `subscriptions` — vượt ⇒ `403 quota_exceeded`).
       security:
         - sessionCookie: []
           csrfToken: []

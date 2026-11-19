@@ -2,8 +2,10 @@ package enrollment
 
 import (
 	"crypto/sha256"
+	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -100,8 +102,10 @@ func TestEnrollment(t *testing.T) {
 		node := a.hs.UseKey(keys[len(keys)-1].ID, devicestest.Node{MachineKey: "mkey:consumed", Hostname: "srv-1"})
 		f.exec(t, `INSERT INTO device_inventory_cache (tenant_id, instance_id, headscale_node_id, machine_key, name)
 			VALUES ($1, $2, $3, $4, 'srv-1')`, a.id, a.instance, int64(node.ID), node.MachineKey) //nolint:gosec // small test ids
+		// the node is already in the inventory (inventory.sync came first): the consumed transition links it and
+		// notifies the new device (device.new — the owner, here also the only Tenant Owner)
 		rep, err := f.wrk.Reconcile(t.Context(), a.id)
-		if err != nil || rep.Consumed != 1 || rep.Linked != 1 {
+		if err != nil || rep.Consumed != 1 || rep.NewDevices != 1 || rep.Linked != 0 {
 			t.Fatalf("reconcile %+v %v", rep, err)
 		}
 		r, err := f.api.Get(t.Context(), a.id, out.Request.ID, owner)
@@ -110,6 +114,11 @@ func TestEnrollment(t *testing.T) {
 		}
 		if n := f.count(t, `SELECT count(*) FROM device_inventory_cache WHERE enrollment_request_id = $1`, out.Request.ID); n != 1 {
 			t.Fatalf("device link %d", n)
+		}
+		var dev uuid.UUID
+		f.scan(t, `SELECT id FROM device_inventory_cache WHERE enrollment_request_id = $1`, []any{out.Request.ID}, &dev)
+		if got := f.deviceNew(t, a, dev); !slices.Equal(got, sortedIDs(owner.MembershipID)) {
+			t.Fatalf("device.new recipients %v", got)
 		}
 		// a consumed single-use key: revoke ⇒ 409 (the device is revoked through /devices)
 		if _, err := f.api.Revoke(t.Context(), a.id, out.Request.ID, owner); codeOf(err) != CodeConflict {
@@ -316,9 +325,27 @@ func TestEnrollment(t *testing.T) {
 		if _, err := f.api.Approve(ctx, a.id, out.Request.ID, self); reasonOf(err) != "self_approval" {
 			t.Fatalf("self approval: %v", err)
 		}
+		decisions := func(id uuid.UUID) []string {
+			return f.list(t, `SELECT kind || '|' || recipient_membership_id || '|' || COALESCE(payload->>'decided_by', '') || '|' ||
+					(payload ? 'expires_at')::text FROM notification_outbox
+				WHERE tenant_id = $1 AND payload->>'request_id' = $2 ORDER BY created_at, id`, a.id, id.String())
+		}
+		if got := decisions(out.Request.ID); len(got) != 0 {
+			t.Fatalf("notified before the decision: %v", got)
+		}
 		r, err := f.api.Approve(ctx, a.id, out.Request.ID, a.actor("admin", uuid.New()))
 		if err != nil || r.Status != StatusApproved || r.Approver == nil {
 			t.Fatalf("approve: %+v %v", r, err)
+		}
+		// §7.4: the requester — and only the requester — is told, in the decision's transaction
+		if got := decisions(out.Request.ID); !slices.Equal(got, []string{"enrollment.approved|" + user.MembershipID.String() + "|admin|true"}) {
+			t.Fatalf("approval notification %v", got)
+		}
+		if _, err := f.api.Approve(ctx, a.id, out.Request.ID, a.actor("owner", uuid.New())); reasonOf(err) != "not_pending_approval" {
+			t.Fatalf("approve twice: %v", err)
+		}
+		if got := decisions(out.Request.ID); len(got) != 1 {
+			t.Fatalf("a refused second decision notified: %v", got)
 		}
 		if _, err := f.api.Start(ctx, a.id, out.Request.ID, a.actor("user2", uuid.New())); reasonOf(err) != "not_requester" {
 			t.Fatalf("start by another member: %v", err)
@@ -337,6 +364,9 @@ func TestEnrollment(t *testing.T) {
 		}
 		if r, err := f.api.Reject(ctx, a.id, rej.Request.ID, a.actor("owner", uuid.New())); err != nil || r.Status != StatusRejected {
 			t.Fatalf("reject: %+v %v", r, err)
+		}
+		if got := decisions(rej.Request.ID); !slices.Equal(got, []string{"enrollment.rejected|" + user.MembershipID.String() + "|owner|false"}) {
+			t.Fatalf("rejection notification %v", got)
 		}
 		stale, err := f.api.Create(ctx, a.id, user, NewRequest{Method: MethodWebAuth}, idem("k-a-4", "d"))
 		if err != nil {
@@ -437,6 +467,76 @@ func TestEnrollment(t *testing.T) {
 		}
 	})
 
+	t.Run("TaggedDevicesQuota", func(t *testing.T) {
+		// PlanLimits.max_tagged_devices (P4-T06 follow-up): tagged devices of the inventory + open requests with tags,
+		// counted under the subscription's row lock in the transaction that creates the key
+		b := f.b
+		admin := b.actor("admin", uuid.New())
+		ctx := ctxOf(admin, b.id, ActionKeyCreate)
+		f.exec(t, `UPDATE subscriptions SET overrides = '{"max_devices": 50, "max_live_enrollment_credentials": 50,
+			"max_tagged_devices": 3}' WHERE tenant_id = $1`, b.id)
+		f.exec(t, `INSERT INTO device_inventory_cache (tenant_id, instance_id, headscale_node_id, machine_key, name, tags)
+			VALUES ($1, $2, 11, 'mkey:tagged', 'tagged-1', '{tag:server}'), ($1, $2, 12, 'mkey:personal', 'personal-1', '{}')`,
+			b.id, b.instance)
+		tagged := NewKey{Tags: []string{"tag:server"}}
+		k1, err := f.api.CreateKey(ctx, b.id, admin, tagged, idem("k-t-1", "1"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		k2, err := f.api.CreateKey(ctx, b.id, admin, tagged, idem("k-t-2", "2")) // 1 device + 1 open + 1 = 3
+		if err != nil {
+			t.Fatal(err)
+		}
+		keysBefore := len(b.hs.Keys())
+		if _, err := f.api.CreateKey(ctx, b.id, admin, tagged, idem("k-t-3", "3")); codeOf(err) != "quota_exceeded:tagged_devices" {
+			t.Fatalf("tagged quota: %v", err)
+		}
+		if n := len(b.hs.Keys()); n != keysBefore {
+			t.Fatalf("a refused key reached Headscale: %d keys", n)
+		}
+		// a key without tags is not a tagged device; the personal device of the inventory did not count either
+		target := b.people["user"].membership
+		if _, err := f.api.CreateKey(ctx, b.id, admin, NewKey{Target: &target}, idem("k-t-4", "4")); err != nil {
+			t.Fatalf("untagged key under a full tagged quota: %v", err)
+		}
+		if n := f.count(t, `SELECT count(*) FROM enrollment_requests WHERE tenant_id = $1 AND cardinality(requested_tags) > 0`, b.id); n != 2 {
+			t.Fatalf("tagged requests written %d", n)
+		}
+		// revoked keys free their place; concurrent creations serialise on the subscription row: with 2 places left,
+		// exactly 2 of 6 pass
+		for _, k := range []Issue{k1, k2} {
+			if _, err := f.api.Revoke(ctxOf(admin, b.id, ActionRevoke), b.id, k.Request.ID, admin); err != nil {
+				t.Fatalf("revoke: %v", err)
+			}
+		}
+		var (
+			wg        sync.WaitGroup
+			mu        sync.Mutex
+			ok, quota int
+			others    []string
+		)
+		for i := range 6 {
+			wg.Go(func() {
+				_, err := f.api.CreateKey(ctx, b.id, admin, tagged, idem(fmt.Sprintf("k-t-c%d", i), fmt.Sprint(i)))
+				mu.Lock()
+				defer mu.Unlock()
+				switch c := codeOf(err); c {
+				case "":
+					ok++
+				case "quota_exceeded:tagged_devices":
+					quota++
+				default:
+					others = append(others, c)
+				}
+			})
+		}
+		wg.Wait()
+		if ok != 2 || quota != 4 || len(others) > 0 {
+			t.Fatalf("concurrent tagged keys: %d ok, %d refused, others %v; want 2 and 4", ok, quota, others)
+		}
+		f.noKeyMaterial(t)
+	})
+
 	t.Run("ListAndInstructions", func(t *testing.T) {
 		eu := a.actor("user", uuid.New())
 		page, err := f.api.List(t.Context(), a.id, eu, 2, "", "")
@@ -496,6 +596,147 @@ func TestEnrollment(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
+}
+
+// TestPreauthDeviceNew — P4-T06 follow-up: a device registered with a pre-auth key enters the inventory with its
+// enrollment link and is notified once (device.new: its owner + the Tenant Owners), whether enrollment.reconcile or
+// inventory.sync sees the node first; every node of a reusable key while it is live; the schedule keeps running for a
+// live reusable key alone.
+func TestPreauthDeviceNew(t *testing.T) {
+	f := newFixture(t)
+	a := f.a
+	ctx := t.Context()
+	admin := a.actor("admin", uuid.New())
+	kctx := ctxOf(admin, a.id, ActionKeyCreate)
+	owner, user, user2 := a.people["owner"].membership, a.people["user"].membership, a.people["user2"].membership
+	lastKey := func() uint64 { k := a.hs.Keys(); return k[len(k)-1].ID }
+	deviceOf := func(node uint64) (id uuid.UUID, req, own string) {
+		f.scan(t, `SELECT id, COALESCE(enrollment_request_id::text, ''), COALESCE(owner_membership_id::text, '')
+			FROM device_inventory_cache WHERE tenant_id = $1 AND headscale_node_id = $2 AND removed_at IS NULL`,
+			[]any{a.id, int64(node)}, &id, &req, &own) //nolint:gosec // small test ids
+		return id, req, own
+	}
+
+	// 1. a key for a member, used; reconcile sees the node first: the device enters the inventory (owner, link),
+	// inventory.sync is enqueued (expiry clamp), device.new goes to the member and the Tenant Owner — not the issuer
+	k1, err := f.api.CreateKey(kctx, a.id, admin, NewKey{Target: &user}, idem("dn-1", "1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	n1 := a.hs.UseKey(lastKey(), devicestest.Node{MachineKey: "mkey:dn1", Hostname: "srv-1", GivenName: "srv-1"})
+	rep, err := f.wrk.Reconcile(ctx, a.id)
+	if err != nil || rep.Consumed != 1 || rep.NewDevices != 1 {
+		t.Fatalf("reconcile %+v %v", rep, err)
+	}
+	d1, req, own := deviceOf(n1.ID)
+	if req != k1.Request.ID.String() || own != user.String() {
+		t.Fatalf("inventory row: request %s owner %s", req, own)
+	}
+	if got := f.deviceNew(t, a, d1); !slices.Equal(got, sortedIDs(user, owner)) {
+		t.Fatalf("device.new recipients %v", got)
+	}
+	if k := f.count(t, `SELECT count(*) FROM provisioning_jobs WHERE tenant_id = $1 AND kind = 'inventory.sync'`, a.id); k != 1 {
+		t.Fatalf("inventory.sync jobs %d", k)
+	}
+	// again: nothing new, never twice
+	if rep, err := f.wrk.Reconcile(ctx, a.id); err != nil || rep.NewDevices != 0 {
+		t.Fatalf("second reconcile %+v %v", rep, err)
+	}
+	if got := f.deviceNew(t, a, d1); len(got) != 2 {
+		t.Fatalf("notified twice: %v", got)
+	}
+
+	// 2. inventory.sync first: the node is in the inventory without a link (as sync writes it) ⇒ linked and notified at
+	// the consumed transition
+	if _, err := f.api.CreateKey(kctx, a.id, admin, NewKey{Target: &user2}, idem("dn-2", "2")); err != nil {
+		t.Fatal(err)
+	}
+	n2 := a.hs.UseKey(lastKey(), devicestest.Node{MachineKey: "mkey:dn2", Hostname: "srv-2"})
+	f.exec(t, `INSERT INTO device_inventory_cache (tenant_id, instance_id, headscale_node_id, machine_key, name,
+		owner_membership_id) VALUES ($1, $2, $3, $4, 'srv-2', $5)`, a.id, a.instance, int64(n2.ID), n2.MachineKey, user2) //nolint:gosec // small test ids
+	if rep, err := f.wrk.Reconcile(ctx, a.id); err != nil || rep.Consumed != 1 || rep.NewDevices != 1 {
+		t.Fatalf("reconcile after sync %+v %v", rep, err)
+	}
+	d2, req, _ := deviceOf(n2.ID)
+	if req == "" {
+		t.Fatal("the synced row was not linked")
+	}
+	if got := f.deviceNew(t, a, d2); !slices.Equal(got, sortedIDs(user2, owner)) {
+		t.Fatalf("device.new recipients %v", got)
+	}
+
+	// 3. a reusable tag-only key: each node it registers while live, once (tagged: no owner — the Tenant Owners only)
+	k3, err := f.api.CreateKey(kctx, a.id, admin, NewKey{Tags: []string{"tag:server"}, Reusable: true}, idem("dn-3", "3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	kid := lastKey()
+	t1 := a.hs.UseKey(kid, devicestest.Node{MachineKey: "mkey:t1", Hostname: "ci-1"})
+	if rep, err := f.wrk.Reconcile(ctx, a.id); err != nil || rep.Consumed != 1 || rep.NewDevices != 1 {
+		t.Fatalf("reusable, first node %+v %v", rep, err)
+	}
+	t2 := a.hs.UseKey(kid, devicestest.Node{MachineKey: "mkey:t2", Hostname: "ci-2"})
+	if rep, err := f.wrk.Reconcile(ctx, a.id); err != nil || rep.NewDevices != 1 {
+		t.Fatalf("reusable, second node %+v %v", rep, err)
+	}
+	if rep, err := f.wrk.Reconcile(ctx, a.id); err != nil || rep.NewDevices != 0 {
+		t.Fatalf("reusable, nothing new %+v %v", rep, err)
+	}
+	for _, n := range []devicestest.Node{t1, t2} {
+		d, req, own := deviceOf(n.ID)
+		if req != k3.Request.ID.String() || own != "" {
+			t.Fatalf("tagged row %d: request %s owner %q", n.ID, req, own)
+		}
+		if got := f.deviceNew(t, a, d); !slices.Equal(got, sortedIDs(owner)) {
+			t.Fatalf("tagged device.new recipients %v", got)
+		}
+	}
+	// a reusable key that registered two nodes before reconcile first saw it: both at the consumed transition
+	k4, err := f.api.CreateKey(kctx, a.id, admin, NewKey{Tags: []string{"tag:server"}, Reusable: true}, idem("dn-4", "4"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	kid4 := lastKey()
+	u1 := a.hs.UseKey(kid4, devicestest.Node{MachineKey: "mkey:u1", Hostname: "ci-3"})
+	u2 := a.hs.UseKey(kid4, devicestest.Node{MachineKey: "mkey:u2", Hostname: "ci-4"})
+	if rep, err := f.wrk.Reconcile(ctx, a.id); err != nil || rep.Consumed != 1 || rep.NewDevices != 2 {
+		t.Fatalf("reusable, two nodes at once %+v %v", rep, err)
+	}
+	for _, n := range []devicestest.Node{u1, u2} {
+		d, req, _ := deviceOf(n.ID)
+		if got := f.deviceNew(t, a, d); req != k4.Request.ID.String() || !slices.Equal(got, sortedIDs(owner)) {
+			t.Fatalf("node %d: request %s, device.new recipients %v", n.ID, req, got)
+		}
+	}
+
+	// 4. no open request is left, only the live reusable key: the schedule still runs reconcile for this tenant (a third
+	// node would be seen); after the key's grace it stops
+	if n := f.count(t, `SELECT count(*) FROM enrollment_requests WHERE tenant_id = $1 AND status NOT IN
+		('consumed', 'verified', 'expired', 'revoked', 'failed', 'rejected')`, a.id); n != 0 {
+		t.Fatalf("open requests %d", n)
+	}
+	jobsOf := func(ten uuid.UUID) int {
+		return f.count(t, `SELECT count(*) FROM provisioning_jobs WHERE tenant_id = $1 AND kind = $2`, ten, KindReconcile)
+	}
+	sc := f.wrk.NewScheduler(SchedulerConfig{Interval: time.Minute})
+	now := time.Now()
+	if _, err := sc.Tick(ctx, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sc.Tick(ctx, now.Add(2*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if jobsOf(a.id) != 1 || jobsOf(f.b.id) != 0 {
+		t.Fatalf("reconcile jobs A %d, B %d", jobsOf(a.id), jobsOf(f.b.id))
+	}
+	f.clk.advance(time.Hour)
+	if _, err := sc.Tick(ctx, now.Add(4*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if jobsOf(a.id) != 1 {
+		t.Fatalf("reconcile scheduled after the key's grace: %d jobs", jobsOf(a.id))
+	}
+	f.noKeyMaterial(t)
 }
 
 // un is the Headscale user name of an actor.

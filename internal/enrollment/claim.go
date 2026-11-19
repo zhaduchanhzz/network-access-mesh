@@ -318,7 +318,7 @@ func (s *Service) verified(ctx context.Context, tenantID uuid.UUID, a Actor, r s
 			dev = sqlcdb.DeviceInventoryCache{}
 		case errors.Is(err, store.ErrNoRows):
 			// no row yet: the device enters the inventory now
-			dev, err = q.InsertEnrolledDevice(ctx, deviceParams(tenantID, tc.instance, node, owner, r.ID))
+			dev, err = q.InsertEnrolledDevice(ctx, deviceParams(tenantID, tc.instance, node, &owner, r.ID))
 			if err != nil {
 				return err
 			}
@@ -359,10 +359,11 @@ func (s *Service) verified(ctx context.Context, tenantID uuid.UUID, a Actor, r s
 	return out, nil
 }
 
-func deviceParams(tenantID, instance uuid.UUID, n headscale.Node, owner, request uuid.UUID) sqlcdb.InsertEnrolledDeviceParams {
+// deviceParams is the inventory row of a node the platform enrolled (owner nil: a tagged node).
+func deviceParams(tenantID, instance uuid.UUID, n headscale.Node, owner *uuid.UUID, request uuid.UUID) sqlcdb.InsertEnrolledDeviceParams {
 	p := sqlcdb.InsertEnrolledDeviceParams{TenantID: tenantID, InstanceID: instance,
 		HeadscaleNodeID: int64(n.ID), MachineKey: n.MachineKey, IpAddresses: n.IPAddresses, //nolint:gosec // small ids
-		OwnerMembershipID: &owner, Tags: n.Tags, Online: n.Online, LastSeen: n.LastSeen, Expiry: n.Expiry,
+		OwnerMembershipID: owner, Tags: n.Tags, Online: n.Online, LastSeen: n.LastSeen, Expiry: n.Expiry,
 		EnrollmentRequestID: &request}
 	if p.Tags == nil {
 		p.Tags = []string{}

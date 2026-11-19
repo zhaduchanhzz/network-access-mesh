@@ -8,7 +8,8 @@ Keycloak login with TOTP through the edge, the real Headscale of tenant-a and re
           not advertised ⇒ 422; approve 10.77.0.0/24 ⇒ 200, Headscale's approved set read back = the new set, the
           register's routes_etag = the response's, a2's netmap now holds 10.77.0.0/24 as a primary route of a1; two
           concurrent approvals (10.78.0.0/24, one with a stale ETag each time) ⇒ exactly one 200 and one 412, no prefix
-          lost (Headscale holds both); revoke ⇒ the route leaves a2's netmap; audit route.approve / route.revoke paired.
+          lost (Headscale holds both); revoke ⇒ the route leaves a2's netmap; audit route.approve / route.revoke paired;
+          one route.approved / route.revoked per applied change for the Owners/Admins, none for a refusal (follow-up).
   E2E-103 DNS records (T-09, HS-FC-21/OPS-17): GET /dns (MagicDNS, base domain); a record outside the tailnet ⇒ 422
           field value; a record e2e-db.<base domain> → a2's address ⇒ 201 + job dns.records_write (the stack has no
           Host Agent: the job stays queued — like instance.reconfigure in E2E-63 — and the harness writes the same file
@@ -174,6 +175,16 @@ def check_routes(r, st: Stack) -> None:
                      f"tenant_id = '{a_id}' AND resource_id = '{dev.get('id')}' AND action LIKE 'route.%'")
     cond("audit", "route.approve.requested" in audit and "route.approve.succeeded" in audit and "route.approve.failed" in audit
          and "route.revoke.succeeded" in audit, f"audit {audit}")
+    # T-08 "audit + thông báo" (follow-up P4-T12): one notification per APPLIED change — approve P1, the winner of the
+    # concurrent pair (P2), the revoke of both — for the Tenant Owners/Admins; the refusals and the 412 notify nothing
+    notes = psql_one(st, "SELECT string_agg(kind || ' ' || (payload->>'prefixes'), '; ' ORDER BY kind, payload->>'prefixes') "
+                     "FROM (SELECT DISTINCT kind, payload FROM notification_outbox WHERE "
+                     f"tenant_id = '{a_id}' AND kind LIKE 'route.%' AND payload->>'device_id' = '{dev.get('id')}') x")
+    dups = psql_one(st, "SELECT count(*) FROM (SELECT 1 FROM notification_outbox WHERE "
+                    f"tenant_id = '{a_id}' AND kind LIKE 'route.%' GROUP BY recipient_membership_id, kind, payload->>'ref' "
+                    "HAVING count(*) > 1) x")
+    want_notes = f"route.approved {P1}; route.approved {P2}; route.revoked {', '.join(sorted([P1, P2]))}"
+    cond("notified", notes == want_notes and dups == "0", f"route notifications: {notes}; duplicated per recipient: {dups}")
     checks.ts(st, "a1", "set", "--advertise-routes=")
     code, _, _ = policy_apply(st, base, "--trigger", "bootstrap")
     rows.append(f"cleanup: a1 advertises nothing, baseline again exit {code}")

@@ -205,6 +205,42 @@ var catalog = map[Kind]map[string]mailTemplate{
 				"{{if eq .outcome \"incomplete\"}} — the instance MAY STILL SERVE: isolate it by hand following the RUNBOOK now{{end}}.\n\n" +
 				"Only a release approved by a second person lifts it. See the job and the security events in the Platform Console: {{.console_url}}\n\nInstance ID: {{.instance_id}} · job: {{.job_id}}"},
 	},
+	KindEnrollmentApproved: {
+		LocaleVI: {"[MeshGuard] Yêu cầu thêm thiết bị trong tenant {{.tenant_name}} đã được duyệt",
+			"Yêu cầu thêm thiết bị{{with .device_label}} {{.}}{{end}} của bạn trong tenant {{.tenant_name}} (phương thức {{.method}}) đã được duyệt{{with .decided_by}} bởi {{.}}{{end}}.\n\n" +
+				"Đăng nhập Portal và bấm \"Bắt đầu\" ở yêu cầu này trước {{.expires_at}} (UTC) để nhận mã hoặc key — sau thời điểm đó yêu cầu hết hạn. Mã/key chỉ hiển thị trong Portal, không bao giờ gửi qua email.\n\nMã yêu cầu: {{.request_id}}"},
+		LocaleEN: {"[MeshGuard] Your device request in tenant {{.tenant_name}} was approved",
+			"Your request to add a device{{with .device_label}} {{.}}{{end}} in tenant {{.tenant_name}} (method {{.method}}) was approved{{with .decided_by}} by {{.}}{{end}}.\n\n" +
+				"Sign in to the Portal and choose \"Start\" on this request before {{.expires_at}} (UTC) to receive the code or key — the request expires after that. Codes and keys are shown in the Portal only, never sent by e-mail.\n\nRequest ID: {{.request_id}}"},
+	},
+	KindEnrollmentRejected: {
+		LocaleVI: {"[MeshGuard] Yêu cầu thêm thiết bị trong tenant {{.tenant_name}} bị từ chối",
+			"Yêu cầu thêm thiết bị{{with .device_label}} {{.}}{{end}} của bạn trong tenant {{.tenant_name}} (phương thức {{.method}}) đã bị từ chối{{with .decided_by}} bởi {{.}}{{end}}. Không có mã hay key nào được phát.\n\n" +
+				"Nếu bạn vẫn cần thêm thiết bị, hãy liên hệ quản trị viên của tenant.\n\nMã yêu cầu: {{.request_id}}"},
+		LocaleEN: {"[MeshGuard] Your device request in tenant {{.tenant_name}} was rejected",
+			"Your request to add a device{{with .device_label}} {{.}}{{end}} in tenant {{.tenant_name}} (method {{.method}}) was rejected{{with .decided_by}} by {{.}}{{end}}. No code or key was issued.\n\n" +
+				"If you still need the device, contact the tenant's administrators.\n\nRequest ID: {{.request_id}}"},
+	},
+	KindRouteApproved: {
+		LocaleVI: {"[MeshGuard] {{if .exit_node}}Exit node{{else}}Route{{end}} được duyệt trên thiết bị {{.device_name}} (tenant {{.tenant_name}})",
+			"Đã duyệt trên thiết bị {{.device_name}} của tenant {{.tenant_name}}: {{.prefixes}}{{with .actor}}, người thực hiện: {{.}}{{end}}{{with .approval_id}} (thực thi yêu cầu phê duyệt {{.}} — người thứ hai đã duyệt){{end}}." +
+				"{{if .exit_node}}\n\nThiết bị này giờ là exit node: lưu lượng Internet của các client chọn nó đi qua thiết bị.{{end}}" +
+				"{{if .untagged_router}}\n\nCảnh báo: thiết bị không phải tagged node (router thuộc một người dùng) — quy ước là chỉ duyệt route cho router gắn tag.{{end}}" +
+				"\n\nNếu bạn không mong đợi thay đổi này, hãy gỡ duyệt trong Portal (mục Routes) và xem nhật ký audit.\n\nMã thiết bị: {{.device_id}}"},
+		LocaleEN: {"[MeshGuard] {{if .exit_node}}Exit node{{else}}Routes{{end}} approved on device {{.device_name}} (tenant {{.tenant_name}})",
+			"Approved on device {{.device_name}} of tenant {{.tenant_name}}: {{.prefixes}}{{with .actor}}, by: {{.}}{{end}}{{with .approval_id}} (execution of approval request {{.}} — a second person approved it){{end}}." +
+				"{{if .exit_node}}\n\nThis device is now an exit node: the Internet traffic of the clients that select it goes through the device.{{end}}" +
+				"{{if .untagged_router}}\n\nWarning: the device is not a tagged node (the router belongs to a user) — by convention only tagged routers get routes approved.{{end}}" +
+				"\n\nIf you did not expect this change, revoke it in the Portal (Routes) and check the audit log.\n\nDevice ID: {{.device_id}}"},
+	},
+	KindRouteRevoked: {
+		LocaleVI: {"[MeshGuard] {{if .exit_node}}Exit node{{else}}Route{{end}} bị gỡ duyệt trên thiết bị {{.device_name}} (tenant {{.tenant_name}})",
+			"Đã gỡ duyệt trên thiết bị {{.device_name}} của tenant {{.tenant_name}}: {{.prefixes}}{{with .actor}}, người thực hiện: {{.}}{{end}}. Client không còn đi qua thiết bị cho các prefix này.\n\n" +
+				"Xem nhật ký audit trong Portal.\n\nMã thiết bị: {{.device_id}}"},
+		LocaleEN: {"[MeshGuard] {{if .exit_node}}Exit node{{else}}Routes{{end}} revoked on device {{.device_name}} (tenant {{.tenant_name}})",
+			"Revoked on device {{.device_name}} of tenant {{.tenant_name}}: {{.prefixes}}{{with .actor}}, by: {{.}}{{end}}. Clients no longer route these prefixes through the device.\n\n" +
+				"See the audit log in the Portal.\n\nDevice ID: {{.device_id}}"},
+	},
 	KindInstanceReleased: {
 		LocaleVI: {"[MeshGuard] Release instance {{.tenant_slug}}: {{.outcome}}",
 			"Release (đã được người thứ hai duyệt) của instance Headscale thuộc tenant {{.tenant_slug}} kết thúc: {{.outcome}}" +

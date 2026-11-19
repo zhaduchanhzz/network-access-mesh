@@ -21,7 +21,15 @@ export const NOTIFICATION_KINDS = [
   "approval.requested",
   "idp.admin_change",
   "instance.restored",
+  // follow-up P4-T06 (người yêu cầu nhận quyết định) và P4-T12 (T-08: duyệt/gỡ route, exit node)
+  "enrollment.approved",
+  "enrollment.rejected",
+  "route.approved",
+  "route.revoked",
 ] as const;
+
+/** Kind nói về một thiết bị (payload.device_id) — có link "Xem thiết bị". */
+const DEVICE_KINDS: ReadonlySet<string> = new Set(["device.new", "device.expiring", "route.approved", "route.revoked"]);
 
 const KNOWN: ReadonlySet<string> = new Set(NOTIFICATION_KINDS);
 const RFC3339 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
@@ -46,15 +54,15 @@ export function notificationText(t: TFunction, lng: string, kind: string, payloa
   for (const [k, v] of Object.entries(payload)) values[k] = text(v, lng);
   values.tenant = text(payload.tenant_name ?? payload.tenant_slug, lng);
   for (const f of ["device_name", "expires_at", "version", "trigger", "staff", "approver", "action", "actor", "role",
-    "backup_created_at", "keys_destroy_after"]) {
+    "backup_created_at", "keys_destroy_after", "device_label", "prefixes"]) {
     values[f] ??= "—";
   }
   return KNOWN.has(kind) ? t(i18nKeyOfKind(kind), values) : t("notif.kinds.unknown", values);
 }
 
-/** Thiết bị mà thông báo nói tới (device.new, device.expiring) — để dẫn tới trang chi tiết; id lạ ⇒ null. */
+/** Thiết bị mà thông báo nói tới (device.*, route.*) — để dẫn tới trang chi tiết; id lạ ⇒ null. */
 export function deviceOf(kind: string, payload: Record<string, unknown>): string | null {
-  if (kind !== "device.new" && kind !== "device.expiring") return null;
+  if (!DEVICE_KINDS.has(kind)) return null;
   const id = payload.device_id;
   return typeof id === "string" && isUuid(id) ? id.toLowerCase() : null;
 }

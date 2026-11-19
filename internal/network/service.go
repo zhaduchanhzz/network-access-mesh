@@ -198,6 +198,7 @@ func New(st *store.Store, cfg Config) (*Service, error) {
 // Actor is the caller of a write.
 type Actor struct {
 	IdentityID uuid.UUID
+	Display    string // the caller as the notifications name it (route.approved / route.revoked); "" when unknown
 }
 
 func (a Actor) by() *uuid.UUID {
