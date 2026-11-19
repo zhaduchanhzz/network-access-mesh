@@ -1,7 +1,7 @@
 // a11y + i18n của màn hình enrollment (P4-T08): axe-core (WCAG 2.0/2.1 A + AA + best-practice; color-contrast kiểm trong
 // trình duyệt thật ở P4-T14) trên Thêm thiết bị (wizard, hướng dẫn Windows, lệnh web-auth vừa phát, ô dán link), hộp key
-// một lần, trang claim (xác nhận + cảnh báo phishing + yêu cầu đã kết thúc), Enrollment key (hàng chờ duyệt + hộp tạo key đặc quyền) — vi và en,
-// sáng và tối; khóa i18n động có trong cả hai catalog.
+// một lần, trang claim (xác nhận + cảnh báo phishing + yêu cầu đã kết thúc), Enrollment key (hàng chờ duyệt + hộp tạo
+// key đặc quyền) — vi và en, sáng và tối; khóa i18n động có trong cả hai catalog.
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import axe from "axe-core";
@@ -140,6 +140,7 @@ describe("khóa i18n động của enrollment", () => {
       ...["none", "several", "other_server"].map((c) => `enroll.paste.errors.${c}`),
       ...["self", "member", "tags"].map((o) => `enroll.key.owners.${o}`),
       ...["expired", "revoked"].map((s) => `enroll.issued.ended.${s}`),
+      ...["startWeb", "startKey", "startWebFor", "startKeyFor"].map((k) => `enroll.actions.${k}`),
       ...["endedNotPending", "endedUpstream"].map((k) => `enroll.claim.${k}`),
     ];
     const missing = keys.filter((k) => typeof get(vi as Tree, k) !== "string" || typeof get(en as Tree, k) !== "string");

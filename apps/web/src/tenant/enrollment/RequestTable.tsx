@@ -1,8 +1,9 @@
 // Bảng yêu cầu enrollment + thao tác (P4-T08): duyệt / từ chối (người quyết khác người yêu cầu — nút ẩn cho chính người
 // yêu cầu, server vẫn trả 403 self_approval), `/start` cho chính người yêu cầu sau khi được duyệt (phát mã/lệnh hoặc key
-// một lần), thu hồi hai pha — cả key reusable đã dùng còn hạn (POST /revoke expire key ở Headscale + đọc lại rồi mới trả `revoked`: trong lúc chờ hiện
-// "đang thu hồi"; 502/503 ⇒ yêu cầu giữ nguyên, nói rõ chưa thu hồi). Nút chỉ là UX — server quyết định quyền, own-scope
-// của End User, trạng thái tenant (suspended ⇒ 403 tenant_suspended).
+// một lần), thu hồi hai pha — cả key reusable đã dùng còn hạn (POST /revoke expire key ở Headscale + đọc lại rồi mới trả
+// `revoked`: trong lúc chờ hiện "đang thu hồi"; 502/503 ⇒ yêu cầu giữ nguyên, nói rõ chưa thu hồi). Nút chỉ là UX — server
+// quyết định quyền, own-scope của End User, trạng thái tenant (suspended ⇒ 403 tenant_suspended). Tên truy cập của mọi nút
+// bắt đầu bằng chữ hiển thị (WCAG 2.5.3).
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -204,11 +205,17 @@ export function RequestTable(props: RequestTableProps) {
                           </span>
                         ) : null}
                         {showStart ? (
+                          // WCAG 2.5.3: tên truy cập bắt đầu bằng đúng chữ hiển thị; đang gửi ⇒ chữ "Đang gửi…" là tên + aria-busy
                           <button
                             type="button"
                             className="btn-primary"
                             disabled={readOnly || starting !== null}
-                            aria-label={t("enroll.actions.startFor", { label })}
+                            aria-busy={starting === r.id || undefined}
+                            aria-label={
+                              starting === r.id
+                                ? undefined
+                                : t(r.method === "web_auth" ? "enroll.actions.startWebFor" : "enroll.actions.startKeyFor", { label })
+                            }
                             onClick={() => void start(r)}
                           >
                             {starting === r.id ? t("common.working") : t(r.method === "web_auth" ? "enroll.actions.startWeb" : "enroll.actions.startKey")}

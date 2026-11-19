@@ -208,12 +208,20 @@ describe("Thêm thiết bị — wizard theo OS", () => {
   it("tenant bật duyệt: 201 pending_approval (không credential) ⇒ chờ duyệt; được duyệt ⇒ /start ⇒ key một lần; /start lần nữa 409 already_started", async () => {
     let approved = false;
     let starts = 0;
+    let release = () => {};
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
     const pendingReq = request(REQ_2, { method: "preauth_key", status: "pending_approval", issued_at: null, credential_expires_at: null, device_label: "nas" });
     mockApi(
       apiFor("end_user", {
         [`POST ${base}/enrollment/requests`]: json(201, { request: pendingReq }),
         [`GET ${base}/enrollment/requests`]: () => json(200, { items: [approved ? { ...pendingReq, status: "approved", approver_membership_id: OTHER } : pendingReq], next_cursor: null }),
-        [`POST ${base}/enrollment/requests/${REQ_2}/start`]: () => (++starts === 1 ? json(200, keyIssue({ device_label: "nas" })) : conflict("already_started")),
+        [`POST ${base}/enrollment/requests/${REQ_2}/start`]: async () => {
+          if (++starts > 1) return conflict("already_started");
+          await gate;
+          return json(200, keyIssue({ device_label: "nas" }));
+        },
       }),
     );
     const { queryClient } = renderApp({ path: `/t/${TENANT_A}/enroll` });
@@ -228,15 +236,37 @@ describe("Thêm thiết bị — wizard theo OS", () => {
     expect(within(mine).queryByRole("button", { name: /Duyệt/ })).toBeNull(); // End User không duyệt
     approved = true;
     await queryClient.invalidateQueries();
-    const start = await within(mine).findByRole("button", { name: "Nhận lệnh hoặc key cho nas" });
+    // WCAG 2.5.3 (Label in Name): tên truy cập bắt đầu bằng đúng chữ hiển thị của nút
+    const start = await within(mine).findByRole("button", { name: "Nhận pre-auth key cho nas" });
+    expect(start).toHaveTextContent("Nhận pre-auth key");
     await userEvent.click(start);
+    // đang gửi /start: chữ hiển thị "Đang gửi…" là tên truy cập, aria-busy
+    const busy = await within(mine).findByRole("button", { name: "Đang gửi…" });
+    expect(busy).toHaveAttribute("aria-busy", "true");
+    expect(busy).toBeDisabled();
+    release();
     const dialog = await screen.findByRole("dialog", { name: "Pre-auth key (hiển thị một lần)" });
     expect(within(dialog).getByTestId("secret-value")).toHaveTextContent(PREAUTH_KEY);
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(document.body.innerHTML).not.toContain(PREAUTH_KEY);
-    await userEvent.click(await within(screen.getByTestId("my-requests")).findByRole("button", { name: "Nhận lệnh hoặc key cho nas" }));
+    const again = await within(screen.getByTestId("my-requests")).findByRole("button", { name: "Nhận pre-auth key cho nas" });
+    expect(again).not.toHaveAttribute("aria-busy");
+    await userEvent.click(again);
     expect(await screen.findByTestId("start-error")).toHaveTextContent("đã được phát");
+  });
+
+  it("nút /start của yêu cầu web-auth đã duyệt: tên truy cập 'Nhận lệnh đăng ký cho <nhãn>' chứa chữ hiển thị (WCAG 2.5.3)", async () => {
+    const approvedWeb = request(REQ_1, { status: "approved", issued_at: null, credential_expires_at: null, approver_membership_id: OTHER });
+    mockApi(apiFor("end_user", { [`GET ${base}/enrollment/requests`]: json(200, { items: [approvedWeb], next_cursor: null }) }));
+    renderApp({ path: `/t/${TENANT_A}/enroll` });
+    const mine = await screen.findByTestId("my-requests");
+    const start = await within(mine).findByRole("button", { name: "Nhận lệnh đăng ký cho laptop-an" });
+    expect(start).toHaveTextContent("Nhận lệnh đăng ký");
+    for (const b of within(mine).getAllByRole("button")) {
+      const name = b.getAttribute("aria-label");
+      if (name !== null) expect(name.startsWith(b.textContent.trim()), `${name} ⊉ ${b.textContent}`).toBe(true);
+    }
   });
 
   it("yêu cầu failed vì auth_id_not_pending ⇒ hướng dẫn tạo yêu cầu mới (không bảo chạy lại lệnh cũ)", async () => {
