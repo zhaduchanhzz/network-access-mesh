@@ -69,6 +69,8 @@ func TestSuspendedTenantMatrix(t *testing.T) {
 		t.Error(b)
 	}
 	m.checkAudit(t)
+	m.checkEnrollmentObjects(t)   // every enrollment write was refused: no request moved
+	m.checkEnrollmentHeadscale(t) // and none reached Headscale (no granted createEnrollmentKey: zero keys expected)
 	if refused == 0 || readsGranted == 0 || platformCalls == 0 {
 		t.Fatalf("degenerate matrix: %d writes refused, %d reads granted, %d platform calls", refused, readsGranted, platformCalls)
 	}

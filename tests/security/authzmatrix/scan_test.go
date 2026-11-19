@@ -48,6 +48,15 @@ func (m *matrix) scan(t *testing.T) {
 		secretValues = append(secretValues, secret{"session id of " + s.String(), s.CookieValue()})
 		secretValues = append(secretValues, secret{"CSRF token of " + s.String(), s.CSRFToken()})
 	}
+	// x-secret-once (P4-T06): a pre-auth key a granted createEnrollmentKey issued is shown in that 201 answer — and
+	// nowhere else: no other answer, no log line
+	once := map[*call]string{}
+	for _, c := range m.calls {
+		if k := issuedKey(c); k != "" {
+			once[c] = k
+			secretValues = append(secretValues, secret{"the pre-auth key shown once to " + c.String(), k})
+		}
+	}
 	env := storetest.Require(t)
 	for _, r := range dbRoles {
 		secretValues = append(secretValues, secret{"password of " + r, env.Password(r)})
@@ -72,6 +81,9 @@ func (m *matrix) scan(t *testing.T) {
 		}
 		sb.WriteString(c.rec.Body.String())
 		text := sb.String()
+		if k := once[c]; k != "" {
+			text = strings.ReplaceAll(text, k, "") // its own show-once field; any other credential still counts
+		}
 		for _, s := range secretValues {
 			if !strings.Contains(text, s.value) {
 				continue
