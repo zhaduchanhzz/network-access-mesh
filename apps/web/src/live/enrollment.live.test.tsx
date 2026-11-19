@@ -57,7 +57,8 @@ async function readSecret(name: string, timeout = 180_000): Promise<string> {
 function traces(secret: string, router: { state: { location: { pathname: string; search: string } } }, queryClient: { getQueryCache: () => { getAll: () => { state: unknown }[] }; getMutationCache: () => { getAll: () => { state: unknown }[] } }): string[] {
   const out: string[] = [];
   if (document.body.innerHTML.includes(secret)) out.push("dom");
-  if (JSON.stringify({ ...localStorage }).includes(secret) || JSON.stringify({ ...sessionStorage }).includes(secret)) out.push("storage");
+  const dump = (st: Storage) => Array.from({ length: st.length }, (_, i) => `${st.key(i) ?? ""}=${st.getItem(st.key(i) ?? "") ?? ""}`).join(";");
+  if ((dump(localStorage) + dump(sessionStorage)).includes(secret)) out.push("storage");
   if ((router.state.location.pathname + router.state.location.search).includes(secret)) out.push("url");
   if (JSON.stringify(queryClient.getQueryCache().getAll().map((q) => q.state)).includes(secret)) out.push("query-cache");
   if (JSON.stringify(queryClient.getMutationCache().getAll().map((m) => m.state)).includes(secret)) out.push("mutation-cache");
