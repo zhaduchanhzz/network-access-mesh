@@ -11,18 +11,28 @@ import { DashboardPage } from "./dashboard/DashboardPage";
 import { DeviceDetailPage } from "./devices/DeviceDetailPage";
 import { DevicesPage } from "./devices/DevicesPage";
 import { NotificationsPage } from "./notifications/NotificationsPage";
+import { GroupDetailPage } from "./people/GroupDetailPage";
+import { GroupsPage } from "./people/GroupsPage";
+import { InvitationsPage } from "./people/InvitationsPage";
+import { UserDetailPage } from "./people/UserDetailPage";
+import { UsersPage } from "./people/UsersPage";
 import { RelayPage } from "./relay/RelayPage";
 import { IdentityProviderPage } from "./settings/IdentityProviderPage";
 import { SettingsPage } from "./settings/SettingsPage";
 import { SupportAccessPage } from "./support/SupportAccessPage";
 import { useTenant } from "./TenantScope";
 
-/** P4-T04: Tổng quan, Devices, Relay, hộp thông báo. P4-T13: Audit, hàng chờ phê duyệt, Support Access, Settings, IdP. */
+/** P4-T04: Tổng quan, Devices, Relay, hộp thông báo; P4-T09a: Users, Groups, Invitations; P4-T13: Audit, hàng chờ phê duyệt,
+ * Support Access, Settings, IdP. */
 export const TENANT_PAGES: Readonly<Record<string, ComponentType>> = {
   overview: DashboardPage,
   devices: DevicesPage,
   relay: RelayPage,
   notifications: NotificationsPage,
+  // P4-T09a: Users, Groups, Invitations
+  users: UsersPage,
+  groups: GroupsPage,
+  invitations: InvitationsPage,
   audit: AuditPage,
   approvals: ApprovalsPage,
   "support-access": SupportAccessPage,
@@ -37,5 +47,7 @@ function Guarded({ permission, Screen }: { permission: string; Screen: Component
 
 export const TENANT_EXTRA_ROUTES: RouteObject[] = [
   { path: "devices/:deviceId", element: <Guarded permission="tenant.device:read" Screen={DeviceDetailPage} /> },
+  { path: "users/:membershipId", element: <Guarded permission="tenant.user:read" Screen={UserDetailPage} /> },
+  { path: "groups/:groupId", element: <Guarded permission="tenant.group:read" Screen={GroupDetailPage} /> },
   { path: "approvals/:approvalId", element: <Guarded permission="tenant.approval:read" Screen={ApprovalDetailPage} /> },
 ];
