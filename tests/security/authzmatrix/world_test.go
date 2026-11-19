@@ -45,6 +45,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/quarantineapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/reconfigureapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/relayapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/supportapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/tagsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/tenantsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/idp/console"
@@ -242,6 +243,8 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 		// Admin (P4-T03a): platform users, settings, IdPs, plans, PATCH of a tenant; the tenant's settings, IdP and
 		// deletion request — with the approval actions of P4-T03a in the registry above
 		Admin: adminapi.New(platform.New(w.Store), dir, appr),
+		// Support (P4-T13): Support Access Grants, both sides
+		Support: supportapi.New(dir),
 	}
 }
 
@@ -330,6 +333,8 @@ type objects struct {
 	target, group                map[string]uuid.UUID    // P4-T09: an end-user member no actor is (membership writes), a group
 	platformApproval             uuid.UUID               // a pending approval request of scope platform
 	platformUser, plan           uuid.UUID               // P4-T03a: a platform user no actor is, the standard plan
+	grant                        map[string]uuid.UUID    // P4-T13: a pending support grant into the tenant (no actor's)
+	platformGrant                uuid.UUID               // P4-T13: a pending support grant into A (platform decisions)
 	host                         uuid.UUID               // the host of the instances (P3-T04: /platform/hosts/{hostId})
 	notifOwn                     map[uuid.UUID]uuid.UUID // P4-T04: membership of a tenant actor → a notification addressed to it
 	notifOther                   map[string]uuid.UUID    // P4-T04: a notification of the tenant addressed to a non-actor member
@@ -426,7 +431,7 @@ func (m *matrixWorld) createObjects(t *testing.T) objects {
 		instance: map[string]uuid.UUID{}, devEU: map[string]uuid.UUID{}, devEUTagged: map[string]uuid.UUID{},
 		devOther: map[string]uuid.UUID{}, job: map[string]uuid.UUID{}, platformJob: uuid.Must(uuid.NewV7()),
 		approval: map[string]uuid.UUID{}, invitation: map[string]uuid.UUID{}, platformApproval: uuid.Must(uuid.NewV7()),
-		tag:    map[string]uuid.UUID{},
+		tag: map[string]uuid.UUID{}, grant: map[string]uuid.UUID{},
 		target: map[string]uuid.UUID{}, group: map[string]uuid.UUID{},
 		notifOwn: map[uuid.UUID]uuid.UUID{}, notifOther: map[string]uuid.UUID{},
 		canaries: []string{m.edgeToken},
@@ -530,5 +535,20 @@ func (m *matrixWorld) createObjects(t *testing.T) objects {
 	// sessions) and the seeded standard plan
 	o.platformUser = m.NewActor(t, authz.RolePlatformViewer, nil).PlatformUserID
 	m.Scan(t, `SELECT id FROM subscription_plans WHERE key = 'standard'`, nil, &o.plan)
+	// P4-T13: pending support grants asked by a Super Admin that is no actor (a Super Admin of the matrix may break-glass
+	// them; tenant decisions never touch an actor's access)
+	staff := m.NewActor(t, authz.RoleSuperAdmin, nil).PlatformUserID
+	grant := func(tenant uuid.UUID) uuid.UUID {
+		id := uuid.Must(uuid.NewV7())
+		m.Exec(t, `INSERT INTO support_access_grants (id, tenant_id, grantee_platform_user_id, requested_by_platform_user_id,
+				effective_role_key, reason, ticket_ref, expires_at, grantee_display)
+			VALUES ($1, $2, $3, $3, 'support_operator', 'matrix', 'MATRIX-0', now() + interval '1 hour', 'Matrix Staff')`,
+			id, tenant, staff)
+		return id
+	}
+	for _, ten := range []*sessionfixture.Tenant{m.A, m.B} {
+		o.grant[ten.Name] = grant(ten.ID)
+	}
+	o.platformGrant = grant(m.A.ID)
 	return o
 }

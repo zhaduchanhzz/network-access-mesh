@@ -35,6 +35,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/quarantineapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/reconfigureapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/relayapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/supportapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/tagsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/tenantsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/identity"
@@ -210,6 +211,7 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 			Members:       membersapi.New(mem, appr),
 			Portal:        inbox,                               // P4-T04: POST …/notifications/{id}/read
 			Admin:         adminapi.New(plat, d.tenants, appr), // P4-T03a
+			Support:       supportapi.New(d.tenants),           // P4-T13
 		},
 	})
 	if err != nil {

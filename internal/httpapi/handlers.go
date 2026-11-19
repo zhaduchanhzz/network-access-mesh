@@ -229,6 +229,19 @@ type AdminHandlers interface {
 // of its interface with 501 not_implemented. A set may also implement only part of its interface by embedding
 // NotImplemented. Handlers return a *problem.Error for an expected failure (not_found, conflict…); any other error
 // becomes 500 internal_error and its text goes to the internal log only.
+// SupportHandlers — P4-T13 (Support Access Grant, §8.7): the tenant's side (list, approve, reject, revoke) and the
+// platform's (list, request, break-glass, revoke).
+type SupportHandlers interface {
+	ListTenantSupportGrants(ctx context.Context, request gen.ListTenantSupportGrantsRequestObject) (gen.ListTenantSupportGrantsResponseObject, error)
+	ApproveTenantSupportGrant(ctx context.Context, request gen.ApproveTenantSupportGrantRequestObject) (gen.ApproveTenantSupportGrantResponseObject, error)
+	RejectTenantSupportGrant(ctx context.Context, request gen.RejectTenantSupportGrantRequestObject) (gen.RejectTenantSupportGrantResponseObject, error)
+	RevokeTenantSupportGrant(ctx context.Context, request gen.RevokeTenantSupportGrantRequestObject) (gen.RevokeTenantSupportGrantResponseObject, error)
+	ListPlatformSupportGrants(ctx context.Context, request gen.ListPlatformSupportGrantsRequestObject) (gen.ListPlatformSupportGrantsResponseObject, error)
+	CreateSupportGrant(ctx context.Context, request gen.CreateSupportGrantRequestObject) (gen.CreateSupportGrantResponseObject, error)
+	ApproveSupportGrantBreakglass(ctx context.Context, request gen.ApproveSupportGrantBreakglassRequestObject) (gen.ApproveSupportGrantBreakglassResponseObject, error)
+	RevokePlatformSupportGrant(ctx context.Context, request gen.RevokePlatformSupportGrantRequestObject) (gen.RevokePlatformSupportGrantResponseObject, error)
+}
+
 // PlatformTenantViewHandlers — P4-T02 (Platform Console, tenant detail — §12.2): the jobs, instances and relay regions
 // of one tenant, read on the platform pool. The three operations reuse the services and mappings of P2-T12 (jobsapi),
 // P2-T11 (tenantsapi) and P3-T05c (relayapi); PlatformTenantView assembles them into this set.
@@ -303,6 +316,7 @@ type Handlers struct {
 	Portal        PortalHandlers             // P4-T04
 	Admin         AdminHandlers              // P4-T03a
 	TenantView    PlatformTenantViewHandlers // P4-T02
+	Support       SupportHandlers            // P4-T13
 }
 
 func (h Handlers) mounted() bool {
@@ -310,7 +324,7 @@ func (h Handlers) mounted() bool {
 		h.Notifications != nil || h.Approvals != nil || h.Invitations != nil || h.Hosts != nil || h.IdPConsole != nil ||
 		h.Provisioning != nil || h.Lifecycle != nil || h.Relay != nil || h.Reconfigure != nil || h.Backups != nil ||
 		h.InstanceOps != nil || h.Quarantine != nil || h.Deprovision != nil || h.Tags != nil || h.Members != nil ||
-		h.Portal != nil || h.Admin != nil || h.TenantView != nil
+		h.Portal != nil || h.Admin != nil || h.TenantView != nil || h.Support != nil
 }
 
 // dispatcher implements gen.StrictServerInterface by promotion from the disjoint interfaces.
@@ -339,6 +353,7 @@ type dispatcher struct {
 	PortalHandlers
 	AdminHandlers
 	PlatformTenantViewHandlers
+	SupportHandlers
 }
 
 var _ gen.StrictServerInterface = dispatcher{}
@@ -346,7 +361,10 @@ var _ gen.StrictServerInterface = dispatcher{}
 func newDispatcher(h Handlers) dispatcher {
 	d := dispatcher{h.Auth, h.Tenants, h.Devices, h.Audit, h.Jobs, h.Monitoring, h.Notifications, h.Approvals, h.Invitations,
 		h.Hosts, h.IdPConsole, h.Provisioning, h.Lifecycle, h.Relay, h.Reconfigure, h.Backups, h.InstanceOps,
-		h.Quarantine, h.Deprovision, h.Tags, h.Members, h.Portal, h.Admin, h.TenantView}
+		h.Quarantine, h.Deprovision, h.Tags, h.Members, h.Portal, h.Admin, h.TenantView, h.Support}
+	if d.SupportHandlers == nil {
+		d.SupportHandlers = NotImplemented{}
+	}
 	if d.AdminHandlers == nil {
 		d.AdminHandlers = NotImplemented{}
 	}
@@ -858,4 +876,36 @@ func (NotImplemented) GetPlatformPlan(context.Context, gen.GetPlatformPlanReques
 
 func (NotImplemented) UpdatePlatformPlan(context.Context, gen.UpdatePlatformPlanRequestObject) (gen.UpdatePlatformPlanResponseObject, error) {
 	return nil, problem.NotImplemented("UpdatePlatformPlan")
+}
+
+func (NotImplemented) ListTenantSupportGrants(context.Context, gen.ListTenantSupportGrantsRequestObject) (gen.ListTenantSupportGrantsResponseObject, error) {
+	return nil, problem.NotImplemented("ListTenantSupportGrants")
+}
+
+func (NotImplemented) ApproveTenantSupportGrant(context.Context, gen.ApproveTenantSupportGrantRequestObject) (gen.ApproveTenantSupportGrantResponseObject, error) {
+	return nil, problem.NotImplemented("ApproveTenantSupportGrant")
+}
+
+func (NotImplemented) RejectTenantSupportGrant(context.Context, gen.RejectTenantSupportGrantRequestObject) (gen.RejectTenantSupportGrantResponseObject, error) {
+	return nil, problem.NotImplemented("RejectTenantSupportGrant")
+}
+
+func (NotImplemented) RevokeTenantSupportGrant(context.Context, gen.RevokeTenantSupportGrantRequestObject) (gen.RevokeTenantSupportGrantResponseObject, error) {
+	return nil, problem.NotImplemented("RevokeTenantSupportGrant")
+}
+
+func (NotImplemented) ListPlatformSupportGrants(context.Context, gen.ListPlatformSupportGrantsRequestObject) (gen.ListPlatformSupportGrantsResponseObject, error) {
+	return nil, problem.NotImplemented("ListPlatformSupportGrants")
+}
+
+func (NotImplemented) CreateSupportGrant(context.Context, gen.CreateSupportGrantRequestObject) (gen.CreateSupportGrantResponseObject, error) {
+	return nil, problem.NotImplemented("CreateSupportGrant")
+}
+
+func (NotImplemented) ApproveSupportGrantBreakglass(context.Context, gen.ApproveSupportGrantBreakglassRequestObject) (gen.ApproveSupportGrantBreakglassResponseObject, error) {
+	return nil, problem.NotImplemented("ApproveSupportGrantBreakglass")
+}
+
+func (NotImplemented) RevokePlatformSupportGrant(context.Context, gen.RevokePlatformSupportGrantRequestObject) (gen.RevokePlatformSupportGrantResponseObject, error) {
+	return nil, problem.NotImplemented("RevokePlatformSupportGrant")
 }

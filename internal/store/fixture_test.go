@@ -86,11 +86,12 @@ var fixtureSteps = map[int64]func(f *fixture, t *testing.T, c *pgx.Conn){
 	23: (*fixture).step23,
 	24: (*fixture).step24,
 	25: (*fixture).step25,
+	28: (*fixture).step28,
 }
 
 // latestMigration is the number of the last migration of database/migrations (TestMigrationsUpWithData,
 // TestMigrationsShareClusterRoles).
-const latestMigration = 25
+const latestMigration = 28
 
 // migrationVersions are the versions that have a migration, ascending. Tasks written in parallel use provisional
 // numbers; the coordinator renumbers at merge so that the numbers stay contiguous (goose refuses a migration numbered
@@ -482,6 +483,16 @@ func (f *fixture) step24(t *testing.T, c *pgx.Conn) {
 }
 
 // 0025 (P4-T03a): no new table — a disabled platform user (the only other value of platform_users.status).
+// step28 (0028, P4-T13 — provisional number): the grants of step23 got grantee_display ”; one more request per tenant
+// carries the snapshot of the grantee's name.
+func (f *fixture) step28(t *testing.T, c *pgx.Conn) {
+	for _, tr := range f.tenants() {
+		exec(t, c, `INSERT INTO support_access_grants (tenant_id, grantee_platform_user_id, requested_by_platform_user_id,
+				effective_role_key, reason, ticket_ref, expires_at, grantee_display)
+			VALUES ($1, $2, $2, $3, 'fixture', 'TICKET-28', now() + interval '1 hour', 'Fixture Staff')`, tr.id, f.platformUserRow, f.supportRole)
+	}
+}
+
 func (f *fixture) step25(t *testing.T, c *pgx.Conn) {
 	ident := newID()
 	exec(t, c, `INSERT INTO identities (id, idp_id, scope, subject) VALUES ($1, $2, 'platform', 'disabled-'||$3)`,

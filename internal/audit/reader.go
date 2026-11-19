@@ -27,13 +27,16 @@ const (
 
 // Query selects one page of events: newest first, ordered by (occurred_at, id) — §13.1, filters of §13.2.
 type Query struct {
-	Limit   int        // 0 = DefaultLimit; otherwise 1–MaxLimit
-	Cursor  string     // next_cursor of the previous page; "" = first page
-	Actor   *uuid.UUID // actor_identity_id
-	Action  string     // exact action
-	Outcome string     // OutcomeSuccess, OutcomeDenied or OutcomeFailure
-	From    *time.Time // occurred_at ≥ From
-	To      *time.Time // occurred_at < To
+	Limit  int        // 0 = DefaultLimit; otherwise 1–MaxLimit
+	Cursor string     // next_cursor of the previous page; "" = first page
+	Actor  *uuid.UUID // actor_identity_id
+	// ActorType: ActorIdentity, ActorSystem or ActorSupport (P4-T13 — the actions of platform staff under a Support Access
+	// Grant, §8.7); "" = any
+	ActorType string
+	Action    string     // exact action
+	Outcome   string     // OutcomeSuccess, OutcomeDenied or OutcomeFailure
+	From      *time.Time // occurred_at ≥ From
+	To        *time.Time // occurred_at < To
 }
 
 // QueryError is an invalid query parameter: the API answers 422 validation_failed naming Field (the message never
@@ -90,7 +93,8 @@ func (r *Reader) ListTenant(ctx context.Context, tenantID uuid.UUID, q Query) (P
 		var err error
 		rows, err = qs.ListTenantAuditEvents(ctx, sqlcdb.ListTenantAuditEventsParams{
 			TenantID: tenantID, FromAt: c.from, ToAt: c.to, BeforeAt: c.beforeAt, BeforeID: c.beforeID, Actor: q.Actor,
-			Action: optional(q.Action), Outcome: optional(q.Outcome), RowLimit: c.limit + 1,
+			ActorType: optional(q.ActorType),
+			Action:    optional(q.Action), Outcome: optional(q.Outcome), RowLimit: c.limit + 1,
 		})
 		return err
 	})
@@ -112,7 +116,7 @@ func (r *Reader) ListPlatform(ctx context.Context, q Query) (Page, error) {
 		var err error
 		rows, err = qs.ListPlatformAuditEvents(ctx, sqlcdb.ListPlatformAuditEventsParams{
 			FromAt: c.from, ToAt: c.to, BeforeAt: c.beforeAt, BeforeID: c.beforeID, Actor: q.Actor,
-			Action: optional(q.Action), Outcome: optional(q.Outcome), RowLimit: c.limit + 1,
+			ActorType: optional(q.ActorType), Action: optional(q.Action), Outcome: optional(q.Outcome), RowLimit: c.limit + 1,
 		})
 		return err
 	})
@@ -149,6 +153,9 @@ func (q Query) compile(scope string, tenant uuid.UUID) (compiled, error) {
 	}
 	if q.Action != "" && (len(q.Action) > maxFilterLen || !filterRE.MatchString(q.Action)) {
 		return c, &QueryError{"action", "invalid_format", "must be a dotted lowercase action"}
+	}
+	if q.ActorType != "" && q.ActorType != ActorIdentity && q.ActorType != ActorSystem && q.ActorType != ActorSupport {
+		return c, &QueryError{"actor_type", "invalid", "must be identity, system or support"}
 	}
 	if q.Outcome != "" && q.Outcome != OutcomeSuccess && q.Outcome != OutcomeDenied && q.Outcome != OutcomeFailure {
 		return c, &QueryError{"outcome", "invalid", "must be success, denied or failure"}
@@ -218,8 +225,12 @@ func cursorBinding(scope string, tenant uuid.UUID, q Query) [8]byte {
 		}
 		return fmt.Sprint(t.UnixMicro())
 	}
-	sum := sha256.Sum256(fmt.Appendf(nil, "mg-audit-cursor/v1|%s|%s|%s|%s|%s|%s|%s", scope, tenant, actor, q.Action,
-		q.Outcome, stamp(q.From), stamp(q.To)))
+	raw := fmt.Appendf(nil, "mg-audit-cursor/v1|%s|%s|%s|%s|%s|%s|%s", scope, tenant, actor, q.Action,
+		q.Outcome, stamp(q.From), stamp(q.To))
+	if q.ActorType != "" { // appended only when set: the cursors of the lists without it (P2-T08) stay valid
+		raw = fmt.Appendf(raw, "|actor_type=%s", q.ActorType)
+	}
+	sum := sha256.Sum256(raw)
 	var b [8]byte
 	copy(b[:], sum[:8])
 	return b

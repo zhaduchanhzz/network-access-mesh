@@ -28,4 +28,13 @@ export const PLATFORM_SCREENS: Readonly<Partial<Record<string, RouteObject[]>>> 
     { path: ":approvalId", lazy: page(() => import("./approvals/ApprovalDetailPage"), "ApprovalDetailPage") },
     { path: "*", element: <NotFoundPage /> },
   ],
+  // P4-T13
+  "support-access": [
+    { index: true, lazy: page(() => import("./support/SupportGrantsPage"), "SupportGrantsPage") },
+    { path: "*", element: <NotFoundPage /> },
+  ],
+  audit: [
+    { index: true, lazy: page(() => import("./audit/PlatformAuditPage"), "PlatformAuditPage") },
+    { path: "*", element: <NotFoundPage /> },
+  ],
 };

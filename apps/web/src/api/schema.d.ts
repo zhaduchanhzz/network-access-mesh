@@ -1721,6 +1721,166 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tenants/{tenantId}/support-grants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Support Access Grant vào tenant này (minh bạch — §8.7)
+         * @description Mọi yêu cầu truy cập hỗ trợ của nhân sự nền tảng vào tenant trong path, mới nhất trước. `status` là trạng thái hiệu lực (`approved` đã quá `expires_at` là `expired`, kể cả trước khi job `grant.expire` ghi lại); `active` = grant đang cho phép truy cập lúc trả lời. Hành động của nhân sự dưới grant nằm trong `GET /audit` (`actor.type = support`, `actor.support_grant_id`).
+         */
+        get: operations["listTenantSupportGrants"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/support-grants/{grantId}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Tenant duyệt một yêu cầu truy cập hỗ trợ (step-up) — chỉ role Support Operator
+         * @description §8.7 bước 2: Tenant Owner/Admin duyệt trong Portal; người duyệt step-up (`auth_time` ≤ 15 phút, nếu không ⇒
+         *     `401 reauth_required`). Trần role hiệu lực khi tenant duyệt là `support_operator` (cột Staff, ô **G** của §8.6);
+         *     grant `support_admin` chỉ được cấp qua break-glass của hai Super Admin ⇒ ở đây `403`. Role Owner không bao giờ là
+         *     role hiệu lực (schema chỉ có hai role support). Chỉ grant `pending` còn trong cửa sổ thời gian (hết cửa sổ hoặc
+         *     đã quyết định ⇒ `409`). Cửa sổ không đổi khi duyệt. Audit `support_grant.approve` cùng transaction.
+         */
+        post: operations["approveTenantSupportGrant"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/support-grants/{grantId}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Tenant từ chối một yêu cầu truy cập hỗ trợ đang chờ
+         * @description Chỉ grant `pending` (đã quyết định, đã hết cửa sổ ⇒ `409`). Từ chối là trạng thái cuối. Audit `support_grant.reject`.
+         */
+        post: operations["rejectTenantSupportGrant"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/support-grants/{grantId}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Tenant thu hồi một grant (đang chờ hoặc đang hiệu lực, kể cả grant break-glass)
+         * @description §8.7 bước 4: có hiệu lực ở request kế tiếp của nhân sự (mọi request dưới grant kiểm grant còn hiệu lực ở lớp 1 và trong transaction của tenant). Grant đã ở trạng thái cuối ⇒ `409`. Không cần step-up (thu hồi chỉ thu hẹp quyền). Audit `support_grant.revoke`.
+         */
+        post: operations["revokeTenantSupportGrant"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/support-grants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Support Access Grant của mọi tenant
+         * @description Mới nhất trước; `status` hiệu lực như `GET /tenants/{tenantId}/support-grants`. Không lộ dữ liệu nội bộ tenant (chỉ metadata của grant + slug của tenant).
+         */
+        get: operations["listPlatformSupportGrants"];
+        put?: never;
+        /**
+         * Nhân sự nền tảng xin truy cập hỗ trợ vào một tenant (grant `pending`)
+         * @description §8.7 bước 1: tenant, role hiệu lực (`support_operator`; `support_admin` chỉ được duyệt qua break-glass), lý do,
+         *     mã ticket, thời lượng 1–480 phút (≤ 8 giờ — CHECK của bảng). Người xin là grantee. Step-up. Tenant phải `active`
+         *     hoặc `suspended` (tenant đang/đã gỡ ⇒ `409`, không tồn tại ⇒ `404`); người xin đã có một grant còn mở (đang chờ
+         *     hoặc đang hiệu lực) vào tenant đó ⇒ `409`. Cửa sổ tính từ lúc xin; grant chưa được duyệt khi hết cửa sổ thành
+         *     `expired` (job `grant.expire`). Ghi audit platform `platform.support_grant.request`, audit của tenant
+         *     `support_grant.request` và thông báo `support.grant_requested` cho người giữ `tenant.support_grant:decide`.
+         */
+        post: operations["createSupportGrant"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/support-grants/{grantId}/approve-breakglass": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Break-glass — Super Admin thứ hai duyệt grant khi không liên lạc được tenant (2P)
+         * @description §8.7 bước 2, ô 2P của §8.5: dual control nằm ngay trong grant — người yêu cầu là một Super Admin đang hoạt động
+         *     (người xin grant), người gọi là Super Admin **thứ hai** (khác người yêu cầu và khác grantee — CHECK + trigger
+         *     `mg_support_grant_guard` của 0023), người gọi step-up (`401 reauth_required`; người xin đã step-up lúc xin).
+         *     Người gọi chính là người xin ⇒ `403`; người xin không phải Super Admin đang hoạt động ⇒ `409`. Chỉ grant
+         *     `pending` còn trong cửa sổ (`409`). Nhận cả `support_operator` lẫn `support_admin`. Cùng transaction: grant
+         *     `approved` (`approval_kind = breakglass`) + audit platform `platform.support_grant.breakglass`; sau đó trong
+         *     transaction của tenant: audit `support_grant.breakglass` hiển thị cho tenant, `security_event` mức `high`
+         *     (`support.break_glass`) và thông báo `support.break_glass` cho mọi Tenant Owner (không tắt được).
+         */
+        post: operations["approveSupportGrantBreakglass"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/support-grants/{grantId}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Super Admin thu hồi một grant bất kỳ (đang chờ hoặc đang hiệu lực)
+         * @description §8.7 bước 4: có hiệu lực ở request kế tiếp. Grant đã ở trạng thái cuối ⇒ `409`. Audit platform `platform.support_grant.revoke` + audit của tenant `support_grant.revoke` (minh bạch).
+         */
+        post: operations["revokePlatformSupportGrant"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/platform/users": {
         parameters: {
             query?: never;
@@ -3129,6 +3289,65 @@ export interface components {
             /** @description Tập tag mới (thay thế toàn bộ) — mỗi tag phải có trong danh mục của tenant */
             tags: string[];
         };
+        /**
+         * @description Role hiệu lực phạm vi support (cột Staff của §8.6) — `support_operator` (ô G), `support_admin` (thêm ô G (Admin), chỉ qua break-glass). Không bao giờ là role của tenant (Owner…).
+         * @enum {string}
+         */
+        SupportGrantRole: "support_operator" | "support_admin";
+        /**
+         * @description Trạng thái hiệu lực — `approved` đã quá `expires_at` được trả là `expired`
+         * @enum {string}
+         */
+        SupportGrantStatus: "pending" | "approved" | "rejected" | "revoked" | "expired";
+        /** @description Yêu cầu truy cập hỗ trợ (§8.7 bước 1) */
+        SupportGrantCreate: {
+            /**
+             * Format: uuid
+             * @description Tenant đích (tài nguyên của thao tác platform — không phải ngữ cảnh tenant của API)
+             */
+            tenant_id: string;
+            effective_role: components["schemas"]["SupportGrantRole"];
+            reason: string;
+            ticket_ref: string;
+            /** @description Thời lượng cửa sổ (≤ 8 giờ), tính từ lúc xin */
+            duration_minutes: number;
+        };
+        /** @description Một người của grant — tên hiển thị (với grantee là ảnh chụp lúc xin) */
+        SupportGrantPerson: {
+            display_name: string;
+        };
+        /** @description Support Access Grant (§6.3 `support_access_grants`). `decided_by` là thành viên tenant đã duyệt/từ chối (kiểu `tenant`) hoặc Super Admin thứ hai (kiểu `breakglass` — tên chỉ trả cho phía platform; tenant thấy `approval_kind = breakglass` và được thông báo). */
+        SupportGrant: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            tenant_id: string;
+            tenant_slug: string;
+            effective_role: components["schemas"]["SupportGrantRole"];
+            reason: string;
+            ticket_ref: string;
+            status: components["schemas"]["SupportGrantStatus"];
+            /** @description Grant đang cho phép truy cập lúc trả lời (`approved` ∧ `starts_at` ≤ now < `expires_at`) */
+            active: boolean;
+            /** @enum {string} */
+            approval_kind?: "tenant" | "breakglass";
+            grantee: components["schemas"]["SupportGrantPerson"];
+            decided_by?: components["schemas"]["SupportGrantPerson"];
+            /** Format: date-time */
+            decided_at?: string;
+            /** Format: date-time */
+            starts_at: string;
+            /** Format: date-time */
+            expires_at: string;
+            /** Format: date-time */
+            revoked_at?: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        SupportGrantList: {
+            items: components["schemas"]["SupportGrant"][];
+            next_cursor: string | null;
+        };
         /** @description Sửa tenant (§8.5 `platform.tenant:update` — tên, gói, quota); ít nhất một trường */
         TenantUpdate: {
             name?: string;
@@ -3613,6 +3832,12 @@ export interface components {
         ToFilter: string;
         JobStatusFilter: components["schemas"]["JobStatus"];
         JobKindFilter: components["schemas"]["JobKind"];
+        /** @description ID của Support Access Grant (`support_access_grants.id`) */
+        GrantId: string;
+        /** @description Lọc theo trạng thái hiệu lực */
+        SupportGrantStatusFilter: components["schemas"]["SupportGrantStatus"];
+        /** @description Lọc theo loại actor — `support` = hành động của nhân sự nền tảng dưới Support Access Grant (§8.7, P4-T13) */
+        ActorTypeFilter: "identity" | "system" | "support";
         /** @description ID yêu cầu phê duyệt (`approval_requests.id`) */
         ApprovalId: string;
         /** @description Lọc theo trạng thái hiệu lực */
@@ -4708,6 +4933,8 @@ export interface operations {
                 cursor?: components["parameters"]["Cursor"];
                 /** @description Lọc theo identity của actor */
                 actor?: components["parameters"]["ActorFilter"];
+                /** @description Lọc theo loại actor — `support` = hành động của nhân sự nền tảng dưới Support Access Grant (§8.7, P4-T13) */
+                actor_type?: components["parameters"]["ActorTypeFilter"];
                 /** @description Lọc theo `action` (khớp chính xác) */
                 action?: components["parameters"]["ActionFilter"];
                 outcome?: components["parameters"]["OutcomeFilter"];
@@ -5789,6 +6016,8 @@ export interface operations {
                 cursor?: components["parameters"]["Cursor"];
                 /** @description Lọc theo identity của actor */
                 actor?: components["parameters"]["ActorFilter"];
+                /** @description Lọc theo loại actor — `support` = hành động của nhân sự nền tảng dưới Support Access Grant (§8.7, P4-T13) */
+                actor_type?: components["parameters"]["ActorTypeFilter"];
                 /** @description Lọc theo `action` (khớp chính xác) */
                 action?: components["parameters"]["ActionFilter"];
                 outcome?: components["parameters"]["OutcomeFilter"];
@@ -6803,6 +7032,259 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    listTenantSupportGrants: {
+        parameters: {
+            query?: {
+                /** @description Số phần tử tối đa của trang */
+                limit?: components["parameters"]["Limit"];
+                /** @description Con trỏ mờ lấy từ `next_cursor` của trang trước */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Lọc theo trạng thái hiệu lực */
+                status?: components["parameters"]["SupportGrantStatusFilter"];
+            };
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Một trang grant */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupportGrantList"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    approveTenantSupportGrant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+                /** @description ID của Support Access Grant (`support_access_grants.id`) */
+                grantId: components["parameters"]["GrantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Grant sau khi duyệt */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupportGrant"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    rejectTenantSupportGrant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+                /** @description ID của Support Access Grant (`support_access_grants.id`) */
+                grantId: components["parameters"]["GrantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Grant sau khi từ chối */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupportGrant"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    revokeTenantSupportGrant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+                /** @description ID của Support Access Grant (`support_access_grants.id`) */
+                grantId: components["parameters"]["GrantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Grant sau khi thu hồi */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupportGrant"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    listPlatformSupportGrants: {
+        parameters: {
+            query?: {
+                /** @description Số phần tử tối đa của trang */
+                limit?: components["parameters"]["Limit"];
+                /** @description Con trỏ mờ lấy từ `next_cursor` của trang trước */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Lọc theo trạng thái hiệu lực */
+                status?: components["parameters"]["SupportGrantStatusFilter"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Một trang grant */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupportGrantList"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    createSupportGrant: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupportGrantCreate"];
+            };
+        };
+        responses: {
+            /** @description Grant đã tạo (`pending`) */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupportGrant"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    approveSupportGrantBreakglass: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID của Support Access Grant (`support_access_grants.id`) */
+                grantId: components["parameters"]["GrantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Grant sau khi duyệt break-glass */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupportGrant"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    revokePlatformSupportGrant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID của Support Access Grant (`support_access_grants.id`) */
+                grantId: components["parameters"]["GrantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Grant sau khi thu hồi */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupportGrant"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             429: components["responses"]["RateLimited"];
             default: components["responses"]["Unexpected"];
         };

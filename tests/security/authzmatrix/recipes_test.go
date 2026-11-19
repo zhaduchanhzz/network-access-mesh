@@ -24,6 +24,8 @@ type recipe struct {
 	query func(c *call) string
 	// body is the JSON body ("" ⇒ none).
 	body string
+	// bodyOf builds the JSON body from the world (P4-T13: the tenant a support grant is asked for) — wins over body.
+	bodyOf func(m *matrix, c *call) string
 	// idempotent adds Idempotency-Key (required by the binding of the operation).
 	idempotent bool
 	// endsSession: the request revokes the session it is sent with (logout) — sent with a throwaway session.
@@ -224,6 +226,22 @@ var recipes = map[string]recipe{
 	"deleteTenantTag": {ok: answer{http.StatusConflict, gen.ProblemCodeConflict}},
 	"setDeviceTags": {body: `{"tags":["tag:server"]}`,
 		ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
+	// support access grants (P4-T13, supportapi — mounted). The objects are pending grants whose requester/grantee is a
+	// Super Admin that is no actor of the matrix (world_test.go): a granted decision answers 200 for the first caller
+	// and 409 grant_closed after (the order of parallel callers decides), so the answer is left open; the requests
+	// create a pending grant into tenant A for the calling staff member (201, then 409 support_grant_open) — never a
+	// live grant, so the staff column of every other operation stays "no grant".
+	"listTenantSupportGrants":       {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
+	"approveTenantSupportGrant":     {},
+	"rejectTenantSupportGrant":      {},
+	"revokeTenantSupportGrant":      {},
+	"listPlatformSupportGrants":     {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
+	"approveSupportGrantBreakglass": {},
+	"revokePlatformSupportGrant":    {},
+	"createSupportGrant": {idempotent: true, bodyOf: func(m *matrix, _ *call) string {
+		return `{"tenant_id":"` + m.A.ID.String() + `","effective_role":"support_operator","reason":"matrix",` +
+			`"ticket_ref":"MATRIX-1","duration_minutes":30}`
+	}},
 }
 
 // objectKind is what a path parameter (other than the {tenantId} context of a tenant route) designates.
@@ -248,6 +266,7 @@ const (
 	objPlatformUser objectKind = "platform-user"
 	objSetting      objectKind = "setting"
 	objPlan         objectKind = "plan"
+	objGrant        objectKind = "grant" // P4-T13: /tenants/{t}/support-grants/{grantId}, /platform/support-grants/{grantId}
 )
 
 // paramObjects maps path parameters to object kinds; a new parameter must be added (TestEveryOperationHasAnExpectation).
@@ -255,5 +274,5 @@ var paramObjects = map[string]objectKind{
 	"deviceId": objDevice, "membershipId": objMembership, "jobId": objJob, "instanceId": objInstance,
 	"tenantId": objTenant, "sessionId": objSession, "idpId": objIdP, "approvalId": objApproval, "invitationId": objInvitation,
 	"hostId": objHost, "tagId": objTag, "notificationId": objNotification, "groupId": objGroup,
-	"platformUserId": objPlatformUser, "settingKey": objSetting, "planId": objPlan,
+	"platformUserId": objPlatformUser, "settingKey": objSetting, "planId": objPlan, "grantId": objGrant,
 }

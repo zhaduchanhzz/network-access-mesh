@@ -40,6 +40,7 @@ import portal  # noqa: E402 — E2E-87 (P4-T04: hộp thông báo, lọc rà so�
 import postrestore  # noqa: E402 — E2E-70, E2E-71 (P3-T17)
 import restore  # noqa: E402 — E2E-59, E2E-60 (P3-T11: V-11)
 import spa  # noqa: E402 — E2E-85, E2E-86 (P4-T01a: SPA sau edge template v9)
+import supportgrant  # noqa: E402 — E2E-105 … E2E-107 (P4-T13: Support Access Grant, break-glass, grant.expire)
 import tagcatalog  # noqa: E402 — E2E-91 (P4-T15: danh mục tag)
 from stack import CLIENTS, SECRET_RE, TENANTS, Stack, StackError, log  # noqa: E402
 
@@ -230,6 +231,9 @@ def test(st: Stack, r: checks.Results) -> None:
     with timed("ca E2E-94, E2E-95 (P4-T03a: IdP của tenant do nền tảng sửa ⇒ 2P + audit tenant, role Super Admin qua 2P, "
                "thiết lập bảo mật — tắt 4-eyes qua phê duyệt trong tenant, yêu cầu xóa tenant)"):
         admin.run_all(r, st, guarded)
+    with timed("ca E2E-105 … E2E-107 (P4-T13: Support Access Grant — hành động của support trong audit tenant, break-glass "
+               "cần Super Admin thứ hai, grant hết hạn tự vô hiệu + grant.expire)"):
+        supportgrant.run_all(r, st, guarded)
     # last: E2E-71 replaces the stack's database by an older dump (restore runbook) — nothing may run after it
     with timed("ca E2E-70, E2E-71 (Phase 3: chế độ bảo trì + đối soát sau restore PostgreSQL P3-T17 — pg_dump/pg_restore thật)"):
         postrestore.run_all(r, st, guarded)

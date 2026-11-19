@@ -5,19 +5,29 @@ import type { ComponentType } from "react";
 import type { RouteObject } from "react-router";
 import { can } from "../auth/permissions";
 import { ForbiddenPage } from "../pages/StatusPages";
+import { ApprovalDetailPage, ApprovalsPage } from "./approvals/ApprovalsPage";
+import { AuditPage } from "./audit/AuditPage";
 import { DashboardPage } from "./dashboard/DashboardPage";
 import { DeviceDetailPage } from "./devices/DeviceDetailPage";
 import { DevicesPage } from "./devices/DevicesPage";
 import { NotificationsPage } from "./notifications/NotificationsPage";
 import { RelayPage } from "./relay/RelayPage";
+import { IdentityProviderPage } from "./settings/IdentityProviderPage";
+import { SettingsPage } from "./settings/SettingsPage";
+import { SupportAccessPage } from "./support/SupportAccessPage";
 import { useTenant } from "./TenantScope";
 
-/** P4-T04: Tổng quan, Devices, Relay, hộp thông báo. */
+/** P4-T04: Tổng quan, Devices, Relay, hộp thông báo. P4-T13: Audit, hàng chờ phê duyệt, Support Access, Settings, IdP. */
 export const TENANT_PAGES: Readonly<Record<string, ComponentType>> = {
   overview: DashboardPage,
   devices: DevicesPage,
   relay: RelayPage,
   notifications: NotificationsPage,
+  audit: AuditPage,
+  approvals: ApprovalsPage,
+  "support-access": SupportAccessPage,
+  settings: SettingsPage,
+  "identity-provider": IdentityProviderPage,
 };
 
 function Guarded({ permission, Screen }: { permission: string; Screen: ComponentType }) {
@@ -27,4 +37,5 @@ function Guarded({ permission, Screen }: { permission: string; Screen: Component
 
 export const TENANT_EXTRA_ROUTES: RouteObject[] = [
   { path: "devices/:deviceId", element: <Guarded permission="tenant.device:read" Screen={DeviceDetailPage} /> },
+  { path: "approvals/:approvalId", element: <Guarded permission="tenant.approval:read" Screen={ApprovalDetailPage} /> },
 ];

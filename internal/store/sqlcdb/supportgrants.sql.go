@@ -147,7 +147,7 @@ SELECT g.id, g.tenant_id, t.slug AS tenant_slug, g.grantee_platform_user_id, g.r
        g.revoked_at, g.status, g.created_at, g.grantee_display,
        (g.status = 'approved' AND g.starts_at <= now() AND g.expires_at > now())::boolean AS active,
        (g.expires_at <= now())::boolean AS window_closed,
-       coalesce(nullif(di.display_name, ''), di.email::text, di.subject)::text AS decided_by_display
+       coalesce(nullif(di.display_name, ''), di.email::text, di.subject, '')::text AS decided_by_display
 FROM support_access_grants g
 JOIN tenants t ON t.id = g.tenant_id
 LEFT JOIN platform_users dp ON dp.id = g.approved_by_platform_user_id
@@ -265,7 +265,7 @@ SELECT g.id, g.tenant_id, t.slug AS tenant_slug, g.grantee_platform_user_id, g.r
        g.revoked_at, g.status, g.created_at, g.grantee_display,
        (g.status = 'approved' AND g.starts_at <= now() AND g.expires_at > now())::boolean AS active,
        (g.expires_at <= now())::boolean AS window_closed,
-       coalesce(nullif(mi.display_name, ''), mi.email::text, mi.subject)::text AS decided_by_display
+       coalesce(nullif(mi.display_name, ''), mi.email::text, mi.subject, '')::text AS decided_by_display
 FROM support_access_grants g
 JOIN tenants t ON t.id = g.tenant_id
 LEFT JOIN tenant_memberships m ON m.tenant_id = g.tenant_id AND m.id = g.approved_by_membership_id
@@ -369,7 +369,7 @@ SELECT g.id, g.tenant_id, t.slug AS tenant_slug, g.grantee_platform_user_id, g.r
        g.revoked_at, g.status, g.created_at, g.grantee_display,
        (g.status = 'approved' AND g.starts_at <= now() AND g.expires_at > now())::boolean AS active,
        (g.expires_at <= now())::boolean AS window_closed,
-       coalesce(nullif(di.display_name, ''), di.email::text, di.subject)::text AS decided_by_display
+       coalesce(nullif(di.display_name, ''), di.email::text, di.subject, '')::text AS decided_by_display
 FROM support_access_grants g
 JOIN tenants t ON t.id = g.tenant_id
 LEFT JOIN platform_users dp ON dp.id = g.approved_by_platform_user_id
@@ -507,7 +507,7 @@ SELECT g.id, g.tenant_id, t.slug AS tenant_slug, g.grantee_platform_user_id, g.r
        g.revoked_at, g.status, g.created_at, g.grantee_display,
        (g.status = 'approved' AND g.starts_at <= now() AND g.expires_at > now())::boolean AS active,
        (g.expires_at <= now())::boolean AS window_closed,
-       coalesce(nullif(mi.display_name, ''), mi.email::text, mi.subject)::text AS decided_by_display
+       coalesce(nullif(mi.display_name, ''), mi.email::text, mi.subject, '')::text AS decided_by_display
 FROM support_access_grants g
 JOIN tenants t ON t.id = g.tenant_id
 LEFT JOIN tenant_memberships m ON m.tenant_id = g.tenant_id AND m.id = g.approved_by_membership_id

@@ -360,7 +360,7 @@ func (a *attempt) expireNodes(ctx context.Context, s *jobs.StepRun) error {
 
 func (a *attempt) revokeAccess(ctx context.Context, s *jobs.StepRun) error {
 	now := a.h.cfg.Now().UTC()
-	var sessions, logins, approvals, left int64
+	var sessions, logins, approvals, grants, liveGrants, left int64
 	err := a.h.cfg.Store.WithPlatformTx(ctx, func(q *sqlcdb.Queries) error {
 		var err error
 		if sessions, err = q.RevokeTenantSessions(ctx, sqlcdb.RevokeTenantSessionsParams{Now: now, TenantID: a.in.TenantID}); err != nil {
@@ -372,11 +372,19 @@ func (a *attempt) revokeAccess(ctx context.Context, s *jobs.StepRun) error {
 		if approvals, err = q.ExpireTenantApprovals(ctx, a.in.TenantID); err != nil {
 			return err
 		}
+		// P4-T13: every open Support Access Grant into the tenant (pending or approved) ⇒ revoked (§8.7)
+		if grants, err = q.RevokeTenantSupportGrantsForDeprovision(ctx, sqlcdb.RevokeTenantSupportGrantsForDeprovisionParams{
+			Now: now, TenantID: a.in.TenantID}); err != nil {
+			return err
+		}
+		if liveGrants, err = q.CountLiveTenantSupportGrants(ctx, a.in.TenantID); err != nil {
+			return err
+		}
 		left, err = q.CountLiveTenantSessions(ctx, a.in.TenantID)
 		return err
 	})
 	if err != nil {
-		return dbErr("revoke the sessions, logins and approvals", err)
+		return dbErr("revoke the sessions, logins, approvals and support grants", err)
 	}
 	var invitations int64
 	if err := a.h.cfg.Store.WithTenantTx(ctx, a.in.TenantID, func(q *sqlcdb.Queries) error {
@@ -389,10 +397,13 @@ func (a *attempt) revokeAccess(ctx context.Context, s *jobs.StepRun) error {
 	}
 	setDetail(s, map[string]any{"sessions_revoked": sessions, "auth_requests_deleted": logins, "approvals_expired": approvals,
 		"invitations_revoked": invitations, "sessions_left": left,
-		"support_grants": "none — support_access_grants arrives with P4-T13, which revokes them here"})
+		"support_grants_revoked": grants, "support_grants_left": liveGrants})
 	a.out("sessions_revoked", sessions)
 	if left > 0 {
 		return jobs.Transient("sessions_still_live", fmt.Errorf("%d session(s) still live", left))
+	}
+	if liveGrants > 0 {
+		return jobs.Transient("support_grants_still_open", fmt.Errorf("%d support grant(s) still open", liveGrants))
 	}
 	return nil
 }

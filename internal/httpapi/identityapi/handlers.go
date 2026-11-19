@@ -228,10 +228,15 @@ func toSession(v *identity.SessionView) gen.Session {
 			Role: m.Role, Status: m.Status,
 		})
 	}
+	grants := make([]gen.SupportGrantSummary, 0, len(v.SupportGrants))
+	for _, g := range v.SupportGrants {
+		grants = append(grants, gen.SupportGrantSummary{Id: g.ID, TenantId: g.TenantID,
+			EffectiveRole: gen.SupportGrantSummaryEffectiveRole(g.Role), ExpiresAt: g.ExpiresAt})
+	}
 	return gen.Session{
 		Principal: p, Origin: gen.SessionOrigin(s.Origin), CsrfToken: s.CSRFToken(), AuthTime: utc(s.AuthTime),
 		IdleExpiresAt: utc(s.IdleExpiresAt), AbsoluteExpiresAt: utc(s.AbsoluteExpiresAt), Memberships: ms,
-		SupportGrants: []gen.SupportGrantSummary{}, // Support Access Grants arrive with P4-T13
+		SupportGrants: grants, // live Support Access Grants of platform staff (P4-T13)
 	}
 }
 

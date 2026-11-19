@@ -34,6 +34,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/secrets"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store/sqlcdb"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/tenants"
 )
 
 // partitionRole is the owner of the partitioned tables, used only by partition.maintain (§6.1).
@@ -197,6 +198,13 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 		return nil, err
 	}
 	if err := w.RegisterPeriodic(auditsync.JobKind, auditsync.Interval, audits.Run); err != nil {
+		return nil, err
+	}
+	// P4-T13: grant.expire — Support Access Grants past their window ⇒ expired (§13.5; access never waited for it)
+	if err := w.RegisterPeriodic(tenants.GrantExpireKind, tenants.GrantExpireInterval, func(ctx context.Context) error {
+		_, err := d.tenants.ExpireSupportGrants(ctx, log)
+		return err
+	}); err != nil {
 		return nil, err
 	}
 	relays, err := NewRelayProbe(cfg, d.st, log, reg) // P3-T05c: relay.probe (nil without MG_PROBER_URL)
