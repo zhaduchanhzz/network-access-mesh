@@ -47,11 +47,14 @@ def _api(st: Stack, t_id: str) -> str:
     return f"https://app.{st.domain}/api/v1/tenants/{t_id}"
 
 
-def _ensure_subscription(st: Stack, t_id: str) -> None:
-    """The quota of §7.4 step 3 needs a live subscription; the dev stack's tenants were adopted without one."""
-    psql(st, "INSERT INTO subscriptions (tenant_id, plan_id) SELECT '" + t_id + "', id FROM subscription_plans "
-         "WHERE key = 'standard' AND NOT EXISTS (SELECT 1 FROM subscriptions WHERE tenant_id = '" + t_id + "' "
-         "AND status IN ('trialing', 'active', 'past_due'))")
+def _ensure_subscription(st: Stack, t_id: str) -> str:
+    """The quota of §7.4 step 3 needs a live subscription; the dev stack's tenants were adopted without one. Returns the
+    id of the row inserted ("" when the tenant had a live one already): a case running before E2E-99 … E2E-101 deletes
+    it again (webauth.py, E2E-118)."""
+    return psql_one(st, "WITH ins AS (INSERT INTO subscriptions (tenant_id, plan_id) SELECT '" + t_id + "', id FROM "
+                    "subscription_plans WHERE key = 'standard' AND NOT EXISTS (SELECT 1 FROM subscriptions WHERE "
+                    "tenant_id = '" + t_id + "' AND status IN ('trialing', 'active', 'past_due')) RETURNING id) "
+                    "SELECT id FROM ins")
 
 
 def _set_enrollment(st: Stack, t_id: str, doc: dict) -> None:
