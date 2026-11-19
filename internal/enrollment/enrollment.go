@@ -132,7 +132,7 @@ const (
 // Error is a refusal or a failure of an enrollment operation with the Problem code the API answers.
 type Error struct {
 	Code       string
-	Reason     string // stable machine-readable cause (audit, logs) — never Problem.detail
+	Reason     string // stable machine-readable cause (audit, logs; Problem.errors[].code of a 409 or 422) — never Problem.detail
 	Field      string // validation_failed: the invalid field
 	Detail     string // client-facing text written here, never an upstream message
 	RetryAfter time.Duration

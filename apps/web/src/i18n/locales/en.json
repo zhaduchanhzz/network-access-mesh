@@ -255,6 +255,20 @@
       "applied": "In effect",
       "superseded": "Superseded",
       "failed": "Failed (rolled back)"
+    },
+    "enrollment": {
+      "requested": "Creating",
+      "pending_approval": "Awaiting approval",
+      "approved": "Approved",
+      "rejected": "Rejected",
+      "issued": "Waiting for device",
+      "claimed": "Confirming",
+      "registered": "Checking",
+      "verified": "Verified",
+      "consumed": "Used",
+      "expired": "Expired",
+      "revoked": "Revoked",
+      "failed": "Failed"
     }
   },
   "platform": {
@@ -884,7 +898,10 @@
     "loadMore": "Load more",
     "pagination": "Pagination",
     "prevPage": "Previous page",
-    "nextPage": "Next page"
+    "nextPage": "Next page",
+    "copy": "Copy",
+    "copied": "Copied.",
+    "copyFailed": "Could not copy — select the text and copy it manually."
   },
   "notif": {
     "filterLabel": "Filter notifications",
@@ -2107,6 +2124,239 @@
         "udp": "UDP",
         "icmp": "ICMP"
       }
+    }
+  },
+  "enroll": {
+    "intro": "Add your device to the tenant's network with the official Tailscale client. Personal devices with a browser use web-auth (there is no key to copy); servers, containers, CI and phones use a single-use pre-auth key.",
+    "you": "You",
+    "memberShort": "Member {{id}}…",
+    "noLabel": "(no label)",
+    "tagOnly": "Tags only (no owner)",
+    "selfEnrollHint": "The tenant may not let users add their own devices — contact the tenant's administrator.",
+    "method": {
+      "web_auth": "Web-auth (sign in through the Portal)",
+      "preauth_key": "Single-use pre-auth key",
+      "oidc": "Headscale native OIDC"
+    },
+    "col": {
+      "device": "Device",
+      "method": "Method",
+      "status": "Status",
+      "requester": "Requested by",
+      "owner": "Device owner",
+      "options": "Tags / options",
+      "created": "Created",
+      "expires": "Code/key expires",
+      "actions": "Actions"
+    },
+    "os": {
+      "linux": {
+        "name": "Linux",
+        "step1": "Install the official Tailscale client from the distribution's package repository (pkgs.tailscale.com).",
+        "step2": "Create a device request on this page and keep it open in this same browser (same session).",
+        "step3": "Run the command shown here with sudo; it prints a sign-in link — open it and confirm in the Portal."
+      },
+      "windows": {
+        "name": "Windows",
+        "step1": "Install the official Tailscale client for Windows (MSI from Tailscale's download page) — the tenant's LoginURL can be preset at install time (below).",
+        "step2": "Create a device request on this page and keep it open in this same browser (same session).",
+        "step3": "Run the command shown here in an elevated PowerShell; open the sign-in link it prints and confirm in the Portal."
+      },
+      "macos": {
+        "name": "macOS",
+        "step1": "Install the official Tailscale client for macOS (standalone package or App Store).",
+        "step2": "Create a device request on this page and keep it open in this same browser (same session).",
+        "step3": "Run the command shown here in Terminal; open the sign-in link it prints and confirm in the Portal."
+      },
+      "ios": {
+        "name": "iOS",
+        "step1": "Install the official Tailscale app from the App Store.",
+        "step2": "Mobile clients cannot choose their hostname: use a single-use pre-auth key from the Portal (key method below).",
+        "step3": "In the app, choose a custom coordination server (Settings → Accounts → Use a custom coordination server), enter the login server shown here and the key."
+      },
+      "android": {
+        "name": "Android",
+        "step1": "Install the official Tailscale app from Google Play.",
+        "step2": "Mobile clients cannot choose their hostname: use a single-use pre-auth key from the Portal (key method below).",
+        "step3": "In the app, choose an alternate server (Accounts → Use an alternate server), enter the login server shown here and the key."
+      }
+    },
+    "privacy": "The official Tailscale client may send diagnostic logs to Tailscale Inc. before it first connects to this network. Managed installations should set TS_NO_LOGS_NO_SUPPORT=true (or pass --no-logs-no-support).",
+    "instructions": {
+      "noInstance": "The tenant has no running control plane yet — devices cannot be added. Try again later or contact an administrator.",
+      "loginServer": "Tenant login server",
+      "copyLoginServer": "Copy the login server",
+      "windowsMsi": "Install the MSI with the tenant's LoginURL",
+      "copyMsi": "Copy the MSI install command",
+      "windowsPolicy": "Or set the LoginURL system policy (already installed)",
+      "copyPolicy": "Copy the LoginURL policy command",
+      "mobileNote": "Web-auth does not work on phones (they cannot use the hostname that carries the enrollment code) — use a single-use pre-auth key.",
+      "managedEnv": "Environment for managed installations"
+    },
+    "wizard": {
+      "title": "Enroll a new device",
+      "os": "1. Device operating system",
+      "method": "2. Enrollment method",
+      "webHint": "Default for personal devices: run the command, open the link the client prints in this browser and confirm. No key to copy.",
+      "webMobile": "Not available on phones.",
+      "webOff": "The tenant turned web-auth off — use a pre-auth key.",
+      "keyHint": "For servers, containers, CI or devices without a browser: single-use, short-lived, shown once.",
+      "label": "Device label (optional)",
+      "labelHint": "Device name after enrollment: lowercase letters, digits, hyphens (up to 63 characters).",
+      "labelInvalid": "Use lowercase a–z, digits and hyphens only, not starting or ending with a hyphen.",
+      "ttl": "Key lifetime (minutes)",
+      "ttlHint": "1 to {{max}} minutes (the tenant may set a lower cap).",
+      "submitWeb": "Create the enrollment command",
+      "submitKey": "Create a pre-auth key",
+      "noRequest": "Your role can read instructions and requests but cannot request a device."
+    },
+    "pendingApproval": {
+      "title": "Request sent — awaiting approval",
+      "body": "The tenant requires an approval before a command or key is issued. Once approved, come back to Add device and use the button in your requests (within 24 hours)."
+    },
+    "issued": {
+      "title": "Device request: {{label}}",
+      "runCommand": "Run this command on the device (once, bound to this Portal session):",
+      "copyCommand": "Copy the command",
+      "hostname": "Required hostname:",
+      "expires": "Expires:",
+      "next1": "Run the command as is on your device — do not change the hostname.",
+      "next2": "The client prints a sign-in link: open it in THIS browser; the Portal shows the confirmation page.",
+      "next3": "If the link opens in another browser, paste it into \"Paste a link or Auth ID\" below.",
+      "dismiss": "Close",
+      "ended": {
+        "expired": "The command expired — create a new request.",
+        "revoked": "The request was revoked."
+      }
+    },
+    "key": {
+      "onceWarning": "The key is shown ONCE and is not stored by the platform. Copy it to a safe place now; closing this dialog loses it (revoke and issue a new key).",
+      "value": "Pre-auth key",
+      "copy": "Copy the pre-auth key",
+      "command": "Command on the device",
+      "envHint": "Put the key in the TS_AUTHKEY environment variable before running the command — do not paste it on the command line, so it stays out of the shell history.",
+      "dialogTitle": "Pre-auth key (shown once)",
+      "saved": "I stored the key in a safe place.",
+      "close": "Close and clear the key from the screen",
+      "create": "Create a pre-auth key",
+      "createTitle": "Create a pre-auth key",
+      "createHint": "Single-use key, at most {{max}} minutes, always with an explicit expiry.",
+      "owner": "The device belongs to",
+      "owners": {
+        "self": "Me",
+        "member": "Another member",
+        "tags": "Tags only (no owner — shared devices, servers)"
+      },
+      "member": "Member",
+      "pickMember": "Choose a member…",
+      "tags": "Tags (from the catalog)",
+      "tagsHint": "Only tags declared in the tenant's catalog; a tags-only key needs at least one tag.",
+      "noTags": "The tag catalog is empty — declare tags on the Tag catalog page.",
+      "reusable": "Reusable",
+      "reusableHint": "One key enrolls several devices until it expires — for automation only.",
+      "ephemeral": "Ephemeral",
+      "ephemeralHint": "The node is removed when it disconnects (containers, CI).",
+      "submit": "Create key",
+      "secretGone": "The key of this submission is no longer held, so it cannot be shown again: revoke the request in the list and create a new key."
+    },
+    "keys": {
+      "intro": "Pre-auth keys and device requests of the tenant. Keys are always short-lived and shown once; revoking expires the key at the control plane and reports done only after reading it back.",
+      "all": "All requests and keys",
+      "empty": "No requests yet."
+    },
+    "queue": {
+      "title": "Requests awaiting approval",
+      "empty": "No request awaits approval."
+    },
+    "mine": {
+      "title": "Your requests",
+      "empty": "You have no device request.",
+      "allLink": "See every request and key of the tenant"
+    },
+    "paste": {
+      "title": "Paste a link or Auth ID",
+      "hint": "Ran the command but the link opened in another browser? Paste the link the client printed (…/register/hskey-authreq-…) or the Auth ID here.",
+      "label": "Link or Auth ID",
+      "check": "Continue",
+      "errors": {
+        "none": "No valid Auth ID found (hskey-authreq- and 24 characters).",
+        "several": "Several Auth IDs — paste a single link.",
+        "other_server": "The link belongs to another control plane or tenant — it is not sent to this tenant."
+      }
+    },
+    "claim": {
+      "title": "Confirm a device",
+      "tenant": "Tenant: {{name}}",
+      "cautionTitle": "Confirm only if you just ran the command yourself",
+      "caution": "Confirming attaches the waiting device to your account. Continue only if YOU just ran tailscale up on your own device in the last few minutes.",
+      "cautionNever": "If someone sent you this link (e-mail, chat), do not confirm — it may be a trick to put a foreign device on the network.",
+      "noPendingSeen": "None of your device requests is waiting. If you did not just create one on Add device, do not confirm.",
+      "pendingOne": "Waiting request: {{label}} — expires",
+      "pick": "You have several waiting requests: choose the one of the device that ran the command",
+      "ack": "I just ran the command on my own device and want to add it.",
+      "confirm": "Confirm device",
+      "verified": "Device {{label}} added.",
+      "verifiedHint": "The device is enrolled and verified; the current policy applies at once (no grant ⇒ no access yet).",
+      "toDevices": "Go to devices",
+      "failed": "The device failed the checks",
+      "usedTitle": "The link was used or has expired",
+      "used": "A sign-in link works once and lives 15 minutes. Run tailscale up again to get a new link.",
+      "disabledTitle": "The tenant does not accept web-auth",
+      "disabled": "The tenant turned web-auth enrollment off — use a single-use pre-auth key on Add device.",
+      "phishingTitle": "Warning: you have no device request waiting",
+      "phishing": "None of your device requests is waiting in this session, so this link is not confirmed. If you did not run the command yourself, someone is likely trying to make you add their device to the network — this was recorded.",
+      "phishingSession": "If you did run the command: create a request on Add device in this browser, then run exactly the command it shows.",
+      "invalidTitle": "Invalid link",
+      "invalid": "The confirmation link is missing or malformed (or was already handled). Open the link the client printed again, or paste it on Add device.",
+      "notMemberTitle": "The link is not for your tenant",
+      "notMember": "You are not a member of the tenant in this link (or you are signed in with another account). Nothing was confirmed.",
+      "toEnroll": "Go to Add device"
+    },
+    "failure": {
+      "node_mismatch": "The enrolled device did not match the request (hostname other than the issued command, wrong user or tags) — it was deleted at once. Run exactly the command shown.",
+      "foreign_node": "The device already belongs to someone else — it was disabled (expired) and waits for its owner.",
+      "auth_id_not_pending": "The control plane no longer has this sign-in (it lives 15 minutes) — run the command again.",
+      "claim_unfinished": "The confirmation did not finish — create a new request.",
+      "issue_unfinished": "The command/key could not be issued — create a new request.",
+      "key_missing": "The key is no longer on the control plane.",
+      "node_gone": "The device enrolled with this key no longer exists.",
+      "record_failed": "The enrolled device could not be recorded — try again or contact an administrator."
+    },
+    "actions": {
+      "approve": "Approve",
+      "reject": "Reject",
+      "revoke": "Revoke",
+      "startWeb": "Get the enrollment command",
+      "startKey": "Get the pre-auth key",
+      "approveFor": "Approve request {{label}}",
+      "rejectFor": "Reject request {{label}}",
+      "revokeFor": "Revoke request {{label}}",
+      "startFor": "Get the command or key for {{label}}",
+      "needsOther": "Awaiting another approver",
+      "revoking": "Revoking — waiting for the control plane to confirm…",
+      "revokeNotApplied": "Not revoked: the control plane did not answer, so the request and key are unchanged. Try again.",
+      "done": {
+        "approve": "Request {{label}} approved — the requester gets the command/key on Add device.",
+        "reject": "Request {{label}} rejected.",
+        "revoke": "{{label}} revoked — the control plane confirmed the key/code no longer works."
+      },
+      "title": {
+        "approve": "Approve request {{label}}?",
+        "reject": "Reject request {{label}}?",
+        "revoke": "Revoke {{label}}?"
+      },
+      "desc": {
+        "approve": "Once approved, the requester gets the command or key (once) in their own Portal session. You cannot approve your own request.",
+        "reject": "The request ends; the requester must create a new one.",
+        "revoke": "The issued key/code is disabled at the control plane and read back before reporting done. An enrolled device is not touched — revoke devices on the Devices page."
+      }
+    },
+    "startConflict": {
+      "already_started": "The command/key of this request was already issued (shown once) — revoke it and create a new request if it was lost.",
+      "request_expired": "The request waited more than 24 hours and expired — create a new one.",
+      "not_approved": "The request is not approved yet.",
+      "not_requester": "Only the member who made the request can get its command/key.",
+      "other": "The request changed — reload the list."
     }
   }
 }

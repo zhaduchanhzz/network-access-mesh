@@ -10,6 +10,7 @@ import { AuditPage } from "./audit/AuditPage";
 import { DashboardPage } from "./dashboard/DashboardPage";
 import { DeviceDetailPage } from "./devices/DeviceDetailPage";
 import { DevicesPage } from "./devices/DevicesPage";
+import { AddDeviceScreen, KeysScreen } from "./enrollment/screens";
 import { DnsPage } from "./network/DnsPage";
 import { ResourcesPage } from "./network/ResourcesPage";
 import { RoutesPage } from "./network/RoutesPage";
@@ -26,7 +27,7 @@ import { SettingsPage } from "./settings/SettingsPage";
 import { SupportAccessPage } from "./support/SupportAccessPage";
 import { useTenant } from "./TenantScope";
 
-/** P4-T04: Tổng quan, Devices, Relay, hộp thông báo; P4-T09a: Users, Groups, Invitations; P4-T12: Routes, DNS, Tài nguyên mạng; P4-T13: Audit,
+/** P4-T04: Tổng quan, Devices, Relay, hộp thông báo; P4-T08: Thêm thiết bị, Enrollment key; P4-T09a: Users, Groups, Invitations; P4-T12: Routes, DNS, Tài nguyên mạng; P4-T13: Audit,
  * hàng chờ phê duyệt, Support Access, Settings, IdP. */
 export const TENANT_PAGES: Readonly<Record<string, ComponentType>> = {
   overview: DashboardPage,
@@ -49,6 +50,9 @@ export const TENANT_PAGES: Readonly<Record<string, ComponentType>> = {
   routes: RoutesPage,
   dns: DnsPage,
   resources: ResourcesPage,
+  // P4-T08 (tải theo route): Thêm thiết bị (wizard theo OS + dán link/Auth ID), Enrollment key + hàng chờ duyệt
+  enroll: AddDeviceScreen,
+  "enrollment-keys": KeysScreen,
 };
 
 function Guarded({ permission, Screen }: { permission: string; Screen: ComponentType }) {

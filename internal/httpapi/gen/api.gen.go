@@ -3462,7 +3462,7 @@ type Problem struct {
 	// Detail Giải thích cho người đọc — không bao giờ chứa secret, stack trace hay thông điệp thô của upstream
 	Detail *string `json:"detail,omitempty"`
 
-	// Errors Lỗi theo từng trường (với `validation_failed`)
+	// Errors Lỗi theo từng trường (với `validation_failed`). Với `conflict` (409) của nhóm `enrollment` (P4-T08): đúng một phần tử, `code` là lý do ổn định để client phân biệt các xung đột — `no_pending_request`, `auth_id_already_claimed`, `auth_id_not_pending`, `not_requester`, `not_approved`, `already_started`, `not_pending_approval`, `request_expired`, `claim_in_progress`, `already_final`, `no_instance`, `identity_mode_headscale_oidc`
 	Errors *[]FieldError `json:"errors,omitempty"`
 
 	// Instance Path của request gây lỗi
