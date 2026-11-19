@@ -20,11 +20,12 @@ JOIN identities i ON i.tenant_id = m.tenant_id AND i.id = m.identity_id
 WHERE m.tenant_id = sqlc.arg(tenant_id) AND m.id = sqlc.arg(id);
 
 -- name: InsertEnrollmentRequest :one
+-- requested_ttl_minutes (0027): hạn key người yêu cầu xin — /start của yêu cầu đã duyệt phát key theo nó.
 INSERT INTO enrollment_requests (tenant_id, instance_id, requested_by_membership_id, method, target_membership_id,
-                                 device_label, requested_tags, ephemeral, reusable, status)
+                                 device_label, requested_tags, ephemeral, reusable, status, requested_ttl_minutes)
 VALUES (sqlc.arg(tenant_id), sqlc.arg(instance_id), sqlc.arg(requested_by_membership_id), sqlc.arg(method),
         sqlc.narg(target_membership_id), sqlc.narg(device_label), sqlc.arg(requested_tags), sqlc.arg(ephemeral),
-        sqlc.arg(reusable), sqlc.arg(status))
+        sqlc.arg(reusable), sqlc.arg(status), sqlc.narg(requested_ttl_minutes))
 RETURNING *;
 
 -- name: GetEnrollmentRequest :one

@@ -207,9 +207,13 @@ func (s *Service) Reconcile(ctx context.Context, tenantID uuid.UUID) (ReconcileR
 		// credential — revoked, so it stops counting against max_live_enrollment_credentials and as a tag reference
 		// (only while the recorded expiry is more than endedSlack away: never a key expiring on its own time)
 		k, ok := keys[kid]
+		keyNodes := nodes[kid]
+		if ok && !issuedKey(r, k) { // A4: the id was handed out again (restore): neither that key nor its nodes are r's
+			ok, keyNodes = false, nil
+		}
 		ended := r.CredentialExpiresAt != nil && now.Add(endedSlack).Before(*r.CredentialExpiresAt) &&
 			(!ok || !k.Expiration.After(now))
-		if len(nodes[kid]) == 0 && !ended {
+		if len(keyNodes) == 0 && !ended {
 			continue
 		}
 		adopted, revoked := 0, false
@@ -223,7 +227,7 @@ func (s *Service) Reconcile(ctx context.Context, tenantID uuid.UUID) (ReconcileR
 			case cur.Status != StatusConsumed:
 				return nil // revoked meanwhile
 			}
-			if adopted, err = s.adoptKeyNodes(ctx, tx, tenantID, cur, nodes[kid]); err != nil || !ended {
+			if adopted, err = s.adoptKeyNodes(ctx, tx, tenantID, cur, keyNodes); err != nil || !ended {
 				return err
 			}
 			if _, err := tx.Q.SetEnrollmentRequestOutcome(ctx, sqlcdb.SetEnrollmentRequestOutcomeParams{
@@ -299,6 +303,9 @@ func (s *Service) keyOutcome(r sqlcdb.EnrollmentRequest, keys map[uint64]headsca
 	k, ok := keys[kid]
 	ns := nodes[kid]
 	used := len(ns) > 0
+	if ok && !issuedKey(r, k) { // the id was handed out again (restore of an older snapshot): r's key is gone
+		ok, used = false, false
+	}
 	switch {
 	case used:
 		return outcome{status: StatusConsumed, node: &ns[0], nodes: ns}

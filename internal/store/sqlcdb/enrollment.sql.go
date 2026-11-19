@@ -117,7 +117,7 @@ func (q *Queries) GetEnrollmentMember(ctx context.Context, arg GetEnrollmentMemb
 }
 
 const getEnrollmentRequest = `-- name: GetEnrollmentRequest :one
-SELECT id, tenant_id, instance_id, requested_by_membership_id, method, target_membership_id, device_label, requested_tags, ephemeral, reusable, status, approver_membership_id, approved_at, issued_at, headscale_preauthkey_id, auth_id_hash, session_id_hash, enroll_code_hash, claimed_at, claimed_from_ip, registered_machine_key, reported_hostname, credential_expires_at, consumed_node_id, failure_code, created_at, updated_at, version FROM enrollment_requests
+SELECT id, tenant_id, instance_id, requested_by_membership_id, method, target_membership_id, device_label, requested_tags, ephemeral, reusable, status, approver_membership_id, approved_at, issued_at, headscale_preauthkey_id, auth_id_hash, session_id_hash, enroll_code_hash, claimed_at, claimed_from_ip, registered_machine_key, reported_hostname, credential_expires_at, consumed_node_id, failure_code, created_at, updated_at, version, requested_ttl_minutes FROM enrollment_requests
 WHERE tenant_id = $1 AND id = $2
 `
 
@@ -158,6 +158,7 @@ func (q *Queries) GetEnrollmentRequest(ctx context.Context, arg GetEnrollmentReq
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Version,
+		&i.RequestedTtlMinutes,
 	)
 	return i, err
 }
@@ -253,11 +254,11 @@ func (q *Queries) InsertEnrolledDevice(ctx context.Context, arg InsertEnrolledDe
 
 const insertEnrollmentRequest = `-- name: InsertEnrollmentRequest :one
 INSERT INTO enrollment_requests (tenant_id, instance_id, requested_by_membership_id, method, target_membership_id,
-                                 device_label, requested_tags, ephemeral, reusable, status)
+                                 device_label, requested_tags, ephemeral, reusable, status, requested_ttl_minutes)
 VALUES ($1, $2, $3, $4,
         $5, $6, $7, $8,
-        $9, $10)
-RETURNING id, tenant_id, instance_id, requested_by_membership_id, method, target_membership_id, device_label, requested_tags, ephemeral, reusable, status, approver_membership_id, approved_at, issued_at, headscale_preauthkey_id, auth_id_hash, session_id_hash, enroll_code_hash, claimed_at, claimed_from_ip, registered_machine_key, reported_hostname, credential_expires_at, consumed_node_id, failure_code, created_at, updated_at, version
+        $9, $10, $11)
+RETURNING id, tenant_id, instance_id, requested_by_membership_id, method, target_membership_id, device_label, requested_tags, ephemeral, reusable, status, approver_membership_id, approved_at, issued_at, headscale_preauthkey_id, auth_id_hash, session_id_hash, enroll_code_hash, claimed_at, claimed_from_ip, registered_machine_key, reported_hostname, credential_expires_at, consumed_node_id, failure_code, created_at, updated_at, version, requested_ttl_minutes
 `
 
 type InsertEnrollmentRequestParams struct {
@@ -271,8 +272,10 @@ type InsertEnrollmentRequestParams struct {
 	Ephemeral               bool
 	Reusable                bool
 	Status                  string
+	RequestedTtlMinutes     *int16
 }
 
+// requested_ttl_minutes (0027): hạn key người yêu cầu xin — /start của yêu cầu đã duyệt phát key theo nó.
 func (q *Queries) InsertEnrollmentRequest(ctx context.Context, arg InsertEnrollmentRequestParams) (EnrollmentRequest, error) {
 	row := q.db.QueryRow(ctx, insertEnrollmentRequest,
 		arg.TenantID,
@@ -285,6 +288,7 @@ func (q *Queries) InsertEnrollmentRequest(ctx context.Context, arg InsertEnrollm
 		arg.Ephemeral,
 		arg.Reusable,
 		arg.Status,
+		arg.RequestedTtlMinutes,
 	)
 	var i EnrollmentRequest
 	err := row.Scan(
@@ -316,6 +320,7 @@ func (q *Queries) InsertEnrollmentRequest(ctx context.Context, arg InsertEnrollm
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Version,
+		&i.RequestedTtlMinutes,
 	)
 	return i, err
 }
@@ -398,7 +403,7 @@ func (q *Queries) LinkDeviceEnrollment(ctx context.Context, arg LinkDeviceEnroll
 }
 
 const listEnrollmentRequestsPage = `-- name: ListEnrollmentRequestsPage :many
-SELECT id, tenant_id, instance_id, requested_by_membership_id, method, target_membership_id, device_label, requested_tags, ephemeral, reusable, status, approver_membership_id, approved_at, issued_at, headscale_preauthkey_id, auth_id_hash, session_id_hash, enroll_code_hash, claimed_at, claimed_from_ip, registered_machine_key, reported_hostname, credential_expires_at, consumed_node_id, failure_code, created_at, updated_at, version FROM enrollment_requests
+SELECT id, tenant_id, instance_id, requested_by_membership_id, method, target_membership_id, device_label, requested_tags, ephemeral, reusable, status, approver_membership_id, approved_at, issued_at, headscale_preauthkey_id, auth_id_hash, session_id_hash, enroll_code_hash, claimed_at, claimed_from_ip, registered_machine_key, reported_hostname, credential_expires_at, consumed_node_id, failure_code, created_at, updated_at, version, requested_ttl_minutes FROM enrollment_requests
 WHERE tenant_id = $1
   AND ($2::uuid IS NULL OR requested_by_membership_id = $2::uuid
        OR target_membership_id = $2::uuid)
@@ -465,6 +470,7 @@ func (q *Queries) ListEnrollmentRequestsPage(ctx context.Context, arg ListEnroll
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Version,
+			&i.RequestedTtlMinutes,
 		); err != nil {
 			return nil, err
 		}
@@ -541,7 +547,7 @@ func (q *Queries) ListLiveReusableEnrollmentKeys(ctx context.Context, arg ListLi
 }
 
 const listOpenEnrollmentRequests = `-- name: ListOpenEnrollmentRequests :many
-SELECT id, tenant_id, instance_id, requested_by_membership_id, method, target_membership_id, device_label, requested_tags, ephemeral, reusable, status, approver_membership_id, approved_at, issued_at, headscale_preauthkey_id, auth_id_hash, session_id_hash, enroll_code_hash, claimed_at, claimed_from_ip, registered_machine_key, reported_hostname, credential_expires_at, consumed_node_id, failure_code, created_at, updated_at, version FROM enrollment_requests
+SELECT id, tenant_id, instance_id, requested_by_membership_id, method, target_membership_id, device_label, requested_tags, ephemeral, reusable, status, approver_membership_id, approved_at, issued_at, headscale_preauthkey_id, auth_id_hash, session_id_hash, enroll_code_hash, claimed_at, claimed_from_ip, registered_machine_key, reported_hostname, credential_expires_at, consumed_node_id, failure_code, created_at, updated_at, version, requested_ttl_minutes FROM enrollment_requests
 WHERE tenant_id = $1
   AND status IN ('requested', 'pending_approval', 'approved', 'awaiting_device', 'claimed', 'registered',
                  'credential_issued')
@@ -587,6 +593,7 @@ func (q *Queries) ListOpenEnrollmentRequests(ctx context.Context, tenantID uuid.
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Version,
+			&i.RequestedTtlMinutes,
 		); err != nil {
 			return nil, err
 		}
@@ -653,7 +660,7 @@ func (q *Queries) LiveDeviceByMachineKey(ctx context.Context, arg LiveDeviceByMa
 }
 
 const lockEnrollmentRequest = `-- name: LockEnrollmentRequest :one
-SELECT id, tenant_id, instance_id, requested_by_membership_id, method, target_membership_id, device_label, requested_tags, ephemeral, reusable, status, approver_membership_id, approved_at, issued_at, headscale_preauthkey_id, auth_id_hash, session_id_hash, enroll_code_hash, claimed_at, claimed_from_ip, registered_machine_key, reported_hostname, credential_expires_at, consumed_node_id, failure_code, created_at, updated_at, version FROM enrollment_requests
+SELECT id, tenant_id, instance_id, requested_by_membership_id, method, target_membership_id, device_label, requested_tags, ephemeral, reusable, status, approver_membership_id, approved_at, issued_at, headscale_preauthkey_id, auth_id_hash, session_id_hash, enroll_code_hash, claimed_at, claimed_from_ip, registered_machine_key, reported_hostname, credential_expires_at, consumed_node_id, failure_code, created_at, updated_at, version, requested_ttl_minutes FROM enrollment_requests
 WHERE tenant_id = $1 AND id = $2
 FOR UPDATE
 `
@@ -695,6 +702,7 @@ func (q *Queries) LockEnrollmentRequest(ctx context.Context, arg LockEnrollmentR
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Version,
+		&i.RequestedTtlMinutes,
 	)
 	return i, err
 }
@@ -751,7 +759,7 @@ func (q *Queries) LockLiveDeviceOfNode(ctx context.Context, arg LockLiveDeviceOf
 }
 
 const lockPendingWebAuth = `-- name: LockPendingWebAuth :many
-SELECT id, tenant_id, instance_id, requested_by_membership_id, method, target_membership_id, device_label, requested_tags, ephemeral, reusable, status, approver_membership_id, approved_at, issued_at, headscale_preauthkey_id, auth_id_hash, session_id_hash, enroll_code_hash, claimed_at, claimed_from_ip, registered_machine_key, reported_hostname, credential_expires_at, consumed_node_id, failure_code, created_at, updated_at, version FROM enrollment_requests
+SELECT id, tenant_id, instance_id, requested_by_membership_id, method, target_membership_id, device_label, requested_tags, ephemeral, reusable, status, approver_membership_id, approved_at, issued_at, headscale_preauthkey_id, auth_id_hash, session_id_hash, enroll_code_hash, claimed_at, claimed_from_ip, registered_machine_key, reported_hostname, credential_expires_at, consumed_node_id, failure_code, created_at, updated_at, version, requested_ttl_minutes FROM enrollment_requests
 WHERE tenant_id = $1 AND requested_by_membership_id = $2 AND method = 'web_auth'
   AND status = 'awaiting_device' AND session_id_hash = $3 AND credential_expires_at > now()
 ORDER BY issued_at, id
@@ -804,6 +812,7 @@ func (q *Queries) LockPendingWebAuth(ctx context.Context, arg LockPendingWebAuth
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Version,
+			&i.RequestedTtlMinutes,
 		); err != nil {
 			return nil, err
 		}
@@ -825,7 +834,7 @@ SET status                 = $1,
     updated_at             = now(),
     version                = version + 1
 WHERE tenant_id = $6 AND id = $7
-RETURNING id, tenant_id, instance_id, requested_by_membership_id, method, target_membership_id, device_label, requested_tags, ephemeral, reusable, status, approver_membership_id, approved_at, issued_at, headscale_preauthkey_id, auth_id_hash, session_id_hash, enroll_code_hash, claimed_at, claimed_from_ip, registered_machine_key, reported_hostname, credential_expires_at, consumed_node_id, failure_code, created_at, updated_at, version
+RETURNING id, tenant_id, instance_id, requested_by_membership_id, method, target_membership_id, device_label, requested_tags, ephemeral, reusable, status, approver_membership_id, approved_at, issued_at, headscale_preauthkey_id, auth_id_hash, session_id_hash, enroll_code_hash, claimed_at, claimed_from_ip, registered_machine_key, reported_hostname, credential_expires_at, consumed_node_id, failure_code, created_at, updated_at, version, requested_ttl_minutes
 `
 
 type SetEnrollmentRequestOutcomeParams struct {
@@ -879,6 +888,7 @@ func (q *Queries) SetEnrollmentRequestOutcome(ctx context.Context, arg SetEnroll
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Version,
+		&i.RequestedTtlMinutes,
 	)
 	return i, err
 }
@@ -903,7 +913,7 @@ SET status                 = $1,
     updated_at             = now(),
     version                = version + 1
 WHERE tenant_id = $16 AND id = $17
-RETURNING id, tenant_id, instance_id, requested_by_membership_id, method, target_membership_id, device_label, requested_tags, ephemeral, reusable, status, approver_membership_id, approved_at, issued_at, headscale_preauthkey_id, auth_id_hash, session_id_hash, enroll_code_hash, claimed_at, claimed_from_ip, registered_machine_key, reported_hostname, credential_expires_at, consumed_node_id, failure_code, created_at, updated_at, version
+RETURNING id, tenant_id, instance_id, requested_by_membership_id, method, target_membership_id, device_label, requested_tags, ephemeral, reusable, status, approver_membership_id, approved_at, issued_at, headscale_preauthkey_id, auth_id_hash, session_id_hash, enroll_code_hash, claimed_at, claimed_from_ip, registered_machine_key, reported_hostname, credential_expires_at, consumed_node_id, failure_code, created_at, updated_at, version, requested_ttl_minutes
 `
 
 type SetEnrollmentRequestStateParams struct {
@@ -978,6 +988,7 @@ func (q *Queries) SetEnrollmentRequestState(ctx context.Context, arg SetEnrollme
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Version,
+		&i.RequestedTtlMinutes,
 	)
 	return i, err
 }
