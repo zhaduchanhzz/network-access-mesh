@@ -48,7 +48,7 @@ describe.each(["vi", "en"] as const)("axe (%s)", (lng) => {
   it("Platform Console: layout + nav + trang chưa khả dụng", async () => {
     await i18n.changeLanguage(lng);
     mockApi({ "GET /auth/session": json(200, platformSession("super_admin")) });
-    renderApp({ path: "/platform/audit", console: "platform" });
+    renderApp({ path: "/platform/security-events", console: "platform" }); // mục sau MVP (P6-T02a) — còn "chưa khả dụng"
     await screen.findByTestId("unavailable");
     expect(await violations()).toEqual([]);
   });
