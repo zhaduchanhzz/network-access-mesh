@@ -172,8 +172,14 @@ func EnqueueReconfigure(ctx context.Context, tx *store.Tx, req ReconfigureReques
 	}
 	details := req.Change.summary()
 	details["tenant_id"], details["instance_id"], details["source"] = inst.TenantID, inst.ID, source
-	op, err := audit.Requested(ctx, tx.Q, audit.Event{Action: action, ResourceType: "instance", ResourceID: inst.ID.String(),
-		Details: details})
+	ev := audit.Event{Action: action, ResourceType: "instance", ResourceID: inst.ID.String(), Details: details}
+	if req.TenantID != uuid.Nil {
+		// a tenant-scope caller (PUT /tenants/{t}/dns/settings — P4-T12): the operation belongs to the tenant's audit
+		// whatever the request scope says; the job closes it in a transaction of the tenant (DBStore.closeOperation)
+		t := inst.TenantID
+		ev.TenantID = &t
+	}
+	op, err := audit.Requested(ctx, tx.Q, ev)
 	if err != nil {
 		return jobs.Job{}, false, err
 	}

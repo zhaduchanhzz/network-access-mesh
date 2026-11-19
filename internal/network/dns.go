@@ -82,6 +82,12 @@ type DNSRecord struct {
 	CreatedAt time.Time
 }
 
+// ETag is the entity tag of a record (records are never changed — it names the content): the If-Match of DELETE.
+func (r DNSRecord) ETag() string {
+	sum := sha256.Sum256([]byte("dns-record/v1\n" + r.ID.String() + "\n" + r.Name + "\n" + r.Type + "\n" + r.Value.String()))
+	return `"` + hex.EncodeToString(sum[:16]) + `"`
+}
+
 func recordOf(r sqlcdb.DnsRecord) DNSRecord {
 	return DNSRecord{ID: r.ID, Name: r.Name, Type: r.Type, Value: r.Value, CreatedBy: r.CreatedBy, CreatedAt: r.CreatedAt.UTC()}
 }
@@ -195,6 +201,9 @@ func (s *Service) UpdateDNSSettings(ctx context.Context, tenantID uuid.UUID, a A
 	if err != nil {
 		return jobs.Job{}, false, err
 	}
+	if normalizeIfMatch(ifMatch) == "" {
+		return jobs.Job{}, false, ifMatchRequired("DNS settings' etag")
+	}
 	if s.cfg.Reconfigure == nil {
 		return jobs.Job{}, false, &Error{Code: CodeInternal, Reason: ReasonNotWired, Err: errors.New("network: no reconfigurer wired")}
 	}
@@ -208,8 +217,6 @@ func (s *Service) UpdateDNSSettings(ctx context.Context, tenantID uuid.UUID, a A
 			return err
 		}
 		switch m := normalizeIfMatch(ifMatch); {
-		case m == "":
-			return ifMatchRequired("DNS settings' etag")
 		case m != dnsETag(inst.ConfigVersionID, cur):
 			return stale("stale_etag", "The DNS settings changed since they were read; read them again.")
 		}
@@ -422,14 +429,24 @@ func (s *Service) replayRecord(ctx context.Context, tenantID uuid.UUID, st store
 	return out, err
 }
 
-// DeleteDNSRecord is DELETE /tenants/{t}/dns/records/{id}: the record, its audit event and the dns.records_write job in
-// one transaction (the last record deleted ⇒ the file holds []).
-func (s *Service) DeleteDNSRecord(ctx context.Context, tenantID, id uuid.UUID, a Actor) (DNSRecordChange, error) {
+// DeleteDNSRecord is DELETE /tenants/{t}/dns/records/{id} (If-Match = the record's etag — 428/412): the record, its
+// audit event and the dns.records_write job in one transaction (the last record deleted ⇒ the file holds []).
+func (s *Service) DeleteDNSRecord(ctx context.Context, tenantID, id uuid.UUID, a Actor, ifMatch string) (DNSRecordChange, error) {
+	match := normalizeIfMatch(ifMatch)
 	var out DNSRecordChange
 	err := s.st.WithTenantJobTx(ctx, tenantID, func(tx *store.Tx) error {
 		q := tx.Q
 		if err := q.LockDNSRecordSet(ctx, tenantID); err != nil {
 			return err
+		}
+		// the record first: another tenant's or a missing one is 404 whatever the request (§8.4 invariant 6)
+		if _, err := q.GetDNSRecord(ctx, sqlcdb.GetDNSRecordParams{TenantID: tenantID, ID: id}); errors.Is(err, store.ErrNoRows) {
+			return notFound("record_not_found")
+		} else if err != nil {
+			return err
+		}
+		if match == "" {
+			return ifMatchRequired("record's etag")
 		}
 		row, err := q.DeleteDNSRecord(ctx, sqlcdb.DeleteDNSRecordParams{TenantID: tenantID, ID: id})
 		if errors.Is(err, store.ErrNoRows) {
@@ -437,6 +454,9 @@ func (s *Service) DeleteDNSRecord(ctx context.Context, tenantID, id uuid.UUID, a
 		}
 		if err != nil {
 			return err
+		}
+		if recordOf(row).ETag() != match {
+			return stale("stale_etag", "The record is not the one that was read; read the records again.")
 		}
 		j, err := enqueueRecordsWrite(ctx, tx, tenantID, a.by())
 		if err != nil {

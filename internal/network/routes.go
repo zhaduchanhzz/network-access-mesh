@@ -371,6 +371,10 @@ func (s *Service) ApproveRoutes(ctx context.Context, tenantID uuid.UUID, a Actor
 		return RouteResult{}, invalid("confirm_exit_node", "exit_node_confirmation_required",
 			"approving an exit node (0.0.0.0/0 and ::/0) routes the clients' Internet traffic through the device: set confirm_exit_node")
 	}
+	match := normalizeIfMatch(ifMatch)
+	if match == "" {
+		return RouteResult{}, ifMatchRequired("device's routes_etag")
+	}
 	reg, err := s.devices()
 	if err != nil {
 		return RouteResult{}, err
@@ -380,7 +384,6 @@ func (s *Service) ApproveRoutes(ctx context.Context, tenantID uuid.UUID, a Actor
 		row      sqlcdb.DeviceInventoryCache
 		fourEyes bool
 	)
-	match := normalizeIfMatch(ifMatch)
 	err = s.st.WithTenantTx(ctx, tenantID, func(q *sqlcdb.Queries) error {
 		r, err := reg.LockLive(ctx, q, tenantID, in.DeviceID)
 		if errors.Is(err, store.ErrNoRows) {
@@ -388,9 +391,6 @@ func (s *Service) ApproveRoutes(ctx context.Context, tenantID uuid.UUID, a Actor
 		}
 		if err != nil {
 			return err
-		}
-		if match == "" {
-			return ifMatchRequired("device's routes_etag")
 		}
 		row = r
 		fourEyes, err = readTenantFourEyes(ctx, q, tenantID)
@@ -445,7 +445,11 @@ func (s *Service) RevokeRoutes(ctx context.Context, tenantID uuid.UUID, a Actor,
 	if err != nil {
 		return RouteDevice{}, err
 	}
-	return s.changeRoutes(ctx, tenantID, a, in.DeviceID, normalizeIfMatch(ifMatch), routeChange{prefixes: remove, exit: exit}, nil)
+	match := normalizeIfMatch(ifMatch)
+	if match == "" {
+		return RouteDevice{}, ifMatchRequired("device's routes_etag")
+	}
+	return s.changeRoutes(ctx, tenantID, a, in.DeviceID, match, routeChange{prefixes: remove, exit: exit}, nil)
 }
 
 func prefixStrings(ps []netip.Prefix) []string {

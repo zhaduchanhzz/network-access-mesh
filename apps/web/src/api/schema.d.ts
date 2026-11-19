@@ -1709,7 +1709,8 @@ export interface paths {
         post?: never;
         /**
          * Xóa một bản ghi ⇒ 202 + job ghi file (bản ghi cuối ⇒ file [])
-         * @description Cùng transaction với audit `dns.record.delete` và job `dns.records_write`.
+         * @description Cần `If-Match` = `etag` của bản ghi (thiếu ⇒ `428`, lệch ⇒ `412`). Cùng transaction với audit `dns.record.delete`
+         *     và job `dns.records_write`.
          */
         delete: operations["deleteTenantDnsRecord"];
         options?: never;
@@ -3625,6 +3626,8 @@ export interface components {
             name: string;
             type: components["schemas"]["DnsRecordType"];
             value: string;
+            /** @description Giá trị `If-Match` của `DELETE` */
+            etag: string;
             /** Format: uuid */
             created_by?: string;
             /** Format: date-time */
@@ -7520,7 +7523,10 @@ export interface operations {
     deleteTenantDnsRecord: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428` */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
             path: {
                 /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
                 tenantId: components["parameters"]["TenantId"];
@@ -7544,6 +7550,9 @@ export interface operations {
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["ValidationFailed"];
+            428: components["responses"]["PreconditionRequired"];
             429: components["responses"]["RateLimited"];
             default: components["responses"]["Unexpected"];
         };

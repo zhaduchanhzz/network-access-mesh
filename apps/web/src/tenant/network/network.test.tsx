@@ -365,6 +365,7 @@ describe("dns", () => {
     expect(await screen.findByTestId("record-job")).toHaveTextContent("Ghi file bản ghi (xóa)");
     expect(screen.getByTestId("record-job")).not.toHaveTextContent("Đã ghi file");
     expect(writes(requests, "DELETE")).toHaveLength(1);
+    expect(writes(requests, "DELETE")[0]!.headers.get("If-Match")).toBe('"rec-etag-1"');
   });
 });
 

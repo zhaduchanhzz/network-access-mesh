@@ -57,9 +57,14 @@ func (s *Service) RegisterRecordsJob(w *jobs.Worker, writer RecordsWriter) error
 	if writer == nil {
 		return errors.New("network: dns.records_write needs a records writer")
 	}
-	return w.Register(KindDNSRecordsWrite, jobs.HandlerFunc(func(ctx context.Context, run *jobs.Run) error {
+	return w.Register(KindDNSRecordsWrite, s.RecordsHandler(writer))
+}
+
+// RecordsHandler is the handler of dns.records_write over writer (RegisterRecordsJob; the isolation suite drives it).
+func (s *Service) RecordsHandler(writer RecordsWriter) jobs.Handler {
+	return jobs.HandlerFunc(func(ctx context.Context, run *jobs.Run) error {
 		return s.runRecordsJob(ctx, run, writer)
-	}))
+	})
 }
 
 // recordSet is the tenant's state the job writes.

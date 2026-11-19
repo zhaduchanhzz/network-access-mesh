@@ -432,11 +432,14 @@ check(ol.entry_path("tenant", ()) == "/tenants/{tenantId}" and ol.entry_path("te
 # second direction of §13.1: every row has an operation once all its tasks are done
 row_errs, row_notes = ol.row_coverage(spec, master)
 check(not row_errs and any("tenant.enrollment:read" in n and "P4-T06 pending" in n for n in row_notes)
-      and any("tenant.dns:read" in n and "P4-T12 pending" in n for n in row_notes),
+      and any("tenant.diagnostics:read" in n and "P5-T08 pending" in n for n in row_notes),
       "row coverage on the real spec: no error, pending rows reported", str(row_errs))
 # P4-T10 is done (2026-11-19): the rows of the policy lifecycle have operations — neither a note nor an error
 check("P4-T10" in master.done and not any("tenant.policy:" in n for n in row_notes),
       "row coverage on the real spec: the rows of P4-T10 (done) are covered by operations", str(row_notes))
+# P4-T12 is done (2026-11-19): routes, dns, resources have operations — neither a note nor an error
+check("P4-T12" in master.done and not any(k in n for n in row_notes for k in ("tenant.route:", "tenant.dns:", "tenant.resource:")),
+      "row coverage on the real spec: the rows of P4-T12 (done) are covered by operations", str(row_notes))
 # P4-T15 is done (2026-11-19): its rows (tag catalog, device tags) have operations — neither a note nor an error
 check("P4-T15" in master.done and not any("tenant.tag:" in n or "tenant.device:tag" in n for n in row_notes),
       "row coverage on the real spec: the rows of P4-T15 (done) are covered by operations", str(row_notes))

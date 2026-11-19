@@ -35,6 +35,7 @@ import lifecycle  # noqa: E402 — E2E-56 … E2E-58 (P3-T08)
 import mailrelay  # noqa: E402 — E2E-82, E2E-83 (P3-T05b-mail: relay thư ra, Worker giả)
 import members  # noqa: E402 — E2E-92, E2E-93 (P4-T09: offboard V-23, quy tắc 3a, group sensitive)
 import monitoring  # noqa: E402 — E2E-76 … E2E-78 (P3-T16)
+import network  # noqa: E402 — E2E-102 … E2E-104 (P4-T12: routes, DNS records hot-reload, resource catalog)
 import phase3  # noqa: E402 — E2E-32 … E2E-36 (P3-T14a, P3-T03a, P3-T08a)
 import portal  # noqa: E402 — E2E-87 (P4-T04: hộp thông báo, lọc rà soát tagged node)
 import policylife  # noqa: E402 — E2E-96 … E2E-98 (P4-T10: vòng đời policy, pipeline, drift)
@@ -228,6 +229,9 @@ def test(st: Stack, r: checks.Results) -> None:
     with timed("ca E2E-91 (P4-T15: danh mục tag — CRUD, policy.apply tag_change ⇒ tagOwners, tag chưa khai báo bị từ chối, "
                "xóa tag còn tham chiếu ⇒ 409)"):
         tagcatalog.run_all(r, st, guarded)
+    with timed("ca E2E-102 … E2E-104 (P4-T12: route quảng bá chưa duyệt không dùng được, duyệt đọc–sửa–ghi + đồng thời 412, "
+               "DNS record hot-reload phân giải từ client, resource ⇒ policy.apply resource_change)"):
+        network.run_all(r, st, guarded)
     with timed("ca E2E-94, E2E-95 (P4-T03a: IdP của tenant do nền tảng sửa ⇒ 2P + audit tenant, role Super Admin qua 2P, "
                "thiết lập bảo mật — tắt 4-eyes qua phê duyệt trong tenant, yêu cầu xóa tenant)"):
         admin.run_all(r, st, guarded)

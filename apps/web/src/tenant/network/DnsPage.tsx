@@ -244,7 +244,7 @@ function DnsRecords({ canUpdate, baseDomain }: { canUpdate: boolean; baseDomain:
 
   const remove = useMutation({
     mutationFn: (r: DnsRecord) =>
-      callWithResponse(api.DELETE("/tenants/{tenantId}/dns/records/{recordId}", { params: { path: { tenantId, recordId: r.id } } })),
+      callWithResponse(api.DELETE("/tenants/{tenantId}/dns/records/{recordId}", { params: { path: { tenantId, recordId: r.id }, header: ifMatch(r.etag) } })),
     onSuccess: ({ data, response }) => {
       setDeleting(null);
       setJob({ id: tenantJobFromLocation(response.headers.get("Location"), tenantId) ?? data.id, kind: "delete" });

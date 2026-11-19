@@ -3856,7 +3856,9 @@ paths:
       tags: [network]
       operationId: deleteTenantDnsRecord
       summary: Xóa một bản ghi ⇒ 202 + job ghi file (bản ghi cuối ⇒ file [])
-      description: Cùng transaction với audit `dns.record.delete` và job `dns.records_write`.
+      description: |-
+        Cần `If-Match` = `etag` của bản ghi (thiếu ⇒ `428`, lệch ⇒ `412`). Cùng transaction với audit `dns.record.delete`
+        và job `dns.records_write`.
       security:
         - sessionCookie: []
           csrfToken: []
@@ -3866,6 +3868,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/RecordId'
+        - $ref: '#/components/parameters/IfMatch'
       responses:
         '202':
           description: Đã xóa; job ghi lại file
@@ -3882,6 +3885,12 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
         '429':
           $ref: '#/components/responses/RateLimited'
         default:
@@ -8413,7 +8422,7 @@ components:
       enum: [A, AAAA]
     DnsRecord:
       type: object
-      required: [id, name, type, value, created_at]
+      required: [id, name, type, value, etag, created_at]
       properties:
         id:
           type: string
@@ -8424,6 +8433,9 @@ components:
           $ref: '#/components/schemas/DnsRecordType'
         value:
           type: string
+        etag:
+          type: string
+          description: Giá trị `If-Match` của `DELETE`
         created_by:
           type: string
           format: uuid

@@ -41,7 +41,7 @@ type Service interface {
 	UpdateDNSSettings(ctx context.Context, tenantID uuid.UUID, a network.Actor, ifMatch string, nameservers []string) (jobs.Job, bool, error)
 	ListDNSRecords(ctx context.Context, tenantID uuid.UUID) ([]network.DNSRecord, error)
 	CreateDNSRecord(ctx context.Context, tenantID uuid.UUID, a network.Actor, in network.DNSRecordInput, idem *network.Idempotency) (network.DNSRecordChange, error)
-	DeleteDNSRecord(ctx context.Context, tenantID, id uuid.UUID, a network.Actor) (network.DNSRecordChange, error)
+	DeleteDNSRecord(ctx context.Context, tenantID, id uuid.UUID, a network.Actor, ifMatch string) (network.DNSRecordChange, error)
 	ListResources(ctx context.Context, tenantID uuid.UUID, limit int, cursor string) (network.ResourcePage, error)
 	GetResource(ctx context.Context, tenantID, id uuid.UUID) (network.Resource, error)
 	CreateResource(ctx context.Context, tenantID uuid.UUID, a network.Actor, in network.ResourceInput, idem *network.Idempotency) (network.ResourceChange, error)
@@ -289,7 +289,7 @@ func dnsView(v network.DNSView) gen.DnsView {
 
 func dnsRecord(r network.DNSRecord) gen.DnsRecord {
 	return gen.DnsRecord{Id: r.ID, Name: r.Name, Type: gen.DnsRecordType(r.Type), Value: r.Value.String(), CreatedBy: r.CreatedBy,
-		CreatedAt: r.CreatedAt}
+		CreatedAt: r.CreatedAt, Etag: r.ETag()}
 }
 
 // GetTenantDns implements GET /tenants/{tenantId}/dns.
@@ -358,7 +358,7 @@ func (h *Handlers) DeleteTenantDnsRecord(ctx context.Context, req gen.DeleteTena
 	if err != nil {
 		return nil, err
 	}
-	ch, err := h.svc.DeleteDNSRecord(ctx, req.TenantId, req.RecordId, c.actor())
+	ch, err := h.svc.DeleteDNSRecord(ctx, req.TenantId, req.RecordId, c.actor(), ifMatch(req.Params.IfMatch))
 	if err != nil {
 		return nil, problemOf(err)
 	}

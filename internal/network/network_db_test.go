@@ -497,7 +497,7 @@ func TestDNSRecords(t *testing.T) {
 	if recs, _ := f.svc.ListDNSRecords(ctx, f.b.id); len(recs) != 0 {
 		t.Fatalf("tenant B lists %d records", len(recs))
 	}
-	if _, err := f.svc.DeleteDNSRecord(ctx, f.b.id, r1.Record.ID, Actor{IdentityID: f.b.admin}); codeOf(err) != CodeNotFound+"/record_not_found" {
+	if _, err := f.svc.DeleteDNSRecord(ctx, f.b.id, r1.Record.ID, Actor{IdentityID: f.b.admin}, r1.Record.ETag()); codeOf(err) != CodeNotFound+"/record_not_found" {
 		t.Fatalf("delete from B: %s", codeOf(err))
 	}
 
@@ -525,8 +525,14 @@ func TestDNSRecords(t *testing.T) {
 	w.err = nil
 
 	// delete both: the last one leaves an empty set
+	if _, err := f.svc.DeleteDNSRecord(ctx, f.a.id, r1.Record.ID, a, ""); codeOf(err) != CodePreconditionReq+"/if_match_required" {
+		t.Fatalf("delete without If-Match: %s", codeOf(err))
+	}
+	if _, err := f.svc.DeleteDNSRecord(ctx, f.a.id, r1.Record.ID, a, r2.Record.ETag()); codeOf(err) != CodePreconditionFailed+"/stale_etag" {
+		t.Fatalf("delete with another record's etag: %s", codeOf(err))
+	}
 	for _, r := range []DNSRecordChange{r1, r2} {
-		if _, err := f.svc.DeleteDNSRecord(ctx, f.a.id, r.Record.ID, a); err != nil {
+		if _, err := f.svc.DeleteDNSRecord(ctx, f.a.id, r.Record.ID, a, r.Record.ETag()); err != nil {
 			t.Fatal(err)
 		}
 	}

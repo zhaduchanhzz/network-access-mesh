@@ -1694,10 +1694,13 @@ type DnsPending struct {
 type DnsRecord struct {
 	CreatedAt time.Time           `json:"created_at"`
 	CreatedBy *openapi_types.UUID `json:"created_by,omitempty"`
-	Id        openapi_types.UUID  `json:"id"`
-	Name      string              `json:"name"`
-	Type      DnsRecordType       `json:"type"`
-	Value     string              `json:"value"`
+
+	// Etag Giá trị `If-Match` của `DELETE`
+	Etag  string             `json:"etag"`
+	Id    openapi_types.UUID `json:"id"`
+	Name  string             `json:"name"`
+	Type  DnsRecordType      `json:"type"`
+	Value string             `json:"value"`
 }
 
 // DnsRecordChange defines model for DnsRecordChange.
@@ -4176,6 +4179,12 @@ type CreateTenantDnsRecordParams struct {
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
 
+// DeleteTenantDnsRecordParams defines parameters for DeleteTenantDnsRecord.
+type DeleteTenantDnsRecordParams struct {
+	// IfMatch `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428`
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
 // UpdateTenantDnsSettingsParams defines parameters for UpdateTenantDnsSettings.
 type UpdateTenantDnsSettingsParams struct {
 	// IfMatch `ETag` của tài nguyên lúc đọc (§6.1, §13.1). Thao tác sửa cần nó: thiếu (hoặc `*`) ⇒ `428 precondition_required`, không khớp phiên bản hiện tại ⇒ `412 precondition_failed`. Khai báo không bắt buộc ở tầng binding để thiếu header nhận đúng `428`
@@ -4824,7 +4833,7 @@ type ServerInterface interface {
 	CreateTenantDnsRecord(w http.ResponseWriter, r *http.Request, tenantId TenantId, params CreateTenantDnsRecordParams)
 	// DeleteTenantDnsRecord Xóa một bản ghi ⇒ 202 + job ghi file (bản ghi cuối ⇒ file [])
 	// (DELETE /tenants/{tenantId}/dns/records/{recordId})
-	DeleteTenantDnsRecord(w http.ResponseWriter, r *http.Request, tenantId TenantId, recordId RecordId)
+	DeleteTenantDnsRecord(w http.ResponseWriter, r *http.Request, tenantId TenantId, recordId RecordId, params DeleteTenantDnsRecordParams)
 	// UpdateTenantDnsSettings Đổi nameserver của tailnet ⇒ 202 + job instance.reconfigure (restart có kiểm soát)
 	// (PUT /tenants/{tenantId}/dns/settings)
 	UpdateTenantDnsSettings(w http.ResponseWriter, r *http.Request, tenantId TenantId, params UpdateTenantDnsSettingsParams)
@@ -8841,8 +8850,32 @@ func (siw *ServerInterfaceWrapper) DeleteTenantDnsRecord(w http.ResponseWriter, 
 		return
 	}
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DeleteTenantDnsRecordParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteTenantDnsRecord(w, r, tenantId, recordId)
+		siw.Handler.DeleteTenantDnsRecord(w, r, tenantId, recordId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -24208,6 +24241,7 @@ func (response CreateTenantDnsRecorddefaultApplicationProblemPlusJSONResponse) V
 type DeleteTenantDnsRecordRequestObject struct {
 	TenantId TenantId `json:"tenantId"`
 	RecordId RecordId `json:"recordId"`
+	Params   DeleteTenantDnsRecordParams
 }
 
 type DeleteTenantDnsRecordResponseObject interface {
@@ -24289,6 +24323,63 @@ func (response DeleteTenantDnsRecord404ApplicationProblemPlusJSONResponse) Visit
 		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
 	}
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteTenantDnsRecord412ApplicationProblemPlusJSONResponse struct {
+	PreconditionFailedApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteTenantDnsRecord412ApplicationProblemPlusJSONResponse) VisitDeleteTenantDnsRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(412)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteTenantDnsRecord422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteTenantDnsRecord422ApplicationProblemPlusJSONResponse) VisitDeleteTenantDnsRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteTenantDnsRecord428ApplicationProblemPlusJSONResponse struct {
+	PreconditionRequiredApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteTenantDnsRecord428ApplicationProblemPlusJSONResponse) VisitDeleteTenantDnsRecordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(428)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -36698,11 +36789,12 @@ func (sh *strictHandler) CreateTenantDnsRecord(w http.ResponseWriter, r *http.Re
 }
 
 // DeleteTenantDnsRecord operation middleware
-func (sh *strictHandler) DeleteTenantDnsRecord(w http.ResponseWriter, r *http.Request, tenantId TenantId, recordId RecordId) {
+func (sh *strictHandler) DeleteTenantDnsRecord(w http.ResponseWriter, r *http.Request, tenantId TenantId, recordId RecordId, params DeleteTenantDnsRecordParams) {
 	var request DeleteTenantDnsRecordRequestObject
 
 	request.TenantId = tenantId
 	request.RecordId = recordId
+	request.Params = params
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.DeleteTenantDnsRecord(ctx, request.(DeleteTenantDnsRecordRequestObject))

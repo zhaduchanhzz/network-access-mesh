@@ -92,7 +92,7 @@ export function dnsView(over: Partial<S["DnsView"]> = {}): S["DnsView"] {
 }
 
 export function dnsRecord(over: Partial<S["DnsRecord"]> = {}): S["DnsRecord"] {
-  return { id: RECORD_1, name: "nas.tenant-a.tail.example.test", type: "A", value: "100.64.0.5", created_at: NET_SYNCED, ...over };
+  return { id: RECORD_1, name: "nas.tenant-a.tail.example.test", type: "A", value: "100.64.0.5", etag: '"rec-etag-1"', created_at: NET_SYNCED, ...over };
 }
 
 export function resource(over: Partial<S["NetworkResource"]> = {}): S["NetworkResource"] {
