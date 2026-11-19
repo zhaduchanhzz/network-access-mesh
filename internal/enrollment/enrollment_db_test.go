@@ -745,10 +745,11 @@ func TestEnrollment(t *testing.T) {
 	})
 
 	t.Run("UnfinishedClaim", func(t *testing.T) {
-		// C1 (5), what the claim controls: a claim stops after recording registered — its verdict cannot be written and
-		// its corrective calls are refused, as if the process died. Reconcile closes the request claim_unfinished
-		// (keeping its node id); once inventory.sync made the node a device of the member, the next claim on that
-		// machine (a re-authentication by then) never accepts it: deleted.
+		// C1 (5): a claim stops after recording registered — its verdict cannot be written and its corrective calls are
+		// refused, as if the process died. Reconcile checks the node before it closes the request claim_unfinished
+		// (keeping its node id): a new node failing step 8 is removed with the security event node_mismatch — here its
+		// delete is refused too, so it is only expired; once inventory.sync made the node a device of the member, the
+		// next claim on that machine (a re-authentication by then) never accepts it: deleted.
 		admin := a.actor("admin", uuid.New())
 		ctx := ctxOf(admin, a.id, ActionClaim)
 		out, err := f.api.Create(ctx, a.id, admin, NewRequest{Method: MethodWebAuth}, idem("k-uc-1", "uc1"))
@@ -772,12 +773,23 @@ func TestEnrollment(t *testing.T) {
 			t.Fatalf("stopped claim: request %s, want %s", st, StatusRegistered)
 		}
 		f.exec(t, `UPDATE enrollment_requests SET claimed_at = claimed_at - interval '20 minutes' WHERE id = $1`, out.Request.ID)
-		if _, err := f.wrk.Reconcile(t.Context(), a.id); err != nil {
-			t.Fatal(err)
+		a.hs.Refuse(devicestest.OpDeleteNode, true)
+		rep, err := f.wrk.Reconcile(t.Context(), a.id)
+		a.hs.Refuse(devicestest.OpDeleteNode, false)
+		if err != nil || rep.Removed != 0 {
+			t.Fatalf("reconcile %+v %v", rep, err)
 		}
 		if st := f.str(t, `SELECT status || '/' || COALESCE(failure_code, '') || '/' || COALESCE(consumed_node_id::text, '')
 			FROM enrollment_requests WHERE id = $1`, out.Request.ID); st != StatusFailed+"/"+FailureClaimUnfinished+"/4801" {
 			t.Fatalf("reconcile: %s", st)
+		}
+		if n, ok := a.hs.Node(4801); !ok || n.Expiry == nil || n.Expiry.After(f.clk.now()) {
+			t.Fatalf("reconcile left the unverified node of the stopped claim active: %+v %v", n, ok)
+		}
+		if k := f.count(t, `SELECT count(*) FROM security_events WHERE tenant_id = $1 AND kind = $2
+			AND details->>'request_id' = $3 AND details->>'found_by' = 'reconcile'`, a.id, EventNodeMismatch,
+			out.Request.ID.String()); k != 1 {
+			t.Fatalf("security events of the node reconcile rejected: %d", k)
 		}
 		// later: inventory.sync adopted the node as the member's device; the same machine signs in again
 		f.exec(t, `UPDATE enrollment_requests SET created_at = created_at - interval '1 hour' WHERE id = $1`, out.Request.ID)
@@ -801,6 +813,152 @@ func TestEnrollment(t *testing.T) {
 		}
 		if _, ok := a.hs.Node(4801); ok {
 			t.Error("the node of the stopped claim was not deleted on re-authentication")
+		}
+	})
+
+	t.Run("UnfinishedClaimValidNode", func(t *testing.T) {
+		// C1 (regression of 6849d26): a claim of the member's own device (hostname mg-<code>) stops after recording
+		// registered. Reconcile checks the node — it passes — and closes the request claim_unfinished without touching it;
+		// a lost answer of another claim of the member (reprotect) leaves it alone, and the next claim on that machine is
+		// a re-authentication: verified, the node kept. A valid node of an unfinished claim is never taken for a rejected
+		// one.
+		admin := a.actor("admin", uuid.New())
+		ctx := ctxOf(admin, a.id, ActionClaim)
+		out, err := f.api.Create(ctx, a.id, admin, NewRequest{Method: MethodWebAuth}, idem("k-ucv-1", "ucv1"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		host := HostnamePrefix + out.Credential.EnrollCode.Reveal()
+		auth := "hskey-authreq-" + strings.Repeat("V", 23) + "1"
+		a.hs.PutPending(auth, devicestest.Node{ID: 4821, MachineKey: "mkey:ucv", Hostname: host})
+		f.exec(t, `CREATE FUNCTION test_refuse_verdict() RETURNS trigger LANGUAGE plpgsql AS $$
+			BEGIN RAISE EXCEPTION 'verdict refused by the test'; END $$`)
+		f.exec(t, `CREATE TRIGGER test_refuse_verdict BEFORE UPDATE ON enrollment_requests FOR EACH ROW
+			WHEN (OLD.id = '`+out.Request.ID.String()+`'::uuid AND OLD.status = 'registered') EXECUTE FUNCTION test_refuse_verdict()`)
+		_, _ = f.api.Claim(ctx, a.id, admin, Claim{AuthID: auth})
+		f.exec(t, `DROP TRIGGER test_refuse_verdict ON enrollment_requests`)
+		f.exec(t, `DROP FUNCTION test_refuse_verdict()`)
+		if st := f.str(t, `SELECT status FROM enrollment_requests WHERE id = $1`, out.Request.ID); st != StatusRegistered {
+			t.Fatalf("stopped claim: request %s, want %s", st, StatusRegistered)
+		}
+		f.exec(t, `UPDATE enrollment_requests SET claimed_at = claimed_at - interval '20 minutes' WHERE id = $1`, out.Request.ID)
+		rep, err := f.wrk.Reconcile(t.Context(), a.id)
+		if err != nil || rep.Removed != 0 {
+			t.Fatalf("reconcile %+v %v", rep, err)
+		}
+		if st := f.str(t, `SELECT status || '/' || COALESCE(failure_code, '') || '/' || COALESCE(consumed_node_id::text, '')
+			FROM enrollment_requests WHERE id = $1`, out.Request.ID); st != StatusFailed+"/"+FailureClaimUnfinished+"/4821" {
+			t.Fatalf("reconcile: %s", st)
+		}
+		if n, ok := a.hs.Node(4821); !ok || n.Expiry != nil {
+			t.Fatalf("reconcile touched the requester's device: %+v %v", n, ok)
+		}
+		if k := f.count(t, `SELECT count(*) FROM security_events WHERE tenant_id = $1 AND details->>'request_id' = $2`,
+			a.id, out.Request.ID.String()); k != 0 {
+			t.Fatalf("security events for the requester's device: %d", k)
+		}
+		// later (the request and its node are older than what follows)
+		n, _ := a.hs.Node(4821)
+		n.CreatedAt = time.Now().Add(-30 * time.Minute)
+		a.hs.PutNode(n)
+		f.exec(t, `UPDATE enrollment_requests SET created_at = created_at - interval '1 hour' WHERE id = $1`, out.Request.ID)
+		// another claim of the member loses its answer and finds nothing new: reprotect keeps the valid node
+		other, err := f.api.Create(ctx, a.id, admin, NewRequest{Method: MethodWebAuth}, idem("k-ucv-2", "ucv2"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		a.hs.LoseAnswer(devicestest.OpAuthRegister, true)
+		_, err = f.api.Claim(ctx, a.id, admin, Claim{AuthID: "hskey-authreq-" + strings.Repeat("V", 23) + "2",
+			RequestID: &other.Request.ID})
+		a.hs.LoseAnswer(devicestest.OpAuthRegister, false)
+		if codeOf(err) != CodeInstanceUnavailable {
+			t.Fatalf("lost answer: %v", err)
+		}
+		if _, ok := a.hs.Node(4821); !ok {
+			t.Fatal("a lost answer of another claim deleted the requester's device (reprotect)")
+		}
+		// inventory.sync adopted the node as the member's device; the same machine signs in again
+		f.exec(t, `INSERT INTO device_inventory_cache (tenant_id, instance_id, headscale_node_id, machine_key, name,
+			owner_membership_id) VALUES ($1, $2, 4821, 'mkey:ucv', $3, $4)`, a.id, a.instance, host, admin.MembershipID)
+		again, err := f.api.Create(ctx, a.id, admin, NewRequest{Method: MethodWebAuth}, idem("k-ucv-3", "ucv3"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		auth = "hskey-authreq-" + strings.Repeat("V", 23) + "3"
+		a.hs.PutPending(auth, devicestest.Node{MachineKey: "mkey:ucv", Hostname: HostnamePrefix + again.Credential.EnrollCode.Reveal()})
+		r, err := f.api.Claim(ctx, a.id, admin, Claim{AuthID: auth, RequestID: &again.Request.ID})
+		if err != nil || r.Status != StatusVerified || r.NodeID == nil || *r.NodeID != 4821 {
+			t.Errorf("re-authentication of the requester's device of a stopped claim: %s/%s node %v %v, want verified node 4821",
+				r.Status, failureOf(r), r.NodeID, err)
+		}
+		if _, ok := a.hs.Node(4821); !ok {
+			t.Error("the requester's device of a stopped claim was deleted on re-authentication")
+		}
+	})
+
+	t.Run("StuckClaimedRequest", func(t *testing.T) {
+		// C1 (5): a claim stops before it records registered (the process died while AuthRegister was in flight, or the
+		// claim could not tell): the request is left claimed without a node id while Headscale registered a node. Before
+		// reconcile closes the request claim_unfinished, it finds that node as a lost answer does (registeredBy): a node
+		// failing the checks of step 8 is deleted with the security event node_mismatch, the requester's device
+		// (mg-<code>) is kept — either is recorded on the request.
+		admin := a.actor("admin", uuid.New())
+		ctx := ctxOf(admin, a.id, ActionClaim)
+		left := func(key, auth string) Issue {
+			t.Helper()
+			out, err := f.api.Create(ctx, a.id, admin, NewRequest{Method: MethodWebAuth}, idem(key, key))
+			if err != nil {
+				t.Fatal(err)
+			}
+			a.hs.LoseAnswer(devicestest.OpAuthRegister, true)
+			_, err = f.api.Claim(ctx, a.id, admin, Claim{AuthID: auth, RequestID: &out.Request.ID})
+			a.hs.LoseAnswer(devicestest.OpAuthRegister, false)
+			if st := f.str(t, `SELECT status FROM enrollment_requests WHERE id = $1`, out.Request.ID); st != StatusClaimed {
+				t.Fatalf("claim left: %s %v", st, err)
+			}
+			return out
+		}
+		bad := left("k-sc-1", "hskey-authreq-"+strings.Repeat("S", 23)+"1")
+		good := left("k-sc-2", "hskey-authreq-"+strings.Repeat("S", 23)+"2")
+		claimedAt := func(id uuid.UUID) time.Time {
+			f.exec(t, `UPDATE enrollment_requests SET claimed_at = claimed_at - interval '20 minutes' WHERE id = $1`, id)
+			var at time.Time
+			f.scan(t, `SELECT claimed_at FROM enrollment_requests WHERE id = $1`, []any{id}, &at)
+			return at
+		}
+		goodHost := HostnamePrefix + good.Credential.EnrollCode.Reveal()
+		// what Headscale applied after the claims gave up: one node of the member for each
+		a.hs.PutNode(devicestest.Node{ID: 4831, MachineKey: "mkey:sc-bad", Hostname: "evil-sc", GivenName: "evil-sc",
+			UserName: un(admin), Method: "cli", CreatedAt: claimedAt(bad.Request.ID).Add(2 * time.Second)})
+		a.hs.PutNode(devicestest.Node{ID: 4832, MachineKey: "mkey:sc-good", Hostname: goodHost, GivenName: goodHost,
+			UserName: un(admin), Method: "cli", CreatedAt: claimedAt(good.Request.ID).Add(3 * time.Second)})
+		rep, err := f.wrk.Reconcile(t.Context(), a.id)
+		if err != nil || rep.Removed != 1 {
+			t.Fatalf("reconcile %+v %v", rep, err)
+		}
+		state := func(id uuid.UUID) string {
+			return f.str(t, `SELECT status || '/' || COALESCE(failure_code, '') || '/' || COALESCE(consumed_node_id::text, '')
+				FROM enrollment_requests WHERE id = $1`, id)
+		}
+		if st := state(bad.Request.ID); st != StatusFailed+"/"+FailureClaimUnfinished+"/4831" {
+			t.Errorf("stuck claim with a node failing the checks: %s", st)
+		}
+		if _, ok := a.hs.Node(4831); ok {
+			t.Error("the node failing the checks of a stuck claim was not deleted")
+		}
+		if k := f.count(t, `SELECT count(*) FROM security_events WHERE tenant_id = $1 AND kind = $2
+			AND details->>'request_id' = $3`, a.id, EventNodeMismatch, bad.Request.ID.String()); k != 1 {
+			t.Errorf("security events of the stuck claim's node: %d", k)
+		}
+		if st := state(good.Request.ID); st != StatusFailed+"/"+FailureClaimUnfinished+"/4832" {
+			t.Errorf("stuck claim of the requester's device: %s", st)
+		}
+		if n, ok := a.hs.Node(4832); !ok || n.Expiry != nil {
+			t.Errorf("reconcile touched the requester's device of a stuck claim: %+v %v", n, ok)
+		}
+		if k := f.count(t, `SELECT count(*) FROM security_events WHERE tenant_id = $1 AND details->>'request_id' = $2`,
+			a.id, good.Request.ID.String()); k != 0 {
+			t.Errorf("security events for the requester's device: %d", k)
 		}
 	})
 
