@@ -252,7 +252,7 @@ def check_dns(r, st: Stack) -> None:
          f"PUT dns/settings without If-Match {s_nm.status}; with etag on the adopted instance {s_ok.status} "
          f"({(s_ok.json() or {}).get('detail', '')[:80]})")
     audit = psql_one(st, "SELECT string_agg(action, ',' ORDER BY occurred_at, id) FROM audit_events WHERE "
-                     f"tenant_id = '{a_id}' AND resource_id = '{rec.get('id')}'")
+                     f"tenant_id = '{a_id}' AND resource_id = '{rec.get('id')}' AND outcome = 'success'")
     cond("audit", audit == "dns.record.create,dns.record.delete", f"audit {audit}")
     queued = psql(st, "SELECT status FROM provisioning_jobs WHERE kind = 'dns.records_write' AND "
                       f"tenant_id = '{a_id}' ORDER BY created_at")
@@ -296,8 +296,8 @@ def check_resources(r, st: Stack) -> None:
     cond("change", nm.status == 428 and up.status == 200 and new == '"2"' and stale.status == 412 and gone.status == 204,
          f"PATCH without If-Match {nm.status}; with {up.status} etag {new}; DELETE old etag {stale.status}; current {gone.status}")
     audit = psql_one(st, "SELECT string_agg(action, ',' ORDER BY occurred_at, id) FROM audit_events WHERE "
-                     f"tenant_id = '{a_id}' AND resource_id = '{rid}' AND action LIKE 'resource.%'")
-    cond("audit", audit.startswith("resource.create") and "resource.update" in audit and audit.endswith("resource.delete"),
+                     f"tenant_id = '{a_id}' AND resource_id = '{rid}' AND action LIKE 'resource.%' AND outcome = 'success'")
+    cond("audit", audit == "resource.create,resource.update,resource.delete",
          f"audit {audit}")
     _report(r, "E2E-104", "P4-T12 Network Resource Catalog: tạo (Idempotency-Key, tag ngoài danh mục 422) ⇒ policy.apply "
             "resource_change chạy xong; PATCH/DELETE If-Match 428/412; audit", rows, conds)
