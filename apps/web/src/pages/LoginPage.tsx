@@ -1,6 +1,8 @@
 // Đăng nhập (§8.3 bước 1): Tenant Portal hỏi slug của tenant (chỉ dùng để định tuyến đăng nhập — IdP được chọn ở
 // server theo tenant, không nhận từ client); Platform Console đăng nhập phạm vi platform (luôn prompt=login, MFA).
-import { useId, useState } from "react";
+// Slug sai (a11y — P4-T14-prep mục 6.3): lỗi nằm trong vùng role="alert" có sẵn từ đầu (trình đọc màn hình đọc ngay khi
+// bấm "Tiếp tục", kể cả lần bấm lặp lại), gắn với ô nhập qua aria-describedby + aria-errormessage, focus về ô nhập.
+import { useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Navigate, useSearchParams } from "react-router";
 import { useConsole } from "../app/console";
@@ -18,8 +20,12 @@ export function LoginPage() {
   const initialSlug = params.get("tenant") ?? "";
   const [slug, setSlug] = useState(SLUG_RE.test(initialSlug) ? initialSlug : "");
   const [invalid, setInvalid] = useState(false);
+  // mỗi lần bấm "Tiếp tục" với slug sai là một lỗi mới: nội dung vùng alert được thay (key) để được đọc lại
+  const [attempt, setAttempt] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
   const inputId = useId();
   const hintId = useId();
+  const errorId = useId();
   useDocumentTitle(t("login.title"));
 
   if (session.isPending) return <Loading />;
@@ -30,6 +36,8 @@ export function LoginPage() {
       const s = slug.trim().toLowerCase();
       if (!SLUG_RE.test(s)) {
         setInvalid(true);
+        setAttempt((n) => n + 1);
+        inputRef.current?.focus();
         return;
       }
       startLogin({ console: kind, tenantSlug: s, returnTo });
@@ -73,6 +81,7 @@ export function LoginPage() {
                   {t("login.tenantLabel")}
                 </label>
                 <input
+                  ref={inputRef}
                   id={inputId}
                   name="tenant"
                   className="input mt-1"
@@ -81,14 +90,21 @@ export function LoginPage() {
                   spellCheck={false}
                   value={slug}
                   aria-invalid={invalid}
-                  aria-describedby={hintId}
+                  aria-describedby={invalid ? errorId : hintId}
+                  aria-errormessage={invalid ? errorId : undefined}
                   onChange={(e) => {
                     setSlug(e.target.value);
                     setInvalid(false);
                   }}
                 />
-                <p id={hintId} className={invalid ? "mt-1 text-sm text-danger" : "mt-1 text-sm text-muted"}>
-                  {invalid ? t("login.tenantInvalid") : t("login.tenantHint")}
+                {invalid ? null : (
+                  <p id={hintId} className="mt-1 text-sm text-muted">
+                    {t("login.tenantHint")}
+                  </p>
+                )}
+                {/* vùng alert luôn có trong DOM (rỗng khi hợp lệ) — nội dung chèn vào mới được đọc tin cậy */}
+                <p id={errorId} role="alert" className={invalid ? "mt-1 text-sm text-danger" : undefined}>
+                  {invalid ? <span key={attempt}>{t("login.tenantInvalid")}</span> : null}
                 </p>
               </div>
             ) : (
