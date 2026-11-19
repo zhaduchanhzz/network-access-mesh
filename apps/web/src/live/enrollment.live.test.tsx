@@ -120,8 +120,11 @@ describe.skipIf(!ADMIN || !T || !SECRET)("Enrollment trên stack thật", () => 
 
       // tab Thêm thiết bị: yêu cầu của tôi đã xác minh
       await router.navigate(`/t/${T}/enroll`);
-      const mine = await screen.findByTestId("my-requests", {}, { timeout: 30_000 });
-      const row = within(mine).getAllByTestId("enroll-row").find((r) => r.textContent.includes(label));
+      const row = await until(() => {
+        const r = within(screen.getByTestId("my-requests")).getAllByTestId("enroll-row").find((x) => x.textContent.includes(label));
+        expect(r?.getAttribute("data-status")).toBe("verified");
+        return r;
+      }, 120_000).catch(() => within(screen.getByTestId("my-requests")).queryAllByTestId("enroll-row").find((x) => x.textContent.includes(label)));
       record("row_status", row?.getAttribute("data-status"));
       record("request_id", row?.getAttribute("data-request"));
       unmount();
@@ -153,7 +156,7 @@ describe.skipIf(!ADMIN || !T || !SECRET)("Enrollment trên stack thật", () => 
       await until(() => expect(screen.queryByRole("dialog")).toBeNull());
       record("key_traces_after_close", traces(key, router, queryClient));
       // harness: client chính thức dùng key ⇒ Running; job enrollment.reconcile (lịch 2 phút) ⇒ consumed — bảng poll
-      const all = screen.getByTestId("all-requests");
+      const all = await screen.findByTestId("all-requests", {}, { timeout: 120_000 });
       const final = await until(() => {
         const row = within(screen.getByTestId("all-requests")).getAllByTestId("enroll-row").find((r) => r.textContent.includes(label));
         expect(row?.getAttribute("data-status")).toBe("consumed");

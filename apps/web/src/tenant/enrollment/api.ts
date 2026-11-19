@@ -5,10 +5,18 @@
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api, call } from "../../api/client";
 import { useIdempotentMutation } from "../../api/idempotency";
+import { ApiError } from "../../api/problem";
 import { useUsers } from "../people/api";
 import { enrollmentKeys, isWaiting, ENROLL_POLL_MS, LIST_POLL_MS, type EnrollmentIssue, type EnrollmentRequest, type EnrollmentStatus } from "./model";
 
 export const LIST_LIMIT = 100;
+
+/** Bucket `enrollment` (5 + 1/5 s mỗi danh tính) dùng chung giữa các tab: 429 của một lần đọc là chuyện thường ⇒ thử lại tới 5
+ * lần theo Retry-After (retryDelay mặc định của queryClient) thay vì hiện lỗi; lỗi khác theo mặc định (502/503/mạng 2 lần). */
+export function enrollmentRetry(failureCount: number, error: unknown): boolean {
+  if (error instanceof ApiError && error.status === 429) return failureCount < 5;
+  return error instanceof ApiError && (error.code === "network_error" || error.status === 502 || error.status === 503) && failureCount < 2;
+}
 
 /** Sau một thao tác ghi: làm mới danh sách + yêu cầu (không hướng dẫn — không đổi, và mỗi GET tốn token rate limit). */
 export async function invalidateEnrollment(queryClient: QueryClient, tenantId: string): Promise<void> {
@@ -35,6 +43,7 @@ export function useEnrollmentList(
         }),
       ),
     enabled,
+    retry: enrollmentRetry,
     placeholderData: (prev) => prev,
     refetchInterval: (q) => (poll && q.state.data?.items.some((r) => isWaiting(r.status) || r.status === "requested") ? LIST_POLL_MS : false),
   });
@@ -46,6 +55,7 @@ export function useEnrollmentRequest(tenantId: string, id: string, initial: Enro
     queryKey: enrollmentKeys.one(tenantId, id),
     queryFn: () =>
       call(api.GET("/tenants/{tenantId}/enrollment/requests/{enrollmentRequestId}", { params: { path: { tenantId, enrollmentRequestId: id } } })),
+    retry: enrollmentRetry,
     // response của lệnh tạo là bản đọc mới nhất — không GET lại ngay (tiết kiệm token rate limit)
     initialData: initial,
     initialDataUpdatedAt: () => Date.now(),

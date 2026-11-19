@@ -10,6 +10,7 @@ import { ApiError } from "../../api/problem";
 import { Loading } from "../../components/Page";
 import { ProblemAlert } from "../../components/ProblemAlert";
 import { CodeLine } from "../../ui/Copy";
+import { enrollmentRetry } from "./api";
 import { enrollmentKeys, MOBILE_OS, type EnrollmentInstructions, type EnrollmentOS } from "./model";
 
 export function useInstructions(tenantId: string, os: EnrollmentOS) {
@@ -17,6 +18,7 @@ export function useInstructions(tenantId: string, os: EnrollmentOS) {
     queryKey: enrollmentKeys.instructions(tenantId, os),
     queryFn: () => call(api.GET("/tenants/{tenantId}/enrollment/instructions", { params: { path: { tenantId }, query: { os } } })),
     staleTime: 60_000,
+    retry: enrollmentRetry,
   });
 }
 
