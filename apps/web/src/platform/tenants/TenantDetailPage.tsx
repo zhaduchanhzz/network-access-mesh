@@ -19,6 +19,7 @@ import { useTenant, useTenantInstances, useTenantJobs, useTenantRelay, type Tena
 import { JobTable } from "../jobs/JobListPage";
 import { usePlatformRole } from "../PlatformScope";
 import { TenantActions } from "./TenantActions";
+import { TenantEdit } from "./TenantEdit";
 
 export function TenantDetailPage() {
   const { tenantId: raw = "" } = useParams();
@@ -43,7 +44,15 @@ function TenantDetail({ tenantId }: { tenantId: string }) {
   }
   const tn = tenant.data.data;
   return (
-    <Page title={tn.name} actions={<TenantActions tenant={tn} role={role} />}>
+    <Page
+      title={tn.name}
+      actions={
+        <div className="flex flex-wrap gap-2">
+          <TenantEdit tenant={tn} etag={tenant.data.etag} role={role} />
+          <TenantActions tenant={tn} role={role} />
+        </div>
+      }
+    >
       <p className="mb-4">
         <Link to="/platform/tenants" className="link text-sm">
           {t("platform.tenantDetail.back")}
