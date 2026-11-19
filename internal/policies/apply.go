@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/zhaduchanhzz/network-access-mesh/infrastructure/headscale/templates"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/audit"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/headscale"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/notifications"
@@ -89,6 +90,16 @@ type Config struct {
 	// Notifier receives the policy.applied event in the transaction that records the success; default
 	// notifications.Default.
 	Notifier notifications.Enqueuer
+	// Suspended is a registry that also reaches the instance of a SUSPENDED tenant (locator TenantStatuses active +
+	// suspended — apps/internal/runner reachableRegistry): the policy.apply job applies the suspension policy and the
+	// drift check reads a suspended tenant's policy through it. nil ⇒ Registry.
+	Suspended headscale.Registry
+	// SuspensionPolicy is the HuJSON of the suspension (deny-all) the policy.apply job applies to a tenant being
+	// suspended (P4-T10: the deny-all step of tenant.suspend as its own job); "" ⇒ templates.SuspensionPolicy.
+	SuspensionPolicy string
+	// Edge detaches the edge of an instance that serves no policy (drift check — §13.4 ErrNoPolicy); nil ⇒ the
+	// Critical event only (a worker without a Host Agent).
+	Edge EdgeDetacher
 }
 
 // Service is the minimal policy core (P3-T08a): versions from raw HuJSON, lint L1/L2, per-tenant advisory lock,
@@ -100,6 +111,9 @@ type Service struct {
 	lockWait time.Duration
 	notify   notifications.Enqueuer
 	sysWait  time.Duration
+	susReg   headscale.Registry
+	susText  string
+	edge     EdgeDetacher
 }
 
 // New returns the core on the store of the process (worker: mg_worker_tenant — policy_applications are written by the
@@ -109,7 +123,16 @@ func New(st *store.Store, cfg Config) (*Service, error) {
 		return nil, errors.New("policies: a store and a headscale registry are required")
 	}
 	s := &Service{st: st, reg: cfg.Registry, log: cfg.Logger, lockWait: cfg.LockWait, notify: cfg.Notifier,
-		sysWait: 15 * time.Second}
+		sysWait: 15 * time.Second, susReg: cfg.Suspended, susText: cfg.SuspensionPolicy, edge: cfg.Edge}
+	if s.susReg == nil {
+		s.susReg = s.reg
+	}
+	if s.susText == "" {
+		s.susText = templates.SuspensionPolicy
+	}
+	if _, err := Lint(s.susText); err != nil {
+		return nil, fmt.Errorf("policies: the suspension policy: %w", err)
+	}
 	if s.log == nil {
 		s.log = slog.New(slog.DiscardHandler)
 	}
@@ -136,6 +159,8 @@ type ApplyRequest struct {
 	RequestedBy *uuid.UUID
 	// Actor is the display name of the actor in the audit when there is no request scope (e.g. the command name).
 	Actor string
+
+	reachSuspended bool // the desired version re-applied to a suspended tenant (resume) — the Suspended registry
 }
 
 // Result describes one application.
@@ -172,6 +197,8 @@ func (e *ApplyError) Unwrap() error { return e.Err }
 var (
 	ErrInvalidRequest = errors.New("policies: invalid request")
 	ErrNoInstance     = errors.New("policies: the tenant has no live instance")
+	// ErrDesiredChanged: the desired version changed (or lost its approval) between the render and the record.
+	ErrDesiredChanged = errors.New("policies: the desired policy changed while it was being applied")
 )
 
 // Apply applies a HuJSON policy to the tenant's live instance (§7.3, P3-T08a):
@@ -218,6 +245,9 @@ func (s *Service) Apply(ctx context.Context, req ApplyRequest) (Result, error) {
 	var res Result
 	err = s.st.WithTenantLock(ctx, req.TenantID, lockName, s.lockWait, func(ctx context.Context) error {
 		rendered, e := s.renderCatalog(ctx, req.TenantID, doc)
+		if e == nil {
+			e = hardLint(rendered.Applied) // L3, L5, L10 check, L11, L12 on what would be sent (P4-T10)
+		}
 		if e != nil {
 			if _, lint := IsLint(e); lint {
 				s.recordLintRejected(ctx, req, e)
@@ -225,7 +255,7 @@ func (s *Service) Apply(ctx context.Context, req ApplyRequest) (Result, error) {
 			res = Result{TenantID: req.TenantID}
 			return e
 		}
-		res, e = s.applyLocked(ctx, req, rendered)
+		res, e = s.applyLocked(ctx, req, rendered, nil)
 		return e
 	})
 	return res, err
@@ -255,13 +285,19 @@ type started struct {
 	trigger  string
 }
 
-func (s *Service) applyLocked(ctx context.Context, req ApplyRequest, doc Document) (Result, error) {
-	st, err := s.begin(ctx, req, doc)
+// applyLocked runs steps 3–6 under the tenant's policy lock. fixed is the version to apply as it is (the desired
+// version re-applied by the policy.apply pipeline — never a new version); nil ⇒ the core's version rule.
+func (s *Service) applyLocked(ctx context.Context, req ApplyRequest, doc Document, fixed *sqlcdb.PolicyVersion) (Result, error) {
+	st, err := s.begin(ctx, req, doc, fixed)
 	if err != nil {
 		return st.res, err
 	}
 	res := st.res
-	inst, err := s.reg.ForTenant(ctx, req.TenantID)
+	reg := s.reg
+	if req.Kind == KindSuspension || req.reachSuspended {
+		reg = s.susReg
+	}
+	inst, err := reg.ForTenant(ctx, req.TenantID)
 	if err != nil {
 		return s.fail(ctx, st, codeOf(err), false, err)
 	}
@@ -293,7 +329,7 @@ func (s *Service) applyLocked(ctx context.Context, req ApplyRequest, doc Documen
 }
 
 // begin resolves the instance and the version, writes the pending application and policy.apply.requested.
-func (s *Service) begin(ctx context.Context, req ApplyRequest, doc Document) (started, error) {
+func (s *Service) begin(ctx context.Context, req ApplyRequest, doc Document, fixed *sqlcdb.PolicyVersion) (started, error) {
 	st := started{res: Result{TenantID: req.TenantID, ContentSHA256: doc.ContentSHA256, AppliedSHA256: doc.AppliedSHA256,
 		InputsSHA256: doc.InputsSHA256, TagOwners: doc.TagOwners, State: StatePending}, trigger: req.Trigger}
 	report, _ := json.Marshal(map[string]any{"engine": "p3-t08a", "lint": map[string]any{
@@ -310,8 +346,22 @@ func (s *Service) begin(ctx context.Context, req ApplyRequest, doc Document) (st
 		if st.desired, err = q.GetTenantPolicyState(ctx, req.TenantID); err != nil {
 			return err
 		}
-		v, reused, err := s.version(ctx, q, req, doc, st.desired, report)
-		if err != nil {
+		var (
+			v      sqlcdb.PolicyVersion
+			reused bool
+		)
+		if fixed != nil {
+			// the desired version as it is NOW: still the desired one and still approved (a concurrent apply of another
+			// version, a rollback ⇒ the job's next round renders the new desired state)
+			v, err = q.GetPolicyVersion(ctx, sqlcdb.GetPolicyVersionParams{TenantID: req.TenantID, ID: fixed.ID})
+			if err != nil {
+				return err
+			}
+			if v.State != "approved" || v.ContentSha256 != fixed.ContentSha256 || st.desired == nil || *st.desired != v.ID {
+				return ErrDesiredChanged
+			}
+			reused = true
+		} else if v, reused, err = s.version(ctx, q, req, doc, st.desired, report); err != nil {
 			return err
 		}
 		st.version = v
@@ -332,13 +382,13 @@ func (s *Service) begin(ctx context.Context, req ApplyRequest, doc Document) (st
 		}
 		st.res.ApplicationID = app.ID
 		st.op, err = audit.Requested(ctx, q, s.event(req, ActionApply, app.ID.String(), audit.Details{
-			"version_id": v.ID, "version": v.Version, "version_created": !reused, "kind": req.Kind,
+			"version_id": v.ID, "version": v.Version, "version_created": !reused, "kind": v.Kind,
 			"trigger": req.Trigger, "instance_id": inst.ID, "content_sha256": doc.ContentSHA256,
 			"applied_sha256": doc.AppliedSHA256, "inputs_sha256": doc.InputsSHA256, "tag_owners": doc.TagOwners}))
 		return err
 	})
 	if err != nil {
-		if errors.Is(err, ErrNoInstance) {
+		if errors.Is(err, ErrNoInstance) || errors.Is(err, ErrDesiredChanged) {
 			return st, err
 		}
 		return st, fmt.Errorf("policies: record the application: %w", err)
