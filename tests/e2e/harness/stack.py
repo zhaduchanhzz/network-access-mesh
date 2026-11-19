@@ -524,11 +524,11 @@ class Stack:
             self.compose("--profile", "tools", "--profile", "migrate", "--profile", "bootstrap", "down", "-v",
                          "--remove-orphans", "--timeout", "10", check=False, timeout=180)
         ids = self.docker("ps", "-aq", "--filter", f"label=com.docker.compose.project={self.prefix}", check=False).stdout.split()
-        for extra in ("probe", "caller", "direct", "enroll", "obs-"):
+        for extra in ("probe", "caller", "direct", "enroll", "obs-", "pw"):   # pw*: Playwright + bộ chuyển tiếp (P4-T14)
             ids += self.docker("ps", "-aq", "--filter", f"name=^{self.name(extra)}", check=False).stdout.split()
         if ids:
             self.docker("rm", "-f", *ids, check=False)
-        for n in self.networks:
+        for n in (*self.networks, "pw"):                 # pw: mạng riêng của trình duyệt Playwright (P4-T14)
             self.docker("network", "rm", self.name(n), check=False)
         for v in ("edge-data", "idp-db-data", "prometheus-data", "alertmanager-data"):
             self.docker("volume", "rm", "-f", f"{self.prefix}_{v}", check=False)

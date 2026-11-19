@@ -227,4 +227,24 @@ for svc in ("prometheus", "alertmanager", "node-exporter", "alertsink"):
     body = m.group(1) if m else ""
     check(bool(m) and not re.search(r"^    (ports|networks|image|user|cap_add|privileged|environment):", body, re.M),
           f"compose.yaml: {svc} override only re-points binds / names the container")
+
+# ---- Playwright (P4-T14): image chính thức pin digest, cùng phiên bản với @playwright/test của package-lock.json; bản
+# npm của playwright-core duy nhất (override) — trình duyệt của image khớp thư viện điều khiển nó
+import json  # noqa: E402
+import tomllib  # noqa: E402
+
+pw = tomllib.loads((ROOT / "versions.lock").read_text(encoding="utf-8"))["images"].get("playwright", {})
+lock = json.loads((ROOT / "apps" / "web" / "package-lock.json").read_text(encoding="utf-8"))["packages"]
+pw_npm = {k: v.get("version") for k, v in lock.items() if k.endswith(("node_modules/@playwright/test",
+                                                                        "node_modules/playwright",
+                                                                        "node_modules/playwright-core"))}
+check(pw.get("image") == "mcr.microsoft.com/playwright" and bool(re.fullmatch(r"sha256:[0-9a-f]{64}", pw.get("index", "")))
+      and bool(re.fullmatch(r"sha256:[0-9a-f]{64}", pw.get("amd64", ""))),
+      "versions.lock [images.playwright]: image chính thức, pin digest index + amd64", str(pw))
+check(bool(pw_npm) and set(pw_npm.values()) == {pw.get("tag", "").removeprefix("v").removesuffix("-noble")},
+      "Playwright: tag của image = mọi bản @playwright/test, playwright, playwright-core trong package-lock.json",
+      f"{pw.get('tag')} vs {pw_npm}")
+harness = (ROOT / "tests" / "e2e" / "harness" / "playwrightui.py").read_text(encoding="utf-8")
+check("@sha256:" not in harness and '["images"]["playwright"]' in harness,
+      "playwrightui.py: image Playwright lấy từ versions.lock (không digest viết cứng)")
 sys.exit(1 if failures else 0)

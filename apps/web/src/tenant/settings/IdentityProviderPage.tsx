@@ -139,7 +139,9 @@ function IdPForm({ idp, etag, onSaved }: { idp: IdentityProvider; etag: string |
         <h2 id="idp-constraints" className="text-lg font-semibold">
           {t("idp.constraints")}
         </h2>
-        <Field label={t("idp.domains")}>{idp.allowed_email_domains.length ? idp.allowed_email_domains.join(", ") : t("common.none")}</Field>
+        <dl>
+          <Field label={t("idp.domains")}>{idp.allowed_email_domains.length ? idp.allowed_email_domains.join(", ") : t("common.none")}</Field>
+        </dl>
         <p className="label">{t("idp.requiredClaims")}</p>
         <JsonBlock value={idp.required_claims} />
         <p className="label">{t("idp.claimMapping")}</p>

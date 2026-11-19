@@ -65,6 +65,19 @@ export default defineConfig(
     },
   },
   {
+    // P4-T14: Playwright chạy trong Node (không phải SPA) — kiểm type chặt như src/, không áp luật chuỗi giao diện/storage
+    files: ["e2e/**/*.ts", "playwright.config.ts"],
+    extends: [tseslint.configs.strictTypeChecked],
+    languageOptions: {
+      globals: { ...globals.node, ...globals.browser },
+      parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname },
+    },
+    rules: {
+      "@typescript-eslint/restrict-template-expressions": ["error", { allowNumber: true }],
+      "@typescript-eslint/no-confusing-void-expression": ["error", { ignoreArrowShorthand: true }],
+    },
+  },
+  {
     files: ["scripts/**/*.mjs", "eslint-rules/**/*.js", "eslint.config.js"],
     languageOptions: { globals: globals.node },
   },
