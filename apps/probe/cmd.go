@@ -104,6 +104,10 @@ func loadRoots(path string) (*x509.CertPool, error) {
 	return pool, nil
 }
 
+// listenTCP opens the listeners of serve and alertsink; the tests hand over listeners they already hold
+// (httpxtest.Listeners).
+var listenTCP httpx.ListenFunc = (&net.ListenConfig{}).Listen
+
 func serveCmd(ctx context.Context, getenv func(string) string, stdout, stderr io.Writer) int {
 	cfg, err := loadConfig(getenv)
 	if err != nil {
@@ -134,7 +138,7 @@ func serveCmd(ctx context.Context, getenv func(string) string, stdout, stderr io
 		Logger: quiet}), prober.ScrapeOptions{Scrapers: cfg.scrapers, CapVer: cfg.capver, Logger: log, Registerer: reg}))
 	mux.Handle("/", httpx.InternalMux(map[string]httpx.Probe{}, reg, log))
 	internal := httpx.NewServer(cfg.internal, mux, log)
-	if err := httpx.Serve(ctx, log, rpc, internal); err != nil {
+	if err := httpx.ServeWith(ctx, log, listenTCP, rpc, internal); err != nil {
 		return 1
 	}
 	log.Info("stopped")

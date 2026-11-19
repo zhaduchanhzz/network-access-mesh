@@ -27,6 +27,10 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/mailrelay"
 )
 
+// listenTCP opens the listeners of the relay (SMTP, internal); the tests hand over listeners they already hold
+// (httpxtest.Listeners).
+var listenTCP httpx.ListenFunc = (&net.ListenConfig{}).Listen
+
 const mailRelayUsage = "usage: meshguard-worker mailrelay   (SMTP bridge to the Cloudflare Worker — MG_MAILRELAY_*)\n"
 
 // mailRelay runs the relay until ctx ends. interfaces lists the local addresses (net.InterfaceAddrs; tests).
@@ -102,7 +106,7 @@ func mailRelay(ctx context.Context, args []string, stdout, stderr io.Writer, get
 	if err != nil {
 		return fail("listen", err)
 	}
-	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", addr)
+	ln, err := listenTCP(ctx, "tcp", addr)
 	if err != nil {
 		return fail("listen", err)
 	}
@@ -120,7 +124,7 @@ func mailRelay(ctx context.Context, args []string, stdout, stderr io.Writer, get
 		cancel() // the SMTP side stopped: stop the internal listener too
 		smtpErr <- err
 	}()
-	httpErr := httpx.Serve(runCtx, log, httpx.NewServer(cfg.InternalAddr, httpx.InternalMux(probes, reg, log), log))
+	httpErr := httpx.ServeWith(runCtx, log, listenTCP, httpx.NewServer(cfg.InternalAddr, httpx.InternalMux(probes, reg, log), log))
 	cancel()
 	if err := <-smtpErr; err != nil {
 		log.Error("SMTP listener failed", "error", err.Error())

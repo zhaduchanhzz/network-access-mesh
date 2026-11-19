@@ -377,7 +377,7 @@ func wiredEnv(t *testing.T, service, dbURL string, pg *storetest.Env, edgeURL, t
 	tc, pc := pg.Creds(t, "mg_"+service+"_tenant"), pg.Creds(t, "mg_"+service+"_platform")
 	m := map[string]string{
 		"MG_ENV": "staging", "MG_LOG_LEVEL": "debug", "MG_BASE_DOMAIN": "mg.test",
-		"MG_HTTP_ADDR": freeAddr(t), "MG_INTERNAL_ADDR": freeAddr(t),
+		"MG_HTTP_ADDR": heldAddr(t), "MG_INTERNAL_ADDR": heldAddr(t),
 		"MG_DB_URL": dbURL, "MG_DB_TENANT_USER": tc.User, "MG_DB_TENANT_PASSWORD_FILE": tc.PasswordFile,
 		"MG_DB_PLATFORM_USER": pc.User, "MG_DB_PLATFORM_PASSWORD_FILE": pc.PasswordFile,
 		"MG_KEK_APP_DIR": ring("kek-app", "test-app-1"), "MG_EDGE_ADMIN_URL": edgeURL, "MG_EDGE_ADMIN_TOKEN_FILE": tokenFile,

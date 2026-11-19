@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/zhaduchanhzz/network-access-mesh/internal/kit/httpx/httpxtest"
 )
 
 // TestMailRelayCommand: usage and configuration errors exit 2 without starting anything; a valid configuration serves
@@ -34,7 +36,7 @@ func TestMailRelayCommand(t *testing.T) {
 	if err := os.WriteFile(key, []byte(strings.Repeat("k", 40)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	smtpPort, internalPort := freePort(t), freePort(t)
+	smtpPort, internalPort := heldPort(t), heldPort(t)
 	env := map[string]string{"MG_ENV": "ci", "MG_MAILRELAY_URL": "http://127.0.0.1:9/v1/send", "MG_MAILRELAY_HMAC_KEY_FILE": key,
 		"MG_MAILRELAY_ALLOWED_FROM": "no-reply@example.com", "MG_MAILRELAY_SMTP_ADDR": "127.0.0.1:" + smtpPort,
 		"MG_INTERNAL_ADDR": "127.0.0.1:" + internalPort}
@@ -87,13 +89,15 @@ func TestMailRelayCommand(t *testing.T) {
 	}
 }
 
-func freePort(t *testing.T) string {
+// ports holds the listeners of mailRelay: it binds through listenTCP, which only hands these over.
+var ports httpxtest.Listeners
+
+func init() { listenTCP = ports.Listen }
+
+// heldPort returns the port of a loopback listener held for mailRelay (no "free port" picked by listening and closing:
+// another test or process could take it before mailRelay binds it).
+func heldPort(t *testing.T) string {
 	t.Helper()
-	l, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, p, _ := net.SplitHostPort(l.Addr().String())
-	_ = l.Close()
+	_, p, _ := net.SplitHostPort(ports.Addr(t))
 	return p
 }

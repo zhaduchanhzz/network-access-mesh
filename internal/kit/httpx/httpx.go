@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"sort"
 	"sync"
@@ -78,13 +79,46 @@ func NewServer(addr string, h http.Handler, log *slog.Logger) *http.Server {
 	}
 }
 
+// ListenFunc opens a stream listener — net.ListenConfig.Listen in production; a test passes httpxtest.Listeners.Listen
+// to hand over listeners it already holds (a port found "free" by listening and closing can be taken by another test or
+// process before the server binds it).
+type ListenFunc func(ctx context.Context, network, address string) (net.Listener, error)
+
 // Serve runs every server until ctx is cancelled or one of them fails, then shuts all of them down gracefully.
 func Serve(ctx context.Context, log *slog.Logger, servers ...*http.Server) error {
-	errc := make(chan error, len(servers))
+	return ServeWith(ctx, log, nil, servers...)
+}
+
+// ServeWith is Serve with the listeners opened by listen (nil: net.ListenConfig.Listen): every server's Addr is bound
+// before any of them serves, a bind failure closes the listeners already opened and is returned at once.
+func ServeWith(ctx context.Context, log *slog.Logger, listen ListenFunc, servers ...*http.Server) error {
+	if listen == nil {
+		listen = (&net.ListenConfig{}).Listen
+	}
+	listeners := make([]net.Listener, 0, len(servers))
+	closeAll := func() {
+		for _, l := range listeners {
+			_ = l.Close()
+		}
+	}
 	for _, s := range servers {
+		addr := s.Addr
+		if addr == "" {
+			addr = ":http" // as http.Server.ListenAndServe
+		}
+		l, err := listen(context.WithoutCancel(ctx), "tcp", addr)
+		if err != nil {
+			closeAll()
+			log.Error("server failed", "error", err.Error())
+			return err
+		}
+		listeners = append(listeners, l)
+	}
+	errc := make(chan error, len(servers))
+	for i, s := range servers {
 		go func() {
-			log.Info("listening", "addr", s.Addr)
-			if err := s.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Info("listening", "addr", listeners[i].Addr().String())
+			if err := s.Serve(listeners[i]); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				errc <- err
 			}
 		}()
@@ -102,5 +136,6 @@ func Serve(ctx context.Context, log *slog.Logger, servers ...*http.Server) error
 			log.Warn("shutdown", "addr", s.Addr, "error", err.Error())
 		}
 	}
+	closeAll() // a server shut down before its Serve started has not closed its listener yet
 	return runErr
 }

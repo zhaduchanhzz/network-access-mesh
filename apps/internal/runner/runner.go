@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -47,6 +48,9 @@ type component struct {
 	stop   func(ctx context.Context)
 	close  func()
 }
+
+// listenTCP opens the process listeners; the tests hand over listeners they already hold (httpxtest.Listeners).
+var listenTCP httpx.ListenFunc = (&net.ListenConfig{}).Listen
 
 // stopTimeout bounds the graceful stop of the background work (the job worker's SoftStopTimeout is 30 s).
 const stopTimeout = 45 * time.Second
@@ -89,7 +93,7 @@ func run(ctx context.Context, service string, getenv func(string) string, enviro
 			return 1
 		}
 	}
-	serveErr := httpx.Serve(ctx, log, servers...)
+	serveErr := httpx.ServeWith(ctx, log, listenTCP, servers...)
 	if c.stop != nil {
 		sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), stopTimeout)
 		c.stop(sctx)

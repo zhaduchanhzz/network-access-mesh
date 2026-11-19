@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/zhaduchanhzz/network-access-mesh/apps/probe/prober"
 	"github.com/zhaduchanhzz/network-access-mesh/apps/probe/stub"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/kit/httpx/httpxtest"
 )
 
 func env(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
@@ -130,7 +130,7 @@ func TestRunSubcommand(t *testing.T) {
 
 // serve starts both listeners, answers the healthcheck and the RPC, and stops on cancel.
 func TestServe(t *testing.T) {
-	rpcAddr, internalAddr := freeTCP(t), freeTCP(t)
+	rpcAddr, internalAddr := heldTCP(t), heldTCP(t)
 	getenv := env(map[string]string{"MG_PROBE_LISTEN": rpcAddr, "MG_INTERNAL_ADDR": internalAddr,
 		"MG_PROBE_ALLOW_CALLERS": "127.0.0.1", "MG_PROBE_ALLOW_TARGETS": "127.0.0.0/8", "MG_PROBE_ALLOW_SCRAPERS": "127.0.0.1",
 		"MG_LOG_LEVEL": "debug"})
@@ -194,7 +194,7 @@ func TestServe(t *testing.T) {
 
 // alertsink serves the webhook route and the internal listener, and stops on cancel.
 func TestAlertsink(t *testing.T) {
-	apiAddr, internalAddr := freeTCP(t), freeTCP(t)
+	apiAddr, internalAddr := heldTCP(t), heldTCP(t)
 	getenv := env(map[string]string{"MG_ALERTSINK_LISTEN": apiAddr, "MG_INTERNAL_ADDR": internalAddr,
 		"MG_ALERTSINK_ALLOW_CALLERS": "127.0.0.1"})
 	ctx, cancel := context.WithCancel(t.Context())
@@ -245,13 +245,14 @@ func TestAlertsink(t *testing.T) {
 	}
 }
 
-func freeTCP(t *testing.T) string {
+// ports holds the listeners of serve and alertsink: they bind through listenTCP, which only hands these over.
+var ports httpxtest.Listeners
+
+func init() { listenTCP = ports.Listen }
+
+// heldTCP returns the loopback address of a listener held for serve / alertsink (no "free port" picked by listening
+// and closing: another test or process could take it before the command binds it).
+func heldTCP(t *testing.T) string {
 	t.Helper()
-	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	addr := ln.Addr().String()
-	_ = ln.Close()
-	return addr
+	return ports.Addr(t)
 }
