@@ -202,7 +202,8 @@ type keyPlan struct {
 // issueKey creates the pre-auth key of request r at Headscale (explicit expiration — V-06) and records it:
 // credential_issued with the key's numeric id, op succeeded. Any failure ends the request failed (op failed); a key
 // created but not recorded — or refused at the record (issuable) — is expired at once: no live credential the platform
-// does not know.
+// does not know. Should that expiry fail (logged), the key's plaintext was neither returned nor kept — nobody holds it —
+// and the key dies at its expiry (≤ 15 minutes).
 func (s *Service) issueKey(ctx context.Context, tenantID uuid.UUID, r sqlcdb.EnrollmentRequest, kp keyPlan,
 	loginServer string, op audit.Operation,
 ) (sqlcdb.EnrollmentRequest, *Credential, error) {

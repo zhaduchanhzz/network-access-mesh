@@ -153,6 +153,10 @@ func TestIssueAndRevoke(t *testing.T) {
 		if code := f.str(t, `SELECT failure_code FROM enrollment_requests WHERE id = $1`, id); code != "tenant_suspended" {
 			t.Fatalf("failure_code %s", code)
 		}
+		if got := f.auditOf(t, id.String()); !slices.Contains(got, "enrollment.request.failed/failure") ||
+			slices.Contains(got, "enrollment.request.succeeded/success") {
+			t.Fatalf("audit %v", got)
+		}
 	})
 
 	t.Run("RevokeUsedKey", func(t *testing.T) {
@@ -215,6 +219,10 @@ func TestIssueAndRevoke(t *testing.T) {
 		r, err := f.api.Get(t.Context(), a.id, out.Request.ID, owner)
 		if err != nil || r.Status != StatusConsumed || r.NodeID == nil || *r.NodeID != int64(node.ID) { //nolint:gosec // small test ids
 			t.Fatalf("request after the race: %+v %v", r, err)
+		}
+		if got := f.auditOf(t, out.Request.ID.String()); !slices.Contains(got, "enrollment.revoke.failed/failure") ||
+			slices.Contains(got, "enrollment.revoke.succeeded/success") {
+			t.Fatalf("audit %v", got)
 		}
 	})
 
@@ -335,6 +343,46 @@ func TestIssueAndRevoke(t *testing.T) {
 		}
 		if k := lastKey(); time.Until(k.Expiration) > 2*time.Minute+5*time.Second {
 			t.Fatalf("key at Headscale %+v", k)
+		}
+	})
+
+	t.Run("StartRacesExpiry", func(t *testing.T) {
+		// /start issues the key of an approved request while reconcile expires the approval (24 hours passed in that
+		// window): the request stays expired, the key is expired at once and never handed out
+		f.setting(t, a, "enrollment,self_enroll", "true")
+		f.setting(t, a, "enrollment,requires_approval", "true")
+		defer f.setting(t, a, "enrollment,requires_approval", "false")
+		user := a.actor("user", uuid.New())
+		out, err := f.api.Create(ctxOf(user, a.id, ActionRequest), a.id, user, NewRequest{Method: MethodPreauthKey},
+			idem("k-i-10", "10"))
+		if err != nil || out.Request.Status != StatusPendingApproval {
+			t.Fatalf("pending: %+v %v", out, err)
+		}
+		if _, err := f.api.Approve(ctxOf(admin, a.id, ActionApprove), a.id, out.Request.ID, admin); err != nil {
+			t.Fatal(err)
+		}
+		defer f.clk.advance(-DecisionWindow - time.Minute)
+		var rerr error
+		a.hs.Before(devicestest.OpCreatePreAuthKey, func(uint64) {
+			f.clk.advance(DecisionWindow + time.Minute)
+			_, rerr = f.wrk.Reconcile(context.Background(), a.id)
+		})
+		iss, err := f.api.Start(ctxOf(user, a.id, ActionStart), a.id, out.Request.ID, user)
+		if rerr != nil {
+			t.Fatal(rerr)
+		}
+		if codeOf(err) != CodeConflict || reasonOf(err) != "already_final" || iss.Credential != nil {
+			t.Fatalf("start of an approval that expired meanwhile: %+v %v", iss, err)
+		}
+		if st := status(t, out.Request.ID); st != StatusExpired {
+			t.Fatalf("status %s, want the expiry kept", st)
+		}
+		if k := lastKey(); k.Expiration.After(time.Now().Add(time.Second)) {
+			t.Fatalf("the key created for the expired request is still live: %+v", k)
+		}
+		if got := f.auditOf(t, out.Request.ID.String()); !slices.Contains(got, "enrollment.start.failed/failure") ||
+			slices.Contains(got, "enrollment.start.succeeded/success") {
+			t.Fatalf("audit %v", got)
 		}
 	})
 	f.noKeyMaterial(t)

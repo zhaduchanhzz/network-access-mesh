@@ -536,6 +536,11 @@ func TestP4CheckConstraints(t *testing.T) {
 		{"request: enrollment code on a key", issued.with("enroll_code_hash", rnd).insert("enrollment_requests"), "23514"},
 		{"request: pre-auth key id on web-auth", webIssued.with("headscale_preauthkey_id", "1").insert("enrollment_requests"), "23514"},
 		{"request: web-auth issued without code", webIssued.with("enroll_code_hash", "-").insert("enrollment_requests"), "23514"},
+		// the lifetime a key request asked for (0027): 1–15 minutes, pre-auth key only
+		{"request: valid requested lifetime", er.with("status", "'pending_approval'", "requested_ttl_minutes", "15").insert("enrollment_requests"), ""},
+		{"request: requested lifetime 0", er.with("requested_ttl_minutes", "0").insert("enrollment_requests"), "23514"},
+		{"request: requested lifetime 16 minutes", er.with("requested_ttl_minutes", "16").insert("enrollment_requests"), "23514"},
+		{"request: requested lifetime on web-auth", web.with("requested_ttl_minutes", "5").insert("enrollment_requests"), "23514"},
 		{"request: web-auth issued without session", webIssued.with("session_id_hash", "-").insert("enrollment_requests"), "23514"},
 		{"request: claimed without Auth ID", claimed.with("auth_id_hash", "-").insert("enrollment_requests"), "23514"},
 		{"request: claimed without claimed_at", claimed.with("claimed_at", "-").insert("enrollment_requests"), "23514"},
