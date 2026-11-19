@@ -185,13 +185,15 @@ var catalog = map[Kind]map[string]mailTemplate{
 			"Tenant Owner{{with .requested_by}} {{.}}{{end}} of tenant {{.tenant_slug}} asked for the tenant's deletion at {{.requested_at}} (UTC). " +
 				"See the reason in the platform audit; verify with the tenant, then delete it with the tenant deletion (2P) in the Platform Console: {{.console_url}}\n\nTenant ID: {{.tenant_id}}"},
 	},
-	KindIdPConsoleLogin: {
-		LocaleVI: {"[MeshGuard] CẢNH BÁO: đăng nhập quản trị Keycloak ({{.client}})",
-			"Có một lần đăng nhập vào khu quản trị của Keycloak do nền tảng host: client {{.client}}{{with .username}}, tài khoản {{.}}{{end}}{{with .ip}}, từ {{.}}{{end}}, lúc {{.occurred_at}} (UTC).\n\n" +
-				"Mỗi lần đăng nhập console cần một phiên đã được hai Super Admin duyệt; nếu không có phiên nào như vậy, hãy xử lý như sự cố bảo mật. Xem security event trong Platform Console: {{.console_url}}\n\nMã sự kiện: {{.event_id}}"},
-		LocaleEN: {"[MeshGuard] ALERT: Keycloak administration sign-in ({{.client}})",
-			"Someone signed in to the administration of the platform-hosted Keycloak: client {{.client}}{{with .username}}, account {{.}}{{end}}{{with .ip}}, from {{.}}{{end}}, at {{.occurred_at}} (UTC).\n\n" +
-				"Every console sign-in needs a session approved by two Super Admins; if there is no such session, handle it as a security incident. See the security events in the Platform Console: {{.console_url}}\n\nEvent ID: {{.event_id}}"},
+	KindIdPConsoleLogin: { // one sign-in, or ({{if .count}}) the summary of the sign-ins held back in a window (F-G3-2)
+		LocaleVI: {"[MeshGuard] CẢNH BÁO: {{if .count}}{{.count}} lần đăng nhập quản trị Keycloak nữa{{with .username}} ({{.}}){{end}}{{else}}đăng nhập quản trị Keycloak ({{.client}}){{end}}",
+			"{{if .count}}Trong cửa sổ {{.window_minutes}} phút sau lần đăng nhập đã được báo riêng (cùng tài khoản, client và địa chỉ), có thêm {{.count}} lần đăng nhập vào khu quản trị của Keycloak do nền tảng host{{with .username}} bằng tài khoản {{.}}{{end}}, từ {{.first_at}} đến {{.occurred_at}} (UTC){{with .sources}}; nguồn: {{.}}{{end}}.\n\n" +
+				"Các lần này được gộp vào một thư; mỗi lần vẫn là một security event idp.console_login riêng. {{else}}Có một lần đăng nhập vào khu quản trị của Keycloak do nền tảng host: client {{.client}}{{with .username}}, tài khoản {{.}}{{end}}{{with .ip}}, từ {{.}}{{end}}, lúc {{.occurred_at}} (UTC).\n\n{{end}}" +
+				"Mỗi lần đăng nhập console cần một phiên đã được hai Super Admin duyệt; nếu không có phiên nào như vậy, hãy xử lý như sự cố bảo mật. Xem security event trong Platform Console: {{.console_url}}\n\n{{if .count}}Mã sự kiện cuối: {{else}}Mã sự kiện: {{end}}{{.event_id}}"},
+		LocaleEN: {"[MeshGuard] ALERT: {{if .count}}{{.count}} more Keycloak administration sign-ins{{with .username}} ({{.}}){{end}}{{else}}Keycloak administration sign-in ({{.client}}){{end}}",
+			"{{if .count}}In the {{.window_minutes}}-minute window after the sign-in notified on its own (same account, client and address), there were {{.count}} more sign-ins to the administration of the platform-hosted Keycloak{{with .username}} with account {{.}}{{end}}, from {{.first_at}} to {{.occurred_at}} (UTC){{with .sources}}; sources: {{.}}{{end}}.\n\n" +
+				"They are grouped in one e-mail; each one is still its own security event idp.console_login. {{else}}Someone signed in to the administration of the platform-hosted Keycloak: client {{.client}}{{with .username}}, account {{.}}{{end}}{{with .ip}}, from {{.}}{{end}}, at {{.occurred_at}} (UTC).\n\n{{end}}" +
+				"Every console sign-in needs a session approved by two Super Admins; if there is no such session, handle it as a security incident. See the security events in the Platform Console: {{.console_url}}\n\n{{if .count}}Last event ID: {{else}}Event ID: {{end}}{{.event_id}}"},
 	},
 	KindInstanceQuarantined: {
 		LocaleVI: {"[MeshGuard] CẢNH BÁO: instance {{.tenant_slug}} bị quarantine ({{.outcome}})",

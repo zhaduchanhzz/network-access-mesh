@@ -12,8 +12,10 @@
 //   - the realm of the platform IdP ⇒ the same as platform events (no Owner to notify);
 //   - the master realm ⇒ platform events: every sign-in to the Keycloak administration (console or admin CLI) is a
 //     platform audit row idp.console.login, a security event idp.console_login (high; a failed one medium) and a
-//     platform notification idp.console_login to the Super Admins and Platform Operators; its admin events are
-//     platform audit rows (role mappings and clients of master raise security events).
+//     platform notification idp.console_login to the Super Admins and Platform Operators — grouped per source
+//     (account, client, address) and window (Config.ConsoleLoginWindow, consolewindow.go: the first sign-in at once,
+//     the next ones of the window in one summary — F-G3-2); its admin events are platform audit rows (role mappings
+//     and clients of master raise security events).
 //
 // Reading: through the keycloak driver (the narrow platform route to auth.<domain>, the provisioning identity — it holds
 // view-events of every realm it created or adopted, and exactly view-events of master-realm and of the platform realm:
@@ -83,11 +85,16 @@ var _ Source = (*keycloak.Driver)(nil)
 
 // Config configures the Syncer. Source is required.
 type Config struct {
-	Source     Source
-	Notifier   notifications.Enqueuer // nil ⇒ notifications.Default
-	Lookback   time.Duration          // 0 ⇒ DefaultLookback
-	MaxPages   int                    // 0 ⇒ DefaultMaxPages
-	PageSize   int                    // 0 ⇒ keycloak.EventPageMax
+	Source   Source
+	Notifier notifications.Enqueuer // nil ⇒ notifications.Default
+	Lookback time.Duration          // 0 ⇒ DefaultLookback
+	MaxPages int                    // 0 ⇒ DefaultMaxPages
+	PageSize int                    // 0 ⇒ keycloak.EventPageMax
+
+	// ConsoleLoginWindow groups the console sign-in e-mails per source (consolewindow.go): 0 ⇒ one e-mail per sign-in
+	// (no grouping). The worker sets MG_IDP_CONSOLE_LOGIN_NOTIFY_WINDOW (default 10m — internal/config).
+	ConsoleLoginWindow time.Duration
+
 	Now        func() time.Time
 	Logger     *slog.Logger
 	Registerer prometheus.Registerer // nil ⇒ metrics not registered
@@ -190,6 +197,10 @@ func (s *Syncer) RunOnce(ctx context.Context) (Summary, error) {
 	}
 	defer s.mu.Unlock()
 	var sum Summary
+	// the windows of the console sign-in e-mails that ended are flushed first, whatever the IdP's state (F-G3-2)
+	if err := s.flushConsoleWindows(ctx); err != nil {
+		return sum, err
+	}
 	prov, err := s.cfg.Source.ProvisionerUserID(ctx)
 	if err != nil {
 		if c := idp.CodeOf(err); c == idp.CodeCredentials || c == idp.CodeUnauthenticated {
@@ -447,18 +458,20 @@ func (s *Syncer) write(ctx context.Context, t Target, r Record) (bool, error) {
 			}
 		}
 		if r.Notify {
-			var n notifications.Event
+			var ns []notifications.Event
 			switch {
 			case t.Kind == RealmTenant && t.TenantID != nil:
-				n = notifications.IdPAdminChange(*t.TenantID, r.EventID, r.Action, r.ActorDisplay, user, r.At)
+				ns = append(ns, notifications.IdPAdminChange(*t.TenantID, r.EventID, r.Action, r.ActorDisplay, user, r.At))
 			case r.ConsoleLogin:
 				ip := ""
 				if r.ActorIP.IsValid() {
 					ip = r.ActorIP.String()
 				}
-				n = notifications.IdPConsoleLogin(r.EventID, r.Username, r.Client, ip, r.At)
+				if ns, err = s.consoleLoginNotices(ctx, q, r, ip); err != nil {
+					return err
+				}
 			}
-			if n.Kind != "" {
+			for _, n := range ns {
 				if _, err := s.cfg.Notifier.Enqueue(ctx, tx, n); err != nil {
 					return err
 				}

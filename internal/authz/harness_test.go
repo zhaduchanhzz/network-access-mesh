@@ -168,13 +168,7 @@ func (e *pgEnv) create(ctx context.Context) (string, error) {
 }
 
 func (e *pgEnv) cleanup() {
-	ctx := context.Background()
-	if c, err := pgx.Connect(ctx, e.adminURL("postgres")); err == nil {
-		for _, n := range e.created {
-			_, _ = c.Exec(ctx, "DROP DATABASE IF EXISTS "+pgx.Identifier{n}.Sanitize()+" WITH (FORCE)")
-		}
-		_ = c.Close(ctx)
-	}
+	pgcluster.DropDatabases("authz", e.adminURL("postgres"), e.created)
 	if e.pwDir != "" {
 		_ = os.RemoveAll(e.pwDir)
 	}

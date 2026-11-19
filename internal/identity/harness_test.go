@@ -201,11 +201,7 @@ func (e *PGEnv) ensurePassword(ctx context.Context, admin store.Execer, role str
 }
 
 func (e *PGEnv) dropDB() {
-	ctx := context.Background()
-	if c, err := pgx.Connect(ctx, e.adminURL("postgres")); err == nil {
-		_, _ = c.Exec(ctx, "DROP DATABASE IF EXISTS "+pgx.Identifier{e.DB}.Sanitize()+" WITH (FORCE)")
-		_ = c.Close(ctx)
-	}
+	pgcluster.DropDatabases("identity", e.adminURL("postgres"), []string{e.DB})
 }
 
 func (e *PGEnv) adminURL(db string) string {

@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"time"
 )
 
 func env(m map[string]string) (func(string) string, []string) {
@@ -367,5 +368,28 @@ func TestMaintenanceSwitch(t *testing.T) {
 		if _, err := Load("api", get, list); err == nil || !strings.Contains(err.Error(), "MG_MAINTENANCE") {
 			t.Errorf("MG_MAINTENANCE=%q: %v, want a refusal", v, err)
 		}
+	}
+}
+
+// TestConsoleLoginWindow: MG_IDP_CONSOLE_LOGIN_NOTIFY_WINDOW (worker) groups the console sign-in e-mails (F-G3-2):
+// 10 minutes by default, 0 turns the grouping off, a value outside [1m, 24h] is refused; the api ignores it.
+func TestConsoleLoginWindow(t *testing.T) {
+	for v, want := range map[string]time.Duration{"": 10 * time.Minute, "0": 0, "1m": time.Minute, " 30m ": 30 * time.Minute,
+		"24h": 24 * time.Hour} {
+		get, list := env(map[string]string{"MG_IDP_CONSOLE_LOGIN_NOTIFY_WINDOW": v})
+		cfg, err := Load("worker", get, list)
+		if err != nil || cfg.IdPConsoleLoginWindow != want {
+			t.Errorf("%q: window %s (%v), want %s", v, cfg.IdPConsoleLoginWindow, err, want)
+		}
+	}
+	for _, v := range []string{"30s", "25h", "-1m", "ten"} {
+		get, list := env(map[string]string{"MG_IDP_CONSOLE_LOGIN_NOTIFY_WINDOW": v})
+		if _, err := Load("worker", get, list); err == nil || !strings.Contains(err.Error(), "MG_IDP_CONSOLE_LOGIN_NOTIFY_WINDOW") {
+			t.Errorf("%q: %v, want a refusal", v, err)
+		}
+	}
+	get, list := env(map[string]string{"MG_IDP_CONSOLE_LOGIN_NOTIFY_WINDOW": "ten"})
+	if cfg, err := Load("api", get, list); err != nil || cfg.IdPConsoleLoginWindow != 0 {
+		t.Errorf("api: %s %v", cfg.IdPConsoleLoginWindow, err)
 	}
 }

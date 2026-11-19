@@ -109,7 +109,8 @@ var specs = map[Kind]spec{
 	KindIdPAdminChange: {fields: map[string]fieldType{"event_id": fString, "action": fString, "actor": fString,
 		"user": fString, "occurred_at": fTime}, required: []string{"event_id", "action", "actor", "occurred_at"}},
 	KindIdPConsoleLogin: {fields: map[string]fieldType{"event_id": fString, "username": fString, "client": fString,
-		"ip": fString, "occurred_at": fTime}, required: []string{"event_id", "client", "occurred_at"}, platform: true},
+		"ip": fString, "occurred_at": fTime, "count": fInt, "sources": fString, "first_at": fTime, "window_minutes": fInt},
+		required: []string{"event_id", "client", "occurred_at"}, platform: true},
 	KindInstanceRestored: {fields: map[string]fieldType{"job_id": fUUID, "backup_created_at": fTime, "owner_review": fString},
 		required: []string{"job_id", "backup_created_at", "owner_review"}},
 	KindTenantDeleted: {fields: map[string]fieldType{"job_id": fUUID, "keys_destroy_after": fTime, "final_backup": fString},
@@ -458,7 +459,9 @@ func IdPAdminChange(tenantID uuid.UUID, eventID, action, actor, user string, occ
 
 // IdPConsoleLogin — platform security notification (P3-T15, §16.3 "Bảo mật"): someone signed in to the
 // administration of the platform-hosted Keycloak (its admin console, or the admin CLI with the break-glass account):
-// Super Admins and Platform Operators. One per Keycloak login event.
+// Super Admins and Platform Operators. One per Keycloak login event that opens a window of its source (account,
+// client, address); the sign-ins held back in that window come later as one IdPConsoleLoginSummary (F-G3-2,
+// internal/idp/auditsync).
 func IdPConsoleLogin(eventID, username, client, ip string, occurredAt time.Time) Event {
 	ev := Event{Kind: KindIdPConsoleLogin, Ref: "idp-event:" + eventID,
 		Payload: map[string]any{"event_id": eventID, "client": client, "occurred_at": occurredAt},
@@ -468,6 +471,35 @@ func IdPConsoleLogin(eventID, username, client, ip string, occurredAt time.Time)
 	}
 	if ip != "" {
 		ev.Payload["ip"] = ip
+	}
+	return ev
+}
+
+// ConsoleLoginSummary is the content of a grouped idp.console_login (F-G3-2): the sign-ins of one source (account,
+// client, address) to the Keycloak administration held back during one window, after the first was notified alone.
+type ConsoleLoginSummary struct {
+	Ref           string // unique per source and window (idp-console-window:<source hash>:<window start>)
+	LastEventID   string // the Keycloak event of the last sign-in held back
+	Username      string
+	Client        string // the client of the last one
+	Count         int    // how many were held back
+	Sources       string // their distinct sources ("client ip, …"), bounded
+	First, Last   time.Time
+	WindowMinutes int
+}
+
+// IdPConsoleLoginSummary — the grouped idp.console_login (F-G3-2): same kind, recipients and template as
+// IdPConsoleLogin, with the count, the sources, the first time and the window; occurred_at is the last sign-in.
+func IdPConsoleLoginSummary(s ConsoleLoginSummary) Event {
+	ev := Event{Kind: KindIdPConsoleLogin, Ref: s.Ref,
+		Payload: map[string]any{"event_id": s.LastEventID, "client": s.Client, "occurred_at": s.Last, "count": s.Count,
+			"first_at": s.First, "window_minutes": s.WindowMinutes},
+		To: Audience{PlatformRoles: []string{RoleSuperAdmin, RolePlatformOperator}}}
+	if s.Username != "" {
+		ev.Payload["username"] = s.Username
+	}
+	if s.Sources != "" {
+		ev.Payload["sources"] = s.Sources
 	}
 	return ev
 }

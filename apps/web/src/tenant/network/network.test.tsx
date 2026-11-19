@@ -136,14 +136,15 @@ describe("routes", () => {
     expect(post.headers.get("If-Match")).toBe('"etag-gw-1"');
   });
 
-  it("tenant bật 4-eyes: 202 ⇒ báo đã tạo yêu cầu phê duyệt (id từ Location), không báo đã duyệt", async () => {
-    mockApi(
+  it("tenant bật 4-eyes: 202 ⇒ báo đã tạo yêu cầu phê duyệt (id từ Location), chưa hiệu lực + link tới trang phê duyệt", async () => {
+    const { requests } = mockApi(
       apiFor("tenant_admin", {
         [`GET ${base}/routes`]: list(),
         [`POST ${base}/routes/approve`]: json(202, approvalRequest(), { Location: `/api/v1/tenants/${TENANT_A}/approvals/${APPROVAL_ID}` }),
+        [`GET ${base}/approvals/${APPROVAL_ID}`]: json(200, approvalRequest()),
       }),
     );
-    renderApp({ path: `/t/${TENANT_A}/routes` });
+    const { router } = renderApp({ path: `/t/${TENANT_A}/routes` });
     await screen.findByTestId("routes-table");
     await userEvent.click(screen.getByRole("button", { name: "Duyệt route của laptop-an" }));
     const dialog = screen.getByRole("alertdialog");
@@ -151,10 +152,43 @@ describe("routes", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: "Duyệt route" }));
     const notice = await screen.findByTestId("approval-created");
     expect(notice).toHaveTextContent("Đã tạo yêu cầu phê duyệt — chưa có thay đổi nào");
+    expect(within(notice).getByTestId("approval-explain")).toHaveTextContent("Thay đổi CHƯA có hiệu lực");
     expect(within(notice).getByTestId("approval-id")).toHaveTextContent(APPROVAL_ID);
-    expect(notice).toHaveTextContent("Chờ duyệt");
+    expect(within(notice).getByTestId("approval-status")).toHaveTextContent("Chờ duyệt");
+    expect(notice).not.toHaveTextContent("P4-T13");
+    const link = within(notice).getByRole("link", { name: "Mở yêu cầu trong trang phê duyệt" });
+    expect(link).toHaveAttribute("href", `/t/${TENANT_A}/approvals/${APPROVAL_ID}`);
     expect(screen.queryByTestId("routes-done")).toBeNull();
+    await waitFor(() => expect(requests.some((r) => r.method === "GET" && r.url.endsWith(`/approvals/${APPROVAL_ID}`))).toBe(true));
+    await userEvent.click(link);
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/t/${TENANT_A}/approvals/${APPROVAL_ID}`));
   });
+
+  it("202 ⇒ người thứ hai duyệt: trạng thái sống chuyển 'Đã thực thi', routes được tải lại", async () => {
+    let routeReads = 0;
+    let approvalReads = 0;
+    mockApi(
+      apiFor("tenant_owner", {
+        [`GET ${base}/routes`]: () => {
+          routeReads++;
+          return list();
+        },
+        [`POST ${base}/routes/approve`]: json(202, approvalRequest(), { Location: `/api/v1/tenants/${TENANT_A}/approvals/${APPROVAL_ID}` }),
+        [`GET ${base}/approvals/${APPROVAL_ID}`]: () =>
+          json(200, { ...approvalRequest(), status: ++approvalReads > 1 ? ("executed" as const) : ("pending" as const) }),
+      }),
+    );
+    renderApp({ path: `/t/${TENANT_A}/routes` });
+    await screen.findByTestId("routes-table");
+    await userEvent.click(screen.getByRole("button", { name: "Duyệt route của laptop-an" }));
+    await userEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Duyệt route" }));
+    const notice = await screen.findByTestId("approval-created");
+    const before = routeReads;
+    await waitFor(() => expect(notice).toHaveAttribute("data-status", "executed"), { timeout: 8000 });
+    expect(within(notice).getByTestId("approval-explain")).toHaveTextContent("Đã duyệt và thực thi");
+    expect(within(notice).getByTestId("approval-status")).toHaveTextContent("Đã thực thi");
+    await waitFor(() => expect(routeReads).toBeGreaterThan(before));
+  }, 15000);
 
   it("412 ⇒ báo dữ liệu đã đổi, tải lại; xác nhận lại gửi ETag mới với Idempotency-Key mới", async () => {
     let reads = 0;

@@ -1,14 +1,17 @@
-// Package pgcluster holds the two cluster-wide rules that every PostgreSQL test harness of the repository must share
+// Package pgcluster holds the cluster-wide rules that every PostgreSQL test harness of the repository must share
 // when several test packages run against one throwaway cluster (CI service container, build VM): the advisory lock
-// that serialises the cluster-wide part of their setup, and the derivation of the role passwords. Only test code
-// imports it — the harness of internal/store/storetest, and the harnesses of internal/store, internal/secrets,
+// that serialises the cluster-wide part of their setup, the derivation of the role passwords, and the bounded drop of
+// the test databases at the end of a binary (DropDatabases — drop.go). Only test code imports it — the harness of internal/store/storetest, and the harnesses of internal/store, internal/secrets,
 // internal/authz and internal/identity, which keep their own fixtures but take the lock and derive the passwords here
 // (internal/store's own tests cannot import storetest — import cycle —, hence this leaf package).
 //
 // Why: roles, role memberships and role settings are cluster-wide objects, and `go test ./...` runs test packages in
 // parallel. Two packages bootstrapping (CREATE/ALTER ROLE), migrating (CREATE ROLE, GRANT role) or setting role
 // passwords (ALTER ROLE … PASSWORD) at the same time fail with `duplicate key value violates unique constraint
-// "pg_authid_rolname_index"` or `tuple concurrently updated` (reproduced in the evidence of P2-T04 and P2-T06).
+// "pg_authid_rolname_index"` or `tuple concurrently updated` (reproduced in the evidence of P2-T04 and P2-T06). And a
+// sequential, unbounded DROP DATABASE of every database a package created, after m.Run, could outlast -test.timeout on
+// a busy shared cluster: `go test -race -count=3 ./...` saw internal/audit and internal/devices print PASS, then hang
+// in the DROP until SIGQUIT — a FAIL although every test passed (follow-up of G3).
 package pgcluster
 
 import (

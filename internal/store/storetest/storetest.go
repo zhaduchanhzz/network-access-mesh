@@ -75,23 +75,22 @@ func Require(t testing.TB) *Env {
 	return env
 }
 
-// Cleanup drops every database this process created; call it from TestMain after m.Run.
+// Cleanup drops every database this process created; call it from TestMain after m.Run. It is bounded
+// (pgcluster.DropDatabases: a few at a time, within a budget that ends before -test.timeout): a database it could not
+// drop in time stays on the throwaway cluster and is named on stderr — the package's result is its tests'.
 func Cleanup() {
 	if env == nil {
 		return
 	}
-	ctx := context.Background()
-	c, err := pgx.Connect(ctx, env.adminURL("postgres"))
-	if err != nil {
-		return
-	}
-	defer func() { _ = c.Close(ctx) }()
 	env.mu.Lock()
 	defer env.mu.Unlock()
-	for _, n := range env.created {
-		_, _ = c.Exec(ctx, "DROP DATABASE IF EXISTS "+pgx.Identifier{n}.Sanitize()+" WITH (FORCE)")
-	}
+	pgcluster.DropDatabases("storetest", env.adminURL("postgres"), env.created)
 	env.created = nil
+}
+
+// DropDatabase drops a database the test created itself (a restore target…), bounded like Cleanup — for t.Cleanup.
+func (e *Env) DropDatabase(name string) {
+	pgcluster.DropDatabases("storetest", e.adminURL("postgres"), []string{name})
 }
 
 func (e *Env) adminURL(db string) string {
