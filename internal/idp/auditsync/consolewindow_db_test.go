@@ -156,6 +156,102 @@ func TestConsoleLoginWindows(t *testing.T) {
 	}
 }
 
+// TestConsoleLoginWindowsKeepTheirLength (C11): a window keeps the length it was opened with, and turning the grouping
+// off (window 0) never drops the sign-ins an open window held back. A window opened at 10 minutes ends at 10 minutes
+// and announces 10 minutes even after the setting became 30; the first run with the grouping off sends the held-back
+// sign-ins of every open window as one summary (with the length they were held under) and clears the stored windows;
+// later runs send nothing more, and every new sign-in is notified at once. Each sign-in stays one high security event.
+func TestConsoleLoginWindowsKeepTheirLength(t *testing.T) {
+	f := newFx(t)
+	src := newSource()
+	t0 := f.now.Truncate(time.Minute)
+	f.now = t0
+	add := func(id string, at time.Time) {
+		src.mu.Lock()
+		src.user["master"] = append(src.user["master"], keycloak.UserEvent{ID: id, Time: at.UnixMilli(), Type: "LOGIN",
+			ClientID: "admin-cli", UserID: adminUID, IPAddress: "192.0.2.10", Details: map[string]string{"username": "kcadm-admin"}})
+		src.mu.Unlock()
+	}
+	run := func(window time.Duration) {
+		t.Helper()
+		s, err := New(f.st, Config{Source: src, PageSize: 100, Now: func() time.Time { return f.now }, ConsoleLoginWindow: window})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.RunOnce(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mails := func() int {
+		return f.count(`SELECT count(*) FROM notification_outbox WHERE tenant_id IS NULL AND kind = 'idp.console_login'`)
+	}
+	summaries := func(count, minutes string) int {
+		return f.count(`SELECT count(*) FROM notification_outbox WHERE kind = 'idp.console_login'
+			AND payload ->> 'count' = $1 AND payload ->> 'window_minutes' = $2`, count, minutes)
+	}
+	for i := range 3 { // a window of 10 minutes: the first at once, two held back
+		add(fmt.Sprintf("k%d", i), t0.Add(time.Duration(i-3)*10*time.Second))
+	}
+	run(10 * time.Minute)
+	if n := mails(); n != 1 {
+		t.Fatalf("e-mails %d, want 1 (the first at once)", n)
+	}
+	f.now = t0.Add(10*time.Minute + time.Second) // the setting became 30 minutes: the window of 10 still ends now
+	run(30 * time.Minute)
+	if n := mails(); n != 2 || summaries("2", "10") != 1 {
+		t.Fatalf("e-mails %d (summary of 2 over 10 minutes: %d), want the summary of the 10-minute window", n, summaries("2", "10"))
+	}
+	add("k3", f.now) // held back in the window of 30 minutes the summary opened
+	add("k4", f.now.Add(time.Second))
+	f.now = f.now.Add(time.Minute)
+	run(30 * time.Minute)
+	if n := mails(); n != 2 {
+		t.Fatalf("e-mails %d inside the new window, want 2", n)
+	}
+	f.now = f.now.Add(time.Minute) // the grouping is turned off: the two held-back sign-ins are sent, not dropped
+	run(0)
+	if n := mails(); n != 3 || summaries("2", "30") != 1 {
+		t.Fatalf("e-mails %d (summary of 2 over 30 minutes: %d), want the held-back sign-ins in one summary", n,
+			summaries("2", "30"))
+	}
+	var state string
+	if err := f.su.QueryRow(context.Background(), `SELECT value::text FROM system_settings WHERE key = $1`,
+		consoleWindowKey).Scan(&state); err != nil || state != "{}" {
+		t.Fatalf("windows after the grouping was turned off: %q, %v — want none", state, err)
+	}
+	run(0)
+	add("k5", f.now)
+	run(0)
+	if n := f.count(`SELECT count(*) FROM notification_outbox WHERE kind = 'idp.console_login'
+		AND payload ->> 'event_id' = 'k5' AND payload ->> 'count' IS NULL`); n != 1 || mails() != 4 {
+		t.Errorf("e-mails %d, want 4 (nothing more flushed, the new sign-in at once)", mails())
+	}
+	if n := f.count(`SELECT count(*) FROM security_events WHERE tenant_id IS NULL AND kind = $1 AND severity = 'high'`,
+		KindConsoleLogin); n != 6 {
+		t.Errorf("security events %d, want one per sign-in (6)", n)
+	}
+}
+
+// TestConsoleWindowLength: the length a summary announces — the stored one; for a window stored before its length
+// was, the configured one; with the grouping off as well, the span it held (at least a minute).
+func TestConsoleWindowLength(t *testing.T) {
+	for _, c := range []struct {
+		w          consoleWindow
+		configured time.Duration
+		want       time.Duration
+	}{
+		{consoleWindow{WindowMs: (10 * time.Minute).Milliseconds()}, 30 * time.Minute, 10 * time.Minute},
+		{consoleWindow{WindowMs: (10 * time.Minute).Milliseconds()}, 0, 10 * time.Minute},
+		{consoleWindow{StartMs: 1000, LastMs: 2000}, 15 * time.Minute, 15 * time.Minute},
+		{consoleWindow{StartMs: 1000, LastMs: 1000 + (150 * time.Second).Milliseconds()}, 0, 150 * time.Second},
+		{consoleWindow{StartMs: 1000, LastMs: 2000}, 0, time.Minute},
+	} {
+		if got := c.w.length(c.configured); got != c.want {
+			t.Errorf("%+v at %s: %s, want %s", c.w, c.configured, got, c.want)
+		}
+	}
+}
+
 // TestSourceList: the sources of a summary stay one bounded, valid payload text.
 func TestSourceList(t *testing.T) {
 	if got := sourceList([]string{"admin-cli 192.0.2.1", "security-admin-console 192.0.2.2"}, 0); got !=
