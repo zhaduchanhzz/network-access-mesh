@@ -584,7 +584,7 @@ func (s *Service) Revoke(ctx context.Context, tenantID, id uuid.UUID, a Actor) (
 func (s *Service) revoke(ctx context.Context, tenantID, id uuid.UUID, a Actor) (Request, error) {
 	var (
 		out    Request
-		keyID  int64
+		base   sqlcdb.EnrollmentRequest // the row the revocation locked first
 		op     audit.Operation
 		ls     string
 		remote bool
@@ -613,8 +613,8 @@ func (s *Service) revoke(ctx context.Context, tenantID, id uuid.UUID, a Actor) (
 		ev := audit.Event{Action: ActionRevoke, TenantID: &tenantID, ResourceType: resourceType, ResourceID: id.String(),
 			Details: audit.Details{"status_before": r.Status, "method": r.Method}}
 		if live {
-			keyID, remote = *r.HeadscalePreauthkeyID, true
-			ev.Details["key_id"] = keyID
+			base, remote = r, true
+			ev.Details["key_id"] = *r.HeadscalePreauthkeyID
 			op, err = audit.Requested(ctx, q, ev)
 			return err
 		}
@@ -637,31 +637,40 @@ func (s *Service) revoke(ctx context.Context, tenantID, id uuid.UUID, a Actor) (
 		_ = s.st.WithTenantTx(wctx, tenantID, func(q *sqlcdb.Queries) error { return s.closeOp(wctx, q, &op, failureCode(e)) })
 		return Request{}, e
 	}
-	inst, err := s.reg.ForTenant(ctx, tenantID)
+	keyID := *base.HeadscalePreauthkeyID
+	got, err := s.expireKey(ctx, tenantID, base)
 	if err != nil {
 		return fail(err)
 	}
-	kid := uint64(keyID) //nolint:gosec // CHECK headscale_preauthkey_id > 0
-	if err := inst.ExpirePreAuthKey(ctx, kid); err != nil && !errors.Is(err, headscale.ErrNotFound) {
-		return fail(err)
-	}
-	keys, err := inst.ListPreAuthKeys(ctx)
-	if err != nil {
-		return fail(err)
-	}
-	for _, k := range keys { // read back (T-17: "đã áp dụng" only after a verified read)
-		if k.ID == kid && k.Expiration.After(s.now().Add(headscale.ExpiryClampSlack)) {
-			return fail(&Error{Code: CodeUpstreamRejected, Reason: "readback_mismatch",
-				Detail: "The tenant's control plane did not expire the key."})
-		}
-	}
-	err = s.st.WithTenantTx(ctx, tenantID, func(q *sqlcdb.Queries) error {
+	err = s.inTx(ctx, tenantID, func(q *sqlcdb.Queries) error {
 		r, err := q.LockEnrollmentRequest(ctx, sqlcdb.LockEnrollmentRequestParams{TenantID: tenantID, ID: id})
 		if err != nil {
 			return err
 		}
+		// moved while the key was expired (reconcile settled it): a request that ended keeps its state; one that still
+		// holds the same live key (a reusable key found used meanwhile) is revoked
+		if (r.Status != base.Status || r.Version != base.Version) && (!s.liveKey(r) || *r.HeadscalePreauthkeyID != keyID) {
+			if err := s.closeOp(ctx, q, &op, "already_final"); err != nil {
+				return err
+			}
+			return errCommitted{conflict("already_final",
+				"The request ended while it was being revoked; a registered device is revoked with DELETE /devices/{id}.")}
+		}
+		if got.used && !r.Reusable && r.Status == StatusCredentialIssued {
+			// the single-use key registered a device before reconcile saw it: the request is never revoked — it stays
+			// for reconcile, which settles it consumed with its node (or failed node_gone) as for any used key; the
+			// device is revoked through /devices (what a revocation after reconcile answers)
+			if err := s.closeOp(ctx, q, &op, "already_final"); err != nil {
+				return err
+			}
+			return errCommitted{conflict("already_final",
+				"The key was already used by a device; the device is revoked with DELETE /devices/{id}.")}
+		}
 		p := stateOf(r)
 		p.Status = StatusRevoked
+		if n := got.node; n != nil && p.ConsumedNodeID == nil { // a reusable key: the device it registered stays known
+			setNode(&p, *n)
+		}
 		row, err := q.SetEnrollmentRequestState(ctx, p)
 		if err != nil {
 			return err
@@ -673,4 +682,68 @@ func (s *Service) revoke(ctx context.Context, tenantID, id uuid.UUID, a Actor) (
 		return fail(err)
 	}
 	return out, nil
+}
+
+// keyState is what a revocation found at Headscale for the key of a request.
+type keyState struct {
+	used bool            // the key registered a node before it was expired
+	node *headscale.Node // the first node it registered (nil: none left, or already on the request)
+}
+
+// expireKey expires the pre-auth key of request r at Headscale and reads it back (T-17: "đã áp dụng" only after a
+// verified read). A used key is reported with its first node.
+func (s *Service) expireKey(ctx context.Context, tenantID uuid.UUID, r sqlcdb.EnrollmentRequest) (keyState, error) {
+	inst, err := s.reg.ForTenant(ctx, tenantID)
+	if err != nil {
+		return keyState{}, err
+	}
+	kid := uint64(*r.HeadscalePreauthkeyID) //nolint:gosec // CHECK headscale_preauthkey_id > 0
+	find := func(keys []headscale.PreAuthKey) (headscale.PreAuthKey, bool) {
+		for _, k := range keys {
+			if k.ID == kid {
+				return k, true
+			}
+		}
+		return headscale.PreAuthKey{}, false
+	}
+	if err := inst.ExpirePreAuthKey(ctx, kid); err != nil && !errors.Is(err, headscale.ErrNotFound) {
+		return keyState{}, err
+	}
+	keys, err := inst.ListPreAuthKeys(ctx)
+	if err != nil {
+		return keyState{}, err
+	}
+	k, ok := find(keys)
+	if ok && k.Expiration.After(s.now().Add(headscale.ExpiryClampSlack)) {
+		return keyState{}, &Error{Code: CodeUpstreamRejected, Reason: "readback_mismatch",
+			Detail: "The tenant's control plane did not expire the key."}
+	}
+	if (ok && !k.Used) || r.ConsumedNodeID != nil { // unused, or its device is already on the request
+		return keyState{used: ok && k.Used}, nil
+	}
+	nodes, err := inst.ListNodes(ctx, "")
+	if err != nil {
+		return keyState{}, err
+	}
+	var first *headscale.Node
+	for i := range nodes {
+		if n := &nodes[i]; n.PreAuthKeyID == kid && (first == nil || n.CreatedAt.Before(first.CreatedAt)) {
+			first = n // the first node the key registered (as reconcile)
+		}
+	}
+	return keyState{used: (ok && k.Used) || first != nil, node: first}, nil
+}
+
+// setNode records on p the node a pre-auth key registered (the columns reconcile's settle writes).
+func setNode(p *sqlcdb.SetEnrollmentRequestStateParams, n headscale.Node) {
+	nid := int64(n.ID) //nolint:gosec // small ids
+	p.ConsumedNodeID = &nid
+	if n.MachineKey != "" {
+		mk := clip(n.MachineKey, 200)
+		p.RegisteredMachineKey = &mk
+	}
+	if n.Name != "" {
+		h := clip(n.Name, 255)
+		p.ReportedHostname = &h
+	}
 }

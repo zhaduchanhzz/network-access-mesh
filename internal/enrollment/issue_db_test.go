@@ -128,6 +128,83 @@ func TestIssueAndRevoke(t *testing.T) {
 		}
 	})
 
+	t.Run("RevokeUsedKey", func(t *testing.T) {
+		// a single-use key used at once, revoked before reconcile ran: the revocation answers 409 already_final (the
+		// device is revoked through /devices) and leaves the request to reconcile, which records it consumed with its
+		// node and links the device row — never revoked with the device forgotten
+		out, err := f.api.Create(ctxOf(owner, a.id, ActionRequest), a.id, owner, NewRequest{Method: MethodPreauthKey},
+			idem("k-i-3", "3"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		node := a.hs.UseKey(lastKey().ID, devicestest.Node{MachineKey: "mkey:used-at-once", Hostname: "srv-used"})
+		if _, err := f.api.Revoke(ctxOf(owner, a.id, ActionRevoke), a.id, out.Request.ID, owner); reasonOf(err) != "already_final" {
+			t.Fatalf("revoke of a used key: %v", err)
+		}
+		if st := status(t, out.Request.ID); st != StatusCredentialIssued {
+			t.Fatalf("status %s after the revoke of a used key, want it left to reconcile", st)
+		}
+		// the device row the inventory sync writes is linked to the request once reconcile consumed it
+		f.exec(t, `INSERT INTO device_inventory_cache (tenant_id, instance_id, headscale_node_id, machine_key, name)
+			VALUES ($1, $2, $3, $4, 'srv-used')`, a.id, a.instance, int64(node.ID), node.MachineKey) //nolint:gosec // small test ids
+		if rep, err := f.wrk.Reconcile(t.Context(), a.id); err != nil || rep.Consumed < 1 || rep.Linked < 1 {
+			t.Fatalf("reconcile %+v %v", rep, err)
+		}
+		r, err := f.api.Get(t.Context(), a.id, out.Request.ID, owner)
+		if err != nil || r.Status != StatusConsumed || r.NodeID == nil || *r.NodeID != int64(node.ID) { //nolint:gosec // small test ids
+			t.Fatalf("request after the revoke of a used key: %+v %v", r, err)
+		}
+		if n := f.count(t, `SELECT count(*) FROM device_inventory_cache WHERE enrollment_request_id = $1`, out.Request.ID); n != 1 {
+			t.Fatalf("device link %d", n)
+		}
+		got := f.auditOf(t, out.Request.ID.String())
+		if !slices.Contains(got, "enrollment.consume/success") || !slices.Contains(got, "enrollment.revoke.failed/failure") ||
+			slices.Contains(got, "enrollment.revoke.succeeded/success") {
+			t.Fatalf("audit %v", got)
+		}
+	})
+
+	t.Run("RevokeRacesReconcile", func(t *testing.T) {
+		// reconcile settles the request consumed while the revocation expires its key: the newer final state stays
+		out, err := f.api.Create(ctxOf(owner, a.id, ActionRequest), a.id, owner, NewRequest{Method: MethodPreauthKey},
+			idem("k-i-4", "4"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		node := a.hs.UseKey(lastKey().ID, devicestest.Node{MachineKey: "mkey:raced", Hostname: "srv-raced"})
+		var rerr error
+		a.hs.After(devicestest.OpExpirePreAuthKey, func(uint64) {
+			_, rerr = f.wrk.Reconcile(context.Background(), a.id)
+		})
+		if _, err := f.api.Revoke(ctxOf(owner, a.id, ActionRevoke), a.id, out.Request.ID, owner); reasonOf(err) != "already_final" {
+			t.Fatalf("revoke raced by reconcile: %v", err)
+		}
+		if rerr != nil {
+			t.Fatal(rerr)
+		}
+		r, err := f.api.Get(t.Context(), a.id, out.Request.ID, owner)
+		if err != nil || r.Status != StatusConsumed || r.NodeID == nil || *r.NodeID != int64(node.ID) { //nolint:gosec // small test ids
+			t.Fatalf("request after the race: %+v %v", r, err)
+		}
+	})
+
+	t.Run("ReusableKeyKeepsItsDevice", func(t *testing.T) {
+		// a reusable key used before reconcile saw it: revoked, and the device it registered stays on the request
+		out, err := f.api.CreateKey(ctxOf(admin, a.id, ActionKeyCreate), a.id, admin,
+			NewKey{Tags: []string{"tag:server"}, Reusable: true}, idem("k-i-5", "5"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		node := a.hs.UseKey(lastKey().ID, devicestest.Node{MachineKey: "mkey:reusable", Hostname: "ci-1"})
+		r, err := f.api.Revoke(ctxOf(admin, a.id, ActionRevoke), a.id, out.Request.ID, admin)
+		if err != nil || r.Status != StatusRevoked || r.NodeID == nil || *r.NodeID != int64(node.ID) { //nolint:gosec // small test ids
+			t.Fatalf("revoke of a used reusable key: %+v %v", r, err)
+		}
+		if k := a.hs.Key(lastKey().ID); k.Expiration.After(time.Now().Add(time.Second)) {
+			t.Fatalf("the revoked reusable key is still live: %+v", k)
+		}
+	})
+
 	f.noKeyMaterial(t)
 }
 
