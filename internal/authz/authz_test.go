@@ -21,9 +21,9 @@ var auditAction = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$`)
 
 // fakeLoader returns fixed rows and records the calls it got.
 type fakeLoader struct {
-	tenant, platform *access
-	err              error
-	calls            []string
+	tenant, platform, support *access
+	err                       error
+	calls                     []string
 }
 
 func (f *fakeLoader) tenantAccess(_ context.Context, tenantID, identityID uuid.UUID, perm Permission) (*access, error) {
@@ -34,6 +34,11 @@ func (f *fakeLoader) tenantAccess(_ context.Context, tenantID, identityID uuid.U
 func (f *fakeLoader) platformAccess(_ context.Context, identityID uuid.UUID, perm Permission) (*access, error) {
 	f.calls = append(f.calls, "platform:"+identityID.String()+":"+string(perm))
 	return f.platform, f.err
+}
+
+func (f *fakeLoader) supportAccess(_ context.Context, tenantID, identityID uuid.UUID, perm Permission) (*access, error) {
+	f.calls = append(f.calls, "support:"+tenantID.String()+":"+identityID.String()+":"+string(perm))
+	return f.support, f.err
 }
 
 var (
@@ -98,8 +103,8 @@ func TestRequireSpecialPermissions(t *testing.T) {
 	}
 }
 
-// TestRequireTenantPrincipals: on a tenant route only a tenant identity on the app origin reaches its membership;
-// staff need a Support Access Grant (none exists before P4-T13) and mismatched origins are refused — without a query.
+// TestRequireTenantPrincipals: on a tenant route only a tenant identity on the app origin reaches its membership
+// (staff through a Support Access Grant — TestRequireSupport); mismatched origins are refused — without a query.
 func TestRequireTenantPrincipals(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -108,7 +113,6 @@ func TestRequireTenantPrincipals(t *testing.T) {
 		kind   error
 		reason string
 	}{
-		{"staff without support grant", staffPrincipal(), tenantA, ErrForbidden, "no_support_grant"},
 		{"tenant identity on the admin origin", Principal{IdentityID: identity, Scope: ScopeTenant, Origin: OriginAdmin}, tenantA, ErrForbidden, "origin_scope_mismatch"},
 		{"platform identity on the app origin", Principal{IdentityID: identity, Scope: ScopePlatform, Origin: OriginApp}, tenantA, ErrForbidden, "origin_scope_mismatch"},
 		{"unknown scope", Principal{IdentityID: identity, Scope: ScopeSupport, Origin: OriginApp}, tenantA, ErrForbidden, "origin_scope_mismatch"},
@@ -438,5 +442,66 @@ func TestOperationConditions(t *testing.T) {
 		if len(o.Conditions) > 0 && o.ID != "approvePlatformApproval" && o.ID != "rejectPlatformApproval" && !known {
 			t.Errorf("%s declares conditions %v — extend this test", o.ID, o.Conditions)
 		}
+	}
+}
+
+var (
+	staffUser = uuid.MustParse("0194f3a2-7c1e-7d40-8a55-0d1b2c3e4f60")
+	grantID   = uuid.MustParse("0194f3a2-7c1e-7d40-8a55-0d1b2c3e4f61")
+)
+
+func liveGrant(tenantStatus, role, scope string) *access {
+	return &access{tenantStatus: tenantStatus, subjectID: staffUser, subjectStatus: StatusActive, identityStatus: StatusActive,
+		roleKey: role, roleRank: 1, grantScope: scope, grantID: grantID}
+}
+
+// TestRequireSupport (P4-T13, §8.7): staff on a tenant route are decided by their live Support Access Grant only — no
+// grant ⇒ 403 no_support_grant; the grant's effective role must hold the permission (the refusal carries the grant, so
+// it is recorded under the tenant); a suspended or deprovisioning tenant refuses the writes of a support role; a granted
+// decision names the grant, the platform user and no membership.
+func TestRequireSupport(t *testing.T) {
+	ctx := WithPrincipal(context.Background(), staffPrincipal())
+	read := Requirement{Permission: "tenant.device:read", ReadOnly: true}
+	cases := []struct {
+		name   string
+		acc    *access
+		req    Requirement
+		kind   error
+		reason string
+		grant  bool // the refusal carries the grant
+	}{
+		{"no live grant", nil, read, ErrForbidden, "no_support_grant", false},
+		{"deleted tenant", liveGrant(TenantDeleted, RoleSupportOperator, GrantAny), read, ErrNotFound, "tenant_deleted", false},
+		{"role without the permission", liveGrant("active", RoleSupportOperator, ""), Need("tenant.policy:apply"), ErrForbidden, "no_grant", true},
+		{"own scope never on a support role", liveGrant("active", RoleSupportOperator, GrantOwn), Requirement{Permission: "tenant.device:rename", OwnResource: true}, ErrForbidden, "own_scope_on_support_role", true},
+		{"suspended tenant write", liveGrant(TenantSuspended, RoleSupportOperator, GrantAny), Need("tenant.device:sync"), ErrTenantSuspended, "tenant_suspended", true},
+		{"deprovisioning tenant write", liveGrant(TenantDeprovisioning, RoleSupportOperator, GrantAny), Need("tenant.device:sync"), ErrTenantSuspended, "tenant_deprovisioning", true},
+	}
+	for _, c := range cases {
+		f := &fakeLoader{support: c.acc, tenant: activeMember(GrantAny, "")}
+		a := &Authorizer{load: f}
+		_, err := a.Require(ctx, tenantA, c.req)
+		wantDenied(t, c.name, err, c.kind, c.reason)
+		var d *Denial
+		if errors.As(err, &d) && (d.SupportGrantID == grantID) != c.grant {
+			t.Errorf("%s: denial grant = %v, want carried %v", c.name, d.SupportGrantID, c.grant)
+		}
+		if len(f.calls) != 1 || !strings.HasPrefix(f.calls[0], "support:"+tenantA.String()) {
+			t.Errorf("%s: loader calls %v, want one support load (never the membership)", c.name, f.calls)
+		}
+	}
+	inactive := liveGrant("active", RoleSupportOperator, GrantAny)
+	inactive.subjectStatus = "disabled"
+	_, err := (&Authorizer{load: &fakeLoader{support: inactive}}).Require(ctx, tenantA, read)
+	wantDenied(t, "disabled platform user", err, ErrForbidden, "platform_user_inactive")
+
+	f := &fakeLoader{support: liveGrant(TenantSuspended, RoleSupportOperator, GrantAny)}
+	d, err := (&Authorizer{load: f}).Require(ctx, tenantA, read)
+	if err != nil || !d.Support() || d.SupportGrantID != grantID || d.PlatformUserID != staffUser ||
+		d.MembershipID != uuid.Nil || d.TenantID != tenantA || d.RoleKey != RoleSupportOperator || d.OwnOnly {
+		t.Errorf("support read of a suspended tenant: %+v, %v", d, err)
+	}
+	if (Decision{}).Support() {
+		t.Error("a zero decision is not a support decision")
 	}
 }

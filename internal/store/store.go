@@ -127,12 +127,72 @@ func (s *Store) tenantTx(ctx context.Context, tenantID uuid.UUID, fn func(pgx.Tx
 	if tenantID == uuid.Nil {
 		return ErrNoTenant
 	}
+	support, isSupport := SupportActorFrom(ctx)
 	return pgx.BeginTxFunc(ctx, s.tenant, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, setTenantScope, tenantID.String()); err != nil {
 			return fmt.Errorf("store: set tenant scope: %w", err)
 		}
+		if isSupport {
+			if err := checkSupportGrant(ctx, tx, tenantID, support); err != nil {
+				return err
+			}
+		}
 		return fn(tx)
 	})
+}
+
+// SupportActor is platform staff acting inside a tenant through a Support Access Grant (§8.7, P4-T13): the grant and
+// its grantee. The authorization layer puts it in the request context when it grants a request through a grant;
+// every WithTenantTx / WithTenantJobTx of that context then re-checks the grant inside the transaction (§6.1 row
+// "Platform scope": right tenant, right grantee, approved, within its window — not revoked or expired since layer 1
+// decided), before any other statement, and refuses with ErrSupportGrantNotLive (fail closed — IT-17 support case).
+type SupportActor struct {
+	GrantID        uuid.UUID
+	PlatformUserID uuid.UUID
+}
+
+type supportKey struct{}
+
+// ErrSupportGrantNotLive: a support actor's transaction whose grant is no longer live (or never was, for this tenant
+// and this person) — nothing ran.
+var ErrSupportGrantNotLive = errors.New("store: the support access grant of the actor is not live")
+
+// WithSupportActor returns ctx carrying a support actor (a zero grant or person is refused at the first transaction).
+func WithSupportActor(ctx context.Context, a SupportActor) context.Context {
+	return context.WithValue(ctx, supportKey{}, a)
+}
+
+// WithoutSupportActor returns ctx without the support actor: the audit trail's own writes (the record of what the
+// actor did, including a refusal after the grant ended) must not depend on the grant.
+func WithoutSupportActor(ctx context.Context) context.Context {
+	if _, ok := SupportActorFrom(ctx); !ok {
+		return ctx
+	}
+	return context.WithValue(ctx, supportKey{}, nil)
+}
+
+// SupportActorFrom returns the support actor of ctx, if any.
+func SupportActorFrom(ctx context.Context) (SupportActor, bool) {
+	a, ok := ctx.Value(supportKey{}).(SupportActor)
+	return a, ok
+}
+
+const supportGrantLive = `SELECT EXISTS (SELECT 1 FROM support_access_grants
+ WHERE tenant_id = $1 AND id = $2 AND grantee_platform_user_id = $3
+   AND status = 'approved' AND starts_at <= now() AND expires_at > now())`
+
+func checkSupportGrant(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID, a SupportActor) error {
+	if a.GrantID == uuid.Nil || a.PlatformUserID == uuid.Nil {
+		return ErrSupportGrantNotLive
+	}
+	var live bool
+	if err := tx.QueryRow(ctx, supportGrantLive, tenantID, a.GrantID, a.PlatformUserID).Scan(&live); err != nil {
+		return fmt.Errorf("store: check support grant: %w", err)
+	}
+	if !live {
+		return ErrSupportGrantNotLive
+	}
+	return nil
 }
 
 func (s *Store) platformTx(ctx context.Context, fn func(pgx.Tx) error) error {
