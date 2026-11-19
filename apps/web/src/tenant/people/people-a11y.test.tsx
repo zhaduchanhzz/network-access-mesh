@@ -64,7 +64,8 @@ describe.each(["vi", "en"] as const)("axe Users/Groups/Invitations (%s)", (lng) 
     expect(await violations()).toEqual([]);
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
-    expect(open).toHaveFocus();
+    // React Aria trả focus sau khi lớp phủ gỡ xong (bất đồng bộ — chậm hơn trên runner tải cao)
+    await waitFor(() => expect(open).toHaveFocus());
   });
 
   it("offboard đang chạy (pha 2)", async () => {
