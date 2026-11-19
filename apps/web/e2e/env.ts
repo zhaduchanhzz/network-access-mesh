@@ -24,6 +24,12 @@ export interface PwConfig {
   /** base64(sha256(SPKI)) của chứng chỉ edge (lá, ký bởi CA dùng-một-lần của lượt chạy) — Chromium chỉ bỏ qua lỗi
    * "CA không tin cậy" cho chứng chỉ có đúng khóa này */
   tlsSpki: string;
+  /** miền mesh của stack (tenant-a.<mesh> = login server của tenant-a) */
+  mesh: string;
+  /** login_server mong đợi của tenant-a (server_url của instance) */
+  loginServer: string;
+  /** đối tượng do harness tạo cho các ca xác nhận thao tác phá hủy (securityux.spec.ts) */
+  fixtures: Fixtures;
   tenantA: { id: string; slug: string };
   tenantB: { id: string; slug: string };
   /** yêu cầu 2P (platform.user.super_admin) do SA2 tạo, đang chờ — SA1 xem chi tiết, không duyệt */
@@ -31,8 +37,33 @@ export interface PwConfig {
   users: Record<Role, TestUser>;
 }
 
+export interface Fixtures {
+  dnsName: string;
+  dnsValue: string;
+  resource: string;
+  tag: string;
+  invitation: string;
+  routeDevice: string;
+  routeDeviceId: string;
+  routeApproved: string;
+  routePending: string;
+}
+
 const FALLBACK: PwConfig = {
   domain: "example.invalid",
+  mesh: "mesh.example.invalid",
+  loginServer: "https://tenant-a.mesh.example.invalid",
+  fixtures: {
+    dnsName: "pw-db.tenant-a.example.invalid",
+    dnsValue: "100.64.0.2",
+    resource: "pw-web",
+    tag: "tag:pw-e2e",
+    invitation: "pw-pending@example.invalid",
+    routeDevice: "a1",
+    routeDeviceId: "00000000-0000-4000-8000-0000000000a1",
+    routeApproved: "10.88.0.0/24",
+    routePending: "10.89.0.0/24",
+  },
   edgeIp: "127.0.0.1",
   tlsSpki: "",
   tenantA: { id: "00000000-0000-4000-8000-00000000000a", slug: "tenant-a" },
@@ -57,10 +88,16 @@ export const cfg = loadConfig();
 export const APP = `https://app.${cfg.domain}`;
 export const ADMIN = `https://admin.${cfg.domain}`;
 export const AUTH_HOST = `auth.${cfg.domain}`;
+export const MESH_HOSTS = [`tenant-a.${cfg.mesh}`, `tenant-b.${cfg.mesh}`];
 
 function stateDir(): string {
   const file = process.env.MG_PW_CONFIG;
   return file ? path.dirname(file) : path.join(process.cwd(), "test-results", "pw-state");
+}
+
+/** thư mục của kênh điều khiển spec ⇄ harness (tests/e2e/harness/pwcontrol.py) */
+export function ctlDir(): string {
+  return path.join(stateDir(), "ctl");
 }
 
 /** storage state (cookie phiên __Host-) của một vai trò — viết ở auth.setup.ts, dùng ở các spec. */

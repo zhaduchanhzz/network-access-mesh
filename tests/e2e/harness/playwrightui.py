@@ -24,10 +24,16 @@ super-admin — dùng cho ca đăng xuất; SA2 tạo một yêu cầu 2P gán S
 xem chi tiết); version policy mong muốn của tenant-a (policy-apply bootstrap); Tenant Owner, hai
 Tenant Admin (seed-membership), một End User (mời qua API + đăng nhập lần đầu); một group; đồng bộ thiết bị tenant-a
 (inventory.sync — Devices có dữ liệu thật). Mỗi user đã đăng nhập một lần qua harness (TOTP đã cấu hình); khóa TOTP và
-bộ đếm cuối được đưa cho Playwright qua config.json (0600, trong <work> — bị xóa khi gỡ stack).
+bộ đếm cuối được đưa cho Playwright qua config.json (0600, trong <work> — bị xóa khi gỡ stack). G4b (P4-T14): enrollment
+của tenant-a (subscription cho quota, web-auth bật, End User tự thêm thiết bị, duyệt trước khi phát — prepare_enrollment)
+và đối tượng cho các ca xác nhận thao tác phá hủy (DNS record, tài nguyên, tag, lời mời đang chờ, route đã duyệt + đang
+chờ của a1 — prepare_network). Trong lúc Playwright chạy, harness phục vụ kênh điều khiển (pwcontrol.py): client Tailscale
+chính thức cho các ca enrollment (web-auth không key ⇒ link /register/<auth_id>; pre-auth key do màn hình hiển thị), đẩy
+auth_time của phiên vừa đăng nhập (step-up), thành viên dùng-một-lần, dọn client/node/grant.
 
-  PW-1, PW-2  hai lượt liên tiếp của bộ Playwright (apps/web/e2e: setup đăng nhập + spec × hai project vi/en): mọi test
-              không bị skip/fixme PASS, 0 flaky (retries = 0); báo cáo HTML + results.json + trace khi lỗi dưới
+  PW-1, PW-2  hai lượt liên tiếp của bộ Playwright (apps/web/e2e: setup đăng nhập + spec × hai project vi/en — gồm
+              enrollment với client thật, C4, checklist UX bảo mật G4b): mọi test PASS, 0 flaky (retries = 0), không
+              test nào bị skip; báo cáo HTML + results.json + trace khi lỗi dưới
               <out>/playwright/run<i>/
   PW-S        artifact không chứa giá trị secret nào của lượt (mật khẩu, khóa TOTP, secret của stack) — kể cả bên
               trong trace (.zip)
@@ -56,13 +62,18 @@ import zipfile
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import backend  # noqa: E402
 import checks  # noqa: E402
+import enrollment  # noqa: E402 — _ensure_subscription, _set_enrollment, _key_file
+from pwcontrol import Control  # noqa: E402
 from backend import TOTP, KeycloakAdmin, admin_cmd  # noqa: E402
-from dualcontrol import tenant_id, unsafe  # noqa: E402
+from dualcontrol import psql_one, tenant_id, unsafe  # noqa: E402
 from idpadmin import platform_session  # noqa: E402
 from members import invited_member, seeded, wait_job  # noqa: E402
 from phase3 import policy_apply  # noqa: E402
 from stack import ROOT, Stack, StackError, log  # noqa: E402
 import dualcontrol  # noqa: E402
+
+
+PW_P1, PW_P2 = "10.88.0.0/24", "10.89.0.0/24"     # route của a1 cho ca xác nhận gỡ/duyệt route (G4b)
 
 
 def pw_image() -> str:
@@ -146,7 +157,10 @@ def prepare(st: Stack) -> dict:
         raise StackError(f"chuẩn bị: SA2 bootstrap {p.returncode} role {role2}, policy-apply {code} {out.get('state')}, "
                          f"group {g.status}, sync {sync_status}, platform user {pu.status} 2P {ap.status} "
                          f"{ap.body[:200]!r}")
-    cfg = {"domain": st.domain, "edgeIp": st.edge_ip, "tlsSpki": edge_spki(st),
+    enroll = prepare_enrollment(st, a_id)
+    fixtures = prepare_network(st, tb, tsess, ob, osess, a_id)
+    cfg = {"domain": st.domain, "edgeIp": st.edge_ip, "tlsSpki": edge_spki(st), "mesh": st.mesh,
+           "loginServer": f"https://tenant-a.{st.mesh}", "fixtures": fixtures,
            "tenantA": {"id": a_id, "slug": "tenant-a"}, "tenantB": {"id": b_id, "slug": "tenant-b"},
            "platformApprovalId": ap.json().get("id", ""),
            "users": {"sa": as_user(st.platform_sa, "E2E SA"), "sa2": as_user(sa2, "PW SA2"),
@@ -159,8 +173,70 @@ def prepare(st: Stack) -> dict:
     f.write_text(json.dumps(cfg), encoding="utf-8")
     os.chmod(f, 0o600)
     log(f"chuẩn bị xong: SA1, SA2, Owner, 2 Admin, End User, group, sync {sync_status}, policy-apply {out.get('state')}, "
-        "một yêu cầu 2P platform.user.super_admin đang chờ")
+        f"một yêu cầu 2P platform.user.super_admin đang chờ; enrollment {enroll}; dữ liệu mạng {sorted(fixtures)}")
     return cfg
+
+
+def prepare_enrollment(st: Stack, a_id: str) -> str:
+    """Enrollment của tenant-a cho G4b (P4-T06/07/08): subscription (quota §7.4 bước 3 — tenant của stack được adopt không
+    có), web-auth bật, End User tự thêm thiết bị (ô có điều kiện self_enroll của §8.6), duyệt trước khi phát (End User ⇒
+    pending_approval; Admin/Owner có quyền duyệt ⇒ phát ngay) — đặt bằng SQL như E2E-101/enrollui.py; stack dành riêng cho
+    Playwright nên không đặt lại."""
+    sub = enrollment._ensure_subscription(st, a_id)
+    enrollment._set_enrollment(st, a_id, {"web_auth_enabled": True, "self_enroll": True, "requires_approval": True})
+    got = psql_one(st, f"SELECT settings -> 'enrollment' FROM tenants WHERE id = '{a_id}'")
+    if '"self_enroll": true' not in got or '"requires_approval": true' not in got:
+        raise StackError(f"chuẩn bị enrollment: {got}")
+    return f"subscription {'mới' if sub else 'có sẵn'}, {got}"
+
+
+def prepare_network(st: Stack, tb, tsess: dict, ob, osess: dict, a_id: str) -> dict:
+    """Đối tượng cho các ca xác nhận thao tác phá hủy (securityux.spec.ts — chỉ MỞ hộp xác nhận rồi Esc/Hủy, không xóa):
+    một DNS record (A → IP tailnet của a2), một tài nguyên mạng, một tag của danh mục, một lời mời đang chờ, một route đã
+    duyệt + một route đang chờ của a1 (quảng bá + sync + duyệt với If-Match như E2E-102)."""
+    api = f"https://app.{st.domain}/api/v1/tenants/{a_id}"
+    h = lambda **extra: unsafe(st, tsess, **extra)  # noqa: E731
+    key = lambda: {"Idempotency-Key": "pw-" + secrets.token_hex(8)}  # noqa: E731
+    out: dict = {}
+    stat = checks.wait_running(st, ["a1", "a2"])
+    a2_ip = checks.ip4(stat["a2"]["Self"])
+    dns = tb.get(f"{api}/dns")
+    base = dns.json().get("base_domain", "") if dns.status == 200 else ""
+    rec = tb.request("POST", f"{api}/dns/records", json.dumps({"name": f"pw-db.{base}", "type": "A", "value": a2_ip}).encode(),
+                     h(**key()))
+    res = tb.request("POST", f"{api}/resources", json.dumps({"name": "pw-web", "kind": "service", "address": "10.77.0.9",
+                                                             "ports": ["443"], "protocol": "tcp"}).encode(), h(**key()))
+    tag = tb.request("POST", f"{api}/tags", json.dumps({"name": "tag:pw-e2e", "purpose": "custom",
+                                                        "description": "P4-T14 G4b"}).encode(), h(**key()))
+    email = f"pw-pending-{secrets.token_hex(3)}@example.invalid"
+    inv = dualcontrol.invite(st, ob, osess, a_id, email, "end_user")
+    adv = checks.ts(st, "a1", "set", f"--advertise-routes={PW_P1},{PW_P2}")
+    dev = next((d for d in tb.get(f"{api}/devices?limit=50").json().get("items", [])
+                if "a1" in (d.get("given_name") or d.get("name") or "")), {})
+
+    def route():
+        items = tb.get(f"{api}/routes").json().get("items", [])
+        r = next((x for x in items if x.get("device_id") == dev.get("id")), {})
+        return r if PW_P1 in (r.get("pending_routes") or []) else None
+    r: dict = {}
+    for _ in range(4):                       # bucket sync: 3 + 1/10 s mỗi danh tính
+        s = tb.request("POST", f"{api}/devices/sync", None, h(**key()))
+        if s.status == 202:
+            wait_job(st, s.json().get("id", ""), 60)
+        r = checks.wait(route, 15, 3) or {}
+        if r:
+            break
+        time.sleep(11)
+    ok = tb.request("POST", f"{api}/routes/approve", json.dumps({"device_id": dev.get("id"), "prefixes": [PW_P1]}).encode(),
+                    h(**key(), **{"If-Match": r.get("routes_etag", "")}))
+    if (rec.status != 201 or res.status != 201 or tag.status != 201 or inv.status != 201 or adv.returncode != 0
+            or not r or ok.status != 200):
+        raise StackError(f"chuẩn bị dữ liệu mạng: dns {dns.status}/{rec.status} resource {res.status} tag {tag.status} "
+                         f"invite {inv.status} advertise {adv.returncode} route {bool(r)} approve {ok.status} {ok.body[:200]!r}")
+    out.update(dnsName=f"pw-db.{base}", dnsValue=a2_ip, resource="pw-web", tag="tag:pw-e2e", invitation=email,
+               routeDevice=dev.get("given_name") or dev.get("name"), routeDeviceId=dev.get("id"), routeApproved=PW_P1,
+               routePending=PW_P2)
+    return out
 
 
 def secret_set(st: Stack, cfg: dict) -> set[str]:
@@ -210,7 +286,7 @@ class Forwarder:
         self.st.docker("network", "rm", self.net, check=False)
 
 
-def run_once(st: Stack, i: int, fwd: Forwarder) -> dict:
+def run_once(st: Stack, i: int, fwd: Forwarder, ctl: Control) -> dict:
     nm = os.environ.get("WEB_NODE_MODULES", "")
     if not nm or not pathlib.Path(nm, "@playwright", "test").exists():
         raise StackError("WEB_NODE_MODULES phải trỏ tới node_modules đã cài của apps/web (npm ci) — gồm @playwright/test")
@@ -229,17 +305,23 @@ def run_once(st: Stack, i: int, fwd: Forwarder) -> dict:
            "-v", f"{ROOT}:/src:ro", "-v", f"{nm}:/src/apps/web/node_modules:ro", "-v", f"{d}:/pw", "-v", f"{out}:/out",
            "-w", "/src/apps/web", pw_image(), "npx", "--no-install", "playwright", "test", *os.environ.get("PW_ARGS", "").split()]
     t0 = time.time()
-    try:
-        p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=3600,
-                           check=False)
-    except subprocess.TimeoutExpired as e:
-        st.docker("rm", "-f", name, check=False)
-        raise StackError(f"Playwright lượt {i}: quá 3600 s") from e
-    text = re.sub(r"\x1b\[[0-9;]*m", "", p.stdout + p.stderr)
+    raw_log = d / f"run{i}.log"                  # log thô (chưa che) trong <work>, không trong artifact
+    with open(raw_log, "wb") as logf:
+        p = subprocess.Popen(cmd, stdout=logf, stderr=subprocess.STDOUT)
+        # trong lúc Playwright chạy: phục vụ kênh điều khiển (thiết bị, step-up, thành viên dùng-một-lần — pwcontrol.py)
+        while p.poll() is None and time.time() - t0 < 5400:
+            ctl.poll()
+            time.sleep(0.3)
+        if p.poll() is None:
+            p.kill()
+            st.docker("rm", "-f", name, check=False)
+            raise StackError(f"Playwright lượt {i}: quá 5400 s")
+    text = re.sub(r"\x1b\[[0-9;]*m", "", raw_log.read_text(encoding="utf-8", errors="replace"))
+    raw_log.unlink(missing_ok=True)
     (out / "playwright.log").write_text(st.redact(text), encoding="utf-8")
     res = out / "results.json"
     stats = json.loads(res.read_text(encoding="utf-8")).get("stats", {}) if res.exists() else {}
-    stats.update(exit=p.returncode, seconds=round(time.time() - t0))
+    stats.update(exit=p.returncode, seconds=round(time.time() - t0), ctl_ops=ctl.handled)
     stats["failed_titles"] = failed_titles(res) if res.exists() else []
     stats["counts"] = count_tests(res) if res.exists() else {}
     log(f"Playwright lượt {i}: exit {p.returncode}, {stats.get('expected')} pass, {stats.get('unexpected')} fail, "
@@ -365,17 +447,20 @@ def leak_scan(root: pathlib.Path, values: set[str]) -> list[str]:
 def run_all(st: Stack, r: checks.Results, cfg: dict) -> None:
     runs = int(os.environ.get("PW_RUNS", "2"))
     fwd = Forwarder(st)
+    ctl = Control(st)
     try:
-        stats = [run_once(st, i, fwd) for i in range(1, runs + 1)]
+        stats = [run_once(st, i, fwd, ctl) for i in range(1, runs + 1)]
     finally:
         fwd.stop()
+        ctl.close()
     for i, s in enumerate(stats, start=1):
         ok = (s.get("exit") == 0 and s.get("unexpected", 1) == 0 and s.get("flaky", 1) == 0
-              and s.get("expected", 0) > 0)
+              and s.get("expected", 0) > 0 and (s.get("skipped", 0) == 0 or bool(os.environ.get("PW_ARGS"))))
         r.add(f"PW-{i}", f"P4-T14: bộ Playwright lượt {i} (setup đăng nhập 4 vai trò + spec × vi/en; axe WCAG 2.1 AA, i18n, "
               "CSP, lưu trữ trình duyệt, cách ly tenant) — mọi test PASS, 0 flaky", ok,
-              f"{s.get('expected')} pass, {s.get('unexpected')} fail, {s.get('flaky')} flaky, {s.get('skipped')} skip "
-              f"(fixme enrollment), {s.get('seconds')} s; theo project {s.get('counts')}; lỗi {s.get('failed_titles')[:12]}",
+              f"{s.get('expected')} pass, {s.get('unexpected')} fail, {s.get('flaky')} flaky, {s.get('skipped')} skip, "
+              f"{s.get('seconds')} s, {s.get('ctl_ops')} thao tác harness (pwcontrol, cộng dồn); theo project {s.get('counts')}; "
+              f"lỗi {s.get('failed_titles')[:12]}",
               limit=2000)
     root = st.out / "playwright"
     values = secret_set(st, cfg) | session_values(st)

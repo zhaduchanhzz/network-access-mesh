@@ -1716,7 +1716,7 @@
     "platformManaged": "platform-managed",
     "readOnly": "read-only",
     "edit": "Edit description",
-    "editOf": "Edit the description of {{name}}",
+    "editOf": "Edit description of {{name}}",
     "delete": "Delete",
     "deleteOf": "Delete {{name}}",
     "deleteTitle": "Delete tag {{name}}?",
@@ -1830,7 +1830,9 @@
       "revokeDesc": "{{staff}} loses access ({{role}}) at the next request.",
       "breakglassTitle": "Break-glass: approve without the tenant?",
       "breakglassDesc": "You are the second Super Admin approving access of {{staff}} to tenant {{tenant}} without the tenant's decision. A high-severity security event is raised and every Tenant Owner is notified."
-    }
+    },
+    "grantEnded": "Your Support Access Grant for this tenant may have expired or been revoked — the action was not performed.",
+    "grantEndedLink": "Open Support access"
   },
   "approvals": {
     "intro": "Changes inside the tenant that need a second person (turning off 4-eyes, removing a sensitive group, members of a sensitive group…). The requester cannot approve their own request.",
@@ -2010,7 +2012,7 @@
       "approveExit": "Approve exit node",
       "approveExitFor": "Approve exit node {{name}}",
       "revoke": "Revoke approval",
-      "revokeFor": "Revoke route approval of {{name}}",
+      "revokeFor": "Revoke approval of routes on {{name}}",
       "approved": "Approved {{prefixes}} on {{name}} — confirmed by Headscale.",
       "revoked": "Revoked {{prefixes}} on {{name}} — confirmed by Headscale.",
       "dialog": {
@@ -2325,7 +2327,8 @@
       "invalid": "The confirmation link is missing or malformed (or was already handled). Open the link the client printed again, or paste it on Add device.",
       "notMemberTitle": "The link is not for your tenant",
       "notMember": "You are not a member of the tenant in this link (or you are signed in with another account). Nothing was confirmed.",
-      "toEnroll": "Go to Add device"
+      "toEnroll": "Go to Add device",
+      "autoRetry": "The confirmation will be sent again once, automatically, when the wait is over — no need to click again."
     },
     "failure": {
       "node_mismatch": "The enrolled device did not match the request (hostname other than the issued command, wrong user or tags) — it was deleted at once. Run exactly the command shown.",

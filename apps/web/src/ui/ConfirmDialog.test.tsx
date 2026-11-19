@@ -145,4 +145,35 @@ describe("ConfirmDialog", () => {
     await userEvent.click(await screen.findByRole("button", { name: "OK" }));
     expect(onConfirm).toHaveBeenCalledOnce();
   });
+
+  // G4b (P4-T14, Playwright checkI18n): hộp dismissable của React Aria chèn DismissButton ẩn với aria-label "Dismiss" của
+  // catalog riêng React Aria (không có vi-VN) ⇒ chuỗi tiếng Anh trên giao diện tiếng Việt; bấm ra ngoài cũng đóng hộp (key
+  // một lần mất, nội dung đã gõ mất). ModalDialog không dismissable bằng bấm ra ngoài — Esc và nút Hủy vẫn đóng.
+  it("không DismissButton ẩn ('Dismiss' tiếng Anh); bấm ra ngoài KHÔNG đóng; Esc vẫn đóng", async () => {
+    const onConfirm = vi.fn();
+    function Simple() {
+      const [open, setOpen] = useState(true);
+      return (
+        <>
+          <p data-testid="outside">nền</p>
+          <ConfirmDialog isOpen={open} onOpenChange={setOpen} title="T" description={<p>mô tả</p>} confirmLabel="OK" destructive onConfirm={onConfirm} />
+        </>
+      );
+    }
+    render(<Simple />);
+    const dialog = await screen.findByRole("alertdialog", { name: "T" });
+    expect(document.querySelector('[aria-label="Dismiss"]')).toBeNull();
+    expect(screen.queryByRole("button", { name: "Dismiss", hidden: true })).toBeNull();
+    // bấm lên lớp phủ (ngoài hộp)
+    const overlay = dialog.closest(".fixed");
+    expect(overlay).not.toBeNull();
+    await userEvent.pointer({ keys: "[MouseLeft]", target: overlay! });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.getByRole("alertdialog", { name: "T" })).toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => {
+      expect(screen.queryByRole("alertdialog")).toBeNull();
+    });
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
 });

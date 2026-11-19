@@ -8,11 +8,13 @@
 //                 mật khẩu + khóa TOTP — chỉ nằm trong thư mục làm việc của stack, không bao giờ trong artifact)
 //   MG_PW_OUT     thư mục kết quả: html/ (báo cáo), results.json, artifacts/ (trace/ảnh chỉ khi lỗi)
 import { defineConfig, devices } from "@playwright/test";
-import { loadConfig } from "./e2e/env";
+import { loadConfig, MESH_HOSTS } from "./e2e/env";
 
 const cfg = loadConfig();
 const out = process.env.MG_PW_OUT ?? "test-results/playwright";
-const hosts = ["app", "admin", "auth"].map((h) => `MAP ${h}.${cfg.domain} ${cfg.edgeIp}`).join(",");
+// app./admin./auth.<domain> + login server của hai tenant (tenant-*.<mesh>: link /register/<auth_id> mà client in ra —
+// edge v10 chuyển hướng 302 về trang claim của Portal, G4b) — cùng chứng chỉ edge (SAN *.<mesh>), cùng SPKI pin
+const hosts = [...["app", "admin", "auth"].map((h) => `${h}.${cfg.domain}`), ...MESH_HOSTS].map((h) => `MAP ${h} ${cfg.edgeIp}`).join(",");
 const args = [`--host-resolver-rules=${hosts},EXCLUDE localhost`];
 // TLS: chỉ chứng chỉ edge của lượt chạy (SPKI pin — harness lấy qua bắt tay đã kiểm theo CA dùng-một-lần) được nhận;
 // không tắt kiểm chứng chỉ cho mọi host.
@@ -27,7 +29,9 @@ export default defineConfig({
   fullyParallel: false,
   forbidOnly: true,
   retries: 0,
-  timeout: 120_000,
+  // ca G4b (enrollment với client thật, step-up qua Keycloak, C4 nhiều vai trò) dài hơn ca chỉ-đọc; bucket `enrollment` của
+  // API (5 + 1/5 s mỗi danh tính) ⇒ chờ Retry-After là chuyện thường
+  timeout: 300_000,
   expect: { timeout: 15_000 },
   reporter: [
     ["list"],

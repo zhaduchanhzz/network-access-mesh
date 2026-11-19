@@ -1,7 +1,8 @@
 // Tenant Portal trên app. với ba vai trò thật của tenant-a (Owner, Admin, End User — phiên từ auth.setup.ts): mọi mục
 // điều hướng role thấy, các trang chi tiết (thiết bị, thành viên, group, version policy — editor/diff), hộp thoại mời
 // thành viên và form tài nguyên mạng (mở rồi đóng) — mỗi trang: axe WCAG 2.1 AA + i18n + CSP/5xx. Chỉ đọc.
-// Mục enrollment (P4-T08) hiện là "chưa khả dụng" — kiểm đúng trạng thái đó; luồng enrollment: enrollment.spec.ts.
+// Mục enrollment (P4-T08) là màn hình thật (danh sách test sinh từ TENANT_NAV); luồng enrollment: enrollment.spec.ts; rà
+// soát UX bảo mật G4b (step-up, hai pha, xác nhận thao tác phá hủy): securityux.spec.ts.
 import type { Page, TestInfo } from "@playwright/test";
 import { TENANT_NAV, visibleItems } from "../src/nav/navModel";
 import { APP, cfg, storageFile, type Role } from "./env";

@@ -533,6 +533,45 @@ describe("Enrollment key + hàng chờ duyệt", () => {
     expect(within(screen.getByTestId("all-requests")).getAllByTestId("decided-by-support")).toHaveLength(2);
   });
 
+  // G4b (C4): grant hết hạn/bị thu hồi sau khi trang đã mở ⇒ lần duyệt kế tiếp 403 (lớp 1 no_support_grant hoặc
+  // support_grant_not_live trong transaction — server không nêu lý do) ⇒ hộp thoại nói rõ grant có thể đã kết thúc, link
+  // tới Support Access; cùng 403 trên app. (thành viên) ⇒ không có dòng này
+  it("nhân viên hỗ trợ: duyệt khi grant đã hết hạn/thu hồi ⇒ 403 ⇒ thông báo grant có thể đã kết thúc + link Support Access; thành viên (app.) ⇒ không", async () => {
+    const GRANT = "0190a100-0000-7000-8000-0000000000c5";
+    const routes = {
+      [`GET ${base}/users`]: users,
+      [`GET ${base}/enrollment/requests`]: listFor(queue),
+      [`POST ${base}/enrollment/requests/${REQ_1}/approve`]: problem(403, "forbidden", { detail: "The support access grant is no longer live." }),
+    };
+    const { requests } = mockApi({
+      ...apiFor("end_user", routes),
+      "GET /auth/session": json(200, platformSession("platform_support", [
+        { id: GRANT, tenant_id: TENANT_A, effective_role: "support_operator", expires_at: new Date(Date.now() + 3600_000).toISOString() },
+      ])),
+    });
+    const first = renderApp({ path: `/t/${TENANT_A}/enrollment-keys`, console: "platform" });
+    const q = await screen.findByTestId("approval-queue");
+    await userEvent.click(within(q).getByRole("button", { name: "Duyệt yêu cầu phone-binh" }));
+    const dialog = screen.getByRole("alertdialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Duyệt" }));
+    const hint = await within(dialog).findByTestId("support-grant-ended");
+    expect(hint).toHaveTextContent("Support Access Grant của bạn cho tenant này có thể đã hết hạn hoặc bị thu hồi");
+    expect(within(hint).getByRole("link", { name: "Xem Support Access" })).toHaveAttribute("href", "/platform/support-access");
+    expect(dialog).toHaveTextContent("Bạn không có quyền thực hiện thao tác này.");
+    expect(posts(requests, `/enrollment/requests/${REQ_1}/approve`)).toHaveLength(1);
+    expect(screen.queryByTestId("enroll-done")).toBeNull();
+    first.unmount();
+
+    mockApi(apiFor("tenant_admin", routes));
+    renderApp({ path: `/t/${TENANT_A}/enrollment-keys` });
+    const q2 = await screen.findByTestId("approval-queue");
+    await userEvent.click(within(q2).getByRole("button", { name: "Duyệt yêu cầu phone-binh" }));
+    const dialog2 = screen.getByRole("alertdialog");
+    await userEvent.click(within(dialog2).getByRole("button", { name: "Duyệt" }));
+    expect(await within(dialog2).findByText("Bạn không có quyền thực hiện thao tác này.")).toBeInTheDocument();
+    expect(within(dialog2).queryByTestId("support-grant-ended")).toBeNull();
+  });
+
   it("key reusable đã dùng (consumed) còn hạn ⇒ vẫn có nút Thu hồi ⇒ POST revoke; hết hạn hoặc không reusable ⇒ không có nút", async () => {
     const past = new Date(Date.now() - 60_000).toISOString();
     const live = request(REQ_2, { method: "preauth_key", status: "consumed", device_label: "ci-runner", tags: ["tag:ci"], reusable: true, target_membership_id: null });

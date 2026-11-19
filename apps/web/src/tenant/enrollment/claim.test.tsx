@@ -200,6 +200,56 @@ describe("trang claim /enroll/claim", () => {
     expect(await claims(requests)[1]!.json()).toEqual({ auth_id: AUTH_ID });
   });
 
+  // F-G4a-1 (G4a, Low): bucket `enrollment` dùng chung cho GET của trang và POST claim ⇒ 429 ở lần xác nhận đầu là chuyện
+  // thường; màn hình tự gửi lại MỘT lần sau Retry-After (cùng thân — claim không có Idempotency-Key, 429 bị từ chối trước
+  // mọi xử lý), không cần người dùng bấm lại
+  it("F-G4a-1: 429 sau khi xác nhận ⇒ tự gửi lại MỘT lần sau Retry-After với cùng Auth ID ⇒ verified", async () => {
+    let n = 0;
+    const { requests } = mockApi(
+      apiFor({
+        [`POST ${base}/enrollment/web-auth/claim`]: () =>
+          ++n === 1 ? problem(429, "rate_limited", {}, { "Retry-After": "1" }) : json(200, request(REQ_1, { status: "verified", node_id: "12" })),
+      }),
+    );
+    const { router, queryClient } = renderApp({ path: claimUrl() });
+    await confirmClaim();
+    expect(await screen.findByTestId("claim-auto-retry")).toHaveTextContent("tự gửi lại xác nhận một lần");
+    expect(within(screen.getByTestId("claim-confirm")).getByText(/Thử lại sau 1 giây/)).toBeInTheDocument();
+    expect(await screen.findByTestId("claim-verified", {}, { timeout: 4000 })).toHaveTextContent("Đã thêm thiết bị laptop-an.");
+    expect(claims(requests)).toHaveLength(2);
+    expect(await claims(requests)[0]!.json()).toEqual({ auth_id: AUTH_ID });
+    expect(await claims(requests)[1]!.json()).toEqual({ auth_id: AUTH_ID });
+    expectGone(router, queryClient);
+  }, 10_000);
+
+  it("F-G4a-1: chỉ MỘT lần tự động — 429 lần hai ⇒ chờ người dùng bấm; Retry-After > 60 s ⇒ không tự gửi; bỏ ô xác nhận ⇒ không gửi", async () => {
+    const { requests } = mockApi(apiFor({ [`POST ${base}/enrollment/web-auth/claim`]: () => problem(429, "rate_limited", {}, { "Retry-After": "1" }) }));
+    const first = renderApp({ path: claimUrl() });
+    await confirmClaim();
+    await waitFor(() => expect(claims(requests)).toHaveLength(2), { timeout: 4000 });
+    await waitFor(() => expect(screen.queryByTestId("claim-auto-retry")).toBeNull());
+    await new Promise((r) => setTimeout(r, 1600));
+    expect(claims(requests)).toHaveLength(2); // không có lượt tự động thứ hai
+    expect(screen.getByRole("button", { name: "Xác nhận thiết bị" })).toBeEnabled();
+    first.unmount();
+
+    const long = mockApi(apiFor({ [`POST ${base}/enrollment/web-auth/claim`]: () => problem(429, "rate_limited", {}, { "Retry-After": "120" }) }));
+    const second = renderApp({ path: claimUrl() });
+    await confirmClaim();
+    expect(await within(screen.getByTestId("claim-confirm")).findByText(/Thử lại sau 120 giây/)).toBeInTheDocument();
+    expect(screen.queryByTestId("claim-auto-retry")).toBeNull();
+    expect(claims(long.requests)).toHaveLength(1);
+    second.unmount();
+
+    const unticked = mockApi(apiFor({ [`POST ${base}/enrollment/web-auth/claim`]: () => problem(429, "rate_limited", {}, { "Retry-After": "1" }) }));
+    renderApp({ path: claimUrl() });
+    await confirmClaim();
+    await screen.findByTestId("claim-auto-retry");
+    await userEvent.click(within(screen.getByTestId("claim-confirm")).getByLabelText(/Tôi vừa chạy lệnh/)); // bỏ chọn
+    await new Promise((r) => setTimeout(r, 1600));
+    expect(claims(unticked.requests)).toHaveLength(1);
+  }, 15_000);
+
   it("403 forbidden (tenant chưa cho End User tự thêm) ⇒ lỗi + gợi ý; tenant suspended ⇒ banner, nút khóa", async () => {
     mockApi(apiFor({ [`POST ${base}/enrollment/web-auth/claim`]: problem(403, "forbidden") }));
     const { unmount } = renderApp({ path: claimUrl() });

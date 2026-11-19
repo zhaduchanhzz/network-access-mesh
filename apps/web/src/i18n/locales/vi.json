@@ -1817,7 +1817,9 @@
       "revokeDesc": "{{staff}} mất quyền truy cập ({{role}}) ở request kế tiếp.",
       "breakglassTitle": "Break-glass: duyệt không cần tenant?",
       "breakglassDesc": "Bạn là Super Admin thứ hai duyệt truy cập của {{staff}} vào tenant {{tenant}} khi chưa có quyết định của tenant. Một security event mức cao được tạo và mọi Tenant Owner được thông báo."
-    }
+    },
+    "grantEnded": "Support Access Grant của bạn cho tenant này có thể đã hết hạn hoặc bị thu hồi — thao tác không được thực hiện.",
+    "grantEndedLink": "Xem Support Access"
   },
   "approvals": {
     "intro": "Thay đổi trong tenant cần người thứ hai (tắt 4-eyes, bỏ group sensitive, thành viên group sensitive…). Người yêu cầu không tự duyệt được.",
@@ -2312,7 +2314,8 @@
       "invalid": "Link xác nhận thiếu hoặc sai định dạng (hoặc đã được xử lý). Mở lại link mà client in ra, hoặc dán link ở trang Thêm thiết bị.",
       "notMemberTitle": "Link không thuộc tenant của bạn",
       "notMember": "Bạn không phải thành viên của tenant trong link này (hoặc đang đăng nhập bằng tài khoản khác). Không có gì được xác nhận.",
-      "toEnroll": "Tới trang Thêm thiết bị"
+      "toEnroll": "Tới trang Thêm thiết bị",
+      "autoRetry": "Màn hình sẽ tự gửi lại xác nhận một lần khi hết thời gian chờ — không cần bấm lại."
     },
     "failure": {
       "node_mismatch": "Thiết bị đăng ký không khớp yêu cầu (hostname khác lệnh đã phát, sai người dùng hoặc có tag) — đã bị xóa ngay. Chạy đúng lệnh trang hiển thị.",
