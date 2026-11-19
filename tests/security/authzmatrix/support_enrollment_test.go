@@ -10,11 +10,13 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/zhaduchanhzz/network-access-mesh/internal/audit"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/authz"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/devices/devicestest"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/gen"
 	"github.com/zhaduchanhzz/network-access-mesh/tests/security/sessionfixture"
 )
@@ -68,9 +70,9 @@ func (m *matrix) freshRequest(t *testing.T, member uuid.UUID) uuid.UUID {
 	return id
 }
 
-// liveKey inserts one more pre-auth key of tenant A that may still register a node (credential_issued, key id keyID at
-// Headscale), issued to member: its revoke takes the remote branch of the service (the key is expired at Headscale
-// between two transactions) — here the Headscale of the matrix is unreachable.
+// liveKey inserts one more pre-auth key of tenant A that may still register a node (credential_issued, key id keyID —
+// the same key in the fake Headscale of A, unused, of member's Headscale user), issued to member: its revoke takes the
+// remote branch of the service (the key is expired at Headscale between two transactions).
 func (m *matrix) liveKey(t *testing.T, member uuid.UUID, keyID int64) uuid.UUID {
 	t.Helper()
 	id := uuid.Must(uuid.NewV7())
@@ -78,6 +80,8 @@ func (m *matrix) liveKey(t *testing.T, member uuid.UUID, keyID int64) uuid.UUID 
 			target_membership_id, status, issued_at, credential_expires_at, headscale_preauthkey_id)
 		VALUES ($1, $2, $3, $4, 'preauth_key', $4, 'credential_issued', now(), now() + interval '10 minutes', $5)`,
 		id, m.A.ID, m.obj.instance["A"], member, keyID)
+	m.hs["A"].PutKey(devicestest.Key{ID: uint64(keyID), UserID: uint64(keyID), UserName: "mg-" + member.String(), //nolint:gosec // small test ids
+		Expiration: time.Now().Add(9 * time.Minute)})
 	return id
 }
 
@@ -85,7 +89,7 @@ func (m *matrix) liveKey(t *testing.T, member uuid.UUID, keyID int64) uuid.UUID 
 // tenant of the path ⇒ 403 no_support_grant; a cell — (or G (Admin) for support_operator) ⇒ 403 no_grant; a cell G ⇒
 // the handler answers as for a tenant role of scope any — except the decisions (tenant.enrollment:approve), which
 // record a member of the tenant as their decider: 403 forbidden, never a 500. A request of another tenant or a missing
-// one is 404 (reason no_request); the revoke of a live key reaches Headscale (unreachable here): 503.
+// one is 404 (reason no_request); the revoke of a live key expires it at the fake Headscale of A: 200.
 func (m *matrix) expectStaff(t *testing.T, c *call) expectation {
 	t.Helper()
 	refused := func(reason string) expectation {
@@ -109,8 +113,6 @@ func (m *matrix) expectStaff(t *testing.T, c *call) expectation {
 	switch {
 	case c.op.Permission == "tenant.enrollment:approve":
 		return expectation{status: http.StatusForbidden, code: gen.ProblemCodeForbidden, decision: decGrant}
-	case c.objectCase == "live-key":
-		return expectation{status: http.StatusServiceUnavailable, code: gen.ProblemCodeInstanceUnavailable, decision: decGrant}
 	case c.objectCase == "other-tenant" || c.objectCase == "missing":
 		return expectation{status: http.StatusNotFound, code: gen.ProblemCodeNotFound, decision: decGrant,
 			reason: "no_request"}
@@ -125,15 +127,16 @@ func (m *matrix) expectStaff(t *testing.T, c *call) expectation {
 // no_support_grant; on A the cells — refused by layer 1 (no_grant); the cells G of read and revoke answered as for a
 // tenant role of scope any — the list shows every request of A and only those, an object of A (the End User's
 // request, another member's) 200, an object of B or a missing one 404, a revoke ends the request (200 revoked); the
-// revoke of a live pre-auth key takes the remote branch: the operation's requested event, then Headscale (unreachable
-// here) ⇒ 503 instance_unavailable, the operation closed failed and the key left live (the succeeded branch with a
-// reachable Headscale: TestSupportActorRevokesLiveKey of internal/enrollment) —; approve and reject
+// revoke of a live pre-auth key takes the remote branch: the operation's requested event, the key expired at the fake
+// Headscale of A (the matrix reaches it through the production Locator and adapter — A6), the operation closed
+// succeeded and the request revoked (the refusal of a revoked grant: TestSupportActorRevokesLiveKey of
+// internal/enrollment) —; approve and reject
 // (cell G, but enrollment_requests.approver_membership_id can only name a member of the tenant) 403 forbidden with
 // reason support_actor_not_member and the request unchanged. Every answer of a granted call carries the decision of
 // the grant (role, grant, platform user); every refusal leaves exactly one denied audit event — in A as the support
 // actor when the grant decided (§8.7 step 3), with the reason of the refusal; in the platform's trail otherwise —, a
-// revoke one success event in A as the support actor, the revoke of a live key the requested and failed events of its
-// operation and the failure of the request (reason unavailable) there.
+// revoke one success event in A as the support actor, the revoke of a live key the requested and succeeded events of
+// its operation there.
 func TestSupportGrantEnrollment(t *testing.T) {
 	m := &matrix{matrixWorld: newMatrixWorld(t), byFixture: map[*sessionfixture.Actor]*actor{}}
 	staff := []supportStaff{m.newSupportStaff(t, authz.RoleSupportOperator), m.newSupportStaff(t, authz.RoleSupportAdmin)}
@@ -206,11 +209,15 @@ func TestSupportGrantEnrollment(t *testing.T) {
 		bad = append(bad, m.checkStaffAudit(t, c, grantOf[c.actor])...)
 		if id, ok := fresh[c]; ok {
 			want := "pending_approval"
-			switch {
-			case c.objectCase == "live-key": // fail closed: the key was not expired at Headscale
-				want = "credential_issued"
-			case c.op.Permission == "tenant.enrollment:revoke":
+			if c.op.Permission == "tenant.enrollment:revoke" {
 				want = "revoked"
+			}
+			if c.objectCase == "live-key" { // the key itself expired at Headscale
+				var kid int64
+				m.Scan(t, `SELECT headscale_preauthkey_id FROM enrollment_requests WHERE id = $1`, []any{id}, &kid)
+				if k := m.hs["A"].Key(uint64(kid)); k.Expiration.After(time.Now()) { //nolint:gosec // small test ids
+					add("the revoked key is still live at Headscale: %+v", k)
+				}
 			}
 			var got string
 			m.Scan(t, `SELECT status FROM enrollment_requests WHERE id = $1`, []any{id}, &got)
@@ -279,7 +286,7 @@ func (m *matrix) checkStaffAudit(t *testing.T, c *call, grant uuid.UUID) []strin
 		return e.T != nil && *e.T == m.A.ID && e.At == audit.ActorSupport && e.G != nil && *e.G == grant
 	}
 	var denied []int
-	revoked, requested, failed, unavailable := false, false, false, false
+	revoked, requested, succeeded := false, false, false
 	for i, e := range events {
 		if e.O == "denied" {
 			denied = append(denied, i)
@@ -288,12 +295,10 @@ func (m *matrix) checkStaffAudit(t *testing.T, c *call, grant uuid.UUID) []strin
 		case !asSupport(i):
 		case e.O == "success" && e.A == "enrollment.revoke":
 			revoked = true
-		case e.O == "failure" && e.A == "enrollment.revoke" && e.Why == "unavailable":
-			unavailable = true
 		case e.O == "success" && e.A == "enrollment.revoke"+audit.SuffixRequested:
 			requested = true
-		case e.O == "failure" && e.A == "enrollment.revoke"+audit.SuffixFailed && e.Why == "unavailable":
-			failed = true
+		case e.O == "success" && e.A == "enrollment.revoke"+audit.SuffixSucceeded:
+			succeeded = true
 		}
 	}
 	wantWhy := c.exp.reason
@@ -302,9 +307,9 @@ func (m *matrix) checkStaffAudit(t *testing.T, c *call, grant uuid.UUID) []strin
 	}
 	switch {
 	case c.objectCase == "live-key":
-		if !requested || !failed || !unavailable || revoked || len(denied) != 0 || len(events) != 3 {
-			return []string{fmt.Sprintf("audit %s: want the requested and failed (unavailable) events of the operation "+
-				"and the failure of the request, in A as the support actor, nothing else", rows)}
+		if !requested || !succeeded || revoked || len(denied) != 0 || len(events) != 2 {
+			return []string{fmt.Sprintf("audit %s: want the requested and succeeded events of the operation, in A as "+
+				"the support actor, nothing else", rows)}
 		}
 	case c.exp.status == http.StatusOK && c.op.Permission == "tenant.enrollment:revoke":
 		if !revoked || len(denied) != 0 {
