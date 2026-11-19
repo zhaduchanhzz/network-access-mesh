@@ -15,6 +15,11 @@ package auditsync
 //     never one per sign-in; a window that ends with nothing held back closes, and the next sign-in of the source is
 //     again notified at once.
 //
+// A window never outlasts the length it was opened with, nor the current setting: raising the setting applies to the
+// windows opened after it, lowering it ends the open windows at the new length (at the next run when that is already
+// past). With the grouping off (window 0) every sign-in is notified at once, and the windows still open when it was
+// turned off end at the next run: their held-back sign-ins are sent as summaries, never dropped.
+//
 // The windows are internal state in system_settings (consoleWindowKey, under the cursor prefix: never served by
 // /platform/settings), read and written in the transaction of the event under one advisory lock, so a held-back
 // sign-in is counted exactly once with its audit row and two processes running the job never lose a count.
@@ -55,8 +60,9 @@ const (
 // consoleWindow is the open window of one source (account, client, address).
 type consoleWindow struct {
 	Account     string   `json:"account"`
-	StartMs     int64    `json:"start_ms"` // when the window opened (the worker's clock)
-	Count       int      `json:"count"`    // sign-ins held back since StartMs
+	StartMs     int64    `json:"start_ms"`            // when the window opened (the worker's clock)
+	WindowMs    int64    `json:"window_ms,omitempty"` // Config.ConsoleLoginWindow when it opened (see length)
+	Count       int      `json:"count"`               // sign-ins held back since StartMs
 	FirstMs     int64    `json:"first_ms,omitempty"`
 	LastMs      int64    `json:"last_ms,omitempty"`
 	LastEventID string   `json:"last_event_id,omitempty"`
@@ -111,7 +117,7 @@ func (s *Syncer) consoleLoginNotices(ctx context.Context, q *sqlcdb.Queries, r R
 	}
 	key, at := windowKey(r.Username, r.Client, ip), s.cfg.Now()
 	w := ws[key]
-	if w != nil && at.Before(time.UnixMilli(w.StartMs).Add(window)) {
+	if w != nil && at.Before(time.UnixMilli(w.StartMs).Add(w.length(window))) {
 		w.hold(r, ip)
 		return nil, s.saveWindows(ctx, q, ws)
 	}
@@ -122,17 +128,16 @@ func (s *Syncer) consoleLoginNotices(ctx context.Context, q *sqlcdb.Queries, r R
 	if w == nil && len(ws) >= maxWindows {
 		return []notifications.Event{now}, nil
 	}
-	ws[key] = &consoleWindow{Account: r.Username, StartMs: at.UnixMilli()}
+	ws[key] = &consoleWindow{Account: r.Username, StartMs: at.UnixMilli(), WindowMs: window.Milliseconds()}
 	return append(out, now), s.saveWindows(ctx, q, ws)
 }
 
 // flushConsoleWindows sends the summary of every window that has ended with sign-ins held back (a new window opens
-// with it) and closes the windows that ended empty. It runs at the start of every run, whatever the IdP's state.
+// with it) and closes the windows that ended empty. It runs at the start of every run, whatever the IdP's state. With
+// the grouping off (window 0) every stored window ends now: the sign-ins it held back are sent as its summary and the
+// window closes (no new one opens) — turning the grouping off never drops a held-back sign-in.
 func (s *Syncer) flushConsoleWindows(ctx context.Context) error {
 	window := s.cfg.ConsoleLoginWindow
-	if window <= 0 {
-		return nil
-	}
 	return s.st.WithPlatformJobTx(ctx, func(tx *store.Tx) error {
 		q := tx.Q
 		if err := q.LockIdPEvent(ctx, consoleWindowLock); err != nil {
@@ -146,18 +151,20 @@ func (s *Syncer) flushConsoleWindows(ctx context.Context) error {
 		changed := false
 		for _, k := range slices.Sorted(maps.Keys(ws)) {
 			w := ws[k]
-			if at.Before(time.UnixMilli(w.StartMs).Add(window)) {
+			if window > 0 && at.Before(time.UnixMilli(w.StartMs).Add(w.length(window))) {
 				continue
 			}
 			changed = true
-			if w.Count == 0 {
+			if w.Count > 0 {
+				if _, err := s.cfg.Notifier.Enqueue(ctx, tx, s.summary(k, w)); err != nil {
+					return err
+				}
+			}
+			if w.Count == 0 || window <= 0 {
 				delete(ws, k)
 				continue
 			}
-			if _, err := s.cfg.Notifier.Enqueue(ctx, tx, s.summary(k, w)); err != nil {
-				return err
-			}
-			ws[k] = &consoleWindow{Account: w.Account, StartMs: at.UnixMilli()}
+			ws[k] = &consoleWindow{Account: w.Account, StartMs: at.UnixMilli(), WindowMs: window.Milliseconds()}
 		}
 		if !changed {
 			return nil
@@ -178,8 +185,37 @@ func (s *Syncer) summary(key string, w *consoleWindow) notifications.Event {
 		Sources:       sourceList(w.Sources, w.MoreSources),
 		First:         time.UnixMilli(w.FirstMs).UTC(),
 		Last:          time.UnixMilli(w.LastMs).UTC(),
-		WindowMinutes: int(s.cfg.ConsoleLoginWindow.Round(time.Minute) / time.Minute),
+		WindowMinutes: int((w.announced(s.cfg.ConsoleLoginWindow) + time.Minute - 1) / time.Minute),
 	})
+}
+
+// length is how long w holds sign-ins under the setting configured: the length it opened with, cut to the setting when
+// that was lowered since (raising it applies to the windows opened after); for a window stored before its length was,
+// the setting. With the grouping off (configured 0) every window ends at the next run, and this is only the length its
+// summary announces: the one it opened with (stored before its length was: the span it held, at least a minute).
+func (w *consoleWindow) length(configured time.Duration) time.Duration {
+	stored := time.Duration(w.WindowMs) * time.Millisecond
+	switch {
+	case configured > 0 && w.WindowMs > 0:
+		return min(stored, configured)
+	case configured > 0:
+		return configured
+	case w.WindowMs > 0:
+		return stored
+	}
+	return max(time.Minute, w.span())
+}
+
+// announced is the window_minutes of the summary of w: its length, but never shorter than the span of the sign-ins it
+// held — those held before the setting was lowered may lie past the new length, and the summary says they all came in
+// the window after the sign-in notified on its own.
+func (w *consoleWindow) announced(configured time.Duration) time.Duration {
+	return max(w.length(configured), w.span())
+}
+
+// span is the time from the opening of w to its last held-back sign-in (the event's time).
+func (w *consoleWindow) span() time.Duration {
+	return time.Duration(w.LastMs-w.StartMs) * time.Millisecond
 }
 
 // sourceList is the sources of a summary as one payload text (at most maxSourcesText characters — a payload value is
