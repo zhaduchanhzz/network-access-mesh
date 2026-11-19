@@ -183,6 +183,68 @@ func TestSyncRemovedAndStale(t *testing.T) {
 	}
 }
 
+// TestSyncKeepsDevicesNewerThanSnapshot (B2): a row that entered the register after the snapshot time — a web-auth claim
+// verified while the sync was listing (enrollment's InsertEnrolledDevice, first_seen_at = now()) — is neither marked
+// removed because the snapshot lacks its node, nor replaced by the snapshot's node of the same id; the next sync (a
+// newer snapshot) settles both.
+func TestSyncKeepsDevicesNewerThanSnapshot(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	a := f.a
+	now := time.Now().UTC()
+	a.hs.PutNode(userNode(a, 1, a.alice, a.aliceUser, now.Add(-time.Hour), tp(now.Add(time.Hour))))
+	if _, err := f.wrk.Sync(ctx, a.id, a.instance); err != nil {
+		t.Fatal(err)
+	}
+	// node 9 is listed by the next snapshot; once ListNodes has answered, Headscale registers node 7 and node 9 is
+	// deleted and its id handed out to another machine — two claims verify them (their rows, first seen now)
+	n9 := userNode(a, 9, a.bob, a.bobUser, now.Add(-time.Hour), tp(now.Add(time.Hour)))
+	a.hs.PutNode(n9)
+	n7 := userNode(a, 7, a.alice, a.aliceUser, now, tp(now.Add(time.Hour)))
+	const claimedKey = "mkey:" + "claimed-after-the-snapshot"
+	var d7, d9 uuid.UUID
+	a.hs.After(devicestest.OpListNodes, func(uint64) {
+		f.scan(t, `INSERT INTO device_inventory_cache (tenant_id, instance_id, headscale_node_id, machine_key, name,
+			owner_membership_id) VALUES ($1, $2, 7, $3, 'host-7', $4) RETURNING id`,
+			[]any{a.id, a.instance, n7.MachineKey, a.alice}, &d7)
+		f.scan(t, `INSERT INTO device_inventory_cache (tenant_id, instance_id, headscale_node_id, machine_key, name,
+			owner_membership_id) VALUES ($1, $2, 9, $3, 'host-9', $4) RETURNING id`,
+			[]any{a.id, a.instance, claimedKey, a.alice}, &d9)
+	})
+	rep, err := f.wrk.Sync(ctx, a.id, a.instance)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Removed != 0 || rep.Reused != 0 || rep.Inserted != 0 || rep.Updated != 1 {
+		t.Errorf("snapshot older than two claimed devices: %+v, want only node 1 updated", rep)
+	}
+	if r := f.row(t, d7); r.RemovedAt != nil {
+		t.Errorf("the device claimed after the snapshot was removed at %v", r.RemovedAt)
+	}
+	if r := f.row(t, d9); r.RemovedAt != nil || r.MachineKey != claimedKey {
+		t.Errorf("the device claimed after the snapshot was replaced by the snapshot's node: %+v", r)
+	}
+	if n := count(t, f, `SELECT count(*) FROM device_inventory_cache WHERE instance_id = $1 AND headscale_node_id = 9`,
+		a.instance); n != 1 {
+		t.Errorf("%d rows for node 9, want the claimed one only", n)
+	}
+	// the next snapshot lists node 7 (the same device: same row, so the claim's enrollment link stays) and still node 9
+	// of the other machine (§6.3: a new device)
+	a.hs.PutNode(n7)
+	if rep, err = f.wrk.Sync(ctx, a.id, a.instance); err != nil {
+		t.Fatal(err)
+	}
+	if rep.Reused != 1 || rep.Inserted != 1 || rep.Removed != 1 {
+		t.Errorf("next sync: %+v, want node 9 replaced", rep)
+	}
+	if r := f.row(t, d7); r.RemovedAt != nil || r.SyncGeneration != rep.Generation {
+		t.Errorf("claimed device after the next sync: %+v", r)
+	}
+	if r := f.row(t, d9); r.RemovedAt == nil {
+		t.Error("the next sync kept the device of the old machine key")
+	}
+}
+
 // toNode is what the adapter decodes from a ListNodes entry of the fake (for direct calls of apply).
 func toNode(n devicestest.Node) headscale.Node {
 	u := &headscale.User{ID: n.UserID, Name: n.UserName}
