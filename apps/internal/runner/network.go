@@ -27,7 +27,8 @@ import (
 // the platform's domain for the DNS names.
 func newNetwork(cfg config.Config, d *deps) (*network.Service, error) {
 	return network.New(d.st, network.Config{Registry: d.headscale, Devices: devices.RouteRegister{}, Tags: policies.RequireTags,
-		Reconfigure: reconfigureForDNS, BaseDomain: cfg.BaseDomain, Logger: d.log})
+		ResourceRefs: policies.ResourceReferences,
+		Reconfigure:  reconfigureForDNS, BaseDomain: cfg.BaseDomain, Logger: d.log})
 }
 
 // reconfigureForDNS is orchestrator.EnqueueReconfigure for PUT /tenants/{t}/dns/settings, in the tenant's transaction:

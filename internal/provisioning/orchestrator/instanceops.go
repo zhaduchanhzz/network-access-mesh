@@ -78,6 +78,8 @@ type InstanceOpsAgent interface {
 // with trigger drift_repair (§11.4).
 type PolicyApplier interface {
 	Apply(ctx context.Context, req policies.ApplyRequest) (policies.Result, error)
+	// ApplyDesired renders the desired version (typed — P4-T10) with the tables of now and applies it.
+	ApplyDesired(ctx context.Context, req policies.DesiredRequest) (policies.Result, error)
 }
 
 var _ PolicyApplier = (*policies.Service)(nil)
@@ -460,8 +462,20 @@ func (c *instanceOps) postStartGate(ctx context.Context, a *opsAttempt, t Reconf
 	if c.cfg.Policies == nil {
 		return d, nil // reported only (no policy core in this process)
 	}
-	res, aerr := c.cfg.Policies.Apply(ctx, policies.ApplyRequest{TenantID: a.in.TenantID, Kind: pol.Kind, HuJSON: pol.HuJSON,
-		Trigger: policies.TriggerDriftRepair, Actor: c.kind})
+	var (
+		res  policies.Result
+		aerr error
+	)
+	if pol.Kind == policies.KindUser {
+		// a version of the policy module (typed, or approved HuJSON — P4-T10): the core applies only platform
+		// versions as text; the module renders the desired version again (the instance of a suspended tenant runs the
+		// suspension policy, a platform version — never this branch)
+		res, aerr = c.cfg.Policies.ApplyDesired(ctx, policies.DesiredRequest{TenantID: a.in.TenantID,
+			Trigger: policies.TriggerDriftRepair, Actor: c.kind, Suspended: true})
+	} else {
+		res, aerr = c.cfg.Policies.Apply(ctx, policies.ApplyRequest{TenantID: a.in.TenantID, Kind: pol.Kind, HuJSON: pol.HuJSON,
+			Trigger: policies.TriggerDriftRepair, Actor: c.kind})
+	}
 	if aerr != nil {
 		d["repair"] = "failed"
 		return d, jobs.Permanent("policy_repair_failed", fmt.Errorf("the applied policy could not be applied again: %w", aerr))

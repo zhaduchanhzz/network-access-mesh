@@ -94,7 +94,8 @@ func newFixture(t *testing.T) *fixture {
 	f.reg = devicestest.Registry(map[uuid.UUID]headscale.Target{f.a.id: f.a.hs.Target(f.a.instance), f.b.id: f.b.hs.Target(f.b.instance)})
 	f.st = env.OpenStore(t, db, "mg_api_tenant", "mg_api_platform", 8)
 	svc, err := New(f.st, Config{Registry: f.reg, Devices: devices.RouteRegister{}, Tags: policies.RequireTags,
-		Reconfigure: f.reconfigure, BaseDomain: "mg.test"})
+		ResourceRefs: policies.ResourceReferences,
+		Reconfigure:  f.reconfigure, BaseDomain: "mg.test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -673,6 +674,15 @@ func TestResources(t *testing.T) {
 	if _, err := f.svc.DeleteResource(ctx, f.a.id, r.ID, a, ""); codeOf(err) != CodePreconditionReq+"/if_match_required" {
 		t.Fatalf("delete without If-Match: %s", codeOf(err))
 	}
+	// a typed policy version that names the resource keeps it (P4-T10's principal {type: resource})
+	pv := uuid.New()
+	f.exec(t, `INSERT INTO policy_versions (id, tenant_id, version, kind, state, content_sha256, source, created_by)
+		VALUES ($1, $2, 1, 'user', 'draft', repeat('c', 64), $3::jsonb, $4)`, pv, f.a.id,
+		`{"grants":[{"src":[{"type":"group","ref":"`+f.a.group.String()+`"}],"dst":[{"type":"resource","ref":"`+r.ID.String()+`"}],"ip":["tcp:443"]}],"ssh":[]}`, f.a.admin)
+	if _, err := f.svc.DeleteResource(ctx, f.a.id, r.ID, a, up.Resource.ETag()); codeOf(err) != CodeConflict+"/resource_in_use" {
+		t.Fatalf("delete of a named resource: %s", codeOf(err))
+	}
+	f.exec(t, `UPDATE policy_versions SET state = 'rejected', rejected_at = now() WHERE id = $1`, pv)
 	if _, err := f.svc.DeleteResource(ctx, f.a.id, r.ID, a, up.Resource.ETag()); err != nil {
 		t.Fatal(err)
 	}

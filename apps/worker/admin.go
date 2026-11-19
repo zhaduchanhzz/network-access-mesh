@@ -84,6 +84,10 @@ func admin(ctx context.Context, args []string, stdin stdinFile, stdout, stderr i
 		return apikeyRotate(ctx, args[1:], stdout, stderr, apikeyRotateEnv{getenv: getenv, environ: environ,
 			open: openKeyRotator})
 	}
+	if len(args) > 0 && args[0] == "policy-drift-check" { // P4-T10 — policydrift.go
+		return policyDriftCheck(ctx, args[1:], stdout, stderr, policyDriftEnv{getenv: getenv, environ: environ,
+			open: openDriftChecker})
+	}
 	if len(args) > 0 && args[0] == "relay-probe" { // P3-T05c — relayprobe.go
 		return relayProbe(ctx, args[1:], stdout, stderr, relayProbeEnv{getenv: getenv, environ: environ, open: openRelayProber})
 	}
@@ -102,7 +106,7 @@ func admin(ctx context.Context, args []string, stdin stdinFile, stdout, stderr i
 	}
 	if len(args) == 0 || args[0] != "idp-bootstrap" {
 		_, _ = io.WriteString(stderr, "meshguard-worker admin: unknown command\n"+adminUsage+policyApplyUsage+auditSyncUsage+
-			apikeyRotateUsage+relayProbeUsage+postRestoreUsage+mailTestUsage+upgradeWaveUsage+backfillUsage)
+			apikeyRotateUsage+relayProbeUsage+postRestoreUsage+mailTestUsage+upgradeWaveUsage+backfillUsage+policyDriftUsage)
 		return 2
 	}
 	fset := flag.NewFlagSet("idp-bootstrap", flag.ContinueOnError)

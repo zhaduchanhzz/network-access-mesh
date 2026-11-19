@@ -134,6 +134,10 @@ type DeviceRegister interface {
 // duplicates; a refusal of the caller's input carries a Validation() (field, reason, tags, ok) method.
 type TagChecker func(ctx context.Context, q *sqlcdb.Queries, tenantID uuid.UUID, names []string, field string) ([]string, error)
 
+// ResourceReferences counts the policy versions that can still be applied and name a network resource
+// (policies.ResourceReferences — P4-T10's typed principal {type: resource}), in the caller's transaction q.
+type ResourceReferences func(ctx context.Context, q *sqlcdb.Queries, tenantID, resourceID uuid.UUID) (int64, error)
+
 // ReconfigureRequest is the instance.reconfigure that PUT /dns/settings enqueues.
 type ReconfigureRequest struct {
 	TenantID, InstanceID uuid.UUID
@@ -156,6 +160,8 @@ type Config struct {
 	Devices DeviceRegister
 	// Tags checks the tags of a resource against the catalog. nil ⇒ a resource with tags is refused (not_wired).
 	Tags TagChecker
+	// ResourceRefs counts the policies that name a resource (a named resource is not deleted). nil ⇒ none counted.
+	ResourceRefs ResourceReferences
 	// Reconfigure enqueues instance.reconfigure (PUT /dns/settings). nil ⇒ refused (not_wired).
 	Reconfigure Reconfigurer
 	// BaseDomain is the platform's domain (MG_BASE_DOMAIN): a DNS record under it is accepted only inside the tenant's

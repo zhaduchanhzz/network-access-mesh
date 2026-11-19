@@ -224,6 +224,25 @@ var recipes = map[string]recipe{
 	"deleteTenantTag": {ok: answer{http.StatusConflict, gen.ProblemCodeConflict}},
 	"setDeviceTags": {body: `{"tags":["tag:server"]}`,
 		ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
+	// policy lifecycle (P4-T10, policiesapi — mounted): the matrix's object of each tenant is a typed DRAFT version (never
+	// approved), so every granted transition without If-Match answers 428 before any change, a granted apply answers 409
+	// not_approved and a granted rollback 409 never_approved (the object stays a draft for every caller); a create
+	// answers 201 (a new draft each time — never applied); the reads answer 200 (the diff renders over the tables).
+	"listTenantPolicies":     {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
+	"getCurrentTenantPolicy": {ok: answer{status: http.StatusOK}},
+	"getTenantPolicy":        {ok: answer{status: http.StatusOK}},
+	"diffTenantPolicy":       {ok: answer{status: http.StatusOK}},
+	"createTenantPolicy":     {idempotent: true, body: `{"source":{"grants":[]}}`, ok: answer{status: http.StatusCreated}},
+	"updateTenantPolicy": {body: `{"source":{"grants":[]}}`,
+		ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
+	"validateTenantPolicy": {ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
+	"submitTenantPolicy":   {ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
+	"approveTenantPolicy": {body: `{"content_sha256":"` + matrixPolicySHA + `"}`,
+		ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
+	"rejectTenantPolicy": {body: `{"reason":"matrix"}`,
+		ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
+	"applyTenantPolicy":    {idempotent: true, ok: answer{http.StatusConflict, gen.ProblemCodeConflict}},
+	"rollbackTenantPolicy": {idempotent: true, ok: answer{http.StatusConflict, gen.ProblemCodeConflict}},
 }
 
 // objectKind is what a path parameter (other than the {tenantId} context of a tenant route) designates.
@@ -248,6 +267,7 @@ const (
 	objPlatformUser objectKind = "platform-user"
 	objSetting      objectKind = "setting"
 	objPlan         objectKind = "plan"
+	objPolicy       objectKind = "policy" // /tenants/{t}/policies/{versionId} (P4-T10)
 )
 
 // paramObjects maps path parameters to object kinds; a new parameter must be added (TestEveryOperationHasAnExpectation).
@@ -256,4 +276,5 @@ var paramObjects = map[string]objectKind{
 	"tenantId": objTenant, "sessionId": objSession, "idpId": objIdP, "approvalId": objApproval, "invitationId": objInvitation,
 	"hostId": objHost, "tagId": objTag, "notificationId": objNotification, "groupId": objGroup,
 	"platformUserId": objPlatformUser, "settingKey": objSetting, "planId": objPlan,
+	"versionId": objPolicy,
 }

@@ -602,6 +602,15 @@ func (s *Service) DeleteResource(ctx context.Context, tenantID, id uuid.UUID, a 
 		if err != nil {
 			return err
 		}
+		if s.cfg.ResourceRefs != nil {
+			refs, err := s.cfg.ResourceRefs(ctx, q, tenantID, id)
+			if err != nil {
+				return err
+			}
+			if refs > 0 {
+				return conflict("resource_in_use", fmt.Sprintf("The resource is still named by %d policy version(s) that can be applied.", refs))
+			}
+		}
 		n, err := q.DeleteNetworkResource(ctx, sqlcdb.DeleteNetworkResourceParams{TenantID: tenantID, ID: id})
 		if err != nil {
 			return err
