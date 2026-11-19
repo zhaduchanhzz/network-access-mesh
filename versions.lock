@@ -189,33 +189,33 @@ note = "tailscale.com/cmd/stund tại tag v1.104.7 (commit cbc74fe…), Go 1.27.
 
 [images.mg-api]
 image = "ghcr.io/zhaduchanhzz/network-access-mesh/api"
-tag = "b8097f3e0d2bfe2e59a9317e658991fb42748239"
-index = "sha256:57c26076e43a1f8d417d60b2de9442f653fbff369eb61c95a4b7ae68e5e87709"   # một manifest linux/amd64 (docker v2 schema 2)
-amd64 = "sha256:57c26076e43a1f8d417d60b2de9442f653fbff369eb61c95a4b7ae68e5e87709"
+tag = "9b7e44834b0f925b2194807d340825093e6c7023"
+index = "sha256:98ddf6e7a40e0c49398e21b8266b0f2ea8b978a54e7e3593ea85756b0b0e517f"   # một manifest linux/amd64 (docker v2 schema 2)
+amd64 = "sha256:98ddf6e7a40e0c49398e21b8266b0f2ea8b978a54e7e3593ea85756b0b0e517f"
 user = "65532:65532"
 run_as = "65532:65532 + nhóm mg-sec-app (20001) / mg-sec-api (20002); job migrate 20004; rootfs chỉ đọc, cap_drop ALL; project mg-app (P2-T16)"
 released = "2026-11-19"
-note = "meshguard-api build từ b8097f3 (lô Phase 4: P4-T02…P4-T15 + sửa sau rà soát; migration tới 0027); workflow images run 44558158777 — job api xanh (job idp đỏ vì CVE Critical mới của JDK base Keycloak, không liên quan image này); digest, user và label org.opencontainers.image.revision đọc từ GHCR ngày 2026-11-19. CÙNG commit với [images.mg-worker], [images.mg-web], [images.mg-agent] (tools/render_app.py kiểm)"
+note = "meshguard-api build từ 9b7e448 (C4 — support grant duyệt enrollment, migration 0028; + bản b8097f3 của lô Phase 4); workflow images run 44588863749 — job xanh (job idp đỏ: DB grype build trước VEX của Red Hat vẫn báo CVE-2026-114938 trên JDK đã vá 21.0.13.1.2 — chạy lại khi DB mới, không thêm ngoại lệ); digest, user và label revision đọc từ GHCR ngày 2026-11-19. CÙNG commit với [images.mg-api]/[images.mg-worker]/[images.mg-web]/[images.mg-agent]"
 
 [images.mg-worker]
 image = "ghcr.io/zhaduchanhzz/network-access-mesh/worker"
-tag = "b8097f3e0d2bfe2e59a9317e658991fb42748239"
-index = "sha256:6afe8cb31ab8c51120f9ad6af9449205b3ea4649963aaa58ba55755f27c51c63"   # một manifest linux/amd64 (docker v2 schema 2)
-amd64 = "sha256:6afe8cb31ab8c51120f9ad6af9449205b3ea4649963aaa58ba55755f27c51c63"
+tag = "9b7e44834b0f925b2194807d340825093e6c7023"
+index = "sha256:d1f7ca9ef7d9a30746efae5e58aa9ed48f4f98405463744f016e75d1cbc499c9"   # một manifest linux/amd64 (docker v2 schema 2)
+amd64 = "sha256:d1f7ca9ef7d9a30746efae5e58aa9ed48f4f98405463744f016e75d1cbc499c9"
 user = "65532:65532"
 run_as = "65532:65532 + nhóm mg-sec-app (20001) / mg-sec-worker (20003); rootfs chỉ đọc, cap_drop ALL; project mg-app (P2-T16)"
 released = "2026-11-19"
-note = "meshguard-worker build từ b8097f3 (lô Phase 4: enrollment.reconcile, dns.records_write, grant.expire, policy.drift_check, gộp thư idp.console_login); workflow images run 44558158777 — job worker xanh; digest, user và label revision đọc từ GHCR ngày 2026-11-19"
+note = "meshguard-worker build từ 9b7e448 (C4: thông báo enrollment by_support); workflow images run 44588863749 — job xanh (job idp đỏ: DB grype build trước VEX của Red Hat vẫn báo CVE-2026-114938 trên JDK đã vá 21.0.13.1.2 — chạy lại khi DB mới, không thêm ngoại lệ); digest, user và label revision đọc từ GHCR ngày 2026-11-19. CÙNG commit với [images.mg-api]/[images.mg-worker]/[images.mg-web]/[images.mg-agent]"
 
 [images.mg-agent]
 image = "ghcr.io/zhaduchanhzz/network-access-mesh/agent"
-tag = "b8097f3e0d2bfe2e59a9317e658991fb42748239"
-index = "sha256:1826e8337d634c4e7bcfb041ff45d0ba255b24ae8f4e52b336538bc5db5d7bc1"   # một manifest linux/amd64 (docker v2 schema 2)
-amd64 = "sha256:1826e8337d634c4e7bcfb041ff45d0ba255b24ae8f4e52b336538bc5db5d7bc1"
+tag = "9b7e44834b0f925b2194807d340825093e6c7023"
+index = "sha256:ad1a326a2ad95c5b0b28e0419f44e5e039fb92dad3c49c26a3166b7f04781fa4"   # một manifest linux/amd64 (docker v2 schema 2)
+amd64 = "sha256:ad1a326a2ad95c5b0b28e0419f44e5e039fb92dad3c49c26a3166b7f04781fa4"
 user = "0:0"
 run_as = "root (Host Agent — thành phần DUY NHẤT có Docker socket, ADR-05); compose: network_mode none, cap_drop ALL + CHOWN/FOWNER/DAC_OVERRIDE, rootfs chỉ đọc; chỉ Unix socket 0660 nhóm mg-sec-worker (P3-T01/P3-T02)"
 released = "2026-11-19"
-note = "meshguard-agent build từ b8097f3 (+ WriteDnsRecords của compose driver — P4-T12; Agent cũ trả UNIMPLEMENTED ⇒ dns.records_write agent_refused, F-4 của diễn tập); workflow images run 44558158777 — job agent xanh (gồm bước kiểm image); digest, user và label revision đọc từ GHCR ngày 2026-11-19"
+note = "meshguard-agent build từ 9b7e448 (không đổi mã so với b8097f3 — rebuild cùng lượt); workflow images run 44588863749 — job xanh (job idp đỏ: DB grype build trước VEX của Red Hat vẫn báo CVE-2026-114938 trên JDK đã vá 21.0.13.1.2 — chạy lại khi DB mới, không thêm ngoại lệ); digest, user và label revision đọc từ GHCR ngày 2026-11-19. CÙNG commit với [images.mg-api]/[images.mg-worker]/[images.mg-web]/[images.mg-agent]"
 
 [images.mg-probe]
 image = "ghcr.io/zhaduchanhzz/network-access-mesh/probe"
@@ -262,13 +262,13 @@ note = "Bản 129b202 (G2 vòng 2, A-3: stage blocklist — /opt/keycloak/mg/pas
 # (tag) và cùng lượt với [images.mg-api]/[images.mg-worker] — tools/render_app.py từ chối khi thiếu hoặc khác tag.
 [images.mg-web]
 image = "ghcr.io/zhaduchanhzz/network-access-mesh/web"
-tag = "b8097f3e0d2bfe2e59a9317e658991fb42748239"
-index = "sha256:e70829351396e6da301b0d9ebacb0de4b8f4488e8eb7dd9f8c5f51a5cfc8129e"   # một manifest linux/amd64 (docker v2 schema 2)
-amd64 = "sha256:e70829351396e6da301b0d9ebacb0de4b8f4488e8eb7dd9f8c5f51a5cfc8129e"
+tag = "9b7e44834b0f925b2194807d340825093e6c7023"
+index = "sha256:3362cc532dc4e1ee10ac813c76ad190de3f3a0f1bf1291cbc8d9435fc55df8cf"   # một manifest linux/amd64 (docker v2 schema 2)
+amd64 = "sha256:3362cc532dc4e1ee10ac813c76ad190de3f3a0f1bf1291cbc8d9435fc55df8cf"
 user = "65532:65532"
 run_as = "65532:65532, rootfs chỉ đọc, cap_drop ALL, chỉ mg-edge, không secret; project mg-app (P4-T01a)"
 released = "2026-11-19"
-note = "meshguard-web (SPA, client API sinh từ api/openapi.yaml của b8097f3 — P4-T01…P4-T08) build từ b8097f3; workflow images run 44558158777 — job web xanh (gồm bước kiểm image: không phát Server/header bảo mật); digest, user và label revision đọc từ GHCR ngày 2026-11-19"
+note = "meshguard-web build từ 9b7e448 (C4: người duyệt là nhân viên hỗ trợ); workflow images run 44588863749 — job xanh (job idp đỏ: DB grype build trước VEX của Red Hat vẫn báo CVE-2026-114938 trên JDK đã vá 21.0.13.1.2 — chạy lại khi DB mới, không thêm ngoại lệ); digest, user và label revision đọc từ GHCR ngày 2026-11-19. CÙNG commit với [images.mg-api]/[images.mg-worker]/[images.mg-web]/[images.mg-agent]"
 
 # [images.mg-headscale] — Headscale v0.29.7 + bản vá V-26 (P2-T10a; nguồn: [sources.headscale]). tools/render_instance.py
 # dùng image này cho tenant không ghi headscale_build (mặc định "patched"); contract test dùng nó khi label
