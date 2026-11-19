@@ -14,7 +14,7 @@ import { ApiError } from "../../api/problem";
 import { can } from "../../auth/permissions";
 import { Page } from "../../components/Page";
 import { ProblemAlert } from "../../components/ProblemAlert";
-import { EmptyState, QueryBlock } from "../../ui/Data";
+import { QueryBlock } from "../../ui/Data";
 import { StatusBadge, useCodeText } from "../../ui/Status";
 import { useTenant } from "../TenantScope";
 import { createRequest, useEnrollmentList, useEnrollmentRequest, useIssueMutation, useMemberNames, type NewRequestBody } from "./api";
@@ -423,9 +423,7 @@ function MyRequests({ onIssued, poll }: { onIssued: (i: EnrollmentIssue) => void
     <QueryBlock query={list}>
       {(data) => {
         const mine = data.items.filter((r) => isMine(r, membershipId));
-        return mine.length === 0 ? (
-          <EmptyState>{t("enroll.mine.empty")}</EmptyState>
-        ) : (
+        return (
           <RequestTable
             tenantId={tenantId}
             role={role}
@@ -434,6 +432,7 @@ function MyRequests({ onIssued, poll }: { onIssued: (i: EnrollmentIssue) => void
             items={mine}
             names={names}
             caption={t("enroll.mine.title")}
+            empty={t("enroll.mine.empty")}
             testId="my-requests"
             onIssued={onIssued}
           />

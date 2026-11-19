@@ -342,6 +342,8 @@ describe("dán link hoặc Auth ID (phương án lùi)", () => {
 });
 
 describe("Enrollment key + hàng chờ duyệt", () => {
+  /** approver thứ ba (không phải người xem, không phải người yêu cầu) */
+  const THIRD = "0190d000-0000-7000-8000-0000000000bb";
   const queue = [
     request(REQ_1, { status: "pending_approval", method: "web_auth", device_label: "phone-binh", requested_by_membership_id: OTHER, target_membership_id: OTHER, issued_at: null, credential_expires_at: null }),
     request(REQ_3, { status: "pending_approval", method: "preauth_key", device_label: "my-own", issued_at: null, credential_expires_at: null }),
@@ -386,13 +388,19 @@ describe("Enrollment key + hàng chờ duyệt", () => {
     await waitFor(() => expect(within(screen.getByTestId("approval-queue")).getAllByTestId("enroll-row")).toHaveLength(1));
   });
 
-  it("từ chối ⇒ POST reject; 409 (đã đổi) ⇒ lỗi trong hộp + tải lại; 403 self_approval vẫn hiển thị nếu server từ chối", async () => {
+  it("từ chối ⇒ POST reject; 409 (người khác đã duyệt) ⇒ tải lại, hàng rời hàng chờ nhưng hộp vẫn mở với lỗi; 403 self_approval vẫn hiển thị nếu server từ chối", async () => {
     let n = 0;
+    let items = [...queue];
     const { requests } = mockApi(
       apiFor("tenant_owner", {
         [`GET ${base}/users`]: users,
-        [`GET ${base}/enrollment/requests`]: listFor(queue),
-        [`POST ${base}/enrollment/requests/${REQ_1}/reject`]: () => (++n === 1 ? conflict("not_pending_approval") : problem(403, "forbidden")),
+        [`GET ${base}/enrollment/requests`]: (r) => listFor(items)(r),
+        [`POST ${base}/enrollment/requests/${REQ_1}/reject`]: () => {
+          if (++n > 1) return problem(403, "forbidden");
+          // approver khác vừa duyệt: server trả 409 not_pending_approval, hàng chờ (?status=pending_approval) không còn hàng này
+          items = items.map((x) => (x.id === REQ_1 ? { ...x, status: "approved" as const, approver_membership_id: THIRD } : x));
+          return conflict("not_pending_approval");
+        },
       }),
     );
     renderApp({ path: `/t/${TENANT_A}/enrollment-keys` });
@@ -400,10 +408,52 @@ describe("Enrollment key + hàng chờ duyệt", () => {
     await userEvent.click(within(q).getAllByRole("button", { name: "Từ chối yêu cầu phone-binh" })[0]!);
     const dialog = screen.getByRole("alertdialog");
     await userEvent.click(within(dialog).getByRole("button", { name: "Từ chối" }));
-    expect(await within(dialog).findByText(/Xung đột với trạng thái hiện tại/)).toBeInTheDocument();
+    await waitFor(() => expect(within(screen.getByTestId("approval-queue")).getAllByTestId("enroll-row")).toHaveLength(1));
+    expect(screen.getByRole("alertdialog")).toBe(dialog);
+    expect(within(dialog).getByText(/Xung đột với trạng thái hiện tại/)).toBeInTheDocument();
+    expect(dialog).toHaveTextContent("Trần Thị Bình");
     await userEvent.click(within(dialog).getByRole("button", { name: "Từ chối" }));
     expect(await within(dialog).findByText("Bạn không có quyền thực hiện thao tác này.")).toBeInTheDocument();
     expect(posts(requests, `/enrollment/requests/${REQ_1}/reject`)).toHaveLength(2);
+  });
+
+  it("yêu cầu cuối của hàng chờ: duyệt ⇒ hàng chờ rỗng nhưng thông báo 'Đã duyệt' vẫn còn (role=status); 409 ⇒ hộp vẫn mở với lỗi", async () => {
+    let items = [queue[0]!];
+    let n = 0;
+    mockApi(
+      apiFor("tenant_admin", {
+        [`GET ${base}/users`]: users,
+        [`GET ${base}/enrollment/requests`]: (r) => listFor(items)(r),
+        [`POST ${base}/enrollment/requests/${REQ_1}/approve`]: () => {
+          items = items.map((x) => ({ ...x, status: "approved" as const, approver_membership_id: ME }));
+          return json(200, items[0]);
+        },
+        [`POST ${base}/enrollment/requests/${REQ_3}/reject`]: () => {
+          n++;
+          items = items.map((x) => (x.id === REQ_3 ? { ...x, status: "approved" as const, approver_membership_id: THIRD } : x));
+          return conflict("not_pending_approval");
+        },
+      }),
+    );
+    const { unmount } = renderApp({ path: `/t/${TENANT_A}/enrollment-keys` });
+    const q = await screen.findByTestId("approval-queue");
+    await userEvent.click(within(q).getByRole("button", { name: "Duyệt yêu cầu phone-binh" }));
+    await userEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Duyệt" }));
+    expect(await screen.findByText("Không có yêu cầu nào chờ duyệt.")).toBeInTheDocument();
+    expect(screen.getByTestId("enroll-done")).toHaveTextContent("Đã duyệt yêu cầu phone-binh");
+    expect(screen.getByTestId("enroll-done")).toHaveAttribute("role", "status");
+    unmount();
+
+    // 409 trên yêu cầu cuối: hàng chờ rỗng sau khi tải lại — hộp không biến mất lặng lẽ
+    items = [request(REQ_3, { status: "pending_approval", device_label: "tablet-binh", requested_by_membership_id: OTHER, target_membership_id: OTHER, issued_at: null, credential_expires_at: null })];
+    renderApp({ path: `/t/${TENANT_A}/enrollment-keys` });
+    const q2 = await screen.findByTestId("approval-queue");
+    await userEvent.click(within(q2).getByRole("button", { name: "Từ chối yêu cầu tablet-binh" }));
+    const dialog = screen.getByRole("alertdialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Từ chối" }));
+    expect(await screen.findByText("Không có yêu cầu nào chờ duyệt.")).toBeInTheDocument();
+    expect(screen.getByRole("alertdialog")).toHaveTextContent(/Xung đột với trạng thái hiện tại/);
+    expect(n).toBe(1);
   });
 
   it("key reusable đã dùng (consumed) còn hạn ⇒ vẫn có nút Thu hồi ⇒ POST revoke; hết hạn hoặc không reusable ⇒ không có nút", async () => {

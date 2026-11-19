@@ -11,6 +11,7 @@ import { ApiError } from "../../api/problem";
 import { can } from "../../auth/permissions";
 import { ProblemAlert } from "../../components/ProblemAlert";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
+import { EmptyState } from "../../ui/Data";
 import { StatusBadge, useCodeText } from "../../ui/Status";
 import { Timestamp, useNow } from "../../ui/time";
 import { TagList } from "../devices/DeviceBits";
@@ -30,6 +31,9 @@ export interface RequestTableProps {
   /** cột chủ thiết bị + tag/tùy chọn của key (trang Enrollment key) */
   wide?: boolean;
   caption: string;
+  /** danh sách rỗng ⇒ EmptyState với chữ này — bảng vẫn mount nên thông báo `done` và hộp đang mở không mất khi hàng cuối rời
+   * danh sách đã lọc (duyệt/từ chối yêu cầu cuối của hàng chờ) */
+  empty: string;
   testId?: string;
   /** `/start` thành công ⇒ credential cho màn hình hiển thị (một lần) */
   onIssued: (issue: EnrollmentIssue) => void;
@@ -41,11 +45,11 @@ export function RequestTable(props: RequestTableProps) {
   const codeText = useCodeText();
   const { tenantId, role, membershipId, readOnly, items, names, wide = false } = props;
   const now = useNow();
-  const [action, setAction] = useState<{ kind: ActionKind; id: string } | null>(null);
+  // bản chụp của hàng lúc mở hộp: 409/404 ⇒ tải lại có thể làm hàng rời danh sách đã lọc — hộp vẫn mở cùng lỗi
+  const [action, setAction] = useState<{ kind: ActionKind; request: EnrollmentRequest } | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const [startError, setStartError] = useState<{ id: string; error: unknown } | null>(null);
   const [starting, setStarting] = useState<string | null>(null);
-  const current = action ? items.find((r) => r.id === action.id) : undefined;
 
   const nameOf = (id: string | null | undefined) => {
     if (!id) return null;
@@ -67,10 +71,15 @@ export function RequestTable(props: RequestTableProps) {
       void invalidateEnrollment(queryClient, tenantId);
     },
     onError: (e) => {
-      // đã đổi trạng thái ở nơi khác ⇒ tải lại (hộp vẫn mở với lỗi)
+      // đã đổi trạng thái ở nơi khác ⇒ tải lại (hộp vẫn mở với lỗi — dựng từ bản chụp `action.request`)
       if (e instanceof ApiError && (e.code === "conflict" || e.code === "not_found")) void invalidateEnrollment(queryClient, tenantId);
     },
   });
+  const open = (kind: ActionKind, request: EnrollmentRequest) => {
+    setDone(null);
+    decide.reset();
+    setAction({ kind, request });
+  };
 
   // /start không có Idempotency-Key (gọi lại ⇒ 409 already_started) và trả credential ⇒ không qua cache của mutation
   const start = async (r: EnrollmentRequest) => {
@@ -107,140 +116,141 @@ export function RequestTable(props: RequestTableProps) {
           <StartError error={startError.error} />
         </div>
       ) : null}
-      <div className="overflow-x-auto">
-        <table className="data-table" data-testid={props.testId ?? "enroll-table"}>
-          <caption className="sr-only">{props.caption}</caption>
-          <thead>
-            <tr>
-              <th scope="col">{t("enroll.col.device")}</th>
-              <th scope="col">{t("enroll.col.method")}</th>
-              <th scope="col">{t("enroll.col.status")}</th>
-              <th scope="col">{t("enroll.col.requester")}</th>
-              {wide ? <th scope="col">{t("enroll.col.owner")}</th> : null}
-              {wide ? <th scope="col">{t("enroll.col.options")}</th> : null}
-              <th scope="col">{t("enroll.col.created")}</th>
-              <th scope="col">{t("enroll.col.expires")}</th>
-              <th scope="col">{t("enroll.col.actions")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((r) => {
-              const mine = r.requested_by_membership_id === membershipId;
-              const showDecide = canApprove && r.status === "pending_approval";
-              const showStart = canRequest && mine && r.status === "approved";
-              const showRevoke = canRevoke && isRevocable(r, now);
-              const label = labelOf(r);
-              return (
-                <tr key={r.id} data-testid="enroll-row" data-request={r.id} data-status={r.status}>
-                  <td className="font-medium">{label}</td>
-                  <td>{t(`enroll.method.${r.method}`)}</td>
-                  <td>
-                    <StatusBadge status={r.status}>{t(`status.enrollment.${r.status}`)}</StatusBadge>
-                    {r.failure_code ? <div className="text-xs text-muted">{codeText("enroll.failure", r.failure_code)}</div> : null}
-                    {decide.isPending && decide.variables.id === r.id && decide.variables.kind === "revoke" ? (
-                      <div className="text-xs text-warn" data-testid="revoke-pending">
-                        {t("enroll.actions.revoking")}
-                      </div>
-                    ) : null}
-                  </td>
-                  <td>{nameOf(r.requested_by_membership_id)}</td>
-                  {wide ? <td>{r.target_membership_id ? nameOf(r.target_membership_id) : <span className="text-muted">{t("enroll.tagOnly")}</span>}</td> : null}
-                  {wide ? (
+      {items.length === 0 ? (
+        <EmptyState>{props.empty}</EmptyState>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="data-table" data-testid={props.testId ?? "enroll-table"}>
+            <caption className="sr-only">{props.caption}</caption>
+            <thead>
+              <tr>
+                <th scope="col">{t("enroll.col.device")}</th>
+                <th scope="col">{t("enroll.col.method")}</th>
+                <th scope="col">{t("enroll.col.status")}</th>
+                <th scope="col">{t("enroll.col.requester")}</th>
+                {wide ? <th scope="col">{t("enroll.col.owner")}</th> : null}
+                {wide ? <th scope="col">{t("enroll.col.options")}</th> : null}
+                <th scope="col">{t("enroll.col.created")}</th>
+                <th scope="col">{t("enroll.col.expires")}</th>
+                <th scope="col">{t("enroll.col.actions")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((r) => {
+                const mine = r.requested_by_membership_id === membershipId;
+                const showDecide = canApprove && r.status === "pending_approval";
+                const showStart = canRequest && mine && r.status === "approved";
+                const showRevoke = canRevoke && isRevocable(r, now);
+                const label = labelOf(r);
+                return (
+                  <tr key={r.id} data-testid="enroll-row" data-request={r.id} data-status={r.status}>
+                    <td className="font-medium">{label}</td>
+                    <td>{t(`enroll.method.${r.method}`)}</td>
                     <td>
-                      <TagList tags={r.tags} />
-                      {r.reusable ? <StatusBadge tone="warn">{t("enroll.key.reusable")}</StatusBadge> : null}{" "}
-                      {r.ephemeral ? <StatusBadge tone="info">{t("enroll.key.ephemeral")}</StatusBadge> : null}
+                      <StatusBadge status={r.status}>{t(`status.enrollment.${r.status}`)}</StatusBadge>
+                      {r.failure_code ? <div className="text-xs text-muted">{codeText("enroll.failure", r.failure_code)}</div> : null}
+                      {decide.isPending && decide.variables.id === r.id && decide.variables.kind === "revoke" ? (
+                        <div className="text-xs text-warn" data-testid="revoke-pending">
+                          {t("enroll.actions.revoking")}
+                        </div>
+                      ) : null}
                     </td>
-                  ) : null}
-                  <td>
-                    <Timestamp iso={r.created_at} relative={false} />
-                  </td>
-                  <td>
-                    <Timestamp iso={r.credential_expires_at} emptyKey="common.none" />
-                  </td>
-                  <td>
-                    <div className="flex flex-col items-start gap-1">
-                      {showDecide && !mine ? (
-                        <>
+                    <td>{nameOf(r.requested_by_membership_id)}</td>
+                    {wide ? <td>{r.target_membership_id ? nameOf(r.target_membership_id) : <span className="text-muted">{t("enroll.tagOnly")}</span>}</td> : null}
+                    {wide ? (
+                      <td>
+                        <TagList tags={r.tags} />
+                        {r.reusable ? <StatusBadge tone="warn">{t("enroll.key.reusable")}</StatusBadge> : null}{" "}
+                        {r.ephemeral ? <StatusBadge tone="info">{t("enroll.key.ephemeral")}</StatusBadge> : null}
+                      </td>
+                    ) : null}
+                    <td>
+                      <Timestamp iso={r.created_at} relative={false} />
+                    </td>
+                    <td>
+                      <Timestamp iso={r.credential_expires_at} emptyKey="common.none" />
+                    </td>
+                    <td>
+                      <div className="flex flex-col items-start gap-1">
+                        {showDecide && !mine ? (
+                          <>
+                            <button
+                              type="button"
+                              className="btn-secondary"
+                              disabled={readOnly}
+                              aria-label={t("enroll.actions.approveFor", { label })}
+                              onClick={() => {
+                                open("approve", r);
+                              }}
+                            >
+                              {t("enroll.actions.approve")}
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-secondary"
+                              disabled={readOnly}
+                              aria-label={t("enroll.actions.rejectFor", { label })}
+                              onClick={() => {
+                                open("reject", r);
+                              }}
+                            >
+                              {t("enroll.actions.reject")}
+                            </button>
+                          </>
+                        ) : null}
+                        {showDecide && mine ? (
+                          <span className="text-xs text-muted" data-testid="needs-other-approver">
+                            {t("enroll.actions.needsOther")}
+                          </span>
+                        ) : null}
+                        {showStart ? (
+                          <button
+                            type="button"
+                            className="btn-primary"
+                            disabled={readOnly || starting !== null}
+                            aria-label={t("enroll.actions.startFor", { label })}
+                            onClick={() => void start(r)}
+                          >
+                            {starting === r.id ? t("common.working") : t(r.method === "web_auth" ? "enroll.actions.startWeb" : "enroll.actions.startKey")}
+                          </button>
+                        ) : null}
+                        {showRevoke ? (
                           <button
                             type="button"
                             className="btn-secondary"
                             disabled={readOnly}
-                            aria-label={t("enroll.actions.approveFor", { label })}
+                            aria-label={t("enroll.actions.revokeFor", { label })}
                             onClick={() => {
-                              setDone(null);
-                              setAction({ kind: "approve", id: r.id });
+                              open("revoke", r);
                             }}
                           >
-                            {t("enroll.actions.approve")}
+                            {t("enroll.actions.revoke")}
                           </button>
-                          <button
-                            type="button"
-                            className="btn-secondary"
-                            disabled={readOnly}
-                            aria-label={t("enroll.actions.rejectFor", { label })}
-                            onClick={() => {
-                              setDone(null);
-                              setAction({ kind: "reject", id: r.id });
-                            }}
-                          >
-                            {t("enroll.actions.reject")}
-                          </button>
-                        </>
-                      ) : null}
-                      {showDecide && mine ? (
-                        <span className="text-xs text-muted" data-testid="needs-other-approver">
-                          {t("enroll.actions.needsOther")}
-                        </span>
-                      ) : null}
-                      {showStart ? (
-                        <button
-                          type="button"
-                          className="btn-primary"
-                          disabled={readOnly || starting !== null}
-                          aria-label={t("enroll.actions.startFor", { label })}
-                          onClick={() => void start(r)}
-                        >
-                          {starting === r.id ? t("common.working") : t(r.method === "web_auth" ? "enroll.actions.startWeb" : "enroll.actions.startKey")}
-                        </button>
-                      ) : null}
-                      {showRevoke ? (
-                        <button
-                          type="button"
-                          className="btn-secondary"
-                          disabled={readOnly}
-                          aria-label={t("enroll.actions.revokeFor", { label })}
-                          onClick={() => {
-                            setDone(null);
-                            setAction({ kind: "revoke", id: r.id });
-                          }}
-                        >
-                          {t("enroll.actions.revoke")}
-                        </button>
-                      ) : null}
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      {action && current ? (
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {action ? (
         <ConfirmDialog
           isOpen
-          onOpenChange={(open) => {
-            if (!open && !decide.isPending) {
+          onOpenChange={(isOpen) => {
+            if (!isOpen && !decide.isPending) {
               setAction(null);
               decide.reset();
             }
           }}
-          title={t(`enroll.actions.title.${action.kind}`, { label: labelOf(current) })}
+          title={t(`enroll.actions.title.${action.kind}`, { label: labelOf(action.request) })}
           description={
             <div className="space-y-2">
               <p>{t(`enroll.actions.desc.${action.kind}`)}</p>
               <p className="text-muted">
-                {t("enroll.col.requester")}: {nameOf(current.requested_by_membership_id)} · {t(`enroll.method.${current.method}`)}
+                {t("enroll.col.requester")}: {nameOf(action.request.requested_by_membership_id)} · {t(`enroll.method.${action.request.method}`)}
               </p>
               {action.kind === "revoke" && decide.error instanceof ApiError && (decide.error.status === 502 || decide.error.status === 503) ? (
                 <p className="text-danger" data-testid="revoke-not-applied">
@@ -254,7 +264,7 @@ export function RequestTable(props: RequestTableProps) {
           pending={decide.isPending}
           error={decide.error}
           onConfirm={() => {
-            decide.mutate({ kind: action.kind, id: action.id });
+            decide.mutate({ kind: action.kind, id: action.request.id });
           }}
         />
       ) : null}
