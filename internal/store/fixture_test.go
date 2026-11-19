@@ -87,11 +87,12 @@ var fixtureSteps = map[int64]func(f *fixture, t *testing.T, c *pgx.Conn){
 	24: (*fixture).step24,
 	25: (*fixture).step25,
 	26: (*fixture).step26,
+	27: (*fixture).step27,
 }
 
 // latestMigration is the number of the last migration of database/migrations (TestMigrationsUpWithData,
 // TestMigrationsShareClusterRoles).
-const latestMigration = 26
+const latestMigration = 27
 
 // migrationVersions are the versions that have a migration, ascending. Tasks written in parallel use provisional
 // numbers; the coordinator renumbers at merge so that the numbers stay contiguous (goose refuses a migration numbered
@@ -498,4 +499,12 @@ func (f *fixture) step25(t *testing.T, c *pgx.Conn) {
 	exec(t, c, `INSERT INTO identities (id, idp_id, scope, subject) VALUES ($1, $2, 'platform', 'disabled-'||$3)`,
 		ident, f.platformIdP, f.sfx)
 	exec(t, c, `INSERT INTO platform_users (identity_id, role_id, status) VALUES ($1, $2, 'disabled')`, ident, f.platformRole)
+}
+
+// step27 (0027, P4-T06): enrollment_requests.requested_ttl_minutes — the requests of step20 keep NULL (the default
+// lifetime); tenant B gets a pre-auth key request waiting for approval that asked for a 5-minute key.
+func (f *fixture) step27(t *testing.T, c *pgx.Conn) {
+	exec(t, c, `INSERT INTO enrollment_requests (tenant_id, instance_id, requested_by_membership_id, method, target_membership_id,
+			device_label, status, requested_ttl_minutes)
+		VALUES ($1, $2, $3, 'preauth_key', $3, 'nas', 'pending_approval', 5)`, f.b.id, f.b.instance, f.b.membership)
 }

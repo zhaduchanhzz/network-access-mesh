@@ -88,6 +88,11 @@ type expectation struct {
 	ownOnly  bool
 	pending  bool   // 501: the handler set of the operation is not mounted yet
 	cond     string // condition of the granted conditional cell (x-conditions of the operation)
+	// handlerReason is the stable reason of a refusal by the handler of a granted request: Problem.errors[0].code of a
+	// 409, the reason of the denied audit event of a 403 (outcome.reason).
+	handlerReason string
+	// after is the status of the call's own enrollment request after a granted write (outcome.after).
+	after string
 }
 
 // call is one request of the matrix and, once sent, its answer.
@@ -103,9 +108,13 @@ type call struct {
 	objectID   uuid.UUID
 	objectKey  string // a path parameter that is not a UUID (settingKey — P4-T03a)
 	victim     string // tenant ("A"/"B") whose data the call targets without being a member of it
-	loginSlug  string
-	state      string
-	exp        expectation
+	// enrollment is the request of its own an enrollment write acts on (enrollmentObject, world_test.go) and
+	// enrollmentBefore its status before the call; uuid.Nil when the call uses the shared objects.
+	enrollment       uuid.UUID
+	enrollmentBefore string
+	loginSlug        string
+	state            string
+	exp              expectation
 
 	rec  *httptest.ResponseRecorder
 	reqs string // X-Request-Id of the answer
@@ -347,6 +356,9 @@ func (m *matrix) place(t *testing.T, c *call) {
 		c.objectID = map[string]map[string]uuid.UUID{
 			"eu-own": m.obj.enrEU, "other-member": m.obj.enrOther, "other-tenant": m.obj.enrEU, "as-path": m.obj.enrEU,
 		}[c.objectCase][owner.Name]
+		if id, before, ok := m.enrollmentObject(t, c, owner); ok {
+			c.objectID, c.enrollment, c.enrollmentBefore = id, id, before
+		}
 	case kind == objPolicy:
 		c.objectID = m.obj.policy[owner.Name]
 	case kind == objDNSRecord:
@@ -515,8 +527,12 @@ func (m *matrix) handlerAnswer(c *call, ownOnly bool) expectation {
 		e.status, e.code = http.StatusNotFound, gen.ProblemCodeNotFound
 		return e
 	}
-	if c.recipe.ok.status != 0 {
-		e.status, e.code = c.recipe.ok.status, c.recipe.ok.code
+	o := outcome{answer: c.recipe.ok, after: c.recipe.after}
+	if c.recipe.okOf != nil {
+		o = c.recipe.okOf(m, c)
+	}
+	if o.status != 0 {
+		e.status, e.code, e.handlerReason, e.after = o.status, o.code, o.reason, o.after
 		return e
 	}
 	e.accepted = true
@@ -566,6 +582,11 @@ func (m *matrix) check(t *testing.T, c *call) []string {
 		}
 	case rec.Code != e.status || (e.code != "" && (!isProblem || p.Code != e.code)) || (e.code == "" && isProblem):
 		add("HTTP %d %q, want %d %q", rec.Code, p.Code, e.status, e.code)
+	case e.handlerReason != "" && e.status == http.StatusConflict:
+		// the stable reason of the conflict (P4-T08: Problem.errors[0].code), not only "some 409"
+		if p.Errors == nil || len(*p.Errors) != 1 || (*p.Errors)[0].Code != e.handlerReason {
+			add("409 errors %v, want exactly one with code %q", p.Errors, e.handlerReason)
+		}
 	}
 	if isProblem {
 		if rec.Header().Get("X-Content-Type-Options") != "nosniff" {
@@ -720,6 +741,10 @@ func TestAuthzMatrix(t *testing.T) {
 		t.Errorf("%d of %d requests do not match §8.5/§8.6", nFail, len(m.calls))
 	}
 	m.checkAudit(t)
+	m.checkEnrollmentObjects(t)
+	if m.checkEnrollmentHeadscale(t) == 0 {
+		t.Error("degenerate matrix: no privileged enrollment key was issued (createEnrollmentKey never succeeded)")
+	}
 	m.scan(t)
 	covered := m.report(t, failures, time.Since(start))
 	if total := len(authz.Operations()); covered != total {
@@ -786,7 +811,9 @@ func (m *matrix) checkAudit(t *testing.T) {
 		if c.actor.fx == nil || c.actor.kind == kindCrossOrigin || strings.HasPrefix(c.op.Path, "/auth/") {
 			continue
 		}
-		refusedByHandler := c.exp.decision == decGrant && c.exp.status == http.StatusNotFound
+		// a granted request refused by its handler: 404 (layer 2) or 403 (a condition the service enforces — self_enroll)
+		refusedByHandler := c.exp.decision == decGrant &&
+			(c.exp.status == http.StatusNotFound || c.exp.status == http.StatusForbidden)
 		if c.exp.decision != decDeny && !refusedByHandler {
 			continue
 		}
@@ -796,6 +823,9 @@ func (m *matrix) checkAudit(t *testing.T) {
 			layer2++
 			if c.exp.ownOnly && (c.objectCase == "eu-tagged" || c.objectCase == "other-member") {
 				wantWhy = "not_own_resource"
+			}
+			if c.exp.status == http.StatusForbidden {
+				wantWhy = c.exp.handlerReason
 			}
 		}
 		idx := byReq[c.reqs]
@@ -814,7 +844,7 @@ func (m *matrix) checkAudit(t *testing.T) {
 			}
 		}
 	}
-	t.Logf("audit: %d denials checked (%d refused by a handler — layer 2), %d wrong", checked, layer2, bad)
+	t.Logf("audit: %d denials checked (%d refused by a handler — layer 2 or a condition), %d wrong", checked, layer2, bad)
 }
 
 // report logs the coverage table (and writes it as Markdown to $MG_AUTHZ_MATRIX_REPORT when set) and returns the

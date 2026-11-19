@@ -20,11 +20,12 @@ JOIN identities i ON i.tenant_id = m.tenant_id AND i.id = m.identity_id
 WHERE m.tenant_id = sqlc.arg(tenant_id) AND m.id = sqlc.arg(id);
 
 -- name: InsertEnrollmentRequest :one
+-- requested_ttl_minutes (0027): hạn key người yêu cầu xin — /start của yêu cầu đã duyệt phát key theo nó.
 INSERT INTO enrollment_requests (tenant_id, instance_id, requested_by_membership_id, method, target_membership_id,
-                                 device_label, requested_tags, ephemeral, reusable, status)
+                                 device_label, requested_tags, ephemeral, reusable, status, requested_ttl_minutes)
 VALUES (sqlc.arg(tenant_id), sqlc.arg(instance_id), sqlc.arg(requested_by_membership_id), sqlc.arg(method),
         sqlc.narg(target_membership_id), sqlc.narg(device_label), sqlc.arg(requested_tags), sqlc.arg(ephemeral),
-        sqlc.arg(reusable), sqlc.arg(status))
+        sqlc.arg(reusable), sqlc.arg(status), sqlc.narg(requested_ttl_minutes))
 RETURNING *;
 
 -- name: GetEnrollmentRequest :one
@@ -119,16 +120,18 @@ SELECT id FROM device_inventory_cache
 WHERE tenant_id = sqlc.arg(tenant_id) AND instance_id = sqlc.arg(instance_id)
   AND owner_membership_id = sqlc.arg(member) AND removed_at IS NULL;
 
--- name: ClaimRejectionsOfNode :one
--- Claim (§7.4 bước 8): node này (id + machine key) đã bị một claim trước từ chối SAU khi được tạo — node_mismatch (lẽ ra
--- đã bị xóa: DeleteNode không thành) hay foreign_node (đã expire) — hoặc là node MỚI của một claim không bao giờ tới
--- phán quyết: claim_unfinished (claim không ghi được registered, hay reconcile đóng yêu cầu kẹt ở registered — tiến
--- trình dừng, ghi phán quyết lỗi) với node tạo từ lúc tạo yêu cầu đó — chưa qua kiểm mg-<mã>, tính như node_mismatch.
--- Node như vậy không bao giờ được chấp nhận như một lần re-auth. updated_at của yêu cầu failed là lúc từ chối (trạng
--- thái cuối, không ghi lại); id node được cấp lại cho node mới cùng machine key thì node mới có created_at muộn hơn và
--- không bị tính. record_failed (ghi verified lỗi) không được tính: node đó đã qua kiểm.
-SELECT COALESCE(bool_or(failure_code IN ('node_mismatch', 'claim_unfinished')), false)::boolean AS was_mismatch,
-       COALESCE(bool_or(failure_code = 'foreign_node'), false)::boolean                      AS was_foreign
+-- name: ClaimRejectionsOfNode :many
+-- Claim (§7.4 bước 8): phán quyết của những claim trước về node này (id + machine key) SAU khi nó được tạo —
+-- node_mismatch (lẽ ra đã bị xóa: DeleteNode không thành) hay foreign_node (đã expire) — và các claim không bao giờ tới
+-- phán quyết với node MỚI (tạo từ lúc tạo yêu cầu đó): claim_unfinished (claim không ghi được registered, hay reconcile
+-- đóng yêu cầu kẹt ở claimed/registered — tiến trình dừng, ghi phán quyết lỗi). claim_unfinished chỉ tính như
+-- node_mismatch khi node không qua kiểm bước 8 của CHÍNH yêu cầu đó (priorVerdicts — Go: hostname đã ghi phải là
+-- mg-<mã> khớp enroll_code_hash của yêu cầu, node của người yêu cầu, không tag, CLI): node hợp lệ của một claim dừng
+-- sau khi ghi registered là thiết bị của người yêu cầu — không bao giờ bị xóa hay bị từ chối khi re-auth. Node đã bị
+-- từ chối không bao giờ được chấp nhận như một lần re-auth. updated_at của yêu cầu failed là lúc từ chối (trạng thái
+-- cuối, không ghi lại); id node được cấp lại cho node mới cùng machine key thì node mới có created_at muộn hơn và không
+-- bị tính. record_failed (ghi verified lỗi) không được tính: node đó đã qua kiểm.
+SELECT failure_code, reported_hostname, enroll_code_hash, requested_by_membership_id
 FROM enrollment_requests
 WHERE tenant_id = sqlc.arg(tenant_id) AND instance_id = sqlc.arg(instance_id) AND method = 'web_auth'
   AND status = 'failed' AND consumed_node_id = sqlc.arg(node_id) AND registered_machine_key = sqlc.arg(machine_key)
@@ -139,11 +142,13 @@ WHERE tenant_id = sqlc.arg(tenant_id) AND instance_id = sqlc.arg(instance_id) AN
 -- name: ListMemberWebAuthClaims :many
 -- Claim khi câu trả lời của AuthRegister bị mất (§13.4 quy tắc 3 — đọc lại, không gửi lại): các yêu cầu web-auth KHÁC
 -- của cùng thành viên trên instance đã claim (claimed/registered: thiết bị của nó tên mg-<mã của nó>) hoặc đã có node
--- (registered/verified: consumed_node_id) — node của chúng không phải node mà claim này có thể đã tạo.
+-- (registered/verified: consumed_node_id) — node của chúng không phải node mà claim này có thể đã tạo. any_status
+-- (reconcile của claim kẹt ở claimed — C1, sau ≥ 15 phút): mọi yêu cầu web-auth khác của thành viên, mọi trạng thái
+-- (cả yêu cầu đã kết thúc với node hợp lệ của nó, hay chờ claim với mã của nó).
 SELECT id, status, enroll_code_hash, consumed_node_id FROM enrollment_requests
 WHERE tenant_id = sqlc.arg(tenant_id) AND instance_id = sqlc.arg(instance_id) AND method = 'web_auth'
   AND requested_by_membership_id = sqlc.arg(member) AND id <> sqlc.arg(id)
-  AND status IN ('claimed', 'registered', 'verified');
+  AND (sqlc.arg(any_status)::boolean OR status IN ('claimed', 'registered', 'verified'));
 
 -- name: LockLiveDeviceOfNode :one
 SELECT * FROM device_inventory_cache

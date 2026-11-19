@@ -25,9 +25,10 @@ import {
   REQ_2,
   REQ_3,
   request,
+  T0,
   webIssue,
 } from "../../test/enrollment";
-import { extractAuthId, guessOS, problemReason } from "./model";
+import { extractAuthId, guessOS, isRevocable, problemReason } from "./model";
 import { ApiError } from "../../api/problem";
 
 const base = `/tenants/${TENANT_A}`;
@@ -91,6 +92,18 @@ describe("model", () => {
     expect(problemReason(e)).toBe("no_pending_request");
     expect(problemReason(e, "validation_failed")).toBeNull();
     expect(problemReason(new Error("x"))).toBeNull();
+  });
+
+  it("thu hồi được: yêu cầu chưa kết thúc, hoặc key reusable đã dùng (consumed) còn hạn — như liveKey của server", () => {
+    const now = Date.now();
+    const past = new Date(now - 1_000).toISOString();
+    for (const status of ["requested", "pending_approval", "approved", "issued"] as const) expect(isRevocable(request(REQ_1, { status }), now)).toBe(true);
+    for (const status of ["claimed", "registered", "verified", "rejected", "expired", "revoked", "failed"] as const) expect(isRevocable(request(REQ_1, { status }), now)).toBe(false);
+    const used = request(REQ_2, { method: "preauth_key", status: "consumed", reusable: true });
+    expect(isRevocable(used, now)).toBe(true);
+    expect(isRevocable({ ...used, credential_expires_at: past }, now)).toBe(false);
+    expect(isRevocable({ ...used, credential_expires_at: null }, now)).toBe(false);
+    expect(isRevocable({ ...used, reusable: false }, now)).toBe(false);
   });
 });
 
@@ -195,12 +208,20 @@ describe("Thêm thiết bị — wizard theo OS", () => {
   it("tenant bật duyệt: 201 pending_approval (không credential) ⇒ chờ duyệt; được duyệt ⇒ /start ⇒ key một lần; /start lần nữa 409 already_started", async () => {
     let approved = false;
     let starts = 0;
+    let release = () => {};
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
     const pendingReq = request(REQ_2, { method: "preauth_key", status: "pending_approval", issued_at: null, credential_expires_at: null, device_label: "nas" });
     mockApi(
       apiFor("end_user", {
         [`POST ${base}/enrollment/requests`]: json(201, { request: pendingReq }),
         [`GET ${base}/enrollment/requests`]: () => json(200, { items: [approved ? { ...pendingReq, status: "approved", approver_membership_id: OTHER } : pendingReq], next_cursor: null }),
-        [`POST ${base}/enrollment/requests/${REQ_2}/start`]: () => (++starts === 1 ? json(200, keyIssue({ device_label: "nas" })) : conflict("already_started")),
+        [`POST ${base}/enrollment/requests/${REQ_2}/start`]: async () => {
+          if (++starts > 1) return conflict("already_started");
+          await gate;
+          return json(200, keyIssue({ device_label: "nas" }));
+        },
       }),
     );
     const { queryClient } = renderApp({ path: `/t/${TENANT_A}/enroll` });
@@ -215,15 +236,46 @@ describe("Thêm thiết bị — wizard theo OS", () => {
     expect(within(mine).queryByRole("button", { name: /Duyệt/ })).toBeNull(); // End User không duyệt
     approved = true;
     await queryClient.invalidateQueries();
-    const start = await within(mine).findByRole("button", { name: "Nhận lệnh hoặc key cho nas" });
+    // WCAG 2.5.3 (Label in Name): tên truy cập bắt đầu bằng đúng chữ hiển thị của nút
+    const start = await within(mine).findByRole("button", { name: "Nhận pre-auth key cho nas" });
+    expect(start).toHaveTextContent("Nhận pre-auth key");
     await userEvent.click(start);
+    // đang gửi /start: chữ hiển thị "Đang gửi…" là tên truy cập, aria-busy
+    const busy = await within(mine).findByRole("button", { name: "Đang gửi…" });
+    expect(busy).toHaveAttribute("aria-busy", "true");
+    expect(busy).toBeDisabled();
+    release();
     const dialog = await screen.findByRole("dialog", { name: "Pre-auth key (hiển thị một lần)" });
     expect(within(dialog).getByTestId("secret-value")).toHaveTextContent(PREAUTH_KEY);
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(document.body.innerHTML).not.toContain(PREAUTH_KEY);
-    await userEvent.click(await within(screen.getByTestId("my-requests")).findByRole("button", { name: "Nhận lệnh hoặc key cho nas" }));
+    const again = await within(screen.getByTestId("my-requests")).findByRole("button", { name: "Nhận pre-auth key cho nas" });
+    expect(again).not.toHaveAttribute("aria-busy");
+    await userEvent.click(again);
     expect(await screen.findByTestId("start-error")).toHaveTextContent("đã được phát");
+  });
+
+  it("nút /start của yêu cầu web-auth đã duyệt: tên truy cập 'Nhận lệnh đăng ký cho <nhãn>' chứa chữ hiển thị (WCAG 2.5.3)", async () => {
+    const approvedWeb = request(REQ_1, { status: "approved", issued_at: null, credential_expires_at: null, approver_membership_id: OTHER });
+    mockApi(apiFor("end_user", { [`GET ${base}/enrollment/requests`]: json(200, { items: [approvedWeb], next_cursor: null }) }));
+    renderApp({ path: `/t/${TENANT_A}/enroll` });
+    const mine = await screen.findByTestId("my-requests");
+    const start = await within(mine).findByRole("button", { name: "Nhận lệnh đăng ký cho laptop-an" });
+    expect(start).toHaveTextContent("Nhận lệnh đăng ký");
+    for (const b of within(mine).getAllByRole("button")) {
+      const name = b.getAttribute("aria-label");
+      if (name !== null) expect(name.startsWith(b.textContent.trim()), `${name} ⊉ ${b.textContent}`).toBe(true);
+    }
+  });
+
+  it("yêu cầu failed vì auth_id_not_pending ⇒ hướng dẫn tạo yêu cầu mới (không bảo chạy lại lệnh cũ)", async () => {
+    const failed = request(REQ_1, { status: "failed", failure_code: "auth_id_not_pending", claimed_at: T0 });
+    mockApi(apiFor("end_user", { [`GET ${base}/enrollment/requests`]: json(200, { items: [failed], next_cursor: null }) }));
+    renderApp({ path: `/t/${TENANT_A}/enroll` });
+    const row = within(await screen.findByTestId("my-requests")).getByTestId("enroll-row");
+    expect(row).toHaveTextContent("tạo yêu cầu mới");
+    expect(row).not.toHaveTextContent("chạy lại lệnh");
   });
 
   it.each([
@@ -320,6 +372,8 @@ describe("dán link hoặc Auth ID (phương án lùi)", () => {
 });
 
 describe("Enrollment key + hàng chờ duyệt", () => {
+  /** approver thứ ba (không phải người xem, không phải người yêu cầu) */
+  const THIRD = "0190d000-0000-7000-8000-0000000000bb";
   const queue = [
     request(REQ_1, { status: "pending_approval", method: "web_auth", device_label: "phone-binh", requested_by_membership_id: OTHER, target_membership_id: OTHER, issued_at: null, credential_expires_at: null }),
     request(REQ_3, { status: "pending_approval", method: "preauth_key", device_label: "my-own", issued_at: null, credential_expires_at: null }),
@@ -364,13 +418,19 @@ describe("Enrollment key + hàng chờ duyệt", () => {
     await waitFor(() => expect(within(screen.getByTestId("approval-queue")).getAllByTestId("enroll-row")).toHaveLength(1));
   });
 
-  it("từ chối ⇒ POST reject; 409 (đã đổi) ⇒ lỗi trong hộp + tải lại; 403 self_approval vẫn hiển thị nếu server từ chối", async () => {
+  it("từ chối ⇒ POST reject; 409 (người khác đã duyệt) ⇒ tải lại, hàng rời hàng chờ nhưng hộp vẫn mở với lỗi; 403 self_approval vẫn hiển thị nếu server từ chối", async () => {
     let n = 0;
+    let items = [...queue];
     const { requests } = mockApi(
       apiFor("tenant_owner", {
         [`GET ${base}/users`]: users,
-        [`GET ${base}/enrollment/requests`]: listFor(queue),
-        [`POST ${base}/enrollment/requests/${REQ_1}/reject`]: () => (++n === 1 ? conflict("not_pending_approval") : problem(403, "forbidden")),
+        [`GET ${base}/enrollment/requests`]: (r) => listFor(items)(r),
+        [`POST ${base}/enrollment/requests/${REQ_1}/reject`]: () => {
+          if (++n > 1) return problem(403, "forbidden");
+          // approver khác vừa duyệt: server trả 409 not_pending_approval, hàng chờ (?status=pending_approval) không còn hàng này
+          items = items.map((x) => (x.id === REQ_1 ? { ...x, status: "approved" as const, approver_membership_id: THIRD } : x));
+          return conflict("not_pending_approval");
+        },
       }),
     );
     renderApp({ path: `/t/${TENANT_A}/enrollment-keys` });
@@ -378,10 +438,81 @@ describe("Enrollment key + hàng chờ duyệt", () => {
     await userEvent.click(within(q).getAllByRole("button", { name: "Từ chối yêu cầu phone-binh" })[0]!);
     const dialog = screen.getByRole("alertdialog");
     await userEvent.click(within(dialog).getByRole("button", { name: "Từ chối" }));
-    expect(await within(dialog).findByText(/Xung đột với trạng thái hiện tại/)).toBeInTheDocument();
+    await waitFor(() => expect(within(screen.getByTestId("approval-queue")).getAllByTestId("enroll-row")).toHaveLength(1));
+    expect(screen.getByRole("alertdialog")).toBe(dialog);
+    expect(within(dialog).getByText(/Xung đột với trạng thái hiện tại/)).toBeInTheDocument();
+    expect(dialog).toHaveTextContent("Trần Thị Bình");
     await userEvent.click(within(dialog).getByRole("button", { name: "Từ chối" }));
     expect(await within(dialog).findByText("Bạn không có quyền thực hiện thao tác này.")).toBeInTheDocument();
     expect(posts(requests, `/enrollment/requests/${REQ_1}/reject`)).toHaveLength(2);
+  });
+
+  it("yêu cầu cuối của hàng chờ: duyệt ⇒ hàng chờ rỗng nhưng thông báo 'Đã duyệt' vẫn còn (role=status); 409 ⇒ hộp vẫn mở với lỗi", async () => {
+    let items = [queue[0]!];
+    let n = 0;
+    mockApi(
+      apiFor("tenant_admin", {
+        [`GET ${base}/users`]: users,
+        [`GET ${base}/enrollment/requests`]: (r) => listFor(items)(r),
+        [`POST ${base}/enrollment/requests/${REQ_1}/approve`]: () => {
+          items = items.map((x) => ({ ...x, status: "approved" as const, approver_membership_id: ME }));
+          return json(200, items[0]);
+        },
+        [`POST ${base}/enrollment/requests/${REQ_3}/reject`]: () => {
+          n++;
+          items = items.map((x) => (x.id === REQ_3 ? { ...x, status: "approved" as const, approver_membership_id: THIRD } : x));
+          return conflict("not_pending_approval");
+        },
+      }),
+    );
+    const { unmount } = renderApp({ path: `/t/${TENANT_A}/enrollment-keys` });
+    const q = await screen.findByTestId("approval-queue");
+    await userEvent.click(within(q).getByRole("button", { name: "Duyệt yêu cầu phone-binh" }));
+    await userEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Duyệt" }));
+    expect(await screen.findByText("Không có yêu cầu nào chờ duyệt.")).toBeInTheDocument();
+    expect(screen.getByTestId("enroll-done")).toHaveTextContent("Đã duyệt yêu cầu phone-binh");
+    expect(screen.getByTestId("enroll-done")).toHaveAttribute("role", "status");
+    unmount();
+
+    // 409 trên yêu cầu cuối: hàng chờ rỗng sau khi tải lại — hộp không biến mất lặng lẽ
+    items = [request(REQ_3, { status: "pending_approval", device_label: "tablet-binh", requested_by_membership_id: OTHER, target_membership_id: OTHER, issued_at: null, credential_expires_at: null })];
+    renderApp({ path: `/t/${TENANT_A}/enrollment-keys` });
+    const q2 = await screen.findByTestId("approval-queue");
+    await userEvent.click(within(q2).getByRole("button", { name: "Từ chối yêu cầu tablet-binh" }));
+    const dialog = screen.getByRole("alertdialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Từ chối" }));
+    expect(await screen.findByText("Không có yêu cầu nào chờ duyệt.")).toBeInTheDocument();
+    expect(screen.getByRole("alertdialog")).toHaveTextContent(/Xung đột với trạng thái hiện tại/);
+    expect(n).toBe(1);
+  });
+
+  it("key reusable đã dùng (consumed) còn hạn ⇒ vẫn có nút Thu hồi ⇒ POST revoke; hết hạn hoặc không reusable ⇒ không có nút", async () => {
+    const past = new Date(Date.now() - 60_000).toISOString();
+    const live = request(REQ_2, { method: "preauth_key", status: "consumed", device_label: "ci-runner", tags: ["tag:ci"], reusable: true, target_membership_id: null });
+    const old = request(REQ_1, { method: "preauth_key", status: "consumed", device_label: "old-runner", reusable: true, credential_expires_at: past, target_membership_id: null });
+    const once = request(REQ_3, { method: "preauth_key", status: "consumed", device_label: "one-shot" });
+    let revoked = false;
+    const { requests } = mockApi(
+      apiFor("tenant_admin", {
+        [`GET ${base}/users`]: users,
+        [`GET ${base}/enrollment/requests`]: (r) => listFor([revoked ? { ...live, status: "revoked" as const } : live, old, once])(r),
+        [`POST ${base}/enrollment/requests/${REQ_2}/revoke`]: () => {
+          revoked = true;
+          return json(200, { ...live, status: "revoked" });
+        },
+      }),
+    );
+    renderApp({ path: `/t/${TENANT_A}/enrollment-keys` });
+    const all = await screen.findByTestId("all-requests");
+    const rows = within(all).getAllByTestId("enroll-row");
+    expect(rows).toHaveLength(3);
+    expect(within(rows[1]!).queryByRole("button", { name: /Thu hồi/ })).toBeNull();
+    expect(within(rows[2]!).queryByRole("button", { name: /Thu hồi/ })).toBeNull();
+    await userEvent.click(within(rows[0]!).getByRole("button", { name: "Thu hồi yêu cầu ci-runner" }));
+    await userEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Thu hồi" }));
+    expect(await screen.findByTestId("enroll-done")).toHaveTextContent("control plane xác nhận");
+    expect(posts(requests, `/enrollment/requests/${REQ_2}/revoke`)).toHaveLength(1);
+    await waitFor(() => expect(within(screen.getByTestId("all-requests")).getAllByTestId("enroll-row")[0]).toHaveAttribute("data-status", "revoked"));
   });
 
   it("thu hồi hai pha: 503 ⇒ 'chưa thu hồi', yêu cầu giữ nguyên; thử lại 200 ⇒ đã thu hồi (đã xác minh)", async () => {

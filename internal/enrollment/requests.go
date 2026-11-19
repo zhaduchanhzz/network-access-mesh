@@ -1,6 +1,7 @@
 package enrollment
 
 import (
+	"cmp"
 	"context"
 	"encoding/base64"
 	"encoding/binary"
@@ -14,6 +15,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/audit"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/config"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/headscale"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/jobs"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/notifications"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store/sqlcdb"
@@ -26,6 +28,7 @@ const (
 	createKeyOperation     = "createEnrollmentKey"
 	lockName               = "enrollment" // tenant lock of /start and /revoke (a key is issued or expired once)
 	lockWait               = 15 * time.Second
+	slotRevoke             = "revoke" // dedupe slot of the enrollment.reconcile a revocation of a used key enqueues
 )
 
 // NewRequest is POST /enrollment/requests: a device of the caller itself.
@@ -225,7 +228,8 @@ func (s *Service) createOnce(ctx context.Context, tenantID uuid.UUID, a Actor, p
 			}
 			row, err = q.InsertEnrollmentRequest(ctx, sqlcdb.InsertEnrollmentRequestParams{TenantID: tenantID,
 				InstanceID: tc.instance, RequestedByMembershipID: a.MembershipID, Method: p.method, TargetMembershipID: p.target,
-				DeviceLabel: p.label, RequestedTags: tags, Ephemeral: p.ephemeral, Reusable: p.reusable, Status: status})
+				DeviceLabel: p.label, RequestedTags: tags, Ephemeral: p.ephemeral, Reusable: p.reusable, Status: status,
+				RequestedTtlMinutes: ttlColumn(p)})
 			if err != nil {
 				return err
 			}
@@ -576,7 +580,7 @@ func (s *Service) start(ctx context.Context, tenantID, id uuid.UUID, a Actor) (I
 			ev.Details["expires_at"] = *row.CredentialExpiresAt
 			return audit.Record(ctx, q, ev)
 		}
-		ttl, err := keyTTL(0, tc.settings)
+		ttl, err := keyTTL(requestedTTL(r), tc.settings) // what the requester asked for, bounded by today's settings
 		if err != nil {
 			return err
 		}
@@ -601,6 +605,24 @@ func (s *Service) start(ctx context.Context, tenantID, id uuid.UUID, a Actor) (I
 		}
 	}
 	return Issue{Request: view(row, tc.loginServer), Credential: cred}, nil
+}
+
+// ttlColumn is enrollment_requests.requested_ttl_minutes of a new request (0027): the minutes of a pre-auth key the
+// caller asked for, kept for the /start of a request that waits for approval; nil = the default.
+func ttlColumn(p plan) *int16 {
+	if p.method != MethodPreauthKey || p.ttlMinutes == 0 {
+		return nil
+	}
+	m := int16(p.ttlMinutes) //nolint:gosec // checkTTL: 1–15
+	return &m
+}
+
+// requestedTTL is the ttl_minutes a request was created with (0 = default — keyTTL).
+func requestedTTL(r sqlcdb.EnrollmentRequest) int {
+	if r.RequestedTtlMinutes == nil {
+		return 0
+	}
+	return int(*r.RequestedTtlMinutes)
 }
 
 // liveKey reports whether a request holds a pre-auth key that may still register a node.
@@ -630,7 +652,7 @@ func (s *Service) Revoke(ctx context.Context, tenantID, id uuid.UUID, a Actor) (
 func (s *Service) revoke(ctx context.Context, tenantID, id uuid.UUID, a Actor) (Request, error) {
 	var (
 		out    Request
-		keyID  int64
+		base   sqlcdb.EnrollmentRequest // the row the revocation locked first
 		op     audit.Operation
 		ls     string
 		remote bool
@@ -659,8 +681,8 @@ func (s *Service) revoke(ctx context.Context, tenantID, id uuid.UUID, a Actor) (
 		ev := audit.Event{Action: ActionRevoke, TenantID: &tenantID, ResourceType: resourceType, ResourceID: id.String(),
 			Details: audit.Details{"status_before": r.Status, "method": r.Method}}
 		if live {
-			keyID, remote = *r.HeadscalePreauthkeyID, true
-			ev.Details["key_id"] = keyID
+			base, remote = r, true
+			ev.Details["key_id"] = *r.HeadscalePreauthkeyID
 			op, err = audit.Requested(ctx, q, ev)
 			return err
 		}
@@ -683,33 +705,55 @@ func (s *Service) revoke(ctx context.Context, tenantID, id uuid.UUID, a Actor) (
 		_ = s.st.WithTenantTx(wctx, tenantID, func(q *sqlcdb.Queries) error { return s.closeOp(wctx, q, &op, failureCode(e)) })
 		return Request{}, e
 	}
-	inst, err := s.reg.ForTenant(ctx, tenantID)
+	keyID := *base.HeadscalePreauthkeyID
+	got, err := s.expireKey(ctx, tenantID, base)
 	if err != nil {
 		return fail(err)
 	}
-	kid := uint64(keyID) //nolint:gosec // CHECK headscale_preauthkey_id > 0
-	if err := inst.ExpirePreAuthKey(ctx, kid); err != nil && !errors.Is(err, headscale.ErrNotFound) {
-		return fail(err)
-	}
-	keys, err := inst.ListPreAuthKeys(ctx)
-	if err != nil {
-		return fail(err)
-	}
-	for _, k := range keys { // read back (T-17: "đã áp dụng" only after a verified read)
-		if k.ID == kid && k.Expiration.After(s.now().Add(headscale.ExpiryClampSlack)) {
-			return fail(&Error{Code: CodeUpstreamRejected, Reason: "readback_mismatch",
-				Detail: "The tenant's control plane did not expire the key."})
-		}
-	}
-	err = s.st.WithTenantTx(ctx, tenantID, func(q *sqlcdb.Queries) error {
+	err = s.inJobTx(ctx, tenantID, func(tx *store.Tx) error {
+		q := tx.Q
 		r, err := q.LockEnrollmentRequest(ctx, sqlcdb.LockEnrollmentRequestParams{TenantID: tenantID, ID: id})
 		if err != nil {
 			return err
 		}
+		// moved while the key was expired (reconcile settled it): a request that ended keeps its state; one that still
+		// holds the same live key (a reusable key found used meanwhile) is revoked
+		if (r.Status != base.Status || r.Version != base.Version) && (!s.liveKey(r) || *r.HeadscalePreauthkeyID != keyID) {
+			if err := s.closeOp(ctx, q, &op, "already_final"); err != nil {
+				return err
+			}
+			return errCommitted{conflict("already_final",
+				"The request ended while it was being revoked; a registered device is revoked with DELETE /devices/{id}.")}
+		}
+		if got.used && !r.Reusable && r.Status == StatusCredentialIssued {
+			// the single-use key registered a device before reconcile saw it: the request is never revoked — it stays
+			// for reconcile, which settles it consumed with its node (or failed node_gone) as for any used key; the
+			// device is revoked through /devices (what a revocation after reconcile answers). A run is enqueued now
+			// rather than at the next slot of the schedule: until it settles, the request still reads issued and
+			// counts as a live credential.
+			if _, err := jobs.Enqueue(ctx, tx, jobs.Spec{Kind: KindReconcile, TenantID: &tenantID,
+				Slot: slotRevoke}); err != nil {
+				return err
+			}
+			if err := s.closeOp(ctx, q, &op, "already_final"); err != nil {
+				return err
+			}
+			return errCommitted{conflict("already_final",
+				"The key was already used by a device; the device is revoked with DELETE /devices/{id}.")}
+		}
 		p := stateOf(r)
 		p.Status = StatusRevoked
+		if n := got.node; n != nil && p.ConsumedNodeID == nil { // a reusable key: the device it registered stays known
+			setNode(&p, *n)
+		}
 		row, err := q.SetEnrollmentRequestState(ctx, p)
 		if err != nil {
+			return err
+		}
+		// the nodes the reusable key registered enter the inventory with their link and are notified once (device.new
+		// — adoptKeyNodes, as at the consumed transition of reconcile): a revoked request is no longer looked at by
+		// reconcile, whether it was revoked before its consumed transition or between two runs
+		if _, err := s.adoptKeyNodes(ctx, tx, tenantID, row, got.nodes); err != nil {
 			return err
 		}
 		out = view(row, ls)
@@ -719,4 +763,91 @@ func (s *Service) revoke(ctx context.Context, tenantID, id uuid.UUID, a Actor) (
 		return fail(err)
 	}
 	return out, nil
+}
+
+// keyState is what a revocation found at Headscale for the key of a request.
+type keyState struct {
+	used  bool             // the key registered a node before it was expired
+	node  *headscale.Node  // the first node it registered (nil: none left, or already on the request)
+	nodes []headscale.Node // every node it registered, first registered first (a reusable key registers several)
+}
+
+// expireKey expires the pre-auth key of request r at Headscale and reads it back (T-17: "đã áp dụng" only after a
+// verified read). A key listed under the id with another identity is not r's (issuedKey: the id was handed out again
+// after a restore) — it is left alone, r's own key no longer exists. Only a key that can still register a node is
+// expired — one before its expiry, and not a single-use key already used: Headscale's expire sets the expiration to
+// now unconditionally (research f.md: `Update("expiration", now)`), so expiring a key past its own expiry would move
+// its expiration later than credential_expires_at and issuedKey would no longer know it as r's key (C6). A used key is
+// reported with its nodes.
+func (s *Service) expireKey(ctx context.Context, tenantID uuid.UUID, r sqlcdb.EnrollmentRequest) (keyState, error) {
+	inst, err := s.reg.ForTenant(ctx, tenantID)
+	if err != nil {
+		return keyState{}, err
+	}
+	kid := uint64(*r.HeadscalePreauthkeyID) //nolint:gosec // CHECK headscale_preauthkey_id > 0
+	find := func(keys []headscale.PreAuthKey) (headscale.PreAuthKey, bool) {
+		for _, k := range keys {
+			if k.ID == kid {
+				return k, true
+			}
+		}
+		return headscale.PreAuthKey{}, false
+	}
+	keys, err := inst.ListPreAuthKeys(ctx)
+	if err != nil {
+		return keyState{}, err
+	}
+	k, ok := find(keys)
+	if ok && !issuedKey(r, k) {
+		return keyState{}, nil
+	}
+	if ok && k.Expiration.After(s.now()) && (k.Reusable || !k.Used) {
+		if err := inst.ExpirePreAuthKey(ctx, kid); err != nil && !errors.Is(err, headscale.ErrNotFound) {
+			return keyState{}, err
+		}
+		if keys, err = inst.ListPreAuthKeys(ctx); err != nil {
+			return keyState{}, err
+		}
+		if k, ok = find(keys); ok && k.Expiration.After(s.now().Add(headscale.ExpiryClampSlack)) {
+			return keyState{}, &Error{Code: CodeUpstreamRejected, Reason: "readback_mismatch",
+				Detail: "The tenant's control plane did not expire the key."}
+		}
+	}
+	// the nodes tell, as in reconcile: Headscale marks only a single-use key used (0.29.7 — research f.md: `used` is set
+	// for non-reusable keys only), the use of a reusable key shows in the nodes it registered and nowhere else
+	listed, err := inst.ListNodes(ctx, "")
+	if err != nil {
+		return keyState{}, err
+	}
+	var nodes []headscale.Node
+	for _, n := range listed {
+		if n.PreAuthKeyID == kid {
+			nodes = append(nodes, n)
+		}
+	}
+	slices.SortFunc(nodes, func(a, b headscale.Node) int { // the first node the key registered first (as reconcile)
+		if c := a.CreatedAt.Compare(b.CreatedAt); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.ID, b.ID)
+	})
+	st := keyState{used: (ok && k.Used) || len(nodes) > 0, nodes: nodes}
+	if len(nodes) > 0 && r.ConsumedNodeID == nil { // its device is not on the request yet
+		st.node = &nodes[0]
+	}
+	return st, nil
+}
+
+// setNode records on p the node a pre-auth key registered (the columns reconcile's settle writes).
+func setNode(p *sqlcdb.SetEnrollmentRequestStateParams, n headscale.Node) {
+	nid := int64(n.ID) //nolint:gosec // small ids
+	p.ConsumedNodeID = &nid
+	if n.MachineKey != "" {
+		mk := clip(n.MachineKey, 200)
+		p.RegisteredMachineKey = &mk
+	}
+	if n.Name != "" {
+		h := clip(n.Name, 255)
+		p.ReportedHostname = &h
+	}
 }

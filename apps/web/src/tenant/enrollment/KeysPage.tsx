@@ -13,7 +13,7 @@ import { queryKeys } from "../../api/queryClient";
 import { can } from "../../auth/permissions";
 import { Page } from "../../components/Page";
 import { ModalDialog } from "../../ui/Dialog";
-import { EmptyState, QueryBlock } from "../../ui/Data";
+import { QueryBlock } from "../../ui/Data";
 import { useUsers } from "../people/api";
 import { useTenant } from "../TenantScope";
 import { createKey, createRequest, useEnrollmentList, useIssueMutation, useMemberNames, type NewKeyBody, type NewRequestBody } from "./api";
@@ -83,13 +83,7 @@ export function KeysPage() {
             {t("enroll.queue.title")}
           </h2>
           <QueryBlock query={queue}>
-            {(data) =>
-              data.items.length === 0 ? (
-                <EmptyState>{t("enroll.queue.empty")}</EmptyState>
-              ) : (
-                <RequestTable {...tableProps} items={data.items} caption={t("enroll.queue.title")} testId="approval-queue" />
-              )
-            }
+            {(data) => <RequestTable {...tableProps} items={data.items} caption={t("enroll.queue.title")} empty={t("enroll.queue.empty")} testId="approval-queue" />}
           </QueryBlock>
         </section>
       ) : null}
@@ -122,13 +116,7 @@ export function KeysPage() {
           </div>
         </div>
         <QueryBlock query={list}>
-          {(data) =>
-            data.items.length === 0 ? (
-              <EmptyState>{t("enroll.keys.empty")}</EmptyState>
-            ) : (
-              <RequestTable {...tableProps} items={data.items} caption={t("enroll.keys.all")} testId="all-requests" />
-            )
-          }
+          {(data) => <RequestTable {...tableProps} items={data.items} caption={t("enroll.keys.all")} empty={t("enroll.keys.empty")} testId="all-requests" />}
         </QueryBlock>
         <nav aria-label={t("ui.pagination")} className="mt-4 flex gap-2">
           <button type="button" className="btn-secondary" disabled={stack.length <= 1} onClick={() => setCursors({ key: status, stack: stack.slice(0, -1) })}>

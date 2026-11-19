@@ -89,15 +89,50 @@ describe("trang claim /enroll/claim", () => {
     expectGone(router, queryClient);
   });
 
-  it.each([
-    ["auth_id_already_claimed", "claim-used"],
-    ["auth_id_not_pending", "claim-used"],
-  ])("409 %s ⇒ link đã dùng hoặc hết hạn (15 phút)", async (reason, testId) => {
-    mockApi(apiFor({ [`POST ${base}/enrollment/web-auth/claim`]: conflict(reason) }));
+  it("409 auth_id_already_claimed ⇒ link đã dùng hoặc hết hạn (15 phút)", async () => {
+    mockApi(apiFor({ [`POST ${base}/enrollment/web-auth/claim`]: conflict("auth_id_already_claimed") }));
     renderApp({ path: claimUrl() });
     await confirmClaim();
-    expect(await screen.findByTestId(testId)).toHaveTextContent("15 phút");
+    expect(await screen.findByTestId("claim-used")).toHaveTextContent("15 phút");
     expect(screen.queryByRole("button", { name: "Xác nhận thiết bị" })).toBeNull();
+  });
+
+  // server đã claim yêu cầu (status claimed + hash Auth ID) rồi AuthRegister lỗi ⇒ yêu cầu `failed`: link cũ chỉ còn nhận
+  // 409 auth_id_already_claimed (security event replay), lệnh cũ ⇒ link mới ⇒ 409 no_pending_request — chỉ yêu cầu mới cứu được
+  it.each([
+    ["409 auth_id_not_pending", () => conflict("auth_id_not_pending"), "không còn lần đăng nhập đang chờ"],
+    ["503 instance_unavailable", () => problem(503, "instance_unavailable", { detail: "The tenant's control plane is not responding; try again later." }), "không hoàn tất bước đăng ký"],
+    ["502 upstream_rejected", () => problem(502, "upstream_rejected"), "không hoàn tất bước đăng ký"],
+  ])("%s ⇒ yêu cầu đã kết thúc: tạo yêu cầu mới, không nút xác nhận, không gửi lại cùng Auth ID", async (_name, response, reason) => {
+    const { requests } = mockApi(apiFor({ [`POST ${base}/enrollment/web-auth/claim`]: response }));
+    const { router, queryClient } = renderApp({ path: claimUrl() });
+    await confirmClaim();
+    const ended = await screen.findByTestId("claim-ended");
+    expect(ended).toHaveTextContent("Yêu cầu thêm thiết bị đã kết thúc");
+    expect(ended).toHaveTextContent(reason);
+    expect(ended).toHaveTextContent("Tạo yêu cầu mới ở trang Thêm thiết bị");
+    expect(ended).not.toHaveTextContent("Chạy lại lệnh tailscale up");
+    expect(ended).toHaveTextContent("req-problem-1");
+    expect(screen.queryByRole("button", { name: "Xác nhận thiết bị" })).toBeNull();
+    expect(claims(requests)).toHaveLength(1);
+    expectGone(router, queryClient);
+  });
+
+  it.each([
+    ["503 maintenance", () => problem(503, "maintenance", {}, { "Retry-After": "30" })],
+    ["lỗi mạng", () => Promise.reject(new TypeError("Failed to fetch"))],
+  ])("%s (trước bước claim) ⇒ vẫn thử lại được với cùng Auth ID", async (_name, first) => {
+    let n = 0;
+    const { requests } = mockApi(apiFor({ [`POST ${base}/enrollment/web-auth/claim`]: () => (++n === 1 ? first() : json(200, request(REQ_1, { status: "verified" }))) }));
+    renderApp({ path: claimUrl() });
+    await confirmClaim();
+    const panel = screen.getByTestId("claim-confirm");
+    await waitFor(() => expect(within(panel).getByRole("button", { name: "Xác nhận thiết bị" })).toBeEnabled());
+    expect(within(panel).getByRole("alert")).toBeInTheDocument();
+    await userEvent.click(within(panel).getByRole("button", { name: "Xác nhận thiết bị" }));
+    expect(await screen.findByTestId("claim-verified")).toBeInTheDocument();
+    expect(claims(requests)).toHaveLength(2);
+    expect(await claims(requests)[1]!.json()).toEqual({ auth_id: AUTH_ID });
   });
 
   it.each([
@@ -111,24 +146,19 @@ describe("trang claim /enroll/claim", () => {
     expect(await screen.findByTestId("claim-failed")).toHaveTextContent(text);
   });
 
-  it("nhiều yêu cầu đang chờ: bắt chọn ⇒ body có request_id; 422 request_id_required ⇒ hiện bộ chọn rồi gửi lại", async () => {
+  it("nhiều yêu cầu đang chờ (có thể của phiên Portal khác): không bắt chọn trước — POST {auth_id}, server chọn yêu cầu của phiên này", async () => {
+    // REQ_1 tạo ở trình duyệt khác (server không tính), REQ_3 tạo ở phiên này — API không cho client biết phiên
     const two = [request(REQ_1), request(REQ_3, { device_label: "desktop-an" })];
-    let n = 0;
     const { requests } = mockApi(
-      apiFor(
-        { [`POST ${base}/enrollment/web-auth/claim`]: () => (++n === 1 ? json(200, request(REQ_3, { status: "verified", device_label: "desktop-an" })) : problem(500, "internal_error")) },
-        { pending: two },
-      ),
+      apiFor({ [`POST ${base}/enrollment/web-auth/claim`]: json(200, request(REQ_3, { status: "verified", device_label: "desktop-an" })) }, { pending: two }),
     );
     renderApp({ path: claimUrl() });
-    const pick = await screen.findByTestId("pick-request");
-    await userEvent.click(within(screen.getByTestId("claim-confirm")).getByLabelText(/Tôi vừa chạy lệnh/));
-    const button = screen.getByRole("button", { name: "Xác nhận thiết bị" });
-    expect(button).toBeDisabled(); // chưa chọn yêu cầu
-    await userEvent.click(within(pick).getByLabelText(/desktop-an/));
-    await userEvent.click(button);
+    expect(await screen.findByTestId("pending-several")).toHaveTextContent("phiên trình duyệt này");
+    expect(screen.queryByTestId("pick-request")).toBeNull();
+    await confirmClaim();
     expect(await screen.findByTestId("claim-verified")).toHaveTextContent("desktop-an");
-    expect(await claims(requests)[0]!.json()).toEqual({ auth_id: AUTH_ID, request_id: REQ_3 });
+    expect(claims(requests)).toHaveLength(1);
+    expect(await claims(requests)[0]!.json()).toEqual({ auth_id: AUTH_ID });
   });
 
   it("422 request_id_required (danh sách cũ chỉ thấy một) ⇒ bộ chọn xuất hiện, gửi lại với request_id", async () => {

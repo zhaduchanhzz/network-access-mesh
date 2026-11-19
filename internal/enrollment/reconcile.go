@@ -19,6 +19,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/notifications"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store/sqlcdb"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/tenants"
 )
 
 // Failure codes written by reconcile.
@@ -42,6 +43,12 @@ type ReconcileReport struct {
 	// Revoked counts the consumed reusable keys found ended at Headscale before their expiry (a device revocation
 	// expired them): no live credential any more.
 	Revoked int `json:"revoked"`
+	// Removed counts the nodes of claims that never reached their verdict which failed the checks of step 8 and were
+	// deleted (unfinishedClaim — C1).
+	Removed int `json:"removed"`
+	// Inactive: the tenant is not active (suspended, deprovisioning, deleted — its instance is not reachable): the rows
+	// that need Headscale wait for a run after it is active again (counted in Skipped), and the run is not an error.
+	Inactive bool `json:"inactive,omitempty"`
 }
 
 // reusableGrace is how long after its expiry a consumed reusable key is still looked at: a node it registered before
@@ -76,9 +83,11 @@ func (s *Service) runReconcile(ctx context.Context, run *jobs.Run) error {
 // consumed/verified requests get their enrollment link. The nodes a pre-auth key registered enter the inventory with
 // that link and are notified once (device.new — adoptKeyNodes): at the consumed transition — the device counts against
 // max_devices from that transaction on (C9) —, then for a reusable key while it is live (and reusableGrace after); a
-// reusable key Headscale ended before its expiry (a device revocation) is revoked (A3). Headscale is asked only when an
-// issued or live reusable key is open; when it does not answer, the keys wait for the next run and the error is
-// returned (the job retries).
+// reusable key Headscale ended before its expiry (a device revocation) is revoked (A3). The node of a claim that never
+// reached its verdict is checked before the claim is closed (unfinishedClaim — C1). Headscale is asked only when an
+// issued or live reusable key or an unfinished claim is open; when it does not answer, those rows wait for the next run
+// and the error is returned (the job retries) — unless the tenant is not active (A2: a suspended tenant's instance is
+// not reachable by design, the rows wait for its resumption without failing the job every run).
 func (s *Service) Reconcile(ctx context.Context, tenantID uuid.UUID) (ReconcileReport, error) {
 	var (
 		rep      ReconcileReport
@@ -99,8 +108,10 @@ func (s *Service) Reconcile(ctx context.Context, tenantID uuid.UUID) (ReconcileR
 	}
 	rep.Open = len(open)
 	var (
+		inst   headscale.Instance
 		keys   map[uint64]headscale.PreAuthKey
 		nodes  map[uint64][]headscale.Node // by pre-auth key id, first registered first
+		listed []headscale.Node            // every node of the instance
 		hsErr  error
 		loaded bool
 	)
@@ -109,8 +120,8 @@ func (s *Service) Reconcile(ctx context.Context, tenantID uuid.UUID) (ReconcileR
 			return
 		}
 		loaded = true
-		inst, err := s.reg.ForTenant(ctx, tenantID)
-		if err != nil {
+		var err error
+		if inst, err = s.reg.ForTenant(ctx, tenantID); err != nil {
 			hsErr = err
 			return
 		}
@@ -124,7 +135,7 @@ func (s *Service) Reconcile(ctx context.Context, tenantID uuid.UUID) (ReconcileR
 			hsErr = err
 			return
 		}
-		keys, nodes = map[uint64]headscale.PreAuthKey{}, map[uint64][]headscale.Node{}
+		keys, nodes, listed = map[uint64]headscale.PreAuthKey{}, map[uint64][]headscale.Node{}, ns
 		for _, k := range ks {
 			keys[k.ID] = k
 		}
@@ -167,7 +178,21 @@ func (s *Service) Reconcile(ctx context.Context, tenantID uuid.UUID) (ReconcileR
 			}
 		case StatusClaimed, StatusRegistered:
 			if r.ClaimedAt == nil || now.Sub(*r.ClaimedAt) > stuckAfter {
-				out = outcome{status: StatusFailed, failure: FailureClaimUnfinished}
+				// the node the claim registered is checked as the claim would have, before the request is closed (C1)
+				loadHS()
+				if hsErr != nil {
+					rep.Skipped++
+					continue
+				}
+				var (
+					gone []uint64
+					err  error
+				)
+				if out, gone, err = s.unfinishedClaim(ctx, tenantID, inst, listed, r); err != nil {
+					return rep, err
+				}
+				rep.Removed += len(gone)
+				listed = slices.DeleteFunc(listed, func(n headscale.Node) bool { return slices.Contains(gone, n.ID) })
 			}
 		case StatusCredentialIssued:
 			loadHS()
@@ -207,9 +232,13 @@ func (s *Service) Reconcile(ctx context.Context, tenantID uuid.UUID) (ReconcileR
 		// credential — revoked, so it stops counting against max_live_enrollment_credentials and as a tag reference
 		// (only while the recorded expiry is more than endedSlack away: never a key expiring on its own time)
 		k, ok := keys[kid]
+		keyNodes := nodes[kid]
+		if ok && !issuedKey(r, k) { // A4: the id was handed out again (restore): neither that key nor its nodes are r's
+			ok, keyNodes = false, nil
+		}
 		ended := r.CredentialExpiresAt != nil && now.Add(endedSlack).Before(*r.CredentialExpiresAt) &&
 			(!ok || !k.Expiration.After(now))
-		if len(nodes[kid]) == 0 && !ended {
+		if len(keyNodes) == 0 && !ended {
 			continue
 		}
 		adopted, revoked := 0, false
@@ -223,7 +252,7 @@ func (s *Service) Reconcile(ctx context.Context, tenantID uuid.UUID) (ReconcileR
 			case cur.Status != StatusConsumed:
 				return nil // revoked meanwhile
 			}
-			if adopted, err = s.adoptKeyNodes(ctx, tx, tenantID, cur, nodes[kid]); err != nil || !ended {
+			if adopted, err = s.adoptKeyNodes(ctx, tx, tenantID, cur, keyNodes); err != nil || !ended {
 				return err
 			}
 			if _, err := tx.Q.SetEnrollmentRequestOutcome(ctx, sqlcdb.SetEnrollmentRequestOutcomeParams{
@@ -277,6 +306,22 @@ func (s *Service) Reconcile(ctx context.Context, tenantID uuid.UUID) (ReconcileR
 	}); err != nil {
 		return rep, err
 	}
+	if hsErr != nil && errors.Is(hsErr, headscale.ErrNoInstance) {
+		// A2: a tenant that is not active has no reachable instance by design (the locator refuses it): its rows wait
+		// for the resumption — not a failure to retry every run
+		var status string
+		if err := s.st.WithTenantTx(ctx, tenantID, func(q *sqlcdb.Queries) error {
+			tc, err := q.GetEnrollmentContext(ctx, tenantID)
+			status = tc.TenantStatus
+			return err
+		}); err != nil {
+			return rep, err
+		}
+		if status != tenants.StatusActive && status != tenants.StatusProvisioning {
+			rep.Inactive = true
+			return rep, nil
+		}
+	}
 	return rep, hsErr
 }
 
@@ -284,8 +329,10 @@ func (s *Service) Reconcile(ctx context.Context, tenantID uuid.UUID) (ReconcileR
 type outcome struct {
 	status  string
 	failure string
-	node    *headscale.Node  // consumed: the first node the key registered
+	node    *headscale.Node  // consumed: the first node the key registered; claim_unfinished: the node the claim registered
 	nodes   []headscale.Node // consumed: every node of the key (a reusable key registers several)
+	// security is recorded with the outcome: the node of an unfinished claim failed the checks and was removed
+	security *audit.SecurityEvent
 }
 
 // keyOutcome reads the state of an issued key at Headscale.
@@ -299,6 +346,9 @@ func (s *Service) keyOutcome(r sqlcdb.EnrollmentRequest, keys map[uint64]headsca
 	k, ok := keys[kid]
 	ns := nodes[kid]
 	used := len(ns) > 0
+	if ok && !issuedKey(r, k) { // the id was handed out again (restore of an older snapshot): r's key is gone
+		ok, used = false, false
+	}
 	switch {
 	case used:
 		return outcome{status: StatusConsumed, node: &ns[0], nodes: ns}
@@ -349,6 +399,11 @@ func (s *Service) settle(ctx context.Context, tenantID uuid.UUID, r sqlcdb.Enrol
 		row, err := q.SetEnrollmentRequestOutcome(ctx, p)
 		if err != nil {
 			return err
+		}
+		if out.security != nil {
+			if _, err := audit.RecordSecurityEvent(ctx, q, *out.security); err != nil {
+				return err
+			}
 		}
 		if out.status != StatusConsumed {
 			return nil
@@ -439,6 +494,139 @@ func (s *Service) adoptKeyNodes(ctx context.Context, tx *store.Tx, tenantID uuid
 		}
 	}
 	return adopted, nil
+}
+
+// unfinishedClaim is the end of a claim stuck in claimed or registered past stuckAfter (the process died, its verdict
+// could not be written — C1). Before the request is closed claim_unfinished, the node its AuthRegister registered is
+// checked as the claim would have (§7.4 step 8), so that no node stays registered under the member unverified:
+//   - registered: the node the claim recorded (consumed_node_id, with its machine key); claimed: the node registeredBy
+//     finds among the member's CLI nodes created from claimed_at until the pending registration could no longer be
+//     applied (stuckAfter), every other request of the member accounting for its own — recorded on the request;
+//   - a new node failing the checks (stepEight, on the hostname it registered with) is deleted — expired when the
+//     delete does not go through — with the security event enrollment.node_mismatch; the other unaccounted nodes found
+//     with it are removed as well (as a read-back does);
+//   - a node that passes is kept: the requester's device (priorVerdicts never refuses it later). A node older than the
+//     claim is never deleted (rule b): as for a claim that found nothing new, only a node an earlier claim rejected
+//     loses the fresh expiry the AuthRegister may have given it (reprotect).
+//
+// It returns the outcome to settle and the ids of the nodes deleted.
+func (s *Service) unfinishedClaim(ctx context.Context, tenantID uuid.UUID, inst headscale.Instance,
+	listed []headscale.Node, r sqlcdb.EnrollmentRequest,
+) (outcome, []uint64, error) {
+	out := outcome{status: StatusFailed, failure: FailureClaimUnfinished}
+	user := memberUserPrefix + r.RequestedByMembershipID.String()
+	tc := tenantContext{instance: r.InstanceID}
+	claimedAt := r.UpdatedAt
+	if r.ClaimedAt != nil {
+		claimedAt = *r.ClaimedAt
+	}
+	var mine []headscale.Node // the member's nodes
+	for _, n := range listed {
+		if n.User != nil && n.User.Name == user {
+			mine = append(mine, n)
+		}
+	}
+	var (
+		node *headscale.Node
+		host string
+		gone []uint64
+	)
+	switch {
+	case r.Status == StatusRegistered && r.ConsumedNodeID != nil:
+		for i := range listed {
+			n := &listed[i]
+			if int64(n.ID) == *r.ConsumedNodeID && //nolint:gosec // small ids
+				(r.RegisteredMachineKey == nil || clip(n.MachineKey, 200) == *r.RegisteredMachineKey) {
+				node = n
+			}
+		}
+		if node == nil {
+			return out, nil, nil // gone (deleted, or its id handed out again to another machine)
+		}
+		if r.ReportedHostname != nil {
+			host = *r.ReportedHostname
+		}
+		fresh, err := s.newOfClaim(ctx, tenantID, r, *node, claimedAt)
+		if err != nil {
+			return outcome{}, nil, err
+		}
+		if !fresh {
+			s.reprotect(ctx, tenantID, inst, tc, r, []headscale.Node{*node})
+			return out, nil, nil
+		}
+	case r.Status == StatusClaimed:
+		var others []sqlcdb.ListMemberWebAuthClaimsRow
+		if err := s.st.WithTenantTx(ctx, tenantID, func(q *sqlcdb.Queries) error {
+			var err error
+			others, err = q.ListMemberWebAuthClaims(ctx, sqlcdb.ListMemberWebAuthClaimsParams{TenantID: tenantID,
+				InstanceID: r.InstanceID, Member: r.RequestedByMembershipID, ID: r.ID, AnyStatus: true})
+			return err
+		}); err != nil {
+			return outcome{}, nil, err
+		}
+		found, extra := registeredBy(mine, user, r, others, claimedAt, claimedAt.Add(stuckAfter))
+		for _, n := range extra {
+			deleted, expired := s.removeNode(ctx, inst, n.ID)
+			if deleted {
+				gone = append(gone, n.ID)
+			}
+			s.log.ErrorContext(ctx, "enrollment: reconcile removed another unverified node registered under the member during a claim",
+				"alert", true, "request_id", r.ID, "node_id", n.ID, "deleted", deleted, "expired", expired)
+		}
+		if found == nil {
+			s.reprotect(ctx, tenantID, inst, tc, r, mine)
+			return out, gone, nil
+		}
+		node, host = found, found.Name
+		out.node = found // recorded on the request (consumed_node_id, machine key, hostname)
+	default:
+		return out, nil, nil
+	}
+	reasons := stepEight(*node, host, user, r.EnrollCodeHash)
+	if len(reasons) == 0 {
+		return out, gone, nil // the requester's device
+	}
+	deleted, expired := s.removeNode(ctx, inst, node.ID)
+	if deleted {
+		gone = append(gone, node.ID)
+	}
+	t := tenantID
+	out.security = &audit.SecurityEvent{TenantID: &t, Kind: EventNodeMismatch, Severity: audit.SeverityHigh,
+		Source: securitySource, Details: audit.Details{"request_id": r.ID.String(),
+			"membership_id": r.RequestedByMembershipID.String(), "node_id": int64(node.ID), //nolint:gosec // small ids
+			"checks_failed": reasons, "deleted": deleted, "expired": expired, "found_by": "reconcile"}}
+	s.log.ErrorContext(ctx, "enrollment: reconcile removed the unverified node of a claim that never reached its verdict",
+		"alert", true, "request_id", r.ID, "node_id", node.ID, "checks_failed", reasons, "deleted", deleted,
+		"expired", expired)
+	return out, gone, nil
+}
+
+// newOfClaim reports whether node n, registered by a claim of r that never reached its verdict, is a new node of that
+// claim as register decides it: created since the claim began, or since the request was created while the inventory
+// had no row of this very node of the member before the claim began. An existing device re-authenticated is never
+// deleted (rule b).
+func (s *Service) newOfClaim(ctx context.Context, tenantID uuid.UUID, r sqlcdb.EnrollmentRequest, n headscale.Node,
+	claimedAt time.Time,
+) (bool, error) {
+	if createdSince(n, claimedAt) {
+		return true, nil
+	}
+	if !createdSince(n, r.CreatedAt) {
+		return false, nil
+	}
+	known := false
+	err := s.st.WithTenantTx(ctx, tenantID, func(q *sqlcdb.Queries) error {
+		rows, err := q.LiveDevicesOfMachineKey(ctx, sqlcdb.LiveDevicesOfMachineKeyParams{TenantID: tenantID,
+			InstanceID: r.InstanceID, MachineKey: n.MachineKey})
+		for _, d := range rows {
+			if d.HeadscaleNodeID == int64(n.ID) && d.OwnerMembershipID != nil && //nolint:gosec // small ids
+				*d.OwnerMembershipID == r.RequestedByMembershipID && d.FirstSeenAt.Before(claimedAt) {
+				known = true
+			}
+		}
+		return err
+	})
+	return !known, err
 }
 
 // ------------------------------------------------------------------------------------------------- schedule

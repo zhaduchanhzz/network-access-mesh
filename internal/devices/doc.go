@@ -16,7 +16,9 @@
 //     whose (instance, node id) has a live row with the same machine key updates it; the same node id with another
 //     machine key (id handed out again after a restore — §6.3) marks the old row removed and inserts a new one; a node
 //     without a live row is inserted, unless the newest row of that exact node was removed at or after T0 (the
-//     snapshot predates the removal); a live row whose node is absent is marked removed. The owner of a user-owned
+//     snapshot predates the removal); a live row whose node is absent is marked removed. A row first seen at or after
+//     T0 (a device a web-auth claim recorded while the sync was listing — its node may postdate ListNodes) is neither
+//     marked removed nor replaced by a node of the same id by that snapshot (B2). The owner of a user-owned
 //     node is the membership named by its Headscale user; the owner of a tagged node is platform data and kept. A
 //     device whose revocation is pending, or was settled at or after T0, keeps its cached expiry and yields no clamp
 //     candidate: the snapshot may predate the revocation's ExpireNode;

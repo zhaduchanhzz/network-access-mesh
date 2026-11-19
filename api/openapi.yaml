@@ -4670,10 +4670,13 @@ paths:
 
         Rồi gọi `AuthRegister(mg-<membership>, auth_id)` đồng bộ và kiểm **node trả về**: tên = `mg-<mã>`, đúng
         Headscale user, không tag, `register_method = cli`. Node **mới** sai bất kỳ điều nào ⇒ `DeleteNode` ngay +
-        `security_event` (`enrollment.node_mismatch`), yêu cầu `failed`; node **đã có** của chính thành viên ⇒ re-auth
-        hợp lệ (không đổi tên, không xóa); node đã có của người khác ⇒ `ExpireNode` + `security_event`, không bao giờ
-        xóa. Đạt ⇒ đổi tên theo `device_label`, ghi sổ thiết bị (liên kết `enrollment_request_id`), audit, thông báo
-        `device.new`, `inventory.sync` (kẹp hạn node). Không có bước duyệt nào sau claim.
+        `security_event` (`enrollment.node_mismatch`), yêu cầu `failed`; node **đã có** của chính thành viên (không tag,
+        mọi hàng sổ thiết bị của machine key thuộc thành viên, chưa claim nào từ chối) ⇒ re-auth hợp lệ (không đổi tên,
+        không xóa); node một claim trước đã từ chối `node_mismatch`, hay node mới không qua kiểm của một claim không tới
+        phán quyết (`claim_unfinished`) ⇒ `DeleteNode`; node đã có khác (của người khác) ⇒ `ExpireNode` +
+        `security_event`, không bao giờ xóa. Đạt ⇒ đổi tên theo `device_label`, ghi sổ thiết bị (liên kết
+        `enrollment_request_id`), audit, thông báo `device.new`, `inventory.sync` (kẹp hạn node). Không có bước duyệt
+        nào sau claim.
       security:
         - sessionCookie: []
           csrfToken: []

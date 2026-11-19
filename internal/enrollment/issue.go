@@ -16,6 +16,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/jobs"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store/sqlcdb"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/tenants"
 )
 
 // tenantContext is what every operation reads first: the typed settings and the instance serving the tenant.
@@ -200,7 +201,9 @@ type keyPlan struct {
 
 // issueKey creates the pre-auth key of request r at Headscale (explicit expiration — V-06) and records it:
 // credential_issued with the key's numeric id, op succeeded. Any failure ends the request failed (op failed); a key
-// created but not recorded is expired at once — no live credential the platform does not know.
+// created but not recorded — or refused at the record (issuable) — is expired at once: no live credential the platform
+// does not know. Should that expiry fail (logged), the key's plaintext was neither returned nor kept — nobody holds it —
+// and the key dies at its expiry (≤ 15 minutes).
 func (s *Service) issueKey(ctx context.Context, tenantID uuid.UUID, r sqlcdb.EnrollmentRequest, kp keyPlan,
 	loginServer string, op audit.Operation,
 ) (sqlcdb.EnrollmentRequest, *Credential, error) {
@@ -238,11 +241,27 @@ func (s *Service) issueKey(ctx context.Context, tenantID uuid.UUID, r sqlcdb.Enr
 			Detail: "The tenant's control plane did not issue the key as requested."})
 	}
 	kid := int64(key.ID) //nolint:gosec // Headscale ids are small positive integers
-	var row sqlcdb.EnrollmentRequest
+	var (
+		row     sqlcdb.EnrollmentRequest
+		refusal *Error
+	)
 	err = s.st.WithTenantTx(ctx, tenantID, func(q *sqlcdb.Queries) error {
 		cur, err := q.LockEnrollmentRequest(ctx, sqlcdb.LockEnrollmentRequestParams{TenantID: tenantID, ID: r.ID})
 		if err != nil {
 			return err
+		}
+		if refusal, err = issuable(ctx, q, tenantID, r, cur); err != nil || refusal != nil {
+			if err != nil {
+				return err
+			}
+			if cur.Version == r.Version { // still the row the issuance started from (a moved row keeps its newer state)
+				p := stateOf(cur)
+				p.Status, p.FailureCode = StatusFailed, &refusal.Reason
+				if _, err := q.SetEnrollmentRequestState(ctx, p); err != nil {
+					return err
+				}
+			}
+			return s.closeOp(ctx, q, &op, refusal.Reason)
 		}
 		p := stateOf(cur)
 		p.Status, p.IssuedAt, p.CredentialExpiresAt, p.HeadscalePreauthkeyID = StatusCredentialIssued, &issued, &exp, &kid
@@ -257,8 +276,69 @@ func (s *Service) issueKey(ctx context.Context, tenantID uuid.UUID, r sqlcdb.Enr
 		s.failRequest(ctx, tenantID, r.ID, "record_failed", &op)
 		return r, nil, fmt.Errorf("enrollment: record the issued key: %w", err)
 	}
+	if refusal != nil { // created but never handed out: expired at once (no live credential the platform does not know)
+		if err := inst.ExpirePreAuthKey(context.WithoutCancel(ctx), key.ID); err != nil {
+			s.log.ErrorContext(ctx, "enrollment: expiring a key that was not handed out failed", "request_id", r.ID,
+				"key_id", key.ID, "reason", fromAdapter(err).Reason)
+		}
+		return r, nil, refusal
+	}
 	return row, &Credential{Kind: CredentialPreauthKey, PreauthKey: key.Key, Command: preauthCommand(loginServer),
 		ExpiresAt: exp}, nil
+}
+
+// issuable re-checks, under the lock of the request and after its key was created at Headscale, what the issuance
+// started from (cur is the locked row, r the row the issuance read). The request may have moved meanwhile — /revoke of
+// a `requested` row does not wait for an issuance it cannot see, reconcile expires an `approved` one —: the newer state
+// stays (409 already_final). The tenant may have been suspended after the authorizer let the call through: the
+// suspension expires the keys it lists after its status change (P3-T08 step preauthkeys.expire), not a key created after
+// that read, and this read follows the creation — so a key is either seen by that step or refused here (403).
+func issuable(ctx context.Context, q *sqlcdb.Queries, tenantID uuid.UUID, r, cur sqlcdb.EnrollmentRequest) (*Error, error) {
+	if cur.Status != r.Status || cur.Version != r.Version {
+		return conflict("already_final", "The request was revoked or ended while its key was being issued; no key was handed out."), nil
+	}
+	tc, err := q.GetEnrollmentContext(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	switch tc.TenantStatus {
+	case tenants.StatusSuspended, tenants.StatusDeprovisioning, tenants.StatusDeleted:
+		return &Error{Code: codeTenantSuspended, Reason: codeTenantSuspended,
+			Detail: "The tenant was suspended while the key was being issued; no key was handed out."}, nil
+	}
+	return nil, nil
+}
+
+// codeTenantSuspended is the Problem code (403) of a write on a suspended tenant — the one the authorizer answers.
+const codeTenantSuspended = "tenant_suspended"
+
+// memberUserPrefix starts the Headscale user name of every membership (tenant_memberships.headscale_username, generated
+// column of 0002: 'mg-' || id).
+const memberUserPrefix = "mg-"
+
+// issuedKey reports whether k — the key Headscale lists under the id request r recorded — can be the key r issued.
+// After a restore of an older snapshot Headscale hands its ids out again (§6.3 device_inventory_cache: VERIFIED on
+// 0.29.7 for nodes; pre-auth keys follow the same kind of counter), so the key of a request made after the restore may
+// carry the id of r's key, which the restore lost: neither its use nor its expiry is r's. Only what the platform itself
+// guarantees about r's key tells them apart — no guess on how Headscale reports the owner of a tagged key:
+//   - the reusable flag issueKey asked for (checked on the key Headscale answered);
+//   - an expiry no later than r's credential_expires_at (issueKey checked the answered key against it) — a key issued
+//     after the restore lives later than r's. Headscale's expire sets the expiration to now unconditionally, also on a
+//     key already expired: the platform expires only keys still valid (expireKey, the device revocation, offboarding,
+//     suspension, deprovisioning), so r's key never carries a later expiration than credential_expires_at;
+//   - an owner that is no other member: a key of another member's Headscale user mg-<membership> is not r's.
+func issuedKey(r sqlcdb.EnrollmentRequest, k headscale.PreAuthKey) bool {
+	if k.Reusable != r.Reusable {
+		return false
+	}
+	if r.CredentialExpiresAt != nil && k.Expiration.After(r.CredentialExpiresAt.Add(time.Second)) {
+		return false
+	}
+	if u := k.User; u != nil && strings.HasPrefix(u.Name, memberUserPrefix) &&
+		(r.TargetMembershipID == nil || u.Name != memberUserPrefix+r.TargetMembershipID.String()) {
+		return false
+	}
+	return true
 }
 
 // detached is a context for the closing writes of an operation: not cancelled with the request, bounded.
@@ -307,8 +387,9 @@ func (s *Service) closeOp(ctx context.Context, q *sqlcdb.Queries, op *audit.Oper
 
 const idempotencyLock = 60 * time.Second
 
-// storedIssue is the body an Idempotency-Key replays: the issue without its secrets (§13.1); the secrets are in the
-// Vault under the stored reference.
+// storedIssue is the body an Idempotency-Key replays: the issue without its secrets (§13.1) — nor anything derived from
+// them: the hostname mg-<code> and the command of a web-auth code carry the code, so they are rebuilt from the Vault at a
+// replay; the secrets are in the Vault under the stored reference.
 type storedIssue struct {
 	Request    Request           `json:"request"`
 	Credential *storedCredential `json:"credential,omitempty"`
@@ -383,7 +464,14 @@ func (s *Service) beginIdempotent(ctx context.Context, tenantID uuid.UUID, a Act
 		if err != nil {
 			return nil, nil, errors.New("enrollment: kept credential unreadable")
 		}
+		if (c.Kind == CredentialEnrollCode && sp.EnrollCode == "") || (c.Kind == CredentialPreauthKey && sp.PreauthKey == "") {
+			return nil, nil, secretGone() // fail closed: no hostname mg- nor command without the credential they carry
+		}
 		c.PreauthKey, c.EnrollCode = headscale.NewSecret(sp.PreauthKey), headscale.NewSecret(sp.EnrollCode)
+		if c.Kind == CredentialEnrollCode { // never stored: both carry the code (issueCode)
+			c.Hostname = HostnamePrefix + sp.EnrollCode
+			c.Command = webAuthCommand(st.Request.LoginServer, c.Hostname)
+		}
 		out.Credential = c
 	}
 	return nil, out, nil
@@ -404,7 +492,10 @@ func (s *Service) finishIdempotent(ctx context.Context, tenantID uuid.UUID, key 
 	st := storedIssue{Request: out.Request}
 	var ref *string
 	if c := out.Credential; c != nil {
-		st.Credential = &storedCredential{Kind: c.Kind, Hostname: c.Hostname, Command: c.Command, ExpiresAt: c.ExpiresAt}
+		st.Credential = &storedCredential{Kind: c.Kind, ExpiresAt: c.ExpiresAt}
+		if c.Kind != CredentialEnrollCode { // the hostname and command of a code hold the code: rebuilt at a replay
+			st.Credential.Hostname, st.Credential.Command = c.Hostname, c.Command
+		}
 		if s.vault != nil {
 			raw, err := json.Marshal(secretPayload{PreauthKey: c.PreauthKey.Reveal(), EnrollCode: c.EnrollCode.Reveal()})
 			if err != nil {

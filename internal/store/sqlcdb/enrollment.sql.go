@@ -13,6 +13,72 @@ import (
 	"github.com/google/uuid"
 )
 
+const claimRejectionsOfNode = `-- name: ClaimRejectionsOfNode :many
+SELECT failure_code, reported_hostname, enroll_code_hash, requested_by_membership_id
+FROM enrollment_requests
+WHERE tenant_id = $1 AND instance_id = $2 AND method = 'web_auth'
+  AND status = 'failed' AND consumed_node_id = $3 AND registered_machine_key = $4
+  AND updated_at >= $5::timestamptz - interval '1 second'
+  AND (failure_code IN ('node_mismatch', 'foreign_node')
+       OR failure_code = 'claim_unfinished' AND $5::timestamptz >= created_at - interval '1 second')
+`
+
+type ClaimRejectionsOfNodeParams struct {
+	TenantID      uuid.UUID
+	InstanceID    uuid.UUID
+	NodeID        *int64
+	MachineKey    *string
+	NodeCreatedAt time.Time
+}
+
+type ClaimRejectionsOfNodeRow struct {
+	FailureCode             *string
+	ReportedHostname        *string
+	EnrollCodeHash          []byte
+	RequestedByMembershipID uuid.UUID
+}
+
+// Claim (§7.4 bước 8): phán quyết của những claim trước về node này (id + machine key) SAU khi nó được tạo —
+// node_mismatch (lẽ ra đã bị xóa: DeleteNode không thành) hay foreign_node (đã expire) — và các claim không bao giờ tới
+// phán quyết với node MỚI (tạo từ lúc tạo yêu cầu đó): claim_unfinished (claim không ghi được registered, hay reconcile
+// đóng yêu cầu kẹt ở claimed/registered — tiến trình dừng, ghi phán quyết lỗi). claim_unfinished chỉ tính như
+// node_mismatch khi node không qua kiểm bước 8 của CHÍNH yêu cầu đó (priorVerdicts — Go: hostname đã ghi phải là
+// mg-<mã> khớp enroll_code_hash của yêu cầu, node của người yêu cầu, không tag, CLI): node hợp lệ của một claim dừng
+// sau khi ghi registered là thiết bị của người yêu cầu — không bao giờ bị xóa hay bị từ chối khi re-auth. Node đã bị
+// từ chối không bao giờ được chấp nhận như một lần re-auth. updated_at của yêu cầu failed là lúc từ chối (trạng thái
+// cuối, không ghi lại); id node được cấp lại cho node mới cùng machine key thì node mới có created_at muộn hơn và không
+// bị tính. record_failed (ghi verified lỗi) không được tính: node đó đã qua kiểm.
+func (q *Queries) ClaimRejectionsOfNode(ctx context.Context, arg ClaimRejectionsOfNodeParams) ([]ClaimRejectionsOfNodeRow, error) {
+	rows, err := q.db.Query(ctx, claimRejectionsOfNode,
+		arg.TenantID,
+		arg.InstanceID,
+		arg.NodeID,
+		arg.MachineKey,
+		arg.NodeCreatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ClaimRejectionsOfNodeRow{}
+	for rows.Next() {
+		var i ClaimRejectionsOfNodeRow
+		if err := rows.Scan(
+			&i.FailureCode,
+			&i.ReportedHostname,
+			&i.EnrollCodeHash,
+			&i.RequestedByMembershipID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const countPendingEnrollmentLinks = `-- name: CountPendingEnrollmentLinks :one
 SELECT count(*) FROM device_inventory_cache d
 JOIN enrollment_requests r ON r.tenant_id = d.tenant_id AND r.instance_id = d.instance_id
@@ -117,7 +183,7 @@ func (q *Queries) GetEnrollmentMember(ctx context.Context, arg GetEnrollmentMemb
 }
 
 const getEnrollmentRequest = `-- name: GetEnrollmentRequest :one
-SELECT id, tenant_id, instance_id, requested_by_membership_id, method, target_membership_id, device_label, requested_tags, ephemeral, reusable, status, approver_membership_id, approved_at, issued_at, headscale_preauthkey_id, auth_id_hash, session_id_hash, enroll_code_hash, claimed_at, claimed_from_ip, registered_machine_key, reported_hostname, credential_expires_at, consumed_node_id, failure_code, created_at, updated_at, version FROM enrollment_requests
+SELECT id, tenant_id, instance_id, requested_by_membership_id, method, target_membership_id, device_label, requested_tags, ephemeral, reusable, status, approver_membership_id, approved_at, issued_at, headscale_preauthkey_id, auth_id_hash, session_id_hash, enroll_code_hash, claimed_at, claimed_from_ip, registered_machine_key, reported_hostname, credential_expires_at, consumed_node_id, failure_code, created_at, updated_at, version, requested_ttl_minutes FROM enrollment_requests
 WHERE tenant_id = $1 AND id = $2
 `
 
@@ -158,6 +224,7 @@ func (q *Queries) GetEnrollmentRequest(ctx context.Context, arg GetEnrollmentReq
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Version,
+		&i.RequestedTtlMinutes,
 	)
 	return i, err
 }
@@ -253,11 +320,11 @@ func (q *Queries) InsertEnrolledDevice(ctx context.Context, arg InsertEnrolledDe
 
 const insertEnrollmentRequest = `-- name: InsertEnrollmentRequest :one
 INSERT INTO enrollment_requests (tenant_id, instance_id, requested_by_membership_id, method, target_membership_id,
-                                 device_label, requested_tags, ephemeral, reusable, status)
+                                 device_label, requested_tags, ephemeral, reusable, status, requested_ttl_minutes)
 VALUES ($1, $2, $3, $4,
         $5, $6, $7, $8,
-        $9, $10)
-RETURNING id, tenant_id, instance_id, requested_by_membership_id, method, target_membership_id, device_label, requested_tags, ephemeral, reusable, status, approver_membership_id, approved_at, issued_at, headscale_preauthkey_id, auth_id_hash, session_id_hash, enroll_code_hash, claimed_at, claimed_from_ip, registered_machine_key, reported_hostname, credential_expires_at, consumed_node_id, failure_code, created_at, updated_at, version
+        $9, $10, $11)
+RETURNING id, tenant_id, instance_id, requested_by_membership_id, method, target_membership_id, device_label, requested_tags, ephemeral, reusable, status, approver_membership_id, approved_at, issued_at, headscale_preauthkey_id, auth_id_hash, session_id_hash, enroll_code_hash, claimed_at, claimed_from_ip, registered_machine_key, reported_hostname, credential_expires_at, consumed_node_id, failure_code, created_at, updated_at, version, requested_ttl_minutes
 `
 
 type InsertEnrollmentRequestParams struct {
@@ -271,8 +338,10 @@ type InsertEnrollmentRequestParams struct {
 	Ephemeral               bool
 	Reusable                bool
 	Status                  string
+	RequestedTtlMinutes     *int16
 }
 
+// requested_ttl_minutes (0027): hạn key người yêu cầu xin — /start của yêu cầu đã duyệt phát key theo nó.
 func (q *Queries) InsertEnrollmentRequest(ctx context.Context, arg InsertEnrollmentRequestParams) (EnrollmentRequest, error) {
 	row := q.db.QueryRow(ctx, insertEnrollmentRequest,
 		arg.TenantID,
@@ -285,6 +354,7 @@ func (q *Queries) InsertEnrollmentRequest(ctx context.Context, arg InsertEnrollm
 		arg.Ephemeral,
 		arg.Reusable,
 		arg.Status,
+		arg.RequestedTtlMinutes,
 	)
 	var i EnrollmentRequest
 	err := row.Scan(
@@ -316,6 +386,7 @@ func (q *Queries) InsertEnrollmentRequest(ctx context.Context, arg InsertEnrollm
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Version,
+		&i.RequestedTtlMinutes,
 	)
 	return i, err
 }
@@ -398,7 +469,7 @@ func (q *Queries) LinkDeviceEnrollment(ctx context.Context, arg LinkDeviceEnroll
 }
 
 const listEnrollmentRequestsPage = `-- name: ListEnrollmentRequestsPage :many
-SELECT id, tenant_id, instance_id, requested_by_membership_id, method, target_membership_id, device_label, requested_tags, ephemeral, reusable, status, approver_membership_id, approved_at, issued_at, headscale_preauthkey_id, auth_id_hash, session_id_hash, enroll_code_hash, claimed_at, claimed_from_ip, registered_machine_key, reported_hostname, credential_expires_at, consumed_node_id, failure_code, created_at, updated_at, version FROM enrollment_requests
+SELECT id, tenant_id, instance_id, requested_by_membership_id, method, target_membership_id, device_label, requested_tags, ephemeral, reusable, status, approver_membership_id, approved_at, issued_at, headscale_preauthkey_id, auth_id_hash, session_id_hash, enroll_code_hash, claimed_at, claimed_from_ip, registered_machine_key, reported_hostname, credential_expires_at, consumed_node_id, failure_code, created_at, updated_at, version, requested_ttl_minutes FROM enrollment_requests
 WHERE tenant_id = $1
   AND ($2::uuid IS NULL OR requested_by_membership_id = $2::uuid
        OR target_membership_id = $2::uuid)
@@ -465,6 +536,7 @@ func (q *Queries) ListEnrollmentRequestsPage(ctx context.Context, arg ListEnroll
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Version,
+			&i.RequestedTtlMinutes,
 		); err != nil {
 			return nil, err
 		}
@@ -477,7 +549,7 @@ func (q *Queries) ListEnrollmentRequestsPage(ctx context.Context, arg ListEnroll
 }
 
 const listLiveReusableEnrollmentKeys = `-- name: ListLiveReusableEnrollmentKeys :many
-SELECT id, tenant_id, instance_id, requested_by_membership_id, method, target_membership_id, device_label, requested_tags, ephemeral, reusable, status, approver_membership_id, approved_at, issued_at, headscale_preauthkey_id, auth_id_hash, session_id_hash, enroll_code_hash, claimed_at, claimed_from_ip, registered_machine_key, reported_hostname, credential_expires_at, consumed_node_id, failure_code, created_at, updated_at, version FROM enrollment_requests
+SELECT id, tenant_id, instance_id, requested_by_membership_id, method, target_membership_id, device_label, requested_tags, ephemeral, reusable, status, approver_membership_id, approved_at, issued_at, headscale_preauthkey_id, auth_id_hash, session_id_hash, enroll_code_hash, claimed_at, claimed_from_ip, registered_machine_key, reported_hostname, credential_expires_at, consumed_node_id, failure_code, created_at, updated_at, version, requested_ttl_minutes FROM enrollment_requests
 WHERE tenant_id = $1 AND status = 'consumed' AND reusable AND headscale_preauthkey_id IS NOT NULL
   AND credential_expires_at > $2::timestamptz
 ORDER BY created_at, id
@@ -529,6 +601,65 @@ func (q *Queries) ListLiveReusableEnrollmentKeys(ctx context.Context, arg ListLi
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Version,
+			&i.RequestedTtlMinutes,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listMemberWebAuthClaims = `-- name: ListMemberWebAuthClaims :many
+SELECT id, status, enroll_code_hash, consumed_node_id FROM enrollment_requests
+WHERE tenant_id = $1 AND instance_id = $2 AND method = 'web_auth'
+  AND requested_by_membership_id = $3 AND id <> $4
+  AND ($5::boolean OR status IN ('claimed', 'registered', 'verified'))
+`
+
+type ListMemberWebAuthClaimsParams struct {
+	TenantID   uuid.UUID
+	InstanceID uuid.UUID
+	Member     uuid.UUID
+	ID         uuid.UUID
+	AnyStatus  bool
+}
+
+type ListMemberWebAuthClaimsRow struct {
+	ID             uuid.UUID
+	Status         string
+	EnrollCodeHash []byte
+	ConsumedNodeID *int64
+}
+
+// Claim khi câu trả lời của AuthRegister bị mất (§13.4 quy tắc 3 — đọc lại, không gửi lại): các yêu cầu web-auth KHÁC
+// của cùng thành viên trên instance đã claim (claimed/registered: thiết bị của nó tên mg-<mã của nó>) hoặc đã có node
+// (registered/verified: consumed_node_id) — node của chúng không phải node mà claim này có thể đã tạo. any_status
+// (reconcile của claim kẹt ở claimed — C1, sau ≥ 15 phút): mọi yêu cầu web-auth khác của thành viên, mọi trạng thái
+// (cả yêu cầu đã kết thúc với node hợp lệ của nó, hay chờ claim với mã của nó).
+func (q *Queries) ListMemberWebAuthClaims(ctx context.Context, arg ListMemberWebAuthClaimsParams) ([]ListMemberWebAuthClaimsRow, error) {
+	rows, err := q.db.Query(ctx, listMemberWebAuthClaims,
+		arg.TenantID,
+		arg.InstanceID,
+		arg.Member,
+		arg.ID,
+		arg.AnyStatus,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListMemberWebAuthClaimsRow{}
+	for rows.Next() {
+		var i ListMemberWebAuthClaimsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Status,
+			&i.EnrollCodeHash,
+			&i.ConsumedNodeID,
 		); err != nil {
 			return nil, err
 		}
@@ -541,7 +672,7 @@ func (q *Queries) ListLiveReusableEnrollmentKeys(ctx context.Context, arg ListLi
 }
 
 const listOpenEnrollmentRequests = `-- name: ListOpenEnrollmentRequests :many
-SELECT id, tenant_id, instance_id, requested_by_membership_id, method, target_membership_id, device_label, requested_tags, ephemeral, reusable, status, approver_membership_id, approved_at, issued_at, headscale_preauthkey_id, auth_id_hash, session_id_hash, enroll_code_hash, claimed_at, claimed_from_ip, registered_machine_key, reported_hostname, credential_expires_at, consumed_node_id, failure_code, created_at, updated_at, version FROM enrollment_requests
+SELECT id, tenant_id, instance_id, requested_by_membership_id, method, target_membership_id, device_label, requested_tags, ephemeral, reusable, status, approver_membership_id, approved_at, issued_at, headscale_preauthkey_id, auth_id_hash, session_id_hash, enroll_code_hash, claimed_at, claimed_from_ip, registered_machine_key, reported_hostname, credential_expires_at, consumed_node_id, failure_code, created_at, updated_at, version, requested_ttl_minutes FROM enrollment_requests
 WHERE tenant_id = $1
   AND status IN ('requested', 'pending_approval', 'approved', 'awaiting_device', 'claimed', 'registered',
                  'credential_issued')
@@ -587,6 +718,7 @@ func (q *Queries) ListOpenEnrollmentRequests(ctx context.Context, tenantID uuid.
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Version,
+			&i.RequestedTtlMinutes,
 		); err != nil {
 			return nil, err
 		}
@@ -598,62 +730,112 @@ func (q *Queries) ListOpenEnrollmentRequests(ctx context.Context, tenantID uuid.
 	return items, nil
 }
 
-const liveDeviceByMachineKey = `-- name: LiveDeviceByMachineKey :one
+const liveDeviceIDsOfMember = `-- name: LiveDeviceIDsOfMember :many
+SELECT id FROM device_inventory_cache
+WHERE tenant_id = $1 AND instance_id = $2
+  AND owner_membership_id = $3 AND removed_at IS NULL
+`
+
+type LiveDeviceIDsOfMemberParams struct {
+	TenantID   uuid.UUID
+	InstanceID uuid.UUID
+	Member     *uuid.UUID
+}
+
+// Claim (§7.4 bước 8), trong transaction ghi claimed — TRƯỚC AuthRegister: các hàng sống của thành viên trên instance.
+// Hàng của node AuthRegister trả về chỉ chứng minh node có từ trước claim khi nó có trong tập này: hàng một
+// inventory.sync đồng thời chèn sau đó (snapshot liệt kê node vừa tạo) không làm node mới thành "đã có" — không phụ
+// thuộc đồng hồ của Headscale (created_at của node).
+func (q *Queries) LiveDeviceIDsOfMember(ctx context.Context, arg LiveDeviceIDsOfMemberParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, liveDeviceIDsOfMember, arg.TenantID, arg.InstanceID, arg.Member)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const liveDevicesOfMachineKey = `-- name: LiveDevicesOfMachineKey :many
 SELECT id, tenant_id, instance_id, headscale_node_id, machine_key, node_key, name, given_name, ip_addresses, headscale_user_id, owner_membership_id, tags, register_method, online, last_seen, expiry, approved_routes, available_routes, subnet_routes, hs_created_at, first_seen_at, last_synced_at, sync_generation, removed_at, enrollment_request_id, revocation_state, revocation_kind, revocation_requested_at, revocation_verified_at, revocation_job_id FROM device_inventory_cache
 WHERE tenant_id = $1 AND instance_id = $2 AND machine_key = $3
   AND removed_at IS NULL
 ORDER BY first_seen_at DESC, id DESC
-LIMIT 1
 `
 
-type LiveDeviceByMachineKeyParams struct {
+type LiveDevicesOfMachineKeyParams struct {
 	TenantID   uuid.UUID
 	InstanceID uuid.UUID
 	MachineKey string
 }
 
-// Sổ thiết bị: node (machine key) đã có từ trước trên instance — §7.4 bước 8 (b): re-auth của thiết bị hiện hữu không
-// bao giờ bị xóa.
-func (q *Queries) LiveDeviceByMachineKey(ctx context.Context, arg LiveDeviceByMachineKeyParams) (DeviceInventoryCache, error) {
-	row := q.db.QueryRow(ctx, liveDeviceByMachineKey, arg.TenantID, arg.InstanceID, arg.MachineKey)
-	var i DeviceInventoryCache
-	err := row.Scan(
-		&i.ID,
-		&i.TenantID,
-		&i.InstanceID,
-		&i.HeadscaleNodeID,
-		&i.MachineKey,
-		&i.NodeKey,
-		&i.Name,
-		&i.GivenName,
-		&i.IpAddresses,
-		&i.HeadscaleUserID,
-		&i.OwnerMembershipID,
-		&i.Tags,
-		&i.RegisterMethod,
-		&i.Online,
-		&i.LastSeen,
-		&i.Expiry,
-		&i.ApprovedRoutes,
-		&i.AvailableRoutes,
-		&i.SubnetRoutes,
-		&i.HsCreatedAt,
-		&i.FirstSeenAt,
-		&i.LastSyncedAt,
-		&i.SyncGeneration,
-		&i.RemovedAt,
-		&i.EnrollmentRequestID,
-		&i.RevocationState,
-		&i.RevocationKind,
-		&i.RevocationRequestedAt,
-		&i.RevocationVerifiedAt,
-		&i.RevocationJobID,
-	)
-	return i, err
+// Sổ thiết bị: mọi hàng sống của một machine key trên instance — §7.4 bước 8. Hàng của CHÍNH node AuthRegister trả về
+// (cùng headscale_node_id) cho biết node đã có trong sổ; hàng của node KHÁC cùng machine key (node của user khác — với
+// user khác Headscale tạo node MỚI, V-28) không làm node vừa tạo thành "đã có", nhưng một lần re-auth chỉ được chấp
+// nhận khi mọi hàng của máy đều thuộc chính thành viên.
+func (q *Queries) LiveDevicesOfMachineKey(ctx context.Context, arg LiveDevicesOfMachineKeyParams) ([]DeviceInventoryCache, error) {
+	rows, err := q.db.Query(ctx, liveDevicesOfMachineKey, arg.TenantID, arg.InstanceID, arg.MachineKey)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []DeviceInventoryCache{}
+	for rows.Next() {
+		var i DeviceInventoryCache
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.InstanceID,
+			&i.HeadscaleNodeID,
+			&i.MachineKey,
+			&i.NodeKey,
+			&i.Name,
+			&i.GivenName,
+			&i.IpAddresses,
+			&i.HeadscaleUserID,
+			&i.OwnerMembershipID,
+			&i.Tags,
+			&i.RegisterMethod,
+			&i.Online,
+			&i.LastSeen,
+			&i.Expiry,
+			&i.ApprovedRoutes,
+			&i.AvailableRoutes,
+			&i.SubnetRoutes,
+			&i.HsCreatedAt,
+			&i.FirstSeenAt,
+			&i.LastSyncedAt,
+			&i.SyncGeneration,
+			&i.RemovedAt,
+			&i.EnrollmentRequestID,
+			&i.RevocationState,
+			&i.RevocationKind,
+			&i.RevocationRequestedAt,
+			&i.RevocationVerifiedAt,
+			&i.RevocationJobID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const lockEnrollmentRequest = `-- name: LockEnrollmentRequest :one
-SELECT id, tenant_id, instance_id, requested_by_membership_id, method, target_membership_id, device_label, requested_tags, ephemeral, reusable, status, approver_membership_id, approved_at, issued_at, headscale_preauthkey_id, auth_id_hash, session_id_hash, enroll_code_hash, claimed_at, claimed_from_ip, registered_machine_key, reported_hostname, credential_expires_at, consumed_node_id, failure_code, created_at, updated_at, version FROM enrollment_requests
+SELECT id, tenant_id, instance_id, requested_by_membership_id, method, target_membership_id, device_label, requested_tags, ephemeral, reusable, status, approver_membership_id, approved_at, issued_at, headscale_preauthkey_id, auth_id_hash, session_id_hash, enroll_code_hash, claimed_at, claimed_from_ip, registered_machine_key, reported_hostname, credential_expires_at, consumed_node_id, failure_code, created_at, updated_at, version, requested_ttl_minutes FROM enrollment_requests
 WHERE tenant_id = $1 AND id = $2
 FOR UPDATE
 `
@@ -695,6 +877,7 @@ func (q *Queries) LockEnrollmentRequest(ctx context.Context, arg LockEnrollmentR
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Version,
+		&i.RequestedTtlMinutes,
 	)
 	return i, err
 }
@@ -751,7 +934,7 @@ func (q *Queries) LockLiveDeviceOfNode(ctx context.Context, arg LockLiveDeviceOf
 }
 
 const lockPendingWebAuth = `-- name: LockPendingWebAuth :many
-SELECT id, tenant_id, instance_id, requested_by_membership_id, method, target_membership_id, device_label, requested_tags, ephemeral, reusable, status, approver_membership_id, approved_at, issued_at, headscale_preauthkey_id, auth_id_hash, session_id_hash, enroll_code_hash, claimed_at, claimed_from_ip, registered_machine_key, reported_hostname, credential_expires_at, consumed_node_id, failure_code, created_at, updated_at, version FROM enrollment_requests
+SELECT id, tenant_id, instance_id, requested_by_membership_id, method, target_membership_id, device_label, requested_tags, ephemeral, reusable, status, approver_membership_id, approved_at, issued_at, headscale_preauthkey_id, auth_id_hash, session_id_hash, enroll_code_hash, claimed_at, claimed_from_ip, registered_machine_key, reported_hostname, credential_expires_at, consumed_node_id, failure_code, created_at, updated_at, version, requested_ttl_minutes FROM enrollment_requests
 WHERE tenant_id = $1 AND requested_by_membership_id = $2 AND method = 'web_auth'
   AND status = 'awaiting_device' AND session_id_hash = $3 AND credential_expires_at > now()
 ORDER BY issued_at, id
@@ -804,6 +987,7 @@ func (q *Queries) LockPendingWebAuth(ctx context.Context, arg LockPendingWebAuth
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Version,
+			&i.RequestedTtlMinutes,
 		); err != nil {
 			return nil, err
 		}
@@ -825,7 +1009,7 @@ SET status                 = $1,
     updated_at             = now(),
     version                = version + 1
 WHERE tenant_id = $6 AND id = $7
-RETURNING id, tenant_id, instance_id, requested_by_membership_id, method, target_membership_id, device_label, requested_tags, ephemeral, reusable, status, approver_membership_id, approved_at, issued_at, headscale_preauthkey_id, auth_id_hash, session_id_hash, enroll_code_hash, claimed_at, claimed_from_ip, registered_machine_key, reported_hostname, credential_expires_at, consumed_node_id, failure_code, created_at, updated_at, version
+RETURNING id, tenant_id, instance_id, requested_by_membership_id, method, target_membership_id, device_label, requested_tags, ephemeral, reusable, status, approver_membership_id, approved_at, issued_at, headscale_preauthkey_id, auth_id_hash, session_id_hash, enroll_code_hash, claimed_at, claimed_from_ip, registered_machine_key, reported_hostname, credential_expires_at, consumed_node_id, failure_code, created_at, updated_at, version, requested_ttl_minutes
 `
 
 type SetEnrollmentRequestOutcomeParams struct {
@@ -879,6 +1063,7 @@ func (q *Queries) SetEnrollmentRequestOutcome(ctx context.Context, arg SetEnroll
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Version,
+		&i.RequestedTtlMinutes,
 	)
 	return i, err
 }
@@ -903,7 +1088,7 @@ SET status                 = $1,
     updated_at             = now(),
     version                = version + 1
 WHERE tenant_id = $16 AND id = $17
-RETURNING id, tenant_id, instance_id, requested_by_membership_id, method, target_membership_id, device_label, requested_tags, ephemeral, reusable, status, approver_membership_id, approved_at, issued_at, headscale_preauthkey_id, auth_id_hash, session_id_hash, enroll_code_hash, claimed_at, claimed_from_ip, registered_machine_key, reported_hostname, credential_expires_at, consumed_node_id, failure_code, created_at, updated_at, version
+RETURNING id, tenant_id, instance_id, requested_by_membership_id, method, target_membership_id, device_label, requested_tags, ephemeral, reusable, status, approver_membership_id, approved_at, issued_at, headscale_preauthkey_id, auth_id_hash, session_id_hash, enroll_code_hash, claimed_at, claimed_from_ip, registered_machine_key, reported_hostname, credential_expires_at, consumed_node_id, failure_code, created_at, updated_at, version, requested_ttl_minutes
 `
 
 type SetEnrollmentRequestStateParams struct {
@@ -978,6 +1163,7 @@ func (q *Queries) SetEnrollmentRequestState(ctx context.Context, arg SetEnrollme
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Version,
+		&i.RequestedTtlMinutes,
 	)
 	return i, err
 }

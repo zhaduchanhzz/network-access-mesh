@@ -225,13 +225,15 @@ func (s *Service) register(ctx context.Context, tenantID uuid.UUID, a Actor, r s
 	host := clip(node.Name, 255)
 	mkey := clip(node.MachineKey, 200)
 	// registered: the node exists — recorded before any corrective call. A claim that stops after this point (the
-	// process dies, the write of its verdict fails) leaves the request registered with its node: reconcile closes it
-	// claim_unfinished, and ClaimRejectionsOfNode then never accepts a node that claim created as a re-authentication.
-	// Reconcile does not check or remove that node itself (yet); a claim that stops before this point leaves no node id.
+	// process dies, the write of its verdict fails) leaves the request registered with its node: reconcile checks that
+	// node as this claim would have (unfinishedClaim — a new node failing step 8 is removed) and closes the request
+	// claim_unfinished; priorVerdicts then never accepts a node that failed the checks as a re-authentication. A claim
+	// that stops before this point leaves the request claimed without a node id: reconcile looks for the node its
+	// AuthRegister may have registered as a lost answer does (registeredBy).
 	var (
-		own   *sqlcdb.DeviceInventoryCache    // the live row of this very node
-		rows  []sqlcdb.DeviceInventoryCache   // every live row of its machine key (own included)
-		prior sqlcdb.ClaimRejectionsOfNodeRow // earlier claims that rejected this node
+		own   *sqlcdb.DeviceInventoryCache  // the live row of this very node
+		rows  []sqlcdb.DeviceInventoryCache // every live row of its machine key (own included)
+		prior priorVerdict                  // what earlier claims decided about this node
 	)
 	err = s.st.WithTenantTx(ctx, tenantID, func(q *sqlcdb.Queries) error {
 		cur, err := q.LockEnrollmentRequest(ctx, sqlcdb.LockEnrollmentRequestParams{TenantID: tenantID, ID: r.ID})
@@ -260,8 +262,7 @@ func (s *Service) register(ctx context.Context, tenantID uuid.UUID, a Actor, r s
 				own = &rows[i]
 			}
 		}
-		prior, err = q.ClaimRejectionsOfNode(ctx, sqlcdb.ClaimRejectionsOfNodeParams{TenantID: tenantID,
-			InstanceID: tc.instance, NodeID: &nid, MachineKey: &mkey, NodeCreatedAt: node.CreatedAt})
+		prior, err = priorVerdicts(ctx, q, tenantID, tc.instance, node)
 		return err
 	})
 	if err != nil {
@@ -283,7 +284,7 @@ func (s *Service) register(ctx context.Context, tenantID uuid.UUID, a Actor, r s
 	isNew := createdSince(node, claimedAt) || !ownKnown && createdSince(node, r.CreatedAt)
 	ownUser := node.User != nil && node.User.Name == user.user
 	if !isNew {
-		if prior.WasMismatch {
+		if prior.mismatch {
 			// rejected before as a new node that failed the checks (or registered without a verdict), and still there:
 			// it never becomes a device
 			deleted, expired := s.removeNode(ctx, inst, node.ID)
@@ -292,28 +293,14 @@ func (s *Service) register(ctx context.Context, tenantID uuid.UUID, a Actor, r s
 		}
 		// (b) a node that existed before is never deleted: the member's own device re-authenticates; anything else is
 		// expired and left to its owner's decision
-		if ownUser && !node.IsTagged() && !prior.WasForeign && ownedBy(rows, a.MembershipID) {
+		if ownUser && !node.IsTagged() && !prior.foreign && ownedBy(rows, a.MembershipID) {
 			return s.verified(ctx, tenantID, a, r, node, tc, own, false, op)
 		}
 		return s.rejected(ctx, tenantID, a, r, EventForeignNode, FailureForeignNode, audit.Details{"node_id": nid,
 			"expired": s.expireNode(ctx, inst, node.ID)}, op)
 	}
 	// (a) a new node: name mg-<code> (the code only the requester's session received), the expected user, no tag, CLI
-	reasons := []string{}
-	code, hasPrefix := strings.CutPrefix(node.Name, HostnamePrefix)
-	if !hasPrefix || !bytes.Equal(codeHash(code), r.EnrollCodeHash) {
-		reasons = append(reasons, "hostname")
-	}
-	if !ownUser {
-		reasons = append(reasons, "user")
-	}
-	if node.IsTagged() {
-		reasons = append(reasons, "tags")
-	}
-	if node.RegisterMethod != headscale.RegisterMethodCLI {
-		reasons = append(reasons, "register_method")
-	}
-	if len(reasons) > 0 {
+	if reasons := stepEight(node, node.Name, user.user, r.EnrollCodeHash); len(reasons) > 0 {
 		deleted, expired := s.removeNode(ctx, inst, node.ID)
 		return s.rejected(ctx, tenantID, a, r, EventNodeMismatch, FailureNodeMismatch, audit.Details{"node_id": nid,
 			"checks_failed": reasons, "deleted": deleted, "expired": expired}, op)
@@ -393,12 +380,9 @@ func sleep(ctx context.Context, d time.Duration) bool {
 	}
 }
 
-// lostRegistration reads the member's nodes back after an AuthRegister whose answer was lost. The candidates are the
-// member's untagged web-auth (CLI) nodes created since the claim began, except those another claim of the member
-// accounts for (its recorded node, or a device named mg-<its code> while that claim waits for its own answer). The
-// candidate named mg-<this request's code> is the requester's device and is returned. Without it, the newest candidate
-// is returned — a node this claim may have registered for whoever started the sign-in, which the checks of step 8
-// reject — and the other candidates in extra, to be removed as well. nodes is every node of the member read.
+// lostRegistration reads the member's nodes back after an AuthRegister whose answer was lost and picks the node the
+// call may have registered (registeredBy, against the other claims of the member under way or done). nodes is every
+// node of the member read.
 func (s *Service) lostRegistration(ctx context.Context, tenantID uuid.UUID, inst headscale.Instance,
 	r sqlcdb.EnrollmentRequest, user member, tc tenantContext, claimedAt time.Time,
 ) (found *headscale.Node, extra, nodes []headscale.Node, err error) {
@@ -414,6 +398,20 @@ func (s *Service) lostRegistration(ctx context.Context, tenantID uuid.UUID, inst
 	}); err != nil {
 		return nil, nil, nil, err
 	}
+	found, extra = registeredBy(nodes, user.user, r, others, claimedAt, time.Time{})
+	return found, extra, nodes, nil
+}
+
+// registeredBy picks, among nodes, the node an AuthRegister of web-auth request r for Headscale user user may have
+// registered. The candidates are the user's untagged web-auth (CLI) nodes created since the claim began (and, when
+// until is not zero, not after until), except those another request of the member accounts for (others: its recorded
+// node, or a device named mg-<its code>). The candidate named mg-<r's code> is the requester's device and is returned.
+// Without it, the newest candidate is returned — a node the claim may have registered for whoever started the sign-in,
+// which the checks of step 8 reject — and the other candidates in extra, to be removed as well. Shared by a claim whose
+// answer was lost (lostRegistration) and by reconcile of a claim left claimed (unfinishedClaim).
+func registeredBy(nodes []headscale.Node, user string, r sqlcdb.EnrollmentRequest,
+	others []sqlcdb.ListMemberWebAuthClaimsRow, claimedAt, until time.Time,
+) (found *headscale.Node, extra []headscale.Node) {
 	accounted := func(n headscale.Node, hash []byte) bool {
 		for _, o := range others {
 			if o.ConsumedNodeID != nil && *o.ConsumedNodeID == int64(n.ID) || //nolint:gosec // small ids
@@ -425,8 +423,8 @@ func (s *Service) lostRegistration(ctx context.Context, tenantID uuid.UUID, inst
 	}
 	var strays []headscale.Node
 	for _, n := range nodes {
-		if n.IsTagged() || n.User == nil || n.User.Name != user.user || n.RegisterMethod != headscale.RegisterMethodCLI ||
-			!createdSince(n, claimedAt) {
+		if n.IsTagged() || n.User == nil || n.User.Name != user || n.RegisterMethod != headscale.RegisterMethodCLI ||
+			!createdSince(n, claimedAt) || !until.IsZero() && n.CreatedAt.After(until) {
 			continue
 		}
 		var hash []byte
@@ -435,13 +433,13 @@ func (s *Service) lostRegistration(ctx context.Context, tenantID uuid.UUID, inst
 		}
 		switch {
 		case hash != nil && bytes.Equal(hash, r.EnrollCodeHash):
-			return &n, nil, nodes, nil
+			return &n, nil
 		case !accounted(n, hash):
 			strays = append(strays, n)
 		}
 	}
 	if len(strays) == 0 {
-		return nil, nil, nodes, nil
+		return nil, nil
 	}
 	slices.SortFunc(strays, func(x, y headscale.Node) int {
 		if c := x.CreatedAt.Compare(y.CreatedAt); c != 0 {
@@ -450,13 +448,14 @@ func (s *Service) lostRegistration(ctx context.Context, tenantID uuid.UUID, inst
 		return cmp.Compare(x.ID, y.ID)
 	})
 	newest := strays[len(strays)-1]
-	return &newest, strays[:len(strays)-1], nodes, nil
+	return &newest, strays[:len(strays)-1]
 }
 
-// reprotect runs after a lost answer when nothing new was found: the AuthRegister may have re-authenticated an existing
-// node of the member, which then has a fresh expiry (V-28, V-21). A node an earlier claim rejected
-// (ClaimRejectionsOfNode) and found active is deleted when it was rejected as a mismatch or left without a verdict,
-// expired when it was rejected as foreign — what this claim would have decided had its answer arrived.
+// reprotect runs after a lost answer when nothing new was found (and when reconcile finds no new node for a claim left
+// claimed — unfinishedClaim): the AuthRegister may have re-authenticated an existing node of the member, which then has
+// a fresh expiry (V-28, V-21). A node an earlier claim rejected (priorVerdicts) and found active is deleted when it was
+// rejected as a mismatch or left without a verdict while failing the checks, expired when it was rejected as foreign —
+// what this claim would have decided had its answer arrived.
 func (s *Service) reprotect(ctx context.Context, tenantID uuid.UUID, inst headscale.Instance, tc tenantContext,
 	r sqlcdb.EnrollmentRequest, nodes []headscale.Node,
 ) {
@@ -471,14 +470,12 @@ func (s *Service) reprotect(ctx context.Context, tenantID uuid.UUID, inst headsc
 			if n.Expiry != nil && !n.Expiry.After(now) {
 				continue // expired: nothing to protect
 			}
-			nid, mkey := int64(n.ID), clip(n.MachineKey, 200) //nolint:gosec // small ids
-			p, err := q.ClaimRejectionsOfNode(ctx, sqlcdb.ClaimRejectionsOfNodeParams{TenantID: tenantID,
-				InstanceID: tc.instance, NodeID: &nid, MachineKey: &mkey, NodeCreatedAt: n.CreatedAt})
+			p, err := priorVerdicts(ctx, q, tenantID, tc.instance, n)
 			if err != nil {
 				return err
 			}
-			if p.WasMismatch || p.WasForeign {
-				out = append(out, flagged{id: n.ID, mismatch: p.WasMismatch})
+			if p.mismatch || p.foreign {
+				out = append(out, flagged{id: n.ID, mismatch: p.mismatch})
 			}
 		}
 		return nil
@@ -551,9 +548,9 @@ func (s *Service) failWithNode(ctx context.Context, tenantID, id uuid.UUID, code
 
 // removeNode deletes a node a claim rejects as new (§7.4 step 8 a). When the delete does not go through, it expires the
 // node at least: the client then has to sign in again, which takes another claim. Such a claim deletes the node when
-// the earlier verdict was recorded with it (ClaimRejectionsOfNode: the request failed node_mismatch or claim_unfinished
-// with its consumed_node_id); the extra nodes of a read-back are removed without such a record. Detached from the
-// request.
+// the earlier verdict was recorded with it (priorVerdicts: the request failed node_mismatch, or claim_unfinished with
+// its consumed_node_id and a node failing the checks); the extra nodes of a read-back are removed without such a
+// record. Detached from the request.
 func (s *Service) removeNode(ctx context.Context, inst headscale.Instance, id uint64) (deleted, expired bool) {
 	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), correctiveBudget)
 	defer cancel()
@@ -574,6 +571,67 @@ func (s *Service) expireNode(ctx context.Context, inst headscale.Instance, id ui
 	now := s.now().UTC()
 	_, err := inst.ExpireNode(cctx, id, &now)
 	return err == nil
+}
+
+// stepEight lists the checks of §7.4 step 8 (a) node n fails as the new device of a web-auth request: hostname — what
+// the node reported when it registered — mg-<the request's code> (enrollCodeHash: the code only the requester's session
+// received), the requester's Headscale user, no tag, registered from the CLI. Empty: n is the requester's device.
+func stepEight(n headscale.Node, hostname, user string, enrollCodeHash []byte) []string {
+	reasons := []string{}
+	code, hasPrefix := strings.CutPrefix(hostname, HostnamePrefix)
+	if !hasPrefix || len(enrollCodeHash) == 0 || !bytes.Equal(codeHash(code), enrollCodeHash) {
+		reasons = append(reasons, "hostname")
+	}
+	if n.User == nil || n.User.Name != user {
+		reasons = append(reasons, "user")
+	}
+	if n.IsTagged() {
+		reasons = append(reasons, "tags")
+	}
+	if n.RegisterMethod != headscale.RegisterMethodCLI {
+		reasons = append(reasons, "register_method")
+	}
+	return reasons
+}
+
+// priorVerdict is what earlier claims decided about a node (priorVerdicts).
+type priorVerdict struct {
+	mismatch bool // rejected as a new node failing step 8 — or registered by a claim without a verdict and failing it
+	foreign  bool // rejected as an existing node of someone else (expired)
+}
+
+// priorVerdicts reads, in q's transaction, the verdicts earlier claims recorded on node n (ClaimRejectionsOfNode). A
+// claim that never reached its verdict (claim_unfinished) counts as a mismatch only when n fails the checks of step 8
+// for that claim's own request, on the hostname it recorded (stepEight): the valid node of a claim that stopped after
+// recording registered is the requester's device — never deleted later (rule b) nor refused as a re-authentication.
+func priorVerdicts(ctx context.Context, q *sqlcdb.Queries, tenantID, instance uuid.UUID, n headscale.Node) (priorVerdict, error) {
+	nid, mkey := int64(n.ID), clip(n.MachineKey, 200) //nolint:gosec // small ids
+	rows, err := q.ClaimRejectionsOfNode(ctx, sqlcdb.ClaimRejectionsOfNodeParams{TenantID: tenantID, InstanceID: instance,
+		NodeID: &nid, MachineKey: &mkey, NodeCreatedAt: n.CreatedAt})
+	if err != nil {
+		return priorVerdict{}, err
+	}
+	var v priorVerdict
+	for _, row := range rows {
+		code, host := "", ""
+		if row.FailureCode != nil {
+			code = *row.FailureCode
+		}
+		if row.ReportedHostname != nil {
+			host = *row.ReportedHostname
+		}
+		switch code {
+		case FailureNodeMismatch:
+			v.mismatch = true
+		case FailureForeignNode:
+			v.foreign = true
+		case FailureClaimUnfinished:
+			if len(stepEight(n, host, memberUserPrefix+row.RequestedByMembershipID.String(), row.EnrollCodeHash)) > 0 {
+				v.mismatch = true
+			}
+		}
+	}
+	return v, nil
 }
 
 // createdSince reports whether node n was created at or after t (within the clock slack).
