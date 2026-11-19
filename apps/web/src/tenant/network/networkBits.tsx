@@ -1,14 +1,19 @@
 // Mảnh nhỏ chỉ dùng cho ba màn hình mạng của Tenant Portal (P4-T12): lỗi 422 theo field, dòng trạng thái job (poll bằng
 // api/jobs.ts — chỉ báo "đã áp dụng" khi job `succeeded`), khung báo đã tạo yêu cầu phê duyệt (202 khi tenant bật
-// 4-eyes). Hạ tầng chung (client, idempotency, etag, jobs, ConfirmDialog…) không nhân bản ở đây.
+// 4-eyes — trạng thái sống của yêu cầu + link tới trang phê duyệt của tenant, P4-T13). Hạ tầng chung (client,
+// idempotency, etag, jobs, ConfirmDialog…) không nhân bản ở đây.
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
+import { Link } from "react-router";
 import { useTenantJob, isSettled } from "../../api/jobs";
 import { ApiError } from "../../api/problem";
+import { can } from "../../auth/permissions";
 import { ProblemAlert } from "../../components/ProblemAlert";
-import { StatusBadge } from "../../ui/Status";
+import { StatusBadge, useCodeText } from "../../ui/Status";
 import { Timestamp } from "../../ui/time";
 import type { components } from "../../api/schema";
+import { useTenantApproval } from "../people/api";
+import { useTenant } from "../TenantScope";
 
 export type ApprovalRequest = components["schemas"]["ApprovalRequest"];
 
@@ -94,14 +99,47 @@ export function JobProgress({
   );
 }
 
-/** 202 của thao tác cần người thứ hai (tenant bật 4-eyes): CHƯA thay đổi gì — đã tạo yêu cầu phê duyệt. Màn hình phê
- * duyệt phía tenant thuộc P4-T13: ở đây hiện mã yêu cầu, trạng thái và hạn để người thứ hai tra cứu. */
-export function ApprovalCreated({ approval, onDismiss }: { approval: { id: string; data: ApprovalRequest }; onDismiss: () => void }) {
+/**
+ * 202 của thao tác cần người thứ hai (tenant bật 4-eyes): CHƯA thay đổi gì — đã tạo yêu cầu phê duyệt. Khung này hiện
+ * trạng thái SỐNG của yêu cầu (poll GET /approvals/{id} tới khi người thứ hai quyết định — mẫu của P4-T13), mã, hạn và
+ * link tới trang phê duyệt của tenant (`/t/{t}/approvals/{id}`) cho người có `tenant.approval:read`; người không có quyền
+ * đó thấy lời nhắc gửi mã cho người duyệt. `onExecuted` chạy một lần khi yêu cầu đã được thực thi (làm mới dữ liệu đọc).
+ */
+export function ApprovalCreated({
+  approval,
+  onDismiss,
+  onExecuted,
+}: {
+  approval: { id: string; data: ApprovalRequest };
+  onDismiss: () => void;
+  onExecuted?: () => void;
+}) {
   const { t } = useTranslation();
+  const text = useCodeText();
+  const { tenantId, role } = useTenant();
+  const canRead = can(role, "tenant.approval:read");
+  const live = useTenantApproval(tenantId, approval.id, canRead);
+  const status = live.data?.status ?? approval.data.status;
+  const fired = useRef(false);
+  useEffect(() => {
+    if (status === "executed" && !fired.current) {
+      fired.current = true;
+      onExecuted?.();
+    }
+  }, [status, onExecuted]);
   return (
-    <div role="status" className="mb-4 rounded-md border border-line bg-surface p-4 text-sm" data-testid="approval-created">
+    <div
+      role="status"
+      aria-live="polite"
+      className="mb-4 rounded-md border border-line bg-surface p-4 text-sm"
+      data-testid="approval-created"
+      data-status={status}
+    >
       <p className="font-semibold">{t("network.approval.title")}</p>
-      <p className="mt-1">{t("network.approval.description")}</p>
+      <p className="mt-1" data-testid="approval-explain">
+        {t(`network.approval.explain.${status}`)}
+      </p>
+      {status === "pending" ? <p className="mt-1">{t("network.approval.description")}</p> : null}
       <dl className="mt-2 grid gap-x-4 gap-y-1 md:grid-cols-[max-content_1fr]">
         <dt className="text-muted">{t("network.approval.id")}</dt>
         <dd>
@@ -109,13 +147,25 @@ export function ApprovalCreated({ approval, onDismiss }: { approval: { id: strin
         </dd>
         <dt className="text-muted">{t("network.approval.status")}</dt>
         <dd>
-          <StatusBadge status={approval.data.status}>{t(`status.approval.${approval.data.status}`)}</StatusBadge>
+          <StatusBadge status={status} testId="approval-status">
+            {text("status.approval", status)}
+          </StatusBadge>
         </dd>
         <dt className="text-muted">{t("network.approval.expires")}</dt>
         <dd>
-          <Timestamp iso={approval.data.expires_at} />
+          <Timestamp iso={(live.data ?? approval.data).expires_at} />
         </dd>
       </dl>
+      <p className="mt-2">
+        {canRead ? (
+          <Link to={`/t/${tenantId}/approvals/${approval.id}`} className="link" data-testid="approval-link">
+            {t("network.approval.open")}
+          </Link>
+        ) : (
+          <span className="text-muted">{t("network.approval.sendId")}</span>
+        )}
+      </p>
+      {live.isError ? <ProblemAlert error={live.error} /> : null}
       <button type="button" className="btn-secondary mt-3" onClick={onDismiss}>
         {t("common.dismiss")}
       </button>

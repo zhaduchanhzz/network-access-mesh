@@ -1910,10 +1910,19 @@
     },
     "approval": {
       "title": "Đã tạo yêu cầu phê duyệt — chưa có thay đổi nào",
-      "description": "Tenant bật kiểm soát hai người (4-eyes) cho route: một người thứ hai có quyền duyệt route và quyết định phê duyệt phải duyệt yêu cầu này. Route chỉ được duyệt ở Headscale khi yêu cầu được duyệt (màn hình phê duyệt của tenant thuộc P4-T13 — hãy gửi mã yêu cầu cho người duyệt).",
+      "description": "Tenant bật kiểm soát hai người (4-eyes) cho route: một người thứ hai có quyền duyệt route và quyết định phê duyệt phải duyệt yêu cầu này. Route chỉ được duyệt ở Headscale khi yêu cầu được duyệt.",
       "id": "Mã yêu cầu",
       "status": "Trạng thái",
-      "expires": "Hết hạn lúc"
+      "expires": "Hết hạn lúc",
+      "open": "Mở yêu cầu trong trang phê duyệt",
+      "sendId": "Gửi mã yêu cầu cho người duyệt (Owner/Admin khác của tenant).",
+      "explain": {
+        "pending": "Thay đổi CHƯA có hiệu lực: đang chờ người thứ hai duyệt.",
+        "approved": "Đã duyệt, đang thực thi — route chưa đổi cho tới khi thực thi xong.",
+        "executed": "Đã duyệt và thực thi: route đã được duyệt ở Headscale.",
+        "rejected": "Yêu cầu bị từ chối — route không đổi.",
+        "expired": "Yêu cầu hết hạn — route không đổi."
+      }
     },
     "fieldErrors": {
       "value_not_in_tailnet": "Giá trị phải là địa chỉ tailnet của một thiết bị của tenant hoặc nằm trong một subnet route đã duyệt.",

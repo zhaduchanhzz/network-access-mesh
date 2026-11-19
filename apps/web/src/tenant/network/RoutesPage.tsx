@@ -3,7 +3,8 @@
 // duyệt không được phân phối), exit node, cảnh báo (chồng lấn, router không tag, exit node). Duyệt: POST /routes/approve
 // (`If-Match` = `routes_etag`, Idempotency-Key) — exit node chỉ qua hộp xác nhận rủi ro riêng và `confirm_exit_node`;
 // gỡ duyệt: POST /routes/revoke (`If-Match`). 200 ⇒ cập nhật; 202 ⇒ tenant bật 4-eyes: đã tạo yêu cầu phê duyệt (chưa
-// đổi gì); 412 ⇒ dữ liệu đã đổi ⇒ tải lại, người dùng chọn lại. Nút chỉ là UX — server quyết định (quyền, step-up, 4-eyes).
+// đổi gì — khung "chưa hiệu lực" với trạng thái sống của yêu cầu và link tới trang phê duyệt của tenant; thực thi xong ⇒
+// tải lại routes); 412 ⇒ dữ liệu đã đổi ⇒ tải lại, người dùng chọn lại. Nút chỉ là UX — server quyết định (quyền, step-up, 4-eyes).
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -63,10 +64,12 @@ export function RoutesPage() {
       <p className="mb-2 text-sm text-muted">{t("network.routes.intro")}</p>
       {approval ? (
         <ApprovalCreated
+          key={approval.id}
           approval={approval}
           onDismiss={() => {
             setApproval(null);
           }}
+          onExecuted={refresh}
         />
       ) : null}
       {done ? (
@@ -176,6 +179,7 @@ export function RoutesPage() {
           onApprovalRequested={(a) => {
             setAction(null);
             setApproval(a);
+            void queryClient.invalidateQueries({ queryKey: queryKeys.tenant(tenantId, "approvals") });
           }}
         />
       ) : null}

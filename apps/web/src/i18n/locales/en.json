@@ -1923,10 +1923,19 @@
     },
     "approval": {
       "title": "Approval request created — nothing has changed yet",
-      "description": "This tenant requires two-person control (4-eyes) for routes: a second person who may approve routes and decide approvals must approve this request. The routes are approved in Headscale only once the request is approved (the tenant approvals screen belongs to P4-T13 — send the request ID to the approver).",
+      "description": "This tenant requires two-person control (4-eyes) for routes: a second person who may approve routes and decide approvals must approve this request. The routes are approved in Headscale only once the request is approved.",
       "id": "Request ID",
       "status": "Status",
-      "expires": "Expires at"
+      "expires": "Expires at",
+      "open": "Open the request in approvals",
+      "sendId": "Send the request ID to the approver (another Owner/Admin of the tenant).",
+      "explain": {
+        "pending": "The change is NOT in effect yet: waiting for a second person to approve it.",
+        "approved": "Approved, being executed — the routes do not change until it completes.",
+        "executed": "Approved and executed: the routes are approved in Headscale.",
+        "rejected": "The request was rejected — the routes did not change.",
+        "expired": "The request expired — the routes did not change."
+      }
     },
     "fieldErrors": {
       "value_not_in_tailnet": "The value must be the tailnet address of one of the tenant's devices or lie inside an approved subnet route.",

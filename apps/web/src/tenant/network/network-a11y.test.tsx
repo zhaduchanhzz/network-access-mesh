@@ -10,7 +10,7 @@ import { i18n } from "../../i18n";
 import en from "../../i18n/locales/en.json";
 import vi from "../../i18n/locales/vi.json";
 import { json, mockApi, problem, renderApp, TENANT_A, tenantBody, tenantSession } from "../../test/helpers";
-import { dnsRecord, dnsView, gateway, group, laptopRouter, resource, tag } from "../../test/network";
+import { APPROVAL_ID, approvalRequest, dnsRecord, dnsView, gateway, group, laptopRouter, resource, tag } from "../../test/network";
 import { RESOURCE_KINDS, RESOURCE_PROTOCOLS } from "./ResourcesPage";
 
 async function violations(): Promise<string[]> {
@@ -63,6 +63,23 @@ describe.each(["vi", "en"] as const)("axe màn hình mạng (%s)", (lng) => {
     await screen.findByTestId("routes-table");
     await userEvent.click(screen.getByRole("button", { name: lng === "vi" ? "Duyệt route của laptop-an" : "Approve routes of laptop-an" }));
     await screen.findByTestId("dialog-warnings");
+    expect(await violations()).toEqual([]);
+  });
+
+  it("Routes: 202 (4-eyes) ⇒ khung 'chưa hiệu lực' + link tới trang phê duyệt", async () => {
+    await i18n.changeLanguage(lng);
+    mockApi({
+      ...api,
+      [`POST ${base}/routes/approve`]: json(202, approvalRequest(), { Location: `/api/v1/tenants/${TENANT_A}/approvals/${APPROVAL_ID}` }),
+      [`GET ${base}/approvals/${APPROVAL_ID}`]: json(200, approvalRequest()),
+    });
+    renderApp({ path: `/t/${TENANT_A}/routes` });
+    await screen.findByTestId("routes-table");
+    await userEvent.click(screen.getByRole("button", { name: lng === "vi" ? "Duyệt route của laptop-an" : "Approve routes of laptop-an" }));
+    const dialog = screen.getByRole("alertdialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: lng === "vi" ? "Duyệt route" : "Approve routes" }));
+    const notice = await screen.findByTestId("approval-created");
+    expect(within(notice).getByTestId("approval-link")).toHaveAttribute("href", `/t/${TENANT_A}/approvals/${APPROVAL_ID}`);
     expect(await violations()).toEqual([]);
   });
 
@@ -125,6 +142,9 @@ describe("khóa i18n động của P4-T12", () => {
       ...RESOURCE_KINDS.map((k) => `network.resources.kinds.${k}`),
       ...RESOURCE_PROTOCOLS.map((p) => `network.resources.protocols.${p}`),
       ...approvals.map((s) => `status.approval.${s}`),
+      ...approvals.map((s) => `network.approval.explain.${s}`),
+      "network.approval.open",
+      "network.approval.sendId",
       "network.routes.approved",
       "network.routes.revoked",
       "network.resources.created",
