@@ -740,6 +740,211 @@
     "duration": "{{ms}} ms (đo từ prober)",
     "httpStatus": "HTTP {{status}}"
   },
+  "people": {
+    "you": "(bạn)",
+    "col": {
+      "name": "Tên",
+      "email": "Email",
+      "role": "Role",
+      "status": "Trạng thái",
+      "actions": "Thao tác"
+    },
+    "status": {
+      "active": "Hoạt động",
+      "locked": "Đã khóa",
+      "offboarded": "Đã offboard"
+    },
+    "invitationStatus": {
+      "pending": "Đang chờ",
+      "accepted": "Đã nhận",
+      "revoked": "Đã thu hồi",
+      "expired": "Hết hạn"
+    },
+    "users": {
+      "filters": "Lọc thành viên",
+      "search": "Tìm theo tên hoặc email",
+      "empty": "Tenant chưa có thành viên.",
+      "emptyFiltered": "Không có thành viên khớp bộ lọc.",
+      "back": "← Danh sách thành viên"
+    },
+    "user": {
+      "info": "Thông tin",
+      "noEmail": "IdP không cung cấp email",
+      "headscaleUser": "Headscale user",
+      "profileSource": "Hồ sơ",
+      "profileFromIdp": "Tên và email đến từ IdP ở mỗi lần đăng nhập — không sửa ở đây.",
+      "ruleNoActions": "Bạn không thao tác được trên thành viên này: chỉ tác động lên role thấp hơn hẳn role của bạn (quy tắc 3a — Tenant Admin không khóa, offboard, đổi role của Owner hay Admin khác).",
+      "selfNoActions": "Đây là tài khoản của bạn: không tự khóa, offboard hay đổi role của chính mình ở đây."
+    },
+    "access": {
+      "title": "Truy cập Portal",
+      "description": "Khóa chặn đăng nhập Portal và thu hồi mọi session (mở lại được); thiết bị vẫn trong mạng — cắt mạng là offboard.",
+      "lock": "Khóa",
+      "unlock": "Mở khóa",
+      "lockTitle": "Khóa {{name}}?",
+      "unlockTitle": "Mở khóa {{name}}?",
+      "lockDesc": "Người này bị đăng xuất ngay và không đăng nhập Portal được tới khi được mở khóa. Node và pre-auth key không bị đụng tới.",
+      "unlockDesc": "Người này đăng nhập lại được nếu IdP còn cho phép.",
+      "revokeSessions": "Thu hồi session",
+      "sessionsTitle": "Thu hồi mọi session của {{name}}?",
+      "sessionsDesc": "Mọi session Portal của người này kết thúc ngay; họ đăng nhập lại được nếu membership và IdP còn cho phép.",
+      "sessionsRevoked": "Đã thu hồi mọi session."
+    },
+    "role": {
+      "title": "Role",
+      "description": "Chỉ hiện role bạn được gán theo quy tắc 3a. Role Owner chỉ được cấp bằng chuyển quyền sở hữu.",
+      "newRole": "Role mới",
+      "submit": "Đổi role",
+      "confirmTitle": "Đổi role của {{name}}?",
+      "sessionsNote": "Mọi session của người này bị thu hồi (quyền đổi).",
+      "adminHint": "Thay đổi chạm role Tenant Admin hoặc một Owner chỉ do Owner thực hiện và cần đăng nhập lại gần đây (step-up).",
+      "done": "Đã đổi role."
+    },
+    "owner": {
+      "title": "Chuyển quyền sở hữu",
+      "description": "Cấp role Tenant Owner cho thành viên này. Mặc định bạn trở thành Tenant Admin.",
+      "open": "Chuyển quyền sở hữu…",
+      "confirmTitle": "Chuyển quyền sở hữu cho {{name}}?",
+      "confirmDesc": "Người này trở thành Tenant Owner. Session của cả hai người bị thu hồi — bạn sẽ phải đăng nhập lại.",
+      "stepUp": "Cần đăng nhập lại gần đây (step-up).",
+      "typeLabel": "Gõ lại email (hoặc tên) của người nhận để xác nhận",
+      "keep": "Tôi vẫn giữ role Owner (tenant có hai Owner)",
+      "submit": "Chuyển quyền"
+    },
+    "offboard": {
+      "title": "Offboard",
+      "description": "Kết thúc quyền truy cập vĩnh viễn: thu hồi session, rời mọi group, expire mọi node và pre-auth key, vô hiệu tài khoản ở IdP do nền tảng host.",
+      "open": "Offboard…",
+      "confirmTitle": "Offboard {{name}}?",
+      "confirmDesc": "Thao tác hai pha:",
+      "effects": {
+        "sessions": "Ngay lập tức: membership chuyển offboarded, mọi session Portal bị thu hồi, danh tính bị vô hiệu.",
+        "groups": "Ngay lập tức: rời mọi group (policy được áp lại).",
+        "nodes": "Job member.offboard: expire mọi node và pre-auth key của người này rồi đọc lại để xác minh.",
+        "idp": "Job member.offboard: vô hiệu tài khoản ở IdP do nền tảng host (IdP của tenant: không áp dụng)."
+      },
+      "final": "Offboard là trạng thái cuối — không kích hoạt lại được ở đây.",
+      "typeLabel": "Gõ lại email (hoặc tên) của thành viên để xác nhận",
+      "submit": "Offboard",
+      "retryTitle": "Offboard chưa xong",
+      "retryDescription": "Job offboard kết thúc lỗi: node hoặc pre-auth key có thể vẫn còn hiệu lực. Chạy lại tạo một job mới.",
+      "retry": "Offboard lại…",
+      "job": "Job",
+      "state": {
+        "pending": "Đang offboard",
+        "applied": "Offboard đã áp dụng",
+        "failed": "Offboard lỗi"
+      },
+      "explain": {
+        "pending": "Đang thực hiện pha 2 — node và pre-auth key CHƯA chắc đã hết hạn cho tới khi job xác minh xong.",
+        "applied": "Đã áp dụng và xác minh: node, pre-auth key đã hết hạn; tài khoản IdP do nền tảng host đã bị vô hiệu.",
+        "failed": "Job kết thúc lỗi — node hoặc key có thể còn hiệu lực. Offboard lại để tạo job mới."
+      }
+    },
+    "invite": {
+      "open": "Mời thành viên",
+      "title": "Mời thành viên",
+      "description": "Người được mời đăng nhập lần đầu qua IdP của tenant với đúng email này (đã xác minh) và nhận role đã chọn.",
+      "email": "Email",
+      "emailInvalid": "Email không hợp lệ.",
+      "roleHint": "Chỉ hiện role bạn được mời (thấp hơn role của bạn — quy tắc 3a).",
+      "hours": "Hạn lời mời (giờ, 1–720)",
+      "hoursInvalid": "Hạn phải là số nguyên từ 1 đến 720.",
+      "summary": "Mời",
+      "submit": "Gửi lời mời",
+      "noRoles": "Role của bạn không mời được ai."
+    },
+    "invitations": {
+      "intro": "Lời mời người chưa từng đăng nhập. Với IdP do nền tảng host, job member.idp_invite tạo (hoặc tìm) tài khoản và gửi thư thiết lập.",
+      "watching": "Đã gửi lời mời — trạng thái IdP (job member.idp_invite) tự cập nhật trong bảng.",
+      "empty": "Không có lời mời.",
+      "expires": "Hết hạn",
+      "invitedBy": "Người mời",
+      "idp": "IdP",
+      "noJob": "chưa có job",
+      "resend": "Gửi lại",
+      "revoke": "Thu hồi",
+      "resendTitle": "Gửi lại lời mời cho {{email}}?",
+      "resendDesc": "Lời mời nhận link và hạn mới (7 ngày); link cũ mất hiệu lực.",
+      "revokeTitle": "Thu hồi lời mời của {{email}}?",
+      "revokeDesc": "Link trong thư mời không còn dùng được."
+    },
+    "groups": {
+      "intro": "Group được biên dịch vào policy thành group:<tên>. Đổi thành viên áp lại policy (job policy.apply).",
+      "create": "Tạo group",
+      "createTitle": "Tạo group",
+      "createSubmit": "Tạo",
+      "search": "Tìm theo tên group",
+      "empty": "Chưa có group.",
+      "emptyFiltered": "Không có group khớp.",
+      "name": "Tên",
+      "nameHint": "Chữ thường, số, gạch nối; bắt đầu bằng chữ; tối đa 50 ký tự.",
+      "description": "Mô tả",
+      "members": "Thành viên",
+      "source": "Nguồn",
+      "sources": {
+        "portal": "Portal",
+        "idp": "IdP"
+      },
+      "updated": "Cập nhật",
+      "sensitive": "Sensitive",
+      "sensitiveLabel": "Nhạy cảm",
+      "notSensitive": "Không",
+      "sensitiveExplain": "Group nhạy cảm: đổi thành viên cần một Owner/Admin khác duyệt (cờ đặt ở thiết lập bảo mật của Tenant Owner).",
+      "back": "← Danh sách group",
+      "info": "Thông tin",
+      "policyName": "(policy: group:{{name}})",
+      "membersTitle": "Thành viên",
+      "noMembers": "Group chưa có thành viên.",
+      "editMembers": "Sửa thành viên",
+      "sensitiveEditNote": "Group nhạy cảm: lưu sẽ KHÔNG đổi ngay mà tạo yêu cầu phê duyệt (cần đăng nhập lại gần đây); người thứ hai duyệt thì tập này mới được áp dụng.",
+      "draftTitle_other": "Thành viên sau khi lưu ({{count}})",
+      "draftEmpty": "Không còn thành viên nào.",
+      "draftList": "Thành viên sau khi lưu",
+      "remove": "Bỏ",
+      "removeMember": "Bỏ {{name}}",
+      "findMembers": "Tìm thành viên để thêm",
+      "findForm": "Tìm thành viên",
+      "onlyActive": "Chỉ thành viên đang hoạt động thêm được vào group.",
+      "candidates": "Kết quả tìm",
+      "noCandidates": "Không có thành viên hoạt động khớp.",
+      "add": "Thêm",
+      "added": "Đã thêm",
+      "addMember": "Thêm {{name}}",
+      "tooMany": "Tối đa {{max}} thành viên trong một lần lưu.",
+      "staleReloaded": "Group vừa bị người khác đổi — đã tải lại bản mới; kiểm tra rồi lưu lại.",
+      "saveMembers": "Lưu thành viên",
+      "requestApproval": "Gửi yêu cầu phê duyệt",
+      "editTitle": "Sửa group",
+      "renameNote": "Đổi tên đổi group:<tên> trong policy — policy được áp lại.",
+      "save": "Lưu",
+      "saved": "Đã lưu.",
+      "deleteTitle": "Xóa group",
+      "deleteDesc": "Group còn được network resource dùng làm owner thì không xóa được.",
+      "deleteSensitive": "Group nhạy cảm còn thành viên không xóa được — bỏ thành viên qua phê duyệt trước.",
+      "delete": "Xóa group",
+      "deleteConfirmTitle": "Xóa group {{name}}?",
+      "deleteConfirmDesc_other": "{{count}} thành viên rời group; policy được áp lại.",
+      "typeName": "Gõ lại tên group để xác nhận"
+    },
+    "approval": {
+      "pendingTitle": "Yêu cầu đổi thành viên đang chờ duyệt",
+      "requestedBy": "yêu cầu bởi {{name}}",
+      "memberCount_other": "{{count}} thành viên",
+      "expires": "Hết hạn",
+      "id": "Mã yêu cầu",
+      "payload": "Tập thành viên đề xuất",
+      "requester": "Người yêu cầu",
+      "queue": "Mở hàng chờ phê duyệt của tenant",
+      "explain": {
+        "pending": "Đã tạo yêu cầu phê duyệt — thành viên CHƯA đổi. Một Owner/Admin khác cần duyệt.",
+        "approved": "Đã duyệt, đang thực thi.",
+        "executed": "Đã duyệt và áp dụng đúng tập thành viên đã đề xuất.",
+        "rejected": "Yêu cầu bị từ chối — thành viên không đổi.",
+        "expired": "Yêu cầu hết hạn — thành viên không đổi."
+      }
+    }
+  },
   "network": {
     "job": {
       "inProgress": "Đang áp dụng — chưa có hiệu lực cho tới khi job thành công.",
