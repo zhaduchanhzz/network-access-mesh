@@ -322,8 +322,10 @@ const memberUserPrefix = "mg-"
 // carry the id of r's key, which the restore lost: neither its use nor its expiry is r's. Only what the platform itself
 // guarantees about r's key tells them apart — no guess on how Headscale reports the owner of a tagged key:
 //   - the reusable flag issueKey asked for (checked on the key Headscale answered);
-//   - an expiry no later than r's credential_expires_at (issueKey checked the answered key against it; Headscale
-//     never extends a key, an expiry only shortens it) — a key issued after the restore lives later than r's;
+//   - an expiry no later than r's credential_expires_at (issueKey checked the answered key against it) — a key issued
+//     after the restore lives later than r's. Headscale's expire sets the expiration to now unconditionally, also on a
+//     key already expired: the platform expires only keys still valid (expireKey, the device revocation, offboarding,
+//     suspension, deprovisioning), so r's key never carries a later expiration than credential_expires_at;
 //   - an owner that is no other member: a key of another member's Headscale user mg-<membership> is not r's.
 func issuedKey(r sqlcdb.EnrollmentRequest, k headscale.PreAuthKey) bool {
 	if k.Reusable != r.Reusable {

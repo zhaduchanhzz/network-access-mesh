@@ -30,7 +30,7 @@ func TestIssuedKey(t *testing.T) {
 		want bool
 	}{
 		{"as issued", owned, key(false, exp, user(memberUserPrefix+mine.String())), true},
-		{"expired since (an expiry only shortens it)", owned, key(false, time.Now().Add(-time.Minute), user(memberUserPrefix+mine.String())), true},
+		{"expired since (expired by the platform while still valid: earlier)", owned, key(false, time.Now().Add(-time.Minute), user(memberUserPrefix+mine.String())), true},
 		{"Headscale's rounding of the expiry", owned, key(false, exp.Add(500*time.Millisecond), user(memberUserPrefix+mine.String())), true},
 		{"single-use request, reusable key", owned, key(true, exp, user(memberUserPrefix+mine.String())), false},
 		{"reusable request, single-use key", reusable, key(false, exp, user(memberUserPrefix+mine.String())), false},

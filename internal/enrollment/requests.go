@@ -1,6 +1,7 @@
 package enrollment
 
 import (
+	"cmp"
 	"context"
 	"encoding/base64"
 	"encoding/binary"
@@ -749,6 +750,12 @@ func (s *Service) revoke(ctx context.Context, tenantID, id uuid.UUID, a Actor) (
 		if err != nil {
 			return err
 		}
+		// the nodes the reusable key registered enter the inventory with their link and are notified once (device.new
+		// — adoptKeyNodes, as at the consumed transition of reconcile): a revoked request is no longer looked at by
+		// reconcile, whether it was revoked before its consumed transition or between two runs
+		if _, err := s.adoptKeyNodes(ctx, tx, tenantID, row, got.nodes); err != nil {
+			return err
+		}
 		out = view(row, ls)
 		return op.Succeeded(ctx, q, audit.Details{"key_id": keyID})
 	})
@@ -760,13 +767,18 @@ func (s *Service) revoke(ctx context.Context, tenantID, id uuid.UUID, a Actor) (
 
 // keyState is what a revocation found at Headscale for the key of a request.
 type keyState struct {
-	used bool            // the key registered a node before it was expired
-	node *headscale.Node // the first node it registered (nil: none left, or already on the request)
+	used  bool             // the key registered a node before it was expired
+	node  *headscale.Node  // the first node it registered (nil: none left, or already on the request)
+	nodes []headscale.Node // every node it registered, first registered first (a reusable key registers several)
 }
 
 // expireKey expires the pre-auth key of request r at Headscale and reads it back (T-17: "đã áp dụng" only after a
 // verified read). A key listed under the id with another identity is not r's (issuedKey: the id was handed out again
-// after a restore) — it is left alone, r's own key no longer exists. A used key is reported with its first node.
+// after a restore) — it is left alone, r's own key no longer exists. Only a key that can still register a node is
+// expired — one before its expiry, and not a single-use key already used: Headscale's expire sets the expiration to
+// now unconditionally (research f.md: `Update("expiration", now)`), so expiring a key past its own expiry would move
+// its expiration later than credential_expires_at and issuedKey would no longer know it as r's key (C6). A used key is
+// reported with its nodes.
 func (s *Service) expireKey(ctx context.Context, tenantID uuid.UUID, r sqlcdb.EnrollmentRequest) (keyState, error) {
 	inst, err := s.reg.ForTenant(ctx, tenantID)
 	if err != nil {
@@ -785,36 +797,45 @@ func (s *Service) expireKey(ctx context.Context, tenantID uuid.UUID, r sqlcdb.En
 	if err != nil {
 		return keyState{}, err
 	}
-	if k, ok := find(keys); ok && !issuedKey(r, k) {
+	k, ok := find(keys)
+	if ok && !issuedKey(r, k) {
 		return keyState{}, nil
 	}
-	if err := inst.ExpirePreAuthKey(ctx, kid); err != nil && !errors.Is(err, headscale.ErrNotFound) {
-		return keyState{}, err
-	}
-	if keys, err = inst.ListPreAuthKeys(ctx); err != nil {
-		return keyState{}, err
-	}
-	k, ok := find(keys)
-	if ok && k.Expiration.After(s.now().Add(headscale.ExpiryClampSlack)) {
-		return keyState{}, &Error{Code: CodeUpstreamRejected, Reason: "readback_mismatch",
-			Detail: "The tenant's control plane did not expire the key."}
-	}
-	if r.ConsumedNodeID != nil { // its device is already on the request
-		return keyState{used: ok && k.Used}, nil
+	if ok && k.Expiration.After(s.now()) && (k.Reusable || !k.Used) {
+		if err := inst.ExpirePreAuthKey(ctx, kid); err != nil && !errors.Is(err, headscale.ErrNotFound) {
+			return keyState{}, err
+		}
+		if keys, err = inst.ListPreAuthKeys(ctx); err != nil {
+			return keyState{}, err
+		}
+		if k, ok = find(keys); ok && k.Expiration.After(s.now().Add(headscale.ExpiryClampSlack)) {
+			return keyState{}, &Error{Code: CodeUpstreamRejected, Reason: "readback_mismatch",
+				Detail: "The tenant's control plane did not expire the key."}
+		}
 	}
 	// the nodes tell, as in reconcile: Headscale marks only a single-use key used (0.29.7 — research f.md: `used` is set
 	// for non-reusable keys only), the use of a reusable key shows in the nodes it registered and nowhere else
-	nodes, err := inst.ListNodes(ctx, "")
+	listed, err := inst.ListNodes(ctx, "")
 	if err != nil {
 		return keyState{}, err
 	}
-	var first *headscale.Node
-	for i := range nodes {
-		if n := &nodes[i]; n.PreAuthKeyID == kid && (first == nil || n.CreatedAt.Before(first.CreatedAt)) {
-			first = n // the first node the key registered (as reconcile)
+	var nodes []headscale.Node
+	for _, n := range listed {
+		if n.PreAuthKeyID == kid {
+			nodes = append(nodes, n)
 		}
 	}
-	return keyState{used: (ok && k.Used) || first != nil, node: first}, nil
+	slices.SortFunc(nodes, func(a, b headscale.Node) int { // the first node the key registered first (as reconcile)
+		if c := a.CreatedAt.Compare(b.CreatedAt); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.ID, b.ID)
+	})
+	st := keyState{used: (ok && k.Used) || len(nodes) > 0, nodes: nodes}
+	if len(nodes) > 0 && r.ConsumedNodeID == nil { // its device is not on the request yet
+		st.node = &nodes[0]
+	}
+	return st, nil
 }
 
 // setNode records on p the node a pre-auth key registered (the columns reconcile's settle writes).

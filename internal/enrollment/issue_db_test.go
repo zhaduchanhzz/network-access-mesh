@@ -181,7 +181,8 @@ func TestIssueAndRevoke(t *testing.T) {
 		// the device row the inventory sync writes is linked to the request once reconcile consumed it
 		f.exec(t, `INSERT INTO device_inventory_cache (tenant_id, instance_id, headscale_node_id, machine_key, name)
 			VALUES ($1, $2, $3, $4, 'srv-used')`, a.id, a.instance, int64(node.ID), node.MachineKey) //nolint:gosec // small test ids
-		if rep, err := f.wrk.Reconcile(t.Context(), a.id); err != nil || rep.Consumed < 1 || rep.Linked < 1 {
+		// (linked at the consumed transition — adoptKeyNodes, fu-p4b C9)
+		if rep, err := f.wrk.Reconcile(t.Context(), a.id); err != nil || rep.Consumed < 1 || rep.NewDevices < 1 {
 			t.Fatalf("reconcile %+v %v", rep, err)
 		}
 		r, err := f.api.Get(t.Context(), a.id, out.Request.ID, owner)
@@ -199,7 +200,7 @@ func TestIssueAndRevoke(t *testing.T) {
 	})
 
 	t.Run("RevokeRacesReconcile", func(t *testing.T) {
-		// reconcile settles the request consumed while the revocation expires its key: the newer final state stays
+		// reconcile settles the request consumed while the revocation reads its key: the newer final state stays
 		out, err := f.api.Create(ctxOf(owner, a.id, ActionRequest), a.id, owner, NewRequest{Method: MethodPreauthKey},
 			idem("k-i-4", "4"))
 		if err != nil {
@@ -207,7 +208,9 @@ func TestIssueAndRevoke(t *testing.T) {
 		}
 		node := a.hs.UseKey(lastKey().ID, devicestest.Node{MachineKey: "mkey:raced", Hostname: "srv-raced"})
 		var rerr error
-		a.hs.After(devicestest.OpExpirePreAuthKey, func(uint64) {
+		// the used single-use key is not expired again (it can no longer register a node): reconcile runs while the
+		// revocation reads the key's nodes
+		a.hs.After(devicestest.OpListNodes, func(uint64) {
 			_, rerr = f.wrk.Reconcile(context.Background(), a.id)
 		})
 		if _, err := f.api.Revoke(ctxOf(owner, a.id, ActionRevoke), a.id, out.Request.ID, owner); reasonOf(err) != "already_final" {
@@ -248,6 +251,20 @@ func TestIssueAndRevoke(t *testing.T) {
 		if n := reconcileJobs(t); n != queued {
 			t.Fatalf("a revocation that ended the request queued enrollment.reconcile (%d → %d)", queued, n)
 		}
+		// reconcile never looks at a revoked request again: the device the key registered entered the inventory with
+		// its link at the revocation, notified once (device.new — owner none: a tag-only key; the Tenant Owner)
+		var dev uuid.UUID
+		f.scan(t, `SELECT id FROM device_inventory_cache WHERE tenant_id = $1 AND enrollment_request_id = $2
+			AND removed_at IS NULL`, []any{a.id, out.Request.ID}, &dev)
+		if got := f.deviceNew(t, a, dev); !slices.Equal(got, sortedIDs(owner.MembershipID)) {
+			t.Fatalf("device.new recipients %v", got)
+		}
+		if rep, err := f.wrk.Reconcile(t.Context(), a.id); err != nil || rep.NewDevices != 0 {
+			t.Fatalf("reconcile after the revocation %+v %v", rep, err)
+		}
+		if got := f.deviceNew(t, a, dev); len(got) != 1 {
+			t.Fatalf("device.new sent again: %v", got)
+		}
 	})
 
 	t.Run("ReusableKeyRacesReconcile", func(t *testing.T) {
@@ -273,6 +290,73 @@ func TestIssueAndRevoke(t *testing.T) {
 		if got := f.auditOf(t, out.Request.ID.String()); !slices.Contains(got, "enrollment.consume/success") ||
 			!slices.Contains(got, "enrollment.revoke.succeeded/success") {
 			t.Fatalf("audit %v", got)
+		}
+	})
+
+	t.Run("RevokeAfterExpiry", func(t *testing.T) {
+		// C6 (regression of a582e10): Headscale's expire sets the expiration to now unconditionally (research f.md), so a
+		// key expired again after its own expiry would carry an expiration later than credential_expires_at — issuedKey
+		// would take it for a key handed out again, reconcile would end the request expired without its device, and a
+		// second /revoke would write revoked. A key that can no longer register a node (past its expiry, or single-use and
+		// used) is never expired again: however often it is revoked, the request ends consumed with its node.
+		out, err := f.api.Create(ctxOf(owner, a.id, ActionRequest), a.id, owner, NewRequest{Method: MethodPreauthKey},
+			idem("k-i-20", "20"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		node := a.hs.UseKey(lastKey().ID, devicestest.Node{MachineKey: "mkey:used-then-expired", Hostname: "srv-late"})
+		// 20 minutes later, before reconcile saw the key: it expired on its own time 5 minutes ago — on the request and at
+		// Headscale (which keeps the real clock)
+		f.exec(t, `UPDATE enrollment_requests SET issued_at = issued_at - interval '20 minutes',
+			credential_expires_at = credential_expires_at - interval '20 minutes' WHERE id = $1`, out.Request.ID)
+		k := lastKey()
+		k.Expiration = k.Expiration.Add(-20 * time.Minute)
+		a.hs.PutKey(k)
+		if !k.Used || !k.Expiration.Before(time.Now().Add(-4*time.Minute)) {
+			t.Fatalf("key %+v: want used, expired", k)
+		}
+		expires := a.hs.Calls(devicestest.OpExpirePreAuthKey)
+		for i := range 2 {
+			if _, err := f.api.Revoke(ctxOf(owner, a.id, ActionRevoke), a.id, out.Request.ID, owner); reasonOf(err) != "already_final" {
+				t.Fatalf("revocation %d of a used key past its expiry: %v", i+1, err)
+			}
+		}
+		if n := a.hs.Calls(devicestest.OpExpirePreAuthKey) - expires; n != 0 {
+			t.Fatalf("%d ExpirePreAuthKey call(s) on a key past its expiry", n)
+		}
+		if got := a.hs.Key(k.ID); !got.Expiration.Equal(k.Expiration) {
+			t.Fatalf("the expiration of the key moved: %s → %s", k.Expiration, got.Expiration)
+		}
+		if _, err := f.wrk.Reconcile(t.Context(), a.id); err != nil {
+			t.Fatal(err)
+		}
+		r, err := f.api.Get(t.Context(), a.id, out.Request.ID, owner)
+		if err != nil || r.Status != StatusConsumed || r.NodeID == nil || *r.NodeID != int64(node.ID) { //nolint:gosec // small test ids
+			t.Fatalf("request after two revocations past its expiry: %+v %v", r, err)
+		}
+		// a single-use key used within its lifetime can no longer register a node either: not expired, 409, consumed
+		out, err = f.api.Create(ctxOf(owner, a.id, ActionRequest), a.id, owner, NewRequest{Method: MethodPreauthKey},
+			idem("k-i-21", "21"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		k = lastKey()
+		node = a.hs.UseKey(k.ID, devicestest.Node{MachineKey: "mkey:used-in-time", Hostname: "srv-in-time"})
+		expires = a.hs.Calls(devicestest.OpExpirePreAuthKey)
+		for i := range 2 {
+			if _, err := f.api.Revoke(ctxOf(owner, a.id, ActionRevoke), a.id, out.Request.ID, owner); reasonOf(err) != "already_final" {
+				t.Fatalf("revocation %d of a used single-use key: %v", i+1, err)
+			}
+		}
+		if n := a.hs.Calls(devicestest.OpExpirePreAuthKey) - expires; n != 0 {
+			t.Fatalf("%d ExpirePreAuthKey call(s) on a used single-use key", n)
+		}
+		if _, err := f.wrk.Reconcile(t.Context(), a.id); err != nil {
+			t.Fatal(err)
+		}
+		if r, err := f.api.Get(t.Context(), a.id, out.Request.ID, owner); err != nil || r.Status != StatusConsumed ||
+			r.NodeID == nil || *r.NodeID != int64(node.ID) { //nolint:gosec // small test ids
+			t.Fatalf("request after two revocations of a used single-use key: %+v %v", r, err)
 		}
 	})
 
