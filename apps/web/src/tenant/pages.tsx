@@ -10,8 +10,7 @@ import { AuditPage } from "./audit/AuditPage";
 import { DashboardPage } from "./dashboard/DashboardPage";
 import { DeviceDetailPage } from "./devices/DeviceDetailPage";
 import { DevicesPage } from "./devices/DevicesPage";
-import { AddDevicePage } from "./enrollment/AddDevicePage";
-import { KeysPage } from "./enrollment/KeysPage";
+import { AddDeviceScreen, KeysScreen } from "./enrollment/screens";
 import { DnsPage } from "./network/DnsPage";
 import { ResourcesPage } from "./network/ResourcesPage";
 import { RoutesPage } from "./network/RoutesPage";
@@ -51,9 +50,9 @@ export const TENANT_PAGES: Readonly<Record<string, ComponentType>> = {
   routes: RoutesPage,
   dns: DnsPage,
   resources: ResourcesPage,
-  // P4-T08: Thêm thiết bị (wizard theo OS + dán link/Auth ID), Enrollment key + hàng chờ duyệt
-  enroll: AddDevicePage,
-  "enrollment-keys": KeysPage,
+  // P4-T08 (tải theo route): Thêm thiết bị (wizard theo OS + dán link/Auth ID), Enrollment key + hàng chờ duyệt
+  enroll: AddDeviceScreen,
+  "enrollment-keys": KeysScreen,
 };
 
 function Guarded({ permission, Screen }: { permission: string; Screen: ComponentType }) {

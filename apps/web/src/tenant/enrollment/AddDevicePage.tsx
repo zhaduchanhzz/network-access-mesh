@@ -88,7 +88,7 @@ export function AddDevicePage() {
         <h2 id="enroll-mine" className="mb-2 text-lg font-semibold">
           {t("enroll.mine.title")}
         </h2>
-        <MyRequests onIssued={onIssued} />
+        <MyRequests onIssued={onIssued} poll={web === null} />
         {can(role, "tenant.enrollment:approve") ? (
           <p className="mt-2 text-sm">
             <Link to={`/t/${tenantId}/enrollment-keys`} className="link">
@@ -290,7 +290,7 @@ function IssuedWebAuth(props: {
   const { t } = useTranslation();
   const codeText = useCodeText();
   const q = useEnrollmentRequest(props.tenantId, props.request.id, props.request);
-  const r = q.data ?? props.request;
+  const r = q.data;
   const { credential, onSpent } = props;
   // yêu cầu rời `issued` ⇒ mã không còn dùng được: bỏ khỏi state
   const spent = credential !== null && r.status !== "issued";
@@ -414,10 +414,10 @@ function PasteClaim() {
   );
 }
 
-function MyRequests({ onIssued }: { onIssued: (i: EnrollmentIssue) => void }) {
+function MyRequests({ onIssued, poll }: { onIssued: (i: EnrollmentIssue) => void; poll: boolean }) {
   const { t } = useTranslation();
   const { tenantId, role, membershipId, readOnly } = useTenant();
-  const list = useEnrollmentList(tenantId);
+  const list = useEnrollmentList(tenantId, {}, true, poll);
   const names = useMemberNames(tenantId, false);
   return (
     <QueryBlock query={list}>

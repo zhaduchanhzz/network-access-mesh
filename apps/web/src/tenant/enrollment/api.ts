@@ -6,16 +6,25 @@ import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-quer
 import { api, call } from "../../api/client";
 import { useIdempotentMutation } from "../../api/idempotency";
 import { useUsers } from "../people/api";
-import { enrollmentKeys, isWaiting, ENROLL_POLL_MS, type EnrollmentIssue, type EnrollmentRequest, type EnrollmentStatus } from "./model";
+import { enrollmentKeys, isWaiting, ENROLL_POLL_MS, LIST_POLL_MS, type EnrollmentIssue, type EnrollmentRequest, type EnrollmentStatus } from "./model";
 
 export const LIST_LIMIT = 100;
 
-export function invalidateEnrollment(queryClient: QueryClient, tenantId: string): Promise<void> {
-  return queryClient.invalidateQueries({ queryKey: enrollmentKeys.all(tenantId) });
+/** Sau một thao tác ghi: làm mới danh sách + yêu cầu (không hướng dẫn — không đổi, và mỗi GET tốn token rate limit). */
+export async function invalidateEnrollment(queryClient: QueryClient, tenantId: string): Promise<void> {
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: [...enrollmentKeys.all(tenantId), "list"] }),
+    queryClient.invalidateQueries({ queryKey: [...enrollmentKeys.all(tenantId), "request"] }),
+  ]);
 }
 
 /** Một trang yêu cầu (mới nhất trước); còn yêu cầu đang chờ thiết bị ⇒ poll (trạng thái do server/job reconcile đổi). */
-export function useEnrollmentList(tenantId: string, f: { status?: EnrollmentStatus; cursor?: string; limit?: number } = {}, enabled = true) {
+export function useEnrollmentList(
+  tenantId: string,
+  f: { status?: EnrollmentStatus; cursor?: string; limit?: number } = {},
+  enabled = true,
+  poll = true,
+) {
   const limit = f.limit ?? LIST_LIMIT;
   return useQuery({
     queryKey: enrollmentKeys.list(tenantId, { status: f.status ?? "", cursor: f.cursor ?? "", limit }),
@@ -27,17 +36,19 @@ export function useEnrollmentList(tenantId: string, f: { status?: EnrollmentStat
       ),
     enabled,
     placeholderData: (prev) => prev,
-    refetchInterval: (q) => (q.state.data?.items.some((r) => isWaiting(r.status) || r.status === "requested") ? ENROLL_POLL_MS : false),
+    refetchInterval: (q) => (poll && q.state.data?.items.some((r) => isWaiting(r.status) || r.status === "requested") ? LIST_POLL_MS : false),
   });
 }
 
 /** Một yêu cầu — poll trong lúc chờ thiết bị (claim ở tab khác, client dùng key, job reconcile). */
-export function useEnrollmentRequest(tenantId: string, id: string, initial?: EnrollmentRequest) {
+export function useEnrollmentRequest(tenantId: string, id: string, initial: EnrollmentRequest) {
   return useQuery({
     queryKey: enrollmentKeys.one(tenantId, id),
     queryFn: () =>
       call(api.GET("/tenants/{tenantId}/enrollment/requests/{enrollmentRequestId}", { params: { path: { tenantId, enrollmentRequestId: id } } })),
-    placeholderData: initial,
+    // response của lệnh tạo là bản đọc mới nhất — không GET lại ngay (tiết kiệm token rate limit)
+    initialData: initial,
+    initialDataUpdatedAt: () => Date.now(),
     refetchInterval: (q) => (q.state.data && isWaiting(q.state.data.status) ? ENROLL_POLL_MS : false),
   });
 }

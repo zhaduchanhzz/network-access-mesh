@@ -48,7 +48,11 @@ const AUTH_ID_ANYWHERE = /(?:^|[^A-Za-z0-9_-])(hskey-authreq-[A-Za-z0-9_-]{24})(
 export const DEVICE_LABEL_RE = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
 export const TTL_MAX = 15;
 
-export const ENROLL_POLL_MS = 5000;
+/** Poll của màn hình enrollment: bucket rate limit `enrollment` của API là 5 request + 1 request/5 s cho mỗi danh tính
+ * (internal/httpapi/ratelimit.go) — dùng chung cho mọi tab của cùng người, kể cả lần claim. Một yêu cầu 10 s, danh sách
+ * 15 s, và chỉ một nguồn poll trên mỗi màn hình (danh sách không poll khi khung lệnh vừa phát đang theo dõi). */
+export const ENROLL_POLL_MS = 10_000;
+export const LIST_POLL_MS = 15_000;
 
 export type PasteResult = { ok: true; authId: string } | { ok: false; reason: "none" | "several" | "other_server" };
 

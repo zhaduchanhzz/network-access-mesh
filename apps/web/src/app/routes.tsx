@@ -17,7 +17,7 @@ import { PLATFORM_SCREENS } from "../platform/screens";
 import { TENANT_EXTRA_ROUTES } from "../tenant/pages";
 import { TenantHome, TenantNavRoute, TenantScope } from "../tenant/TenantScope";
 import { TenantSelectPage } from "../tenant/TenantSelectPage";
-import { ClaimPage } from "../tenant/enrollment/ClaimPage";
+import { ClaimScreen } from "../tenant/enrollment/screens";
 import { HomeRedirect, RequireSession } from "./guards";
 
 function RootLayout() {
@@ -48,7 +48,7 @@ export const routes: RouteObject[] = [
     children: [
       { index: true, element: <HomeRedirect /> },
       { path: "login", element: <LoginPage /> },
-      { path: "enroll/claim", element: <ClaimPage /> },
+      { path: "enroll/claim", element: <ClaimScreen /> },
       {
         element: <RequireSession />,
         children: [

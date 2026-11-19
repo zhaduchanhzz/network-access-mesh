@@ -95,7 +95,7 @@ describe.skipIf(!ADMIN || !T || !SECRET)("Enrollment trên stack thật", () => 
       const panel = await screen.findByTestId("claim-confirm", {}, { timeout: 30_000 });
       await until(() => expect(router.state.location.search).toBe("?tenant=tenant-a"));
       record("auth_id_stripped", !router.state.location.search.includes("auth_id"));
-      record("pending_seen", (await within(panel).findByTestId("pending-context", {}, { timeout: 30_000 })).textContent.includes(label));
+      record("pending_seen", (await within(panel).findByTestId("pending-context", {}, { timeout: 90_000 })).textContent.includes(label));
       expect(within(panel).getByRole("button", { name: "Xác nhận thiết bị" })).toBeDisabled();
       await userEvent.click(within(panel).getByLabelText(/Tôi vừa chạy lệnh/));
       await userEvent.click(within(panel).getByRole("button", { name: "Xác nhận thiết bị" }));

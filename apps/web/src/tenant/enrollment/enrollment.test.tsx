@@ -155,10 +155,13 @@ describe("Thêm thiết bị — wizard theo OS", () => {
     expect(post.headers.get("X-CSRF-Token")).toBe(CSRF);
     expectNotStored(ENROLL_CODE, router, queryClient); // đang hiển thị: không có ở cache/URL/Storage
     status = "verified";
-    await waitFor(() => expect(within(issued).getByTestId("issued-verified")).toHaveTextContent("Đã thêm thiết bị laptop-an."), { timeout: 8000 });
+    await waitFor(() => expect(within(issued).getByTestId("issued-verified")).toHaveTextContent("Đã thêm thiết bị laptop-an."), { timeout: 15_000 });
     expect(within(issued).getByRole("link", { name: "Tới danh sách thiết bị" })).toHaveAttribute("href", `/t/${TENANT_A}/devices`);
     await waitFor(() => expect(document.body.innerHTML).not.toContain(ENROLL_CODE));
-  }, 15_000);
+    // lệnh tạo đã trả bản đọc mới nhất ⇒ không GET lại ngay; danh sách không poll song song (rate limit `enrollment`)
+    const gets = requests.filter((r) => r.method === "GET" && new URL(r.url).pathname.includes("/enrollment/"));
+    expect(gets.filter((r) => new URL(r.url).pathname.endsWith("/instructions"))).toHaveLength(1);
+  }, 25_000);
 
   it("pre-auth key: POST {method: preauth_key, ttl_minutes} ⇒ key hiển thị MỘT lần; đóng sau khi xác nhận đã lưu ⇒ không còn dấu vết", async () => {
     const { requests } = mockApi(apiFor("tenant_operator", { [`POST ${base}/enrollment/requests`]: json(201, keyIssue()) }));

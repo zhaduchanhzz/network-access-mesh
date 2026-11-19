@@ -42,7 +42,7 @@ export function ClaimPanel({ tenantId, membershipId, authId, readOnly, onSpent }
   const now = useNow();
   const ids = { ack: useId(), pick: useId() };
   // yêu cầu web-auth đang chờ của chính mình — chỉ để hiển thị ngữ cảnh và chọn request_id (server vẫn kiểm cùng phiên)
-  const list = useEnrollmentList(tenantId, { status: "issued" });
+  const list = useEnrollmentList(tenantId, { status: "issued" }, true, false);
   const pending = pendingWebAuth(list.data?.items ?? [], membershipId, now);
   const [ack, setAck] = useState(false);
   const [picked, setPicked] = useState<string | null>(null);
