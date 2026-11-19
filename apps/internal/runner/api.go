@@ -31,6 +31,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/membersapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/monitoringapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/notificationsapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/policiesapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/provisioningapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/quarantineapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/reconfigureapi"
@@ -132,6 +133,12 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 	if err != nil {
 		return nil, err
 	}
+	// P4-T10: the policy lifecycle (draft → validated → review → apply/rollback); validate's dry run reaches the
+	// tenant's instance through the shared registry
+	versions, err := policies.NewVersions(d.st, policies.VersionsConfig{Registry: d.headscale})
+	if err != nil {
+		return nil, err
+	}
 	dev, err := d.newDevices(reg, tags)
 	if err != nil {
 		return nil, err
@@ -190,6 +197,7 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 			Tenants:       tenantsH,
 			Devices:       devicesapi.New(dev),
 			Tags:          tagsapi.New(tags, devicesapi.New(dev)),
+			Policies:      policiesapi.New(versions),
 			Audit:         auditapi.New(audit.NewReader(d.st)),
 			Jobs:          jobsH,
 			Monitoring:    monitoringapi.New(mon),

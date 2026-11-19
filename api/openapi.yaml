@@ -82,6 +82,8 @@ tags:
     description: Thiết lập của tenant, thiết lập bảo mật (phê duyệt trong tenant khi nới lỏng), IdP của tenant (§8.2, §8.6, §13.3) — P4-T03a
   - name: tags
     description: Danh mục tag của tenant — nguồn render `tagOwners`, đổi danh mục ⇒ `policy.apply` (§6.3, §7.2) — P4-T15
+  - name: policies
+    description: Vòng đời policy — mô hình có kiểu, render tất định, lint L1–L13, duyệt (4-eyes), apply/rollback (§7.2, §7.3) — P4-T10
 paths:
   # ---------------------------------------------------------------- auth (P2-T06)
   /auth/login:
@@ -1909,7 +1911,8 @@ paths:
         nguyên) → `status=suspended` (từ đây mọi thao tác ghi của role tenant ⇒ `403 tenant_suspended`, §8.4 bất biến
         5) → expire mọi pre-auth key còn hiệu lực → thông báo Owner/Admin; audit `platform.tenant.suspend.requested` →
         `.succeeded`. Instance vẫn chạy để phân phối policy deny-all. Lỗi vĩnh viễn ⇒ `failed_resumable` (không tự
-        hoàn tác — `/rollback` của job đưa tenant về `active`).
+        hoàn tác — `/rollback` của job đưa tenant về `active`). P4-T10: cùng transaction còn enqueue job `policy.apply`
+        (trigger `suspend`) áp policy deny-all ngay, không chờ khóa vòng đời (một `instance.upgrade` đang chạy).
       security:
         - sessionCookie: []
           csrfToken: []
@@ -4623,6 +4626,537 @@ paths:
           $ref: '#/components/responses/RateLimited'
         default:
           $ref: '#/components/responses/Unexpected'
+  # ---------------------------------------------------------------- policies (P4-T10)
+  /tenants/{tenantId}/policies:
+    get:
+      tags: [policies]
+      operationId: listTenantPolicies
+      summary: Các version policy của tenant
+      description: |-
+        Mới nhất trước (theo `version`); `next_cursor` là số version của mục cuối. Mỗi version mang `etag` (= `revision`,
+        giá trị `If-Match` của mọi thao tác trên version) và `desired` (đang là version mong muốn). Không chứa trạng thái
+        áp dụng — xem `GET /policies/current` (§7.3).
+      x-permission: tenant.policy:read
+      x-task: P4-T10
+      x-audit-action: policy.list
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Một trang version
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyVersionList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+    post:
+      tags: [policies]
+      operationId: createTenantPolicy
+      summary: Soạn một version policy mới (draft)
+      description: |-
+        `source` là mô hình có kiểu (§7.2, §13.3 `PolicySource`): mọi principal là tham chiếu `{type, ref}` — `user`
+        (membership id), `group` (group id), `tag` (tag id của danh mục), `resource` (id tài nguyên mạng), `autogroup`,
+        `cidr` — không bao giờ là chuỗi tự do; `grants: null`, kiểu principal không hợp vị trí, `ref` sai dạng ⇒ `422`
+        (trường lỗi trong `errors[]`). Version mới là `N+1`, trạng thái `draft`, `parent_version_id` = version mong muốn hiện tại
+        (hoặc version chỉ định của chính tenant). `201` + `ETag`; audit `policy.create`.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.policy:edit
+      x-task: P4-T10
+      x-audit-action: policy.create
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PolicyCreate'
+      responses:
+        '201':
+          description: Bản nháp đã tạo
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyVersion'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/policies/current:
+    get:
+      tags: [policies]
+      operationId: getCurrentTenantPolicy
+      summary: Version mong muốn và trạng thái áp dụng
+      description: |-
+        `desired` = version mong muốn; `applied` = lần áp dụng hiện hành của instance ("đã áp dụng lên Headscale lúc …" —
+        **không** phải "client đã hội tụ", điều không quan sát được, T-18); `latest` = lần áp dụng gần nhất bất kể trạng
+        thái (`pending`/`applied`/`failed`/`unknown`). `four_eyes` (đọc từ `TenantSettings.policy.four_eyes`) và
+        `apply_step_up` cho biết apply/rollback có cần người duyệt thứ hai và step-up.
+      x-permission: tenant.policy:read
+      x-task: P4-T10
+      x-audit-action: policy.current
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '200':
+          description: Trạng thái policy của tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyCurrent'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/policies/{versionId}:
+    get:
+      tags: [policies]
+      operationId: getTenantPolicy
+      summary: Một version policy
+      x-permission: tenant.policy:read
+      x-task: P4-T10
+      x-audit-action: policy.read
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/PolicyVersionId'
+      responses:
+        '200':
+          description: Version
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyVersion'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+    patch:
+      tags: [policies]
+      operationId: updateTenantPolicy
+      summary: Sửa nội dung một version (về draft, xóa phê duyệt)
+      description: |-
+        Thay `source`; mọi `PATCH` đưa version về `draft` và xóa phê duyệt cùng báo cáo lint (§6.3). Cần `If-Match` =
+        `etag` (thiếu ⇒ `428`, cũ ⇒ `412`). Version đang là desired, version của nền tảng (`baseline`/`suspension`),
+        version HuJSON và version đã `superseded`/`rejected` ⇒ `409` (soạn version mới).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.policy:edit
+      x-task: P4-T10
+      x-audit-action: policy.update
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/PolicyVersionId'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PolicyUpdate'
+      responses:
+        '200':
+          description: Version sau khi sửa
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyVersion'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/policies/{versionId}/validate:
+    post:
+      tags: [policies]
+      operationId: validateTenantPolicy
+      summary: Kiểm tra version (render + lint + CheckPolicy dry-run)
+      description: |-
+        Render tất định với bảng hiện tại (`groups`, `hosts`, `tagOwners`), lint L1–L13 trên mô hình và trên đầu ra, rồi
+        `CheckPolicy` chuỗi đã render trên instance của tenant (dry-run, không áp dụng). Đạt ⇒ `validated`; không đạt ⇒
+        `draft` kèm `validation_report` (`200` cả hai trường hợp). Luật "cần xác nhận" (L7, L10 `accept`, L13) và L4 chỉ
+        qua khi `source.acknowledgements` có luật đó kèm lý do. Instance không phản hồi ⇒ `503`, version không đổi. Cần
+        `If-Match`.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.policy:edit
+      x-task: P4-T10
+      x-audit-action: policy.validate
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/PolicyVersionId'
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: Version sau khi kiểm (`validated` hoặc `draft` kèm báo cáo)
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyVersion'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/InstanceUnavailable'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/policies/{versionId}/submit:
+    post:
+      tags: [policies]
+      operationId: submitTenantPolicy
+      summary: Gửi duyệt (validated → pending_approval)
+      description: |-
+        Bắt buộc khi tenant bật 4-eyes (`TenantSettings.policy.four_eyes`): người duyệt phải khác người soạn và người
+        gửi. Cần `If-Match`.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.policy:edit
+      x-task: P4-T10
+      x-audit-action: policy.submit
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/PolicyVersionId'
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: Version chờ duyệt
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyVersion'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/policies/{versionId}/approve:
+    post:
+      tags: [policies]
+      operationId: approveTenantPolicy
+      summary: Duyệt version (peer hoặc self-review)
+      description: |-
+        `content_sha256` = nội dung người duyệt đã xem (lệch ⇒ `409`). Tenant bật 4-eyes: chỉ từ `pending_approval`, người
+        duyệt khác người soạn và người gửi (tự duyệt ⇒ `403`), `review_mode=peer`; từ `validated` ⇒ `409` (gửi duyệt
+        trước). Không bật: duyệt thẳng từ `validated`, `review_mode=self` — lần xác nhận tường minh diff và lint đã render
+        (§7.3). Báo cáo có xác nhận chỉ Owner được làm (L4, L12) ⇒ người duyệt phải là Tenant Owner (`403`). Cần `If-Match`;
+        audit `policy.approved` kèm `review_mode`.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.policy:approve
+      x-task: P4-T10
+      x-audit-action: policy.approved
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/PolicyVersionId'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PolicyApprove'
+      responses:
+        '200':
+          description: Version đã duyệt
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyVersion'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/policies/{versionId}/reject:
+    post:
+      tags: [policies]
+      operationId: rejectTenantPolicy
+      summary: Từ chối version đang chờ duyệt
+      description: '`pending_approval` → `rejected` kèm `reason` (1–2000 ký tự). Cần `If-Match`; audit `policy.rejected`.'
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.policy:approve
+      x-task: P4-T10
+      x-audit-action: policy.rejected
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/PolicyVersionId'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PolicyReject'
+      responses:
+        '200':
+          description: Version đã bị từ chối
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyVersion'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/policies/{versionId}/apply:
+    post:
+      tags: [policies]
+      operationId: applyTenantPolicy
+      summary: Đặt version đã duyệt làm mong muốn và áp dụng (202 + job policy.apply)
+      description: |-
+        Version phải `approved` (khác ⇒ `409`) và `parent_version_id` phải là version mong muốn hiện tại (khác ⇒ `409`
+        `stale_base` — hai bản nháp cùng gốc không ghi đè nhau, §7.3). Cùng transaction: version thành desired, version
+        mong muốn cũ ⇒ `superseded`, audit `policy.desired_set`, job `policy.apply` (trigger `manual`; job chưa xong của
+        tenant được dùng lại). Áp dụng lại version đang là desired ⇒ chỉ thêm job. Tenant bật 4-eyes ⇒ cần step-up
+        (`401 reauth_required`). Job: render với bảng hiện tại → lint → `CheckPolicy` → `SetPolicy` → `GetPolicy` khớp
+        `applied_sha256`, ghi `policy_applications`.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.policy:apply
+      x-task: P4-T10
+      x-audit-action: policy.desired_set
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/PolicyVersionId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '202':
+          description: Version là mong muốn; job policy.apply ở `Location`
+          headers:
+            Location:
+              $ref: '#/components/headers/JobLocation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyApplyAccepted'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/policies/{versionId}/rollback:
+    post:
+      tags: [policies]
+      operationId: rollbackTenantPolicy
+      summary: Rollback về nội dung của một version trước (202 + job policy.apply)
+      description: |-
+        Tạo version `N+1` với nội dung của `{versionId}` (`rollback_of`), `parent_version_id` = version mong muốn hiện
+        tại. Phê duyệt chỉ được kế thừa khi `content_sha256` trùng một nội dung đã từng được duyệt (§7.3) — nội dung chưa
+        từng được duyệt hoặc version không có kiểu ⇒ `409`. Lint trên bảng hiện tại (không gọi Headscale) chặn ⇒ `422`.
+        Cùng transaction: version mới thành desired, version cũ `superseded`, audit `policy.rollback`, job `policy.apply`
+        (trigger `rollback`). Tenant bật 4-eyes ⇒ cần step-up.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.policy:apply
+      x-task: P4-T10
+      x-audit-action: policy.rollback
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/PolicyVersionId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '202':
+          description: Version rollback là mong muốn; job policy.apply ở `Location`
+          headers:
+            Location:
+              $ref: '#/components/headers/JobLocation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyApplyAccepted'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/policies/{versionId}/diff:
+    get:
+      tags: [policies]
+      operationId: diffTenantPolicy
+      summary: Diff của version so với version khác (mặc định version mong muốn)
+      description: |-
+        Cả hai bên render với bảng hiện tại: diff dòng của chuỗi đã render (bỏ khi tài liệu quá lớn — `lines_omitted`)
+        và diff có cấu trúc của `grants` (thêm/bớt). `against` mặc định = version mong muốn; không có ⇒ so với rỗng.
+      x-permission: tenant.policy:read
+      x-task: P4-T10
+      x-audit-action: policy.diff
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/PolicyVersionId'
+        - $ref: '#/components/parameters/PolicyAgainst'
+      responses:
+        '200':
+          description: Diff
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyDiff'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
 components:
   securitySchemes:
     sessionCookie:
@@ -4855,6 +5389,22 @@ components:
       in: path
       required: true
       description: ID tag (`tenant_tags.id`)
+      schema:
+        type: string
+        format: uuid
+    PolicyVersionId:
+      name: versionId
+      in: path
+      required: true
+      description: ID version policy (`policy_versions.id`)
+      schema:
+        type: string
+        format: uuid
+    PolicyAgainst:
+      name: against
+      in: query
+      required: false
+      description: Version so sánh (mặc định version mong muốn)
       schema:
         type: string
         format: uuid
@@ -7167,6 +7717,412 @@ components:
         updated_at:
           type: string
           format: date-time
+    PolicyPrincipal:
+      type: object
+      description: |-
+        Tham chiếu principal có kiểu (§7.2): `user` — `ref` = membership id (render `mg-<membership>@`); `group` — group id;
+        `tag` — tag id của danh mục; `resource` — id tài nguyên mạng (render alias trong `hosts`); `autogroup` — `member`,
+        `tagged`, `self`, `internet`, `danger-all` (tùy vị trí); `cidr` — `*`, một địa chỉ IP hoặc prefix.
+      additionalProperties: false
+      required: [type, ref]
+      properties:
+        type:
+          type: string
+          enum: [user, group, tag, resource, autogroup, cidr]
+        ref:
+          type: string
+          minLength: 1
+          maxLength: 64
+    PolicyGrant:
+      type: object
+      additionalProperties: false
+      required: [src, dst]
+      properties:
+        src:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/PolicyPrincipal'
+        dst:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/PolicyPrincipal'
+        ip:
+          type: array
+          maxItems: 50
+          items:
+            type: string
+            maxLength: 64
+        app:
+          type: object
+          description: Capability ứng dụng (tên → danh sách đối tượng), mã hóa lại khi render
+          additionalProperties:
+            type: array
+            items:
+              type: object
+              additionalProperties: true
+        via:
+          type: array
+          maxItems: 100
+          description: Chỉ principal `tag`
+          items:
+            $ref: '#/components/schemas/PolicyPrincipal'
+    PolicySSHRule:
+      type: object
+      additionalProperties: false
+      required: [action, src, dst, users]
+      properties:
+        action:
+          type: string
+          enum: [accept, check]
+          description: '`accept` cần xác nhận (L10 — forwarding luôn bật); `check` bị chặn (V-26)'
+        src:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/PolicyPrincipal'
+        dst:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/PolicyPrincipal'
+        users:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            type: string
+            maxLength: 40
+        check_period:
+          type: string
+          maxLength: 8
+    PolicyAutoApprovers:
+      type: object
+      additionalProperties: false
+      description: Mặc định không sinh; principal không phải tag router/exit của nền tảng cần xác nhận (L7)
+      properties:
+        routes:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              $ref: '#/components/schemas/PolicyPrincipal'
+        exit_node:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/PolicyPrincipal'
+    PolicyAcknowledgement:
+      type: object
+      additionalProperties: false
+      required: [rule, reason]
+      properties:
+        rule:
+          type: string
+          enum: [L4, L7, L10, L12, L13]
+          description: L4 và L12 chỉ có hiệu lực khi một Tenant Owner duyệt version
+        reason:
+          type: string
+          minLength: 5
+          maxLength: 500
+    PolicySource:
+      type: object
+      description: |-
+        Nội dung có kiểu của một version (§13.3): `groups`, `hosts` và `tagOwners` **không** nằm ở đây — được render từ
+        bảng `groups`/`group_members`, `network_resources`, `tenant_tags` lúc áp dụng.
+      additionalProperties: false
+      required: [grants]
+      properties:
+        grants:
+          type: array
+          maxItems: 500
+          items:
+            $ref: '#/components/schemas/PolicyGrant'
+        ssh:
+          type: array
+          maxItems: 200
+          items:
+            $ref: '#/components/schemas/PolicySSHRule'
+        auto_approvers:
+          $ref: '#/components/schemas/PolicyAutoApprovers'
+        acknowledgements:
+          type: array
+          maxItems: 13
+          items:
+            $ref: '#/components/schemas/PolicyAcknowledgement'
+    PolicyFinding:
+      type: object
+      required: [rule, severity, code, message]
+      properties:
+        rule:
+          type: string
+        severity:
+          type: string
+          enum: [error, warning, info]
+        code:
+          type: string
+        path:
+          type: string
+        message:
+          type: string
+        requires_ack:
+          type: boolean
+        owner_only:
+          type: boolean
+        acknowledged:
+          type: boolean
+    PolicyValidationReport:
+      type: object
+      description: Kết quả lint/render/CheckPolicy (`policy_versions.validation_report`); `tests` luôn rỗng (chưa sinh)
+      required: [engine, result, errors, warnings, info, tests]
+      properties:
+        engine:
+          type: string
+        result:
+          type: string
+          enum: [passed, failed]
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/PolicyFinding'
+        warnings:
+          type: array
+          items:
+            $ref: '#/components/schemas/PolicyFinding'
+        info:
+          type: array
+          items:
+            $ref: '#/components/schemas/PolicyFinding'
+        tests:
+          type: array
+          items: {}
+        rendered_sha256:
+          type: string
+        check:
+          type: string
+          enum: [passed, failed, skipped]
+        revision:
+          type: integer
+          format: int64
+        validated_at:
+          type: string
+          format: date-time
+    PolicyVersion:
+      type: object
+      description: Một version policy (`policy_versions` — §7.3); không chứa trạng thái áp dụng
+      required: [id, version, revision, etag, kind, state, content_sha256, desired, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        version:
+          type: integer
+        revision:
+          type: integer
+          format: int64
+        etag:
+          type: string
+          description: Giá trị `If-Match` của mọi thao tác trên version
+        kind:
+          type: string
+          enum: [user, baseline, suspension]
+        state:
+          type: string
+          enum: [draft, validated, pending_approval, approved, rejected, superseded]
+        content_sha256:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        source:
+          $ref: '#/components/schemas/PolicySource'
+        hujson:
+          type: string
+          description: Văn bản HuJSON của version do nền tảng phát hành hoặc nhập lại (không có `source`)
+        validation_report:
+          $ref: '#/components/schemas/PolicyValidationReport'
+        parent_version_id:
+          type: string
+          format: uuid
+        rollback_of:
+          type: string
+          format: uuid
+        created_by:
+          type: string
+          format: uuid
+        submitted_by:
+          type: string
+          format: uuid
+        submitted_at:
+          type: string
+          format: date-time
+        approved_by:
+          type: string
+          format: uuid
+        approved_at:
+          type: string
+          format: date-time
+        review_mode:
+          type: string
+          enum: [peer, self]
+        rejected_by:
+          type: string
+          format: uuid
+        rejected_at:
+          type: string
+          format: date-time
+        rejected_reason:
+          type: string
+        desired:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    PolicyVersionList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PolicyVersion'
+        next_cursor:
+          type: [string, 'null']
+    PolicyApplication:
+      type: object
+      description: Một lần áp dụng (`policy_applications` — §13.3)
+      required: [id, policy_version_id, trigger, state, applied_sha256, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        policy_version_id:
+          type: string
+          format: uuid
+        trigger:
+          type: string
+          enum: [bootstrap, manual, group_change, resource_change, tag_change, suspend, resume, restore, drift_repair, rollback]
+        state:
+          type: string
+          enum: [pending, applied, failed, unknown]
+        applied_sha256:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        headscale_updated_at:
+          type: string
+          format: date-time
+        error_code:
+          type: string
+        requested_by:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+    PolicyCurrent:
+      type: object
+      required: [four_eyes, apply_step_up]
+      properties:
+        desired:
+          $ref: '#/components/schemas/PolicyVersion'
+        applied:
+          $ref: '#/components/schemas/PolicyApplication'
+        latest:
+          $ref: '#/components/schemas/PolicyApplication'
+        four_eyes:
+          type: boolean
+        apply_step_up:
+          type: boolean
+    PolicyCreate:
+      type: object
+      additionalProperties: false
+      required: [source]
+      properties:
+        source:
+          $ref: '#/components/schemas/PolicySource'
+        parent_version_id:
+          type: string
+          format: uuid
+    PolicyUpdate:
+      type: object
+      additionalProperties: false
+      required: [source]
+      properties:
+        source:
+          $ref: '#/components/schemas/PolicySource'
+    PolicyApprove:
+      type: object
+      additionalProperties: false
+      required: [content_sha256]
+      properties:
+        content_sha256:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+    PolicyReject:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+    PolicyApplyAccepted:
+      type: object
+      required: [version, job]
+      properties:
+        version:
+          $ref: '#/components/schemas/PolicyVersion'
+        job:
+          $ref: '#/components/schemas/Job'
+    PolicyDiffLine:
+      type: object
+      required: [op, text]
+      properties:
+        op:
+          type: string
+          enum: [same, removed, added]
+        text:
+          type: string
+    PolicyDiff:
+      type: object
+      required: [version_id, lines, lines_omitted, grants_added, grants_removed, report_blocking]
+      properties:
+        version_id:
+          type: string
+          format: uuid
+        against_id:
+          type: string
+          format: uuid
+        from_sha256:
+          type: string
+        to_sha256:
+          type: string
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/PolicyDiffLine'
+        lines_omitted:
+          type: boolean
+        grants_added:
+          type: array
+          items:
+            type: string
+        grants_removed:
+          type: array
+          items:
+            type: string
+        report_blocking:
+          type: boolean
     TagList:
       type: object
       required: [items, next_cursor]

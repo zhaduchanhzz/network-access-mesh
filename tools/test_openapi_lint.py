@@ -420,7 +420,7 @@ check([a for _, _, a, _ in master.roles] == ["SA", "PO", "PS", "PV", "TO", "TA",
 check(master.columns == {"platform": ["SA", "PO", "PS", "PV"], "tenant": ["TO", "TA", "TP", "TV", "EU", "Staff"]},
       "§8.5/§8.6: role columns", str(master.columns))
 check({"P2-T01", "P2-T02", "P2-T03", "P2-T07", "P2-T08", "P2-T13", "P2-T13a", "P2-T15", "P2-T16", "P1-T21"} <= master.done
-      and not {"P1-T02", "P1-T12e", "P4-T10"} & master.done,
+      and not {"P1-T02", "P1-T12e", "P4-T11"} & master.done,
       "§20: done tasks (full marker only; 'phần 1 …' / 'một phần' are not done)", str(sorted(master.done)))
 check(master.row_tasks(P["platform.tenant:suspend"]) == {"P3-T05", "P3-T08", "P3-T09"}
       and master.row_tasks(P["tenant.user:read"]) == {"P2-T11"} and master.row_tasks(P["tenant.tag:read"]) == {"P4-T15"},
@@ -432,8 +432,11 @@ check(ol.entry_path("tenant", ()) == "/tenants/{tenantId}" and ol.entry_path("te
 # second direction of §13.1: every row has an operation once all its tasks are done
 row_errs, row_notes = ol.row_coverage(spec, master)
 check(not row_errs and any("tenant.enrollment:read" in n and "P4-T06 pending" in n for n in row_notes)
-      and any("tenant.policy:edit" in n and "P4-T10 pending" in n for n in row_notes),
+      and any("tenant.dns:read" in n and "P4-T12 pending" in n for n in row_notes),
       "row coverage on the real spec: no error, pending rows reported", str(row_errs))
+# P4-T10 is done (2026-11-19): the rows of the policy lifecycle have operations — neither a note nor an error
+check("P4-T10" in master.done and not any("tenant.policy:" in n for n in row_notes),
+      "row coverage on the real spec: the rows of P4-T10 (done) are covered by operations", str(row_notes))
 # P4-T15 is done (2026-11-19): its rows (tag catalog, device tags) have operations — neither a note nor an error
 check("P4-T15" in master.done and not any("tenant.tag:" in n or "tenant.device:tag" in n for n in row_notes),
       "row coverage on the real spec: the rows of P4-T15 (done) are covered by operations", str(row_notes))
