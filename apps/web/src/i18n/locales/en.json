@@ -173,6 +173,7 @@
     "maintenance": "The platform is under maintenance.",
     "internal_error": "Internal server error.",
     "not_implemented": "This function is not implemented on the server yet.",
+    "secret_no_longer_available": "This credential can no longer be shown: revoke the request and create a new one.",
     "network_error": "Could not reach the server.",
     "unexpected_response": "The server answered unexpectedly."
   },
