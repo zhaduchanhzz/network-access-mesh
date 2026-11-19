@@ -243,6 +243,20 @@ func TestEnrollment(t *testing.T) {
 		if _, err := f.api.Claim(ctx, a.id, admin, Claim{AuthID: "hskey-authreq-" + strings.Repeat("E", 24)}); reasonOf(err) != FailureNotPending {
 			t.Fatalf("not pending: %v", err)
 		}
+		// a new node named mg-<a guessed code>: the prefix is right, the code is not the one this request received ⇒
+		// deleted (the hash of the code is what binds the device to the requester's session — §7.4 step 8)
+		if _, err := f.api.Create(ctx, a.id, admin, NewRequest{Method: MethodWebAuth}, idem("k-n-5", "5")); err != nil {
+			t.Fatal(err)
+		}
+		auth5 := "hskey-authreq-" + strings.Repeat("H", 24)
+		a.hs.PutPending(auth5, devicestest.Node{MachineKey: "mkey:guess", Hostname: HostnamePrefix + strings.Repeat("a", 12)})
+		r, err = f.api.Claim(ctx, a.id, admin, Claim{AuthID: auth5})
+		if err != nil || r.Status != StatusFailed || r.FailureCode == nil || *r.FailureCode != FailureNodeMismatch {
+			t.Fatalf("guessed code: %+v %v", r, err)
+		}
+		if _, ok := a.hs.Node(uint64(*r.NodeID)); ok { //nolint:gosec // small test ids
+			t.Fatal("the node with a guessed code was not deleted")
+		}
 	})
 
 	t.Run("CrossTenantClaim", func(t *testing.T) {
