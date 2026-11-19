@@ -217,7 +217,8 @@ func (s *Service) createOnce(ctx context.Context, tenantID uuid.UUID, a Actor, p
 		}
 		row, err = q.InsertEnrollmentRequest(ctx, sqlcdb.InsertEnrollmentRequestParams{TenantID: tenantID,
 			InstanceID: tc.instance, RequestedByMembershipID: a.MembershipID, Method: p.method, TargetMembershipID: p.target,
-			DeviceLabel: p.label, RequestedTags: tags, Ephemeral: p.ephemeral, Reusable: p.reusable, Status: status})
+			DeviceLabel: p.label, RequestedTags: tags, Ephemeral: p.ephemeral, Reusable: p.reusable, Status: status,
+			RequestedTtlMinutes: ttlColumn(p)})
 		if err != nil {
 			return err
 		}
@@ -530,7 +531,7 @@ func (s *Service) start(ctx context.Context, tenantID, id uuid.UUID, a Actor) (I
 			ev.Details["expires_at"] = *row.CredentialExpiresAt
 			return audit.Record(ctx, q, ev)
 		}
-		ttl, err := keyTTL(0, tc.settings)
+		ttl, err := keyTTL(requestedTTL(r), tc.settings) // what the requester asked for, bounded by today's settings
 		if err != nil {
 			return err
 		}
@@ -555,6 +556,24 @@ func (s *Service) start(ctx context.Context, tenantID, id uuid.UUID, a Actor) (I
 		}
 	}
 	return Issue{Request: view(row, tc.loginServer), Credential: cred}, nil
+}
+
+// ttlColumn is enrollment_requests.requested_ttl_minutes of a new request (0027): the minutes of a pre-auth key the
+// caller asked for, kept for the /start of a request that waits for approval; nil = the default.
+func ttlColumn(p plan) *int16 {
+	if p.method != MethodPreauthKey || p.ttlMinutes == 0 {
+		return nil
+	}
+	m := int16(p.ttlMinutes) //nolint:gosec // checkTTL: 1–15
+	return &m
+}
+
+// requestedTTL is the ttl_minutes a request was created with (0 = default — keyTTL).
+func requestedTTL(r sqlcdb.EnrollmentRequest) int {
+	if r.RequestedTtlMinutes == nil {
+		return 0
+	}
+	return int(*r.RequestedTtlMinutes)
 }
 
 // liveKey reports whether a request holds a pre-auth key that may still register a node.

@@ -249,6 +249,31 @@ func TestIssueAndRevoke(t *testing.T) {
 		}
 	})
 
+	t.Run("ApprovedKeyKeepsItsTTL", func(t *testing.T) {
+		// the ttl_minutes of a request that waits for approval is the lifetime /start issues (0027)
+		f.setting(t, a, "enrollment,self_enroll", "true")
+		f.setting(t, a, "enrollment,requires_approval", "true")
+		defer f.setting(t, a, "enrollment,requires_approval", "false")
+		user := a.actor("user", uuid.New())
+		out, err := f.api.Create(ctxOf(user, a.id, ActionRequest), a.id, user,
+			NewRequest{Method: MethodPreauthKey, TTLMinutes: 2}, idem("k-i-6", "6"))
+		if err != nil || out.Request.Status != StatusPendingApproval || out.Credential != nil {
+			t.Fatalf("pending: %+v %v", out, err)
+		}
+		if _, err := f.api.Approve(ctxOf(admin, a.id, ActionApprove), a.id, out.Request.ID, admin); err != nil {
+			t.Fatal(err)
+		}
+		iss, err := f.api.Start(ctxOf(user, a.id, ActionStart), a.id, out.Request.ID, user)
+		if err != nil || iss.Credential == nil || iss.Request.IssuedAt == nil {
+			t.Fatalf("start: %+v %v", iss, err)
+		}
+		if ttl := iss.Credential.ExpiresAt.Sub(*iss.Request.IssuedAt); ttl != 2*time.Minute {
+			t.Fatalf("lifetime of the started key %s, want the 2 minutes requested", ttl)
+		}
+		if k := lastKey(); time.Until(k.Expiration) > 2*time.Minute+5*time.Second {
+			t.Fatalf("key at Headscale %+v", k)
+		}
+	})
 	f.noKeyMaterial(t)
 }
 

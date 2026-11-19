@@ -171,6 +171,7 @@ type EnrollmentRequest struct {
 	CreatedAt               time.Time
 	UpdatedAt               time.Time
 	Version                 int64
+	RequestedTtlMinutes     *int16
 }
 
 type Group struct {
