@@ -223,6 +223,7 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 			Deprovision:   deprovisionapi.New(deprov, appr),
 			Quarantine:    quarantineapi.New(quarantine.NewRequester(d.st), appr),
 			TenantView:    httpapi.PlatformTenantView{Jobs: jobsH, Instances: tenantsH, Relay: relayH}, // P4-T02
+			InstanceView:  tenantsH,                                                                    // P4-T03
 			Members:       membersapi.New(mem, appr),
 			Portal:        inbox,                               // P4-T04: POST …/notifications/{id}/read
 			Admin:         adminapi.New(plat, d.tenants, appr), // P4-T03a
