@@ -8,16 +8,22 @@ import { ForbiddenPage } from "../pages/StatusPages";
 import { DashboardPage } from "./dashboard/DashboardPage";
 import { DeviceDetailPage } from "./devices/DeviceDetailPage";
 import { DevicesPage } from "./devices/DevicesPage";
+import { DnsPage } from "./network/DnsPage";
+import { ResourcesPage } from "./network/ResourcesPage";
+import { RoutesPage } from "./network/RoutesPage";
 import { NotificationsPage } from "./notifications/NotificationsPage";
 import { RelayPage } from "./relay/RelayPage";
 import { useTenant } from "./TenantScope";
 
-/** P4-T04: Tổng quan, Devices, Relay, hộp thông báo. */
+/** P4-T04: Tổng quan, Devices, Relay, hộp thông báo. P4-T12: Routes, DNS, Tài nguyên mạng. */
 export const TENANT_PAGES: Readonly<Record<string, ComponentType>> = {
   overview: DashboardPage,
   devices: DevicesPage,
   relay: RelayPage,
   notifications: NotificationsPage,
+  routes: RoutesPage,
+  dns: DnsPage,
+  resources: ResourcesPage,
 };
 
 function Guarded({ permission, Screen }: { permission: string; Screen: ComponentType }) {

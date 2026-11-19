@@ -649,7 +649,8 @@
       "tagsLater": "Đổi tag: chưa khả dụng (P4-T10).",
       "registerMethod": "Cách đăng ký",
       "routesAdvertised": "Route quảng bá",
-      "routesApproved": "Route đã duyệt"
+      "routesApproved": "Route đã duyệt",
+      "manageRoutes": "Xem và duyệt route ở màn hình Routes"
     },
     "rename": {
       "title": "Đổi tên",
@@ -738,5 +739,188 @@
     "checkFailed": "Không đạt",
     "duration": "{{ms}} ms (đo từ prober)",
     "httpStatus": "HTTP {{status}}"
+  },
+  "network": {
+    "job": {
+      "inProgress": "Đang áp dụng — chưa có hiệu lực cho tới khi job thành công.",
+      "failed": "Job không thành công — thay đổi chưa được áp dụng."
+    },
+    "approval": {
+      "title": "Đã tạo yêu cầu phê duyệt — chưa có thay đổi nào",
+      "description": "Tenant bật kiểm soát hai người (4-eyes) cho route: một người thứ hai có quyền duyệt route và quyết định phê duyệt phải duyệt yêu cầu này. Route chỉ được duyệt ở Headscale khi yêu cầu được duyệt (màn hình phê duyệt của tenant thuộc P4-T13 — hãy gửi mã yêu cầu cho người duyệt).",
+      "id": "Mã yêu cầu",
+      "status": "Trạng thái",
+      "expires": "Hết hạn lúc"
+    },
+    "fieldErrors": {
+      "value_not_in_tailnet": "Giá trị phải là địa chỉ tailnet của một thiết bị của tenant hoặc nằm trong một subnet route đã duyệt.",
+      "type_mismatch": "Bản ghi A cần địa chỉ IPv4, bản ghi AAAA cần địa chỉ IPv6.",
+      "invalid_value": "Giá trị phải là một địa chỉ IP unicast.",
+      "name_platform_domain": "Tên dưới domain của nền tảng chỉ được nằm trong MagicDNS domain của tenant.",
+      "duplicate_address": "Có địa chỉ bị lặp lại.",
+      "ports_with_icmp": "Giao thức icmp không có cổng.",
+      "service_needs_ports": "Tài nguyên loại service phải khai báo ít nhất một cổng.",
+      "subnet_prefix": "Subnet phải là một prefix (ngắn hơn một địa chỉ, dài hơn /0).",
+      "address_not_canonical": "Prefix không được có bit host (ví dụ 10.0.0.0/24).",
+      "single_address": "Host hoặc service chỉ có đúng một địa chỉ.",
+      "unknown_group": "Nhóm sở hữu phải là một nhóm của tenant.",
+      "invalid_group": "Nhóm sở hữu phải là một nhóm của tenant."
+    },
+    "routes": {
+      "intro": "Route quảng bá và đã duyệt của các thiết bị router, lấy từ sổ thiết bị (mỗi dòng kèm thời điểm đồng bộ). Route quảng bá mà chưa duyệt không được phân phối tới client nào (double opt-in).",
+      "empty": "Chưa có thiết bị nào quảng bá hoặc được duyệt route.",
+      "col": {
+        "device": "Thiết bị",
+        "tags": "Tag",
+        "online": "Trực tuyến",
+        "advertised": "Route quảng bá",
+        "approved": "Đã duyệt",
+        "pending": "Chờ duyệt",
+        "exitNode": "Exit node",
+        "syncedAt": "Đồng bộ lúc",
+        "warnings": "Cảnh báo",
+        "actions": "Thao tác"
+      },
+      "exit": {
+        "approved": "Đã duyệt",
+        "approvedNotAdvertised": "Đã duyệt (thiết bị không còn quảng bá)",
+        "pending": "Quảng bá, chờ duyệt"
+      },
+      "warningCodes": {
+        "overlap": "Chồng lấn",
+        "untagged_router": "Router không có tag",
+        "exit_node": "Exit node"
+      },
+      "warnings": {
+        "overlap": "{{prefix}} chồng lấn với {{otherPrefix}} của thiết bị {{other}}.",
+        "untagged_router": "Thiết bị là node của người dùng (không phải tagged node): route sẽ phụ thuộc vào thiết bị cá nhân (T-08).",
+        "exit_node": "Thiết bị là exit node: lưu lượng Internet của client đi qua thiết bị này."
+      },
+      "approve": "Duyệt route",
+      "approveFor": "Duyệt route của {{name}}",
+      "approveExit": "Duyệt exit node",
+      "approveExitFor": "Duyệt exit node {{name}}",
+      "revoke": "Gỡ duyệt",
+      "revokeFor": "Gỡ duyệt route của {{name}}",
+      "approved": "Đã duyệt {{prefixes}} trên {{name}} — Headscale đã xác nhận.",
+      "revoked": "Đã gỡ duyệt {{prefixes}} trên {{name}} — Headscale đã xác nhận.",
+      "dialog": {
+        "approveTitle": "Duyệt route của {{name}}?",
+        "exitTitle": "Duyệt {{name}} làm exit node?",
+        "revokeTitle": "Gỡ duyệt route của {{name}}?",
+        "approveDesc": "Route được duyệt sẽ được Headscale phân phối: client có quyền theo policy đi tới các mạng này qua thiết bị.",
+        "exitRisk": "Rủi ro: toàn bộ lưu lượng Internet của client chọn exit node này sẽ đi qua thiết bị.",
+        "exitRiskDetail": "Thiết bị (và người quản trị nó) thấy được và có thể can thiệp lưu lượng đó. Chỉ duyệt cho thiết bị do tổ chức quản lý (tagged node), đã được gia cố và giám sát.",
+        "exitAck": "Tôi hiểu rủi ro và muốn duyệt exit node (0.0.0.0/0 và ::/0).",
+        "revokeDesc": "Thiết bị ngừng làm router cho các prefix đã chọn: client mất đường tới các mạng đó qua thiết bị này.",
+        "warningsTitle": "Cảnh báo trước khi duyệt",
+        "stale": "Route của thiết bị đã thay đổi: đã tải lại dữ liệu mới — hãy kiểm tra lại lựa chọn rồi xác nhận lại.",
+        "chooseApprove": "Prefix chờ duyệt",
+        "chooseRevoke": "Chọn route cần gỡ duyệt",
+        "nothing": "Không còn prefix nào để chọn.",
+        "exitChoice": "Exit node (0.0.0.0/0 và ::/0)"
+      }
+    },
+    "dns": {
+      "settingsTitle": "MagicDNS và nameserver",
+      "magicDns": "MagicDNS",
+      "alwaysOn": "Luôn bật",
+      "off": "Tắt",
+      "baseDomain": "MagicDNS domain",
+      "nameservers": "Nameserver đang hiệu lực",
+      "noNameservers": "Chưa có (instance chưa có version cấu hình do orchestrator ghi).",
+      "configVersion": "Version cấu hình",
+      "records": "Số extra record",
+      "pending": "Có một lần cấu hình lại instance chưa xong:",
+      "jobLabel": "Áp dụng nameserver (instance.reconfigure):",
+      "applied": "Đã áp dụng — instance đang chạy với nameserver mới.",
+      "changeTitle": "Đổi nameserver",
+      "nsLabel": "Nameserver (1–{{max}} địa chỉ IP, mỗi dòng một địa chỉ)",
+      "nsHint": "Địa chỉ IPv4 hoặc IPv6 unicast; không lặp lại.",
+      "nsCount": "Cần từ 1 đến {{max}} nameserver.",
+      "nsDuplicate": "Có nameserver bị lặp lại.",
+      "change": "Đổi nameserver…",
+      "confirmTitle": "Đổi nameserver của tailnet?",
+      "confirmRestart": "Instance Headscale của tenant sẽ restart có kiểm soát (qua health gate, tự lùi về cấu hình cũ nếu không lên).",
+      "confirmRelay": "Trong lúc restart, phiên relay (DERP) của tenant bị ngắt và client phải kết nối lại.",
+      "confirmNew": "Nameserver mới:",
+      "stale": "Cấu hình DNS đã thay đổi từ lúc bạn mở trang: đã tải lại — hãy kiểm tra rồi xác nhận lại.",
+      "confirm": "Restart và áp dụng",
+      "recordsTitle": "Extra DNS records",
+      "recordsIntro": "Bản ghi A/AAAA phân giải trong tailnet. Bản ghi phải trỏ vào địa chỉ tailnet của một thiết bị của tenant hoặc vào IP nằm trong một subnet route đã duyệt. Thêm/xóa không restart instance.",
+      "recordJobCreate": "Ghi file bản ghi (thêm):",
+      "recordJobDelete": "Ghi file bản ghi (xóa):",
+      "recordWritten": "Đã ghi file bản ghi — Headscale tự nạp lại, không restart.",
+      "noRecords": "Chưa có extra record nào.",
+      "col": {
+        "name": "Tên (FQDN)",
+        "type": "Loại",
+        "value": "Giá trị",
+        "createdAt": "Tạo lúc",
+        "actions": "Thao tác"
+      },
+      "delete": "Xóa",
+      "deleteFor": "Xóa bản ghi {{type}} {{name}}",
+      "deleteTitle": "Xóa bản ghi {{type}} {{name}}?",
+      "deleteDesc": "Tên sẽ không còn phân giải tới {{value}} sau khi file bản ghi được ghi lại.",
+      "addTitle": "Thêm bản ghi",
+      "nameHint": "FQDN chữ thường, ít nhất 2 nhãn, không wildcard; dưới domain của nền tảng chỉ trong {{domain}}.",
+      "nameHintGeneric": "FQDN chữ thường, ít nhất 2 nhãn, không wildcard.",
+      "typeA": "A (IPv4)",
+      "typeAAAA": "AAAA (IPv6)",
+      "valueHint": "IP tailnet của thiết bị, hoặc IP trong subnet route đã duyệt.",
+      "add": "Thêm bản ghi"
+    },
+    "resources": {
+      "intro": "Danh mục tài nguyên mạng: mỗi tài nguyên là một alias (khóa hosts) để policy tham chiếu. Mỗi thay đổi làm policy được render và áp dụng lại (job policy.apply).",
+      "empty": "Chưa có tài nguyên nào.",
+      "add": "Thêm tài nguyên",
+      "addTitle": "Thêm tài nguyên",
+      "editTitle": "Sửa tài nguyên {{name}}",
+      "edit": "Sửa",
+      "editFor": "Sửa tài nguyên {{name}}",
+      "delete": "Xóa",
+      "deleteFor": "Xóa tài nguyên {{name}}",
+      "deleteTitle": "Xóa tài nguyên {{name}}?",
+      "deleteDesc": "Alias bị gỡ khỏi danh mục và policy được áp dụng lại; quy tắc đang tham chiếu alias này cần được sửa trước.",
+      "created": "Đã thêm tài nguyên {{name}}.",
+      "updated": "Đã lưu tài nguyên {{name}}.",
+      "deleted": "Đã xóa tài nguyên {{name}}.",
+      "stale": "Tài nguyên đã bị thay đổi bởi người khác: danh sách đã được tải lại — hãy mở lại và thao tác lại.",
+      "pagination": "Phân trang tài nguyên",
+      "allPorts": "Mọi cổng",
+      "noTags": "Danh mục tag trống.",
+      "noOwner": "— Không có —",
+      "description": "Mô tả",
+      "save": "Lưu",
+      "create": "Thêm",
+      "nameHint": "Chữ thường, số và dấu gạch ngang, bắt đầu bằng chữ (≤ 63 ký tự); duy nhất trong tenant.",
+      "addressHintHost": "Một địa chỉ IP (host, service).",
+      "addressHintSubnet": "Một prefix không có bit host, ví dụ 10.0.0.0/24.",
+      "portsHint": "Cổng hoặc dải, cách nhau bằng dấu phẩy: 443, 8000-8100. Để trống = mọi cổng (service bắt buộc có cổng; icmp không có cổng).",
+      "policyNote": "Lưu xong, policy được áp dụng lại ở nền (job policy.apply).",
+      "col": {
+        "name": "Tên",
+        "kind": "Loại",
+        "address": "Địa chỉ",
+        "ports": "Cổng",
+        "protocol": "Giao thức",
+        "tags": "Tag",
+        "owner": "Nhóm sở hữu",
+        "updatedAt": "Cập nhật lúc",
+        "actions": "Thao tác"
+      },
+      "kinds": {
+        "host": "Host",
+        "subnet": "Subnet",
+        "service": "Service"
+      },
+      "protocols": {
+        "any": "Mọi giao thức",
+        "tcp": "TCP",
+        "udp": "UDP",
+        "icmp": "ICMP"
+      }
+    }
   }
 }
