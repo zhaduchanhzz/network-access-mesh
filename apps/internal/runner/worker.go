@@ -73,7 +73,8 @@ const partitionRole = "mg_partition_maint"
 //	idp              driver registry keycloak (narrow route to auth.<domain> incl. /admin/realms, provisioning identity
 //	                 from the SecretStore — platform_ops) + external (hardened client) — P2-T05a; idp.audit_sync every
 //	                 minute over the keycloak driver (admin + login events of every realm → audit_events, security
-//	                 events, notifications — P3-T15, internal/idp/auditsync)
+//	                 events, notifications — P3-T15, internal/idp/auditsync; console sign-in e-mails grouped per
+//	                 source over MG_IDP_CONSOLE_LOGIN_NOTIFY_WINDOW — F-G3-2)
 //	backup           instance.backup + instance.restore (P3-T11) and the backup schedule (Host Agent + manifest key)
 //	maintenance      the gate of P3-T17 (MG_MAINTENANCE OR system_settings maintenance, polled): the job worker and
 //	                 every schedule of workerSchedules run only while it is off (workControl — started when it opens,
@@ -197,7 +198,8 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 	if err := shred.Register(w); err != nil {
 		return nil, err
 	}
-	audits, err := auditsync.New(d.st, auditsync.Config{Source: kc, Logger: log, Registerer: reg})
+	audits, err := auditsync.New(d.st, auditsync.Config{Source: kc, Logger: log, Registerer: reg,
+		ConsoleLoginWindow: cfg.IdPConsoleLoginWindow})
 	if err != nil {
 		return nil, err
 	}

@@ -81,7 +81,7 @@ func idpAuditSync(ctx context.Context, args []string, stdout, stderr io.Writer, 
 	if err != nil {
 		return fail(err)
 	}
-	syncer, err := auditsync.New(st, auditsync.Config{Source: kc, Logger: log})
+	syncer, err := auditsync.New(st, auditsync.Config{Source: kc, Logger: log, ConsoleLoginWindow: cfg.IdPConsoleLoginWindow})
 	if err != nil {
 		return fail(err)
 	}

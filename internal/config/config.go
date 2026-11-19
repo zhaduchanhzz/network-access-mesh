@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Config is the configuration shared by the api and worker processes.
@@ -66,6 +67,11 @@ type Config struct {
 	// driver's provisioning identity; empty = the driver's default (mg-provisioner). Its secret is found in the
 	// SecretStore (platform_ops), never configured.
 	IdPProvisionerClientID string
+	// IdPConsoleLoginWindow (MG_IDP_CONSOLE_LOGIN_NOTIFY_WINDOW, worker, default 10m, 0 = off, at most 24h): the window
+	// of idp.audit_sync over which the e-mails of the sign-ins to the Keycloak administration are grouped per source
+	// (account, client, address) — the first at once, the next ones in one summary when the window ends (F-G3-2); every
+	// sign-in stays its own audit row and security event.
+	IdPConsoleLoginWindow time.Duration
 	// Agent (MG_AGENT_SOCKET, MG_AGENT_TOKEN_FILE, worker, optional): the Host Agent — LoadAgentClient.
 	Agent AgentClient
 	// SMTP is the relay of notification e-mails (worker only — P3-T05b, §21.3 external dependency). Addr empty = no relay:
@@ -209,6 +215,13 @@ func Load(service string, getenv func(string) string, environ []string) (Config,
 	cfg.IdPProvisionerClientID = strings.TrimSpace(getenv("MG_IDP_PROVISIONER_CLIENT_ID"))
 	if cfg.IdPProvisionerClientID != "" && (service != "worker" || !clientIDRE.MatchString(cfg.IdPProvisionerClientID)) {
 		errs = append(errs, errors.New("MG_IDP_PROVISIONER_CLIENT_ID: a client id ([a-z0-9-], at most 64) of the worker's IdP driver"))
+	}
+	if service == "worker" {
+		w, err := time.ParseDuration(withDefault(strings.TrimSpace(getenv("MG_IDP_CONSOLE_LOGIN_NOTIFY_WINDOW")), "10m"))
+		if err != nil || w < 0 || w > 24*time.Hour || (w > 0 && w < time.Minute) {
+			errs = append(errs, errors.New("MG_IDP_CONSOLE_LOGIN_NOTIFY_WINDOW: 0 (off) or a duration in [1m, 24h]"))
+		}
+		cfg.IdPConsoleLoginWindow = w
 	}
 	cfg.SMTP, err = loadSMTP(service, cfg.Env, getenv)
 	if err != nil {
