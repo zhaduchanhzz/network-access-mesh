@@ -129,6 +129,33 @@ func TestJobAPI(t *testing.T) {
 			t.Errorf("filter %+v: %v, want ErrInvalidFilter", bad, err)
 		}
 	}
+
+	// P4-T02: the jobs of one tenant on the platform pool (tenant detail of the Platform Console) — newest first, that
+	// tenant only, the same filters and cursor; an unknown tenant is ErrNotFound
+	if l, err := svc.ListPlatformTenantJobs(ctx, f.a, ListFilter{}); err != nil || !slices.Equal(ids(l), []uuid.UUID{a3, a2, a1}) ||
+		l.NextCursor != nil {
+		t.Errorf("platform view of tenant A: %v %v", ids(l), err)
+	}
+	if l, err := svc.ListPlatformTenantJobs(ctx, f.b, ListFilter{Kind: "policy.apply"}); err != nil || !slices.Equal(ids(l), []uuid.UUID{b1}) {
+		t.Errorf("platform view of tenant B, kind filter: %v %v", ids(l), err)
+	}
+	first, err := svc.ListPlatformTenantJobs(ctx, f.a, ListFilter{Limit: 2})
+	if err != nil || first.NextCursor == nil || !slices.Equal(ids(first), []uuid.UUID{a3, a2}) {
+		t.Fatalf("platform view of tenant A, page 1: %v %v", ids(first), err)
+	}
+	if rest, err := svc.ListPlatformTenantJobs(ctx, f.a, ListFilter{Limit: 2, Cursor: *first.NextCursor}); err != nil ||
+		!slices.Equal(ids(rest), []uuid.UUID{a1}) || rest.NextCursor != nil {
+		t.Errorf("platform view of tenant A, page 2: %v %v", ids(rest), err)
+	}
+	if _, err := svc.ListPlatformTenantJobs(ctx, uuid.New(), ListFilter{}); !errors.Is(err, ErrNotFound) {
+		t.Errorf("unknown tenant: %v, want ErrNotFound", err)
+	}
+	if _, err := svc.ListPlatformTenantJobs(ctx, uuid.Nil, ListFilter{}); !errors.Is(err, ErrNotFound) {
+		t.Errorf("nil tenant: %v, want ErrNotFound", err)
+	}
+	if _, err := svc.ListPlatformTenantJobs(ctx, f.a, ListFilter{Limit: 500}); !errors.Is(err, ErrInvalidFilter) {
+		t.Errorf("limit 500: %v, want ErrInvalidFilter", err)
+	}
 }
 
 // TestIdempotencyKeys: §13.1 — first use proceeds; a duplicate while in progress gets 409 + Retry-After; the same key

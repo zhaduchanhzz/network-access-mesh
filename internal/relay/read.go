@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store/sqlcdb"
 )
 
@@ -177,6 +178,9 @@ const (
 // ErrInvalid: a limit or cursor out of range (422 validation_failed).
 var ErrInvalid = errors.New("relay: invalid argument")
 
+// ErrNotFound: the tenant of GET /platform/tenants/{tenantId}/relay-regions does not exist (404 not_found).
+var ErrNotFound = errors.New("relay: not found")
+
 // PlatformAssignment is an assignment of a region as platform staff see it (registry metadata).
 type PlatformAssignment struct {
 	ID             uuid.UUID
@@ -199,10 +203,13 @@ type PlatformRegion struct {
 	Version     int64
 }
 
-// RegionFilter holds the query parameters of GET /platform/relay-regions.
+// RegionFilter holds the query parameters of GET /platform/relay-regions (and of
+// GET /platform/tenants/{tenantId}/relay-regions — P4-T02).
 type RegionFilter struct {
 	Limit  int
 	Cursor string
+	// TenantID keeps only the regions of that tenant (uuid.Nil = every region); the tenant must exist (ErrNotFound).
+	TenantID uuid.UUID
 }
 
 // RegionPage is one page of regions and the figures the platform does not measure.
@@ -230,8 +237,19 @@ func (s *Service) PlatformRegions(ctx context.Context, f RegionFilter) (RegionPa
 		}
 		p.AfterCreatedAt, p.AfterID = &t, &id
 	}
+	if f.TenantID != uuid.Nil {
+		t := f.TenantID
+		p.TenantID = &t
+	}
 	out := RegionPage{Items: []PlatformRegion{}, Unavailable: Unmeasured()}
 	err := s.st.WithPlatformTx(ctx, func(q *sqlcdb.Queries) error {
+		if p.TenantID != nil {
+			if _, err := q.GetTenantView(ctx, *p.TenantID); errors.Is(err, store.ErrNoRows) {
+				return ErrNotFound
+			} else if err != nil {
+				return err
+			}
+		}
 		rows, err := q.ListRelayRegionsPage(ctx, p)
 		if err != nil {
 			return err

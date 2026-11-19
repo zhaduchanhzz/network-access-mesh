@@ -13,10 +13,47 @@ const TONE: Record<Tone, string> = {
   info: "badge badge-info",
 };
 
-/** Nhãn trạng thái: màu chỉ là phụ — chữ luôn nói trạng thái (WCAG 1.4.1). */
-export function StatusBadge({ tone, children, testId }: { tone: Tone; children: ReactNode; testId?: string }) {
+const TONES: Record<string, Tone> = {
+  // tenant / instance / relay / approval / job / step / health
+  active: "ok",
+  running: "ok",
+  succeeded: "ok",
+  healthy: "ok",
+  executed: "ok",
+  approved: "ok",
+  provisioning: "warn",
+  pending: "warn",
+  queued: "warn",
+  allocated: "warn",
+  starting: "warn",
+  suspended: "warn",
+  compensating: "warn",
+  failed_resumable: "danger",
+  deprovisioning: "warn",
+  failed: "danger",
+  unhealthy: "danger",
+  quarantined: "danger",
+  rejected: "danger",
+  deleted: "neutral",
+  removed: "neutral",
+  stopped: "neutral",
+  disabled: "neutral",
+  cancelled: "neutral",
+  rolled_back: "neutral",
+  expired: "neutral",
+  skipped: "neutral",
+  unknown: "neutral",
+};
+
+export function toneOf(status: string): Tone {
+  return TONES[status] ?? "neutral";
+}
+
+/** Nhãn trạng thái: màu chỉ là phụ — chữ luôn nói trạng thái (WCAG 1.4.1). `tone` tường minh, hoặc `status` (giá trị máy
+ * của API — chọn tone theo bảng trên và ghi vào data-status). */
+export function StatusBadge({ tone, status, children, testId }: { tone?: Tone; status?: string; children: ReactNode; testId?: string }) {
   return (
-    <span className={TONE[tone]} data-testid={testId}>
+    <span className={TONE[tone ?? (status === undefined ? "neutral" : toneOf(status))]} data-testid={testId} data-status={status}>
       {children}
     </span>
   );

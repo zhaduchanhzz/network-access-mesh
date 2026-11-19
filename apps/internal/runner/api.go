@@ -174,6 +174,10 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 	hooks.Audit = auditapi.Middleware(auditLog)
 	consoleGate := idpconsoleapi.NewGate(idpconsoleapi.GateConfig{Grants: console.NewStore(d.st), Authz: authorizer,
 		Audit: auditLog, Logger: log})
+	// P4-T02: the tenant detail of the Platform Console reuses these three sets (httpapi.PlatformTenantView)
+	tenantsH := tenantsapi.New(d.tenants, platform.New(d.st))
+	jobsH := jobsapi.New(jobs.NewService(d.st))
+	relayH := relayapi.New(relays)
 	inbox := notificationsapi.New(notifications.NewReader(d.st)) // P3-T05b list + P4-T04 read state
 	public, err := httpapi.New(httpapi.Options{
 		Logger:         log,
@@ -183,11 +187,11 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 		Maintenance:    httpapi.Maintenance{On: gate.On, AdminHost: cfg.AdminHost()},
 		Handlers: httpapi.Handlers{
 			Auth:          identityapi.New(svc),
-			Tenants:       tenantsapi.New(d.tenants, platform.New(d.st)),
+			Tenants:       tenantsH,
 			Devices:       devicesapi.New(dev),
 			Tags:          tagsapi.New(tags, devicesapi.New(dev)),
 			Audit:         auditapi.New(audit.NewReader(d.st)),
-			Jobs:          jobsapi.New(jobs.NewService(d.st)),
+			Jobs:          jobsH,
 			Monitoring:    monitoringapi.New(mon),
 			Notifications: inbox,
 			Approvals:     approvalsapi.New(appr),
@@ -197,11 +201,12 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 			IdPConsole:    idpconsoleapi.New(appr),
 			Provisioning:  provisioningapi.New(creator, orchestrator.NewControl(d.st).WithQuota(usage.TenantCreationTx)),
 			Lifecycle:     lifecycleapi.New(lifecycle.NewRequester(d.st)),
-			Relay:         relayapi.New(relays),
+			Relay:         relayH,
 			Reconfigure:   reconfigureapi.New(orchestrator.NewReconfigureService(d.st)),
 			InstanceOps:   instanceopsapi.New(orchestrator.NewInstanceOpsService(d.st)),
 			Deprovision:   deprovisionapi.New(deprov, appr),
 			Quarantine:    quarantineapi.New(quarantine.NewRequester(d.st), appr),
+			TenantView:    httpapi.PlatformTenantView{Jobs: jobsH, Instances: tenantsH, Relay: relayH}, // P4-T02
 			Members:       membersapi.New(mem, appr),
 			Portal:        inbox,                               // P4-T04: POST …/notifications/{id}/read
 			Admin:         adminapi.New(plat, d.tenants, appr), // P4-T03a

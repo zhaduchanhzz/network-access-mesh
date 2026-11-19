@@ -160,13 +160,15 @@ const listRelayRegionsPage = `-- name: ListRelayRegionsPage :many
 SELECT r.id, r.code, r.name, r.kind, r.derp_region_id, r.hostname, r.ipv4, r.ipv6, r.stun_port, r.derp_port, r.verify_mode,
        r.host_id, r.tenant_id, r.status, r.last_probe, r.last_probe_at, r.created_at, r.updated_at, r.version
 FROM relay_regions r
-WHERE $1::timestamptz IS NULL
-   OR (r.created_at, r.id) > ($1::timestamptz, $2::uuid)
+WHERE ($1::uuid IS NULL OR r.tenant_id = $1::uuid)
+  AND ($2::timestamptz IS NULL
+       OR (r.created_at, r.id) > ($2::timestamptz, $3::uuid))
 ORDER BY r.created_at, r.id
-LIMIT $3
+LIMIT $4
 `
 
 type ListRelayRegionsPageParams struct {
+	TenantID       *uuid.UUID
 	AfterCreatedAt *time.Time
 	AfterID        *uuid.UUID
 	RowLimit       int32
@@ -195,9 +197,14 @@ type ListRelayRegionsPageRow struct {
 }
 
 // Pool platform (GET /platform/relay-regions): một trang region của mọi tenant (và region dùng chung — Phase 7), thứ tự
-// ổn định (created_at, id).
+// ổn định (created_at, id); GET /platform/tenants/{t}/relay-regions (P4-T02) lọc theo tenant_id của region.
 func (q *Queries) ListRelayRegionsPage(ctx context.Context, arg ListRelayRegionsPageParams) ([]ListRelayRegionsPageRow, error) {
-	rows, err := q.db.Query(ctx, listRelayRegionsPage, arg.AfterCreatedAt, arg.AfterID, arg.RowLimit)
+	rows, err := q.db.Query(ctx, listRelayRegionsPage,
+		arg.TenantID,
+		arg.AfterCreatedAt,
+		arg.AfterID,
+		arg.RowLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
