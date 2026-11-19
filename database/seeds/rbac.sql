@@ -33,7 +33,7 @@ WITH seed (key, scope, description) AS (VALUES
     ('platform.relay:manage', 'platform', 'DELETE /platform/relay-regions, PATCH /platform/relay-regions, POST /platform/relay-regions'),
     ('platform.relay:read', 'platform', 'GET /platform/relay-regions'),
     ('platform.security_event:read', 'platform', 'GET /platform/security-events'),
-    ('platform.settings:read', 'platform', 'GET /platform/settings/{id}'),
+    ('platform.settings:read', 'platform', 'GET /platform/settings, GET /platform/settings/{id}'),
     ('platform.settings:update', 'platform', 'PUT /platform/settings/{id}'),
     ('platform.support_grant:breakglass', 'platform', 'POST /platform/support-grants/{id}/approve-breakglass'),
     ('platform.support_grant:read', 'platform', 'GET /platform/support-grants'),

@@ -25,6 +25,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/headscale"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/headscale/locator"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/adminapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/approvalsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/auditapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/authzhook"
@@ -154,6 +155,25 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 			func(context.Context, *store.Tx, approvals.Execution, deprovision.Payload) (*uuid.UUID, error) {
 				return nil, nil
 			}),
+		// the actions of P4-T03a (apps/internal/runner registers the executing ones — here no-ops): the Super Admin role,
+		// a platform change of a tenant IdP (the approver holds platform.idp:manage under tenant_idp_dual_control), the
+		// tenant's security settings
+		approvals.Typed(approvals.Spec{Name: platform.SuperAdminAction, Scope: authz.ScopePlatform,
+			ResourceType: platform.SuperAdminResourceType, Permission: platform.SuperAdminPermission},
+			func(context.Context, *store.Tx, approvals.Execution, platform.SuperAdminPayload) (*uuid.UUID, error) {
+				return nil, nil
+			}),
+		approvals.Typed(approvals.Spec{Name: tenants.PlatformIdPChangeApprovalAction, Scope: authz.ScopePlatform,
+			ResourceType: "identity_provider", Permission: "platform.idp:manage",
+			ApproverConditions: []string{authz.CondTenantIdPDualControl}},
+			func(context.Context, *store.Tx, approvals.Execution, tenants.PlatformIdPChange) (*uuid.UUID, error) {
+				return nil, nil
+			}),
+		approvals.Typed(approvals.Spec{Name: tenants.SecuritySettingsApprovalAction, Scope: authz.ScopeTenant,
+			ResourceType: "settings", Permission: "tenant.approval:decide"},
+			func(context.Context, *store.Tx, approvals.Execution, tenants.SecuritySettingsPayload) (*uuid.UUID, error) {
+				return nil, nil
+			}),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -221,6 +241,9 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 		Tags: tagsapi.New(tagSvc, devicesapi.New(dev)),
 		// Members (P4-T09): membership writes under authz.GuardMembershipChange, groups (no worker: jobs stay queued)
 		Members: membersapi.New(mem, appr),
+		// Admin (P4-T03a): platform users, settings, IdPs, plans, PATCH of a tenant; the tenant's settings, IdP and
+		// deletion request — with the approval actions of P4-T03a in the registry above
+		Admin: adminapi.New(platform.New(w.Store), dir, appr),
 		// Policies (P4-T10): the policy lifecycle over the production registry (validate's dry run — unreachable)
 		Policies: policiesapi.New(versions),
 	}
@@ -317,6 +340,7 @@ type objects struct {
 	target, group                map[string]uuid.UUID    // P4-T09: an end-user member no actor is (membership writes), a group
 	policy                       map[string]uuid.UUID    // P4-T10: a typed draft policy version of the tenant (never approved)
 	platformApproval             uuid.UUID               // a pending approval request of scope platform
+	platformUser, plan           uuid.UUID               // P4-T03a: a platform user no actor is, the standard plan
 	host                         uuid.UUID               // the host of the instances (P3-T04: /platform/hosts/{hostId})
 	notifOwn                     map[uuid.UUID]uuid.UUID // P4-T04: membership of a tenant actor → a notification addressed to it
 	notifOther                   map[string]uuid.UUID    // P4-T04: a notification of the tenant addressed to a non-actor member
@@ -517,5 +541,9 @@ func (m *matrixWorld) createObjects(t *testing.T) objects {
 		m.NewActor(t, authz.RoleSuperAdmin, nil).IdentityID)
 	m.Exec(t, `INSERT INTO provisioning_jobs (id, kind, status, created_at, finished_at)
 		VALUES ($1, 'partition.maintain', 'succeeded', now(), now())`, o.platformJob)
+	// P4-T03a: the platform user the writes of /platform/users target (never an actor: a role change revokes its
+	// sessions) and the seeded standard plan
+	o.platformUser = m.NewActor(t, authz.RolePlatformViewer, nil).PlatformUserID
+	m.Scan(t, `SELECT id FROM subscription_plans WHERE key = 'standard'`, nil, &o.plan)
 	return o
 }

@@ -3,6 +3,7 @@ package tenants
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -73,6 +74,10 @@ type Tenant struct {
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 	Version          int64 // optimistic-lock counter, source of the ETag
+	// Plan and Limits are the live subscription's plan key and effective limits (the plan's limits, each key of the
+	// overrides replacing it — §13.3) — single-tenant reads only (P4-T03a); "" / nil without a live subscription.
+	Plan   string
+	Limits json.RawMessage
 }
 
 // TenantPage is one page of tenants.
@@ -168,8 +173,11 @@ type Options struct {
 	BaseDomain string
 	// Notifier delivers invitations (P3-T05b); nil ⇒ OutboxNotifier (notification_outbox kind tenant.invitation).
 	Notifier InvitationNotifier
-	// Now is the clock of the invitations; nil ⇒ time.Now.
+	// Now is the clock of the invitations and of the administration writes; nil ⇒ time.Now.
 	Now func() time.Time
+	// ClientSecrets stores the client secret of an external IdP (PATCH /identity-provider — P4-T03a); nil ⇒ a client
+	// secret in that request is refused (secret_store_unavailable).
+	ClientSecrets ClientSecrets
 }
 
 // Service reads (and, for the admin commands, writes) the Tenant Registry, and manages invitations (P3-T05a).
@@ -178,11 +186,13 @@ type Service struct {
 	base     string
 	notifier InvitationNotifier
 	now      func() time.Time
+	secrets  ClientSecrets
 }
 
 // New returns the registry service on st (the process's two pools).
 func New(st *store.Store, o Options) *Service {
-	s := &Service{st: st, base: strings.ToLower(strings.TrimSpace(o.BaseDomain)), notifier: o.Notifier, now: o.Now}
+	s := &Service{st: st, base: strings.ToLower(strings.TrimSpace(o.BaseDomain)), notifier: o.Notifier, now: o.Now,
+		secrets: o.ClientSecrets}
 	if s.notifier == nil {
 		s.notifier = OutboxNotifier{}
 	}
@@ -236,7 +246,34 @@ func (s *Service) getView(ctx context.Context, q *sqlcdb.Queries, tenantID uuid.
 	if row.Tenant.ID != tenantID { // layer 2 of §8.8: the object must be the tenant of the path
 		return Tenant{}, ErrNotFound
 	}
-	return s.tenant(row.Tenant, row.ControlUrl), nil
+	t := s.tenant(row.Tenant, row.ControlUrl)
+	sub, err := q.GetTenantSubscriptionLimits(ctx, tenantID)
+	switch {
+	case errors.Is(err, store.ErrNoRows):
+	case err != nil:
+		return Tenant{}, err
+	default:
+		t.Plan, t.Limits = sub.PlanKey, EffectiveLimits(sub.Limits, sub.Overrides)
+	}
+	return t, nil
+}
+
+// EffectiveLimits merges a plan's limits and a subscription's overrides (§13.3: an override replaces one key); a
+// document that is not an object contributes nothing.
+func EffectiveLimits(limits, overrides []byte) json.RawMessage {
+	out := map[string]json.RawMessage{}
+	_ = json.Unmarshal(limits, &out)
+	var over map[string]json.RawMessage
+	if json.Unmarshal(overrides, &over) == nil {
+		for k, v := range over {
+			out[k] = v
+		}
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return nil
+	}
+	return b
 }
 
 // ListMemberTenants is GET /tenants: the tenants where the identity holds an active membership. An identity of scope

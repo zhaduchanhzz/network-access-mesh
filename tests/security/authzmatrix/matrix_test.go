@@ -101,6 +101,7 @@ type call struct {
 	pathTenant uuid.UUID // {tenantId} of a tenant route
 	objectCase string    // see objectFor
 	objectID   uuid.UUID
+	objectKey  string // a path parameter that is not a UUID (settingKey — P4-T03a)
 	victim     string // tenant ("A"/"B") whose data the call targets without being a member of it
 	loginSlug  string
 	state      string
@@ -243,7 +244,7 @@ func (m *matrix) objectCases(op authz.Operation, a *actor, tenantCase string) []
 			return []string{"own", "other-tenant", "missing"}
 		}
 		return []string{"existing", "missing"}
-	case objInstance, objTenant, objHost:
+	case objInstance, objTenant, objHost, objPlatformUser, objSetting, objPlan:
 		return []string{"existing", "missing"}
 	case objNotification: // always tenant-scoped; own-only for every role (§8.6)
 		return []string{"own", "other-member", "other-tenant", "missing"}
@@ -264,7 +265,7 @@ func firstCase(k objectKind) string {
 		return "eu-own"
 	case objSession:
 		return "missing"
-	case objInstance, objTenant, objHost:
+	case objInstance, objTenant, objHost, objPlatformUser, objSetting, objPlan:
 		return "existing"
 	}
 	return "own"
@@ -319,8 +320,16 @@ func (m *matrix) place(t *testing.T, c *call) {
 	}
 	kind, _ := objectKindOf(c.op)
 	switch {
+	case kind == objSetting && c.objectCase == "existing":
+		c.objectKey = "approval.ttl_hours" // a served key (P4-T03a)
+	case kind == objSetting:
+		c.objectKey = "matrix.no_such_key"
 	case c.objectCase == "" || c.objectCase == "missing":
 		c.objectID = uuid.New()
+	case kind == objPlatformUser:
+		c.objectID = m.obj.platformUser
+	case kind == objPlan:
+		c.objectID = m.obj.plan
 	case kind == objDevice:
 		c.objectID = map[string]map[string]uuid.UUID{
 			"eu-own": m.obj.devEU, "eu-tagged": m.obj.devEUTagged, "other-member": m.obj.devOther,
@@ -400,6 +409,9 @@ func (c *call) path() string {
 	p := c.op.Path
 	for _, name := range pathParams(p) {
 		v := c.objectID.String()
+		if c.objectKey != "" {
+			v = c.objectKey
+		}
 		if name == "tenantId" && c.op.TenantScoped() {
 			v = c.pathTenant.String()
 		}

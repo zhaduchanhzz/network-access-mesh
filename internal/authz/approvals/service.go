@@ -91,7 +91,13 @@ const (
 	// was used for another request (422 idempotency_key_reuse).
 	ReasonIdempotencyInProgress = "idempotency_in_progress"
 	ReasonIdempotencyKeyReuse   = "idempotency_key_reuse"
+	// ReasonTargetChanged: an action refuses to run because what it acts on changed since the request was made (its
+	// version or ETag is in the payload — P4-T03a); nothing ran, the request stays approved until it expires.
+	ReasonTargetChanged = "target_changed"
 )
+
+// TargetChanged is the refusal an Action returns when its target changed since the request (409, nothing written).
+func TargetChanged() *Error { return refuse(ErrConflict, ReasonTargetChanged) }
 
 // Error is a refusal of the service.
 type Error struct {
@@ -208,6 +214,10 @@ type Config struct {
 	TTL          time.Duration // 0 ⇒ DefaultTTL (system_settings TTLSetting overrides it)
 	Now          func() time.Time
 	Logger       *slog.Logger
+	// Notify, when set, runs in the transaction that creates a request — a job-capable transaction of the request's
+	// scope — so the people who may decide it are told with the request (notification_outbox, P4-T03a: the approval
+	// queue of the tenant). An error rolls the request back.
+	Notify func(ctx context.Context, tx *store.Tx, r Request) error
 }
 
 // Service is dual control: requests, decisions and execution (P3-T04a).
@@ -441,7 +451,8 @@ func (s *Service) request(ctx context.Context, actor Actor, in NewRequest, done 
 	now := s.now()
 	expires := now.Add(s.ttl(ctx))
 	var row sqlcdb.ApprovalRequest
-	err = s.tx(ctx, ref, func(q *sqlcdb.Queries) error {
+	err = s.jobTx(ctx, ref, func(tx *store.Tx) error {
+		q := tx.Q
 		open, err := q.FindOpenApprovalRequest(ctx, sqlcdb.FindOpenApprovalRequestParams{Scope: string(ref.Scope),
 			TenantID: ref.tenantPtr(), Action: spec.Name, ResourceType: spec.ResourceType, ResourceID: optional(in.ResourceID),
 			Now: now})
@@ -475,6 +486,11 @@ func (s *Service) request(ctx context.Context, actor Actor, in NewRequest, done 
 				"requested_by_identity_id": actor.IdentityID,
 			}}); err != nil {
 			return err
+		}
+		if s.cfg.Notify != nil {
+			if err := s.cfg.Notify(ctx, tx, s.view(row, "", "")); err != nil {
+				return err
+			}
 		}
 		if done != nil {
 			return done(q, row.ID)
@@ -646,7 +662,9 @@ func (s *Service) authorizeDecider(ctx context.Context, ref Ref, actor Actor, r 
 		}
 		ctx = authz.WithPrincipal(ctx, authz.Principal{IdentityID: actor.IdentityID, Scope: actor.Scope, Origin: origin})
 	}
-	if _, err := s.cfg.Approvers.RequireApprover(ctx, ref.TenantID, r.RequestedByIdentityID, authz.Need(spec.Permission)); err != nil {
+	need := authz.Need(spec.Permission)
+	need.Conditions = spec.ApproverConditions
+	if _, err := s.cfg.Approvers.RequireApprover(ctx, ref.TenantID, r.RequestedByIdentityID, need); err != nil {
 		return err // *authz.Denial: 403/404 as decided for the caller
 	}
 	return nil

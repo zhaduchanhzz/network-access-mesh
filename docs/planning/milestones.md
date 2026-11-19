@@ -119,7 +119,7 @@ Chi tiết từng môi trường (bổ sung cho đoạn trên):
 | Dependencies | G3 (API ổn định) |
 | Files/modules expected | `apps/web/**`, `internal/{enrollment,policies,network,members}`, bổ sung `api/openapi.yaml` |
 | Configuration requirements | Hai origin; CSP; quy tắc chuyển hướng `/register/*` ở edge |
-| Database migrations | `0020`–`0024` theo bản đồ migration ở §6.3 (enrollment_requests; groups + tenant_tags; network_resources/dns_records; support_access_grants + identity_links; `0024` — CHECK trạng thái membership, P4-T09) |
+| Database migrations | `0020`–`0025` theo bản đồ migration ở §6.3 (enrollment_requests; groups + tenant_tags; network_resources/dns_records; support_access_grants + identity_links; `0024` — CHECK trạng thái membership, P4-T09; `0025` — CHECK trạng thái platform user + quyền cột tenant cho thiết lập/IdP, P4-T03a) |
 | API changes | `enrollment/*`, `policies/*`, `groups/*`, `tags/*`, `users` (ghi, gồm `role`, `admin-role`, `ownership-transfer`), `devices/{id}/tags`, `routes/*`, `dns/*`, `resources/*`, `support-grants/*`, `platform/users`, `platform/settings`, `platform/identity-providers`, `platform/plans`, `tenants/{t}/settings` (+ `settings/security`), `tenants/{t}/approvals`, `tenants/{t}/identity-provider`, `request-deletion`, `PATCH /platform/tenants/{id}` |
 | Security controls | Guardrail lint policy; 4-eyes tùy chọn; step-up; key hiển thị một lần; claim chỉ khi có yêu cầu đang chờ trong cùng phiên + kiểm node sau đăng ký (§7.4) |
 | Unit tests | Render policy tất định; lint L1–L13; component (Vitest) |
@@ -163,7 +163,7 @@ Chi tiết từng môi trường (bổ sung cho đoạn trên):
 | Dependencies | G5 |
 | Files/modules expected | `infrastructure/monitoring/**`, `docs/operations/**`, pipeline CI supply chain, `tests/load/**` |
 | Configuration requirements | Kho offsite; kênh cảnh báo; lịch xoay; quy tắc `DOCKER-USER` |
-| Database migrations | `0025` usage_records (partition) + bảng tổng hợp |
+| Database migrations | `0026` usage_records (partition) + bảng tổng hợp |
 | API changes | `usage/*` (gồm `tenants/{t}/billing` và `platform/usage`), `platform/backups`, `platform/security-events`, gỡ ban CrowdSec (endpoint chốt ở P6-T07a) |
 | Security controls | Hash-chain audit; đẩy audit ra ngoài host; rà soát grant định kỳ; allow-list đích cho `mg-egress` |
 | Unit tests | Hash-chain audit; tổng hợp usage; KEK rewrap |

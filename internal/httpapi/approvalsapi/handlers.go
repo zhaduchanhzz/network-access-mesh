@@ -84,6 +84,7 @@ var details = map[string]string{
 	approvals.ReasonSelfDecision:          "A request cannot be decided by the person who made it.",
 	approvals.ReasonDecideCondition:       "Your role cannot decide this kind of request.",
 	approvals.ReasonIdempotencyInProgress: "A request with this Idempotency-Key is still in progress.",
+	approvals.ReasonTargetChanged:         "What the request acts on changed since it was made; nothing was executed — make a new request.",
 }
 
 // Failure maps an error of the approvals service to its problem — for the handler sets of the 2P operations that
