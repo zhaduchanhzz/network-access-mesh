@@ -14,6 +14,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/audit"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/config"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/headscale"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/jobs"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store/sqlcdb"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/usage"
@@ -25,6 +26,7 @@ const (
 	createKeyOperation     = "createEnrollmentKey"
 	lockName               = "enrollment" // tenant lock of /start and /revoke (a key is issued or expired once)
 	lockWait               = 15 * time.Second
+	slotRevoke             = "revoke" // dedupe slot of the enrollment.reconcile a revocation of a used key enqueues
 )
 
 // NewRequest is POST /enrollment/requests: a device of the caller itself.
@@ -387,6 +389,24 @@ func (s *Service) inTx(ctx context.Context, tenantID uuid.UUID, fn func(q *sqlcd
 	return after
 }
 
+// inJobTx is inTx for fn that also enqueues jobs (WithTenantJobTx).
+func (s *Service) inJobTx(ctx context.Context, tenantID uuid.UUID, fn func(tx *store.Tx) error) error {
+	var after error
+	err := s.st.WithTenantJobTx(ctx, tenantID, func(tx *store.Tx) error {
+		err := fn(tx)
+		var c errCommitted
+		if errors.As(err, &c) {
+			after = c.err
+			return nil
+		}
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	return after
+}
+
 // expireStale ends a request whose decision window passed (§7.4: 24 hours waiting for a decision or for /start).
 func (s *Service) expireStale(ctx context.Context, q *sqlcdb.Queries, r sqlcdb.EnrollmentRequest) (bool, error) {
 	since := r.CreatedAt
@@ -661,7 +681,8 @@ func (s *Service) revoke(ctx context.Context, tenantID, id uuid.UUID, a Actor) (
 	if err != nil {
 		return fail(err)
 	}
-	err = s.inTx(ctx, tenantID, func(q *sqlcdb.Queries) error {
+	err = s.inJobTx(ctx, tenantID, func(tx *store.Tx) error {
+		q := tx.Q
 		r, err := q.LockEnrollmentRequest(ctx, sqlcdb.LockEnrollmentRequestParams{TenantID: tenantID, ID: id})
 		if err != nil {
 			return err
@@ -678,7 +699,13 @@ func (s *Service) revoke(ctx context.Context, tenantID, id uuid.UUID, a Actor) (
 		if got.used && !r.Reusable && r.Status == StatusCredentialIssued {
 			// the single-use key registered a device before reconcile saw it: the request is never revoked — it stays
 			// for reconcile, which settles it consumed with its node (or failed node_gone) as for any used key; the
-			// device is revoked through /devices (what a revocation after reconcile answers)
+			// device is revoked through /devices (what a revocation after reconcile answers). A run is enqueued now
+			// rather than at the next slot of the schedule: until it settles, the request still reads issued and
+			// counts as a live credential.
+			if _, err := jobs.Enqueue(ctx, tx, jobs.Spec{Kind: KindReconcile, TenantID: &tenantID,
+				Slot: slotRevoke}); err != nil {
+				return err
+			}
 			if err := s.closeOp(ctx, q, &op, "already_final"); err != nil {
 				return err
 			}
@@ -744,9 +771,11 @@ func (s *Service) expireKey(ctx context.Context, tenantID uuid.UUID, r sqlcdb.En
 		return keyState{}, &Error{Code: CodeUpstreamRejected, Reason: "readback_mismatch",
 			Detail: "The tenant's control plane did not expire the key."}
 	}
-	if (ok && !k.Used) || r.ConsumedNodeID != nil { // unused, or its device is already on the request
+	if r.ConsumedNodeID != nil { // its device is already on the request
 		return keyState{used: ok && k.Used}, nil
 	}
+	// the nodes tell, as in reconcile: Headscale marks only a single-use key used (0.29.7 — research f.md: `used` is set
+	// for non-reusable keys only), the use of a reusable key shows in the nodes it registered and nowhere else
 	nodes, err := inst.ListNodes(ctx, "")
 	if err != nil {
 		return keyState{}, err

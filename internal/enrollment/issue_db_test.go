@@ -37,6 +37,21 @@ func TestIssueAndRevoke(t *testing.T) {
 		keys := a.hs.Keys()
 		return keys[len(keys)-1]
 	}
+	// use registers a node with key id as Headscale 0.29.7 does: only a single-use key is marked used — `used` stays
+	// false on a reusable key (research f.md; the fake's UseKey marks every key used)
+	use := func(id uint64, n devicestest.Node) devicestest.Node {
+		node := a.hs.UseKey(id, n)
+		if k := a.hs.Key(id); k.Reusable {
+			k.Used = false
+			a.hs.PutKey(k)
+		}
+		return node
+	}
+	reconcileJobs := func(t *testing.T) int {
+		t.Helper()
+		return f.count(t, `SELECT count(*) FROM provisioning_jobs WHERE tenant_id = $1 AND kind = $2 AND dedupe_key = $3
+			AND status = 'queued'`, a.id, KindReconcile, "tenant:"+a.id.String()+":enroll:"+slotRevoke)
+	}
 
 	t.Run("WebAuthReplayHoldsNoCode", func(t *testing.T) {
 		// the hostname mg-<code> and the command carry the one-time code: the body an Idempotency-Key replays keeps
@@ -144,6 +159,9 @@ func TestIssueAndRevoke(t *testing.T) {
 		if st := status(t, out.Request.ID); st != StatusCredentialIssued {
 			t.Fatalf("status %s after the revoke of a used key, want it left to reconcile", st)
 		}
+		if n := reconcileJobs(t); n != 1 { // reconcile runs now, not at the next slot of the schedule
+			t.Fatalf("%d enrollment.reconcile job(s) queued by the revocation, want 1", n)
+		}
 		// the device row the inventory sync writes is linked to the request once reconcile consumed it
 		f.exec(t, `INSERT INTO device_inventory_cache (tenant_id, instance_id, headscale_node_id, machine_key, name)
 			VALUES ($1, $2, $3, $4, 'srv-used')`, a.id, a.instance, int64(node.ID), node.MachineKey) //nolint:gosec // small test ids
@@ -195,13 +213,46 @@ func TestIssueAndRevoke(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		node := a.hs.UseKey(lastKey().ID, devicestest.Node{MachineKey: "mkey:reusable", Hostname: "ci-1"})
+		queued := reconcileJobs(t)
+		node := use(lastKey().ID, devicestest.Node{MachineKey: "mkey:reusable", Hostname: "ci-1"})
+		if k := a.hs.Key(lastKey().ID); k.Used {
+			t.Fatalf("a reusable key reads used: %+v", k)
+		}
 		r, err := f.api.Revoke(ctxOf(admin, a.id, ActionRevoke), a.id, out.Request.ID, admin)
 		if err != nil || r.Status != StatusRevoked || r.NodeID == nil || *r.NodeID != int64(node.ID) { //nolint:gosec // small test ids
 			t.Fatalf("revoke of a used reusable key: %+v %v", r, err)
 		}
 		if k := a.hs.Key(lastKey().ID); k.Expiration.After(time.Now().Add(time.Second)) {
 			t.Fatalf("the revoked reusable key is still live: %+v", k)
+		}
+		if n := reconcileJobs(t); n != queued {
+			t.Fatalf("a revocation that ended the request queued enrollment.reconcile (%d → %d)", queued, n)
+		}
+	})
+
+	t.Run("ReusableKeyRacesReconcile", func(t *testing.T) {
+		// reconcile settles a used reusable key consumed while the revocation expires it: the request still holds the
+		// same live key, so the revocation goes on — revoked, with the node reconcile recorded
+		out, err := f.api.CreateKey(ctxOf(admin, a.id, ActionKeyCreate), a.id, admin,
+			NewKey{Tags: []string{"tag:server"}, Reusable: true}, idem("k-i-9", "9"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		node := use(lastKey().ID, devicestest.Node{MachineKey: "mkey:reusable-raced", Hostname: "ci-2"})
+		var rerr error
+		a.hs.After(devicestest.OpExpirePreAuthKey, func(uint64) {
+			_, rerr = f.wrk.Reconcile(context.Background(), a.id)
+		})
+		r, err := f.api.Revoke(ctxOf(admin, a.id, ActionRevoke), a.id, out.Request.ID, admin)
+		if rerr != nil {
+			t.Fatal(rerr)
+		}
+		if err != nil || r.Status != StatusRevoked || r.NodeID == nil || *r.NodeID != int64(node.ID) { //nolint:gosec // small test ids
+			t.Fatalf("revoke of a reusable key raced by reconcile: %+v %v", r, err)
+		}
+		if got := f.auditOf(t, out.Request.ID.String()); !slices.Contains(got, "enrollment.consume/success") ||
+			!slices.Contains(got, "enrollment.revoke.succeeded/success") {
+			t.Fatalf("audit %v", got)
 		}
 	})
 
