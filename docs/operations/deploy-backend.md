@@ -22,6 +22,7 @@
 | l | P3-T15 — kiểm soát quản trị IdP: api/worker mới (job `idp.audit_sync`, cổng console), `realm-update.sh` (`frontendUrl` của master, `view-events` của danh tính provisioning), Caddyfile **v8** | Ủy quyền Phase 3 (người điều phối) + **thông báo trước reload edge** | Xem bảng của mục l |
 | m | P4-T01a — SPA sau edge: service `web` trong `mg-app`, Caddyfile **v9** (`app.`/`admin.` ngoài `/api/*` ⇒ `web:8080`) | **[CHỦ DỰ ÁN/NGƯỜI ĐIỀU PHỐI DUYỆT]** + **thông báo trước reload edge** | Xem mục m |
 | n | P4-T07 — Caddyfile **v10**: `/register/<auth_id>` không `via=portal` ⇒ 302 tới trang claim của Portal; chỉ sau khi API claim (P4-T06) và trang `/enroll/claim` (P4-T08) đã chạy | **[CHỦ DỰ ÁN DUYỆT]** + **thông báo trước reload edge** | Xem mục n |
+| o | Lô Phase 4 đầu tiên lên staging (`8840590` → `9736636`): migration `0020`–`0026`, api/worker/web/**agent** mới, Caddyfile v9 (v10 khi có P4-T08) — trình tự đã diễn tập trên VM 110 | **[CHỦ DỰ ÁN DUYỆT]** + **thông báo trước reload edge** | Xem mục o |
 
 Lệch thứ tự so với danh sách của brief: **idp-bootstrap và đăng nhập thử nằm sau (h)** — worker chỉ tới được Admin API của Keycloak qua site `auth.` mới của edge, đăng nhập cần site `app.`/`admin.`. Adopt, client secret, bootstrap SA/seed (e, f) không cần edge mới.
 
@@ -312,9 +313,9 @@ Không migration của riêng task này, không đổi image edge hay compose c�
 | # | Bước | Ảnh hưởng tới đang chạy |
 |---|---|---|
 | m1 | Pin `[images.mg-api]`, `[images.mg-worker]`, `[images.mg-web]` của **cùng** commit gộp (workflow `images` xanh — job `web` gồm khối kiểm image), đồng bộ `~/mg` | Không |
-| m2 | api/worker đổi commit ⇒ có migration mới thì `migrate.sh` trước (mục b); render `compose.app.yaml` (template 4), `$APP up -d --wait api worker web` | api/worker recreate nếu đổi image (như k6/l2); `web` mới — chưa có route |
-| m3 | Caddyfile **v8 → v9**: render, `diff` compose (chỉ dòng `template_version`), sao lưu, cài, `caddy validate`, reload | **Reload** — báo trước: stream upgrade đóng sau `stream_close_delay` (5 phút), client tự nối lại |
-| m4 | Kiểm: `app.`/`admin.` trả SPA (`/`, deep link), một CSP, `/api/v1/auth/session` 401, `/healthz`/`/metrics`/`/internal/*` là `index.html`, dot segment ⇒ 404; console Keycloak trên `admin.` vẫn 401 khi không có phiên; `/key?v=113` A/B/C 200; `run_staging.sh` (nhóm `platform`) PASS; `external.py` từ ngoài | Không |
+| m2 | Render **và cài** `compose.app.yaml` (template 4) **trước**, rồi có migration mới thì `migrate.sh` (mục b — job `migrate` dùng image api của file **đang cài**: chạy trước khi cài là chạy migration của image cũ, báo `OK`/`current:true` mà schema không đổi — diễn tập P4, F-3), rồi `$APP up -d --wait api worker web` | api/worker recreate nếu đổi image (như k6/l2; đo được ~2 s 502 trên `app.`); `web` mới — chưa có route |
+| m3 | Caddyfile **v8 → v9**: render, `diff` compose (chỉ dòng `template_version`), sao lưu, cài, `caddy validate`, reload. Cây từ `3498e00` (P4-T07) trở đi chỉ render được **v10**: muốn dừng ở v9 thì render bằng `tools/render_edge.py` của `git archive f7ceb5d` (mục o bước 6) | **Reload** — báo trước: stream upgrade đóng sau `stream_close_delay` (5 phút), client tự nối lại |
+| m4 | Kiểm: `app.`/`admin.` trả SPA (`/`, deep link), một CSP, `/api/v1/auth/session` 401, `/healthz`/`/metrics`/`/internal/*` là `index.html`, dot segment ⇒ 404; console Keycloak trên `admin.` vẫn 401 khi không có phiên; `/key?v=113` A/B/C 200; `run_staging.sh` (nhóm `platform`) PASS — chạy bằng `tests/security/edge/` của **cùng cây đã render Caddyfile đang chạy** (bản của cây ≥ `3498e00` đòi chuyển hướng v10 ⇒ FAIL nhóm `public` trên edge v9); `external.py` từ ngoài | Không |
 
 Hoàn tác: cài lại Caddyfile v8 đã sao lưu + `validate` + reload (Portal về 404 như trước); `web` để chạy vô hại hoặc `$APP stop web`.
 
@@ -331,3 +332,87 @@ Chỉ Caddyfile ⇒ **reload** (§14.6 (a)); không migration, không image mớ
 | n3 | Kiểm: `run_staging.sh` (nhóm `public`: chuyển hướng, Auth ID sai ⇒ 404, `via=portal`) PASS; `/key?v=113` A/B/C 200; **V-07**: client thật từng OS hoàn tất đăng ký sau claim (link in ra ⇒ `app.<domain>/enroll/claim` ⇒ claim ⇒ `Running`) | Không |
 
 Hoàn tác: cài lại Caddyfile v9 đã sao lưu + `validate` + reload. Ghi vào `current.md` (giờ reload edge v10) và bằng chứng P4-T07 (mục staging — V-07).
+
+## o. Lô Phase 4 đầu tiên lên staging (`8840590` → `9736636`) — trình tự đã diễn tập
+
+Áp mục m (web + v9) và — khi có P4-T08 — mục n trong **một** đợt, cùng migration `0020`–`0026`, api/worker/web mới và
+**Host Agent mới** (P4-T12 `WriteDnsRecords`: Agent cũ trả UNIMPLEMENTED ⇒ job `dns.records_write` `failed
+agent_refused`). Diễn tập đầy đủ (nâng, kiểm, hoàn tác A và B, nâng lại) trên VM 110 với chính các script của host:
+[P4-deploy-rehearsal](../planning/evidence/P4-deploy-rehearsal.md) — số đo, lỗi runbook đã sửa (F-1…F-5), mục chỉ kiểm
+được trên staging. **Thứ tự bắt buộc:** compose mới **cài trước** `migrate.sh` (F-3) → migrate → Agent → api/worker/web
+→ edge v9 (web phải chạy trước) → v10 **chỉ khi** SPA có `/enroll/claim` (P4-T08 — chưa có ở `9736636`: link
+`/register/<auth_id>` sẽ mở trang "không tìm thấy" của SPA). Không đổi: IdP/realm (`realm-update.sh --check` exit 0),
+image idp/edge/headscale/backup/probe/node-exporter, `compose.edge.yaml` (chỉ dòng chú thích), firewall, network,
+secret file, `staging.env`, VPS (gateway v2 đã lên từ F-G3-1). Biến mới tùy chọn: `MG_IDP_CONSOLE_LOGIN_NOTIFY_WINDOW`
+(worker, mặc định 10m — không render vào compose).
+
+```bash
+# 0. máy vận hành: workflow `images` xanh cho commit D (≥ 9736636) ⇒ MỘT commit pin [images.mg-api], [images.mg-worker],
+#    [images.mg-web], [images.mg-agent] cùng tag D (render_app từ chối khi thiếu/khác tag). Báo trước giờ reload edge.
+# 1. đồng bộ + sao lưu cấu hình đang chạy
+TS=$(date -u +%Y%m%dT%H%M%SZ)
+cp -a ~/mg ~/mg.bak-$TS                                     # rồi ~/mg = git archive của commit pin
+for f in app agent edge; do sudo cp -a /opt/meshguard/core/compose.$f.yaml /root/compose.$f.yaml.$TS; done
+sudo cp -a /opt/meshguard/core/caddy/Caddyfile /root/Caddyfile.v8.$TS
+cd ~/mg && eval "$(python3 tools/mgenv.py export infrastructure/environments/staging/staging.env)" && sudo -v
+APP="sudo docker compose -p mg-app -f /opt/meshguard/core/compose.app.yaml"
+PSQL="sudo docker exec -i mg-core-postgres-1 psql -X -U postgres -d meshguard -tA"
+# 2. preflight (chỉ đọc) — mọi dòng phải như chú thích
+for t in test_render_app test_render_edge test_render_agent; do python3 tools/$t.py >/dev/null && echo "$t ok"; done
+$PSQL -c "SELECT status, count(*) FROM tenant_memberships GROUP BY 1"   # chỉ active|locked|offboarded (CHECK của 0024)
+$PSQL -c "SELECT status, count(*) FROM platform_users GROUP BY 1"       # chỉ active|disabled (CHECK của 0025)
+$PSQL -c "SELECT count(*) FROM device_inventory_cache WHERE enrollment_request_id IS NOT NULL"   # 0 (FK của 0020)
+$PSQL -c "SELECT count(*) FROM provisioning_jobs WHERE status IN ('queued','running')"          # 0 (không job dở)
+for S in tenant-a tenant-b; do echo "$S $(sudo docker exec mg-hs-$S headscale policy get | head -c -1 | sha256sum | cut -c1-64)"; done
+$PSQL -c "SELECT t.slug, a.applied_sha256 FROM policy_applications a JOIN tenants t ON t.id = a.tenant_id
+          WHERE a.state = 'applied' AND a.superseded_at IS NULL ORDER BY 1"
+#    hai sha phải trùng nhau từng tenant: lệch ⇒ trong ≤ 15 phút sau triển khai, policy.drift_check (P4-T10) ghi
+#    security_event High và áp lại version mong muốn (drift_repair); instance không có policy ⇒ gỡ edge khỏi instance
+# 3. render + diff (không đổi gì đang chạy)
+python3 tools/render_app.py infrastructure/environments/staging/staging.env /tmp/mg-app
+diff /opt/meshguard/core/compose.app.yaml /tmp/mg-app/compose.app.yaml   # template 3→4: + service web, image api/worker
+python3 tools/render_agent.py infrastructure/environments/staging/staging.env /tmp/agent
+diff /opt/meshguard/core/compose.agent.yaml /tmp/agent/compose.agent.yaml # chỉ image + MG_AGENT_HELPER_IMAGE
+diff /opt/meshguard/core/agent/allowlist /tmp/agent/agent/allowlist       # không đổi
+# 4. compose mới TRƯỚC, rồi backup pre-migration + migrate 0020–0026 (api/worker cũ vẫn chạy được trên schema 26)
+sudo install -m 0644 /tmp/mg-app/compose.app.yaml /opt/meshguard/core/compose.app.yaml
+sudo bash infrastructure/host/migrate.sh        # mong đợi "schema_version":26,"latest_migration":26 … "current":true + OK
+sudo ls /opt/meshguard/backups/postgres | grep pre-migration | tail -1   # ghi id bộ — điểm hoàn tác B
+# 5. Host Agent mới (recreate ~4 s; tenant không bị đụng)
+sudo install -m 0644 /tmp/agent/compose.agent.yaml /opt/meshguard/core/compose.agent.yaml
+sudo docker compose -f /opt/meshguard/core/compose.agent.yaml up -d --wait --wait-timeout 120
+# 6. api/worker/web/mail-bridge (recreate ~5–8 s; app. 502 ~2–5 s dưới Caddyfile v8)
+$APP up -d --wait --wait-timeout 240 api worker web mail-bridge
+for c in api worker mail-bridge; do sudo docker exec mg-app-$c-1 /usr/local/bin/meshguard healthcheck; done
+sudo docker exec mg-app-web-1 /usr/bin/healthprobe http://127.0.0.1:8080/ 200 && echo web-ok
+# 7. edge v8 → v9 (reload 0,2–0,3 s): cây ≥ 3498e00 chỉ render được v10 ⇒ render v9 bằng tools/ của f7ceb5d
+#    (máy vận hành: git archive f7ceb5d tools infrastructure/caddy infrastructure/compose tests/security/edge versions.lock
+#    → giải nén vào ~/mg-v9 trên host; file tham số + env vẫn của ~/mg)
+(cd ~/mg-v9 && python3 tools/render_edge.py ~/mg/infrastructure/environments/staging/edge.json /tmp/edge9)
+diff /opt/meshguard/core/compose.edge.yaml /tmp/edge9/compose.edge.yaml   # chỉ dòng chú thích template_version
+sudo install -m 0644 /tmp/edge9/compose.edge.yaml /opt/meshguard/core/compose.edge.yaml
+sudo install -m 0644 /tmp/edge9/caddy/Caddyfile /opt/meshguard/core/caddy/Caddyfile
+sudo docker exec mg-edge caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+sudo docker exec mg-edge caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile --address unix//run/caddy/admin.sock
+sudo bash ~/mg-v9/tests/security/edge/run_staging.sh "mesh.$MG_BASE_DOMAIN" "$MG_PUBLIC_IPV4" tenant-a tenant-b   # PASS
+# 8. (chỉ khi P4-T08 đã lên — mục n) edge v9 → v10: như bước 7 với tools/ của ~/mg, conformance bằng ~/mg/tests/…
+# 9. kiểm sau nâng: mục m4; `sudo bash infrastructure/idp/realm-update.sh --check` ⇒ exit 0; Super Admin + TO đăng nhập,
+#    GET /tenants/{A}/devices|policies|tags|users|groups|dns ⇒ 200, cùng route của A bằng TO-B ⇒ 404; một tenant thử
+#    (G3 `tenant-c`: provision → 2 client → suspend/resume → deprovision 2P); policy A/B (sha ở bước 2) không đổi sau
+#    ≥ 15 phút; `$APP logs --since 20m worker | grep '"level":"ERROR"'` chỉ còn lỗi đã biết (thư khi relay lỗi)
+```
+
+**Hoàn tác** (đo trên VM 110 — `P4-deploy-rehearsal` mục 6):
+
+- **A — nhanh, giữ DB** (schema 26 expand-only; api/worker/agent cũ đã kiểm 34/34 + tenant C 12/12 trên schema mới):
+  cài lại `/root/Caddyfile.v8.$TS` + `/root/compose.edge.yaml.$TS` → `validate` → reload; cài lại
+  `/root/compose.agent.yaml.$TS` → `up -d --wait`; cài lại `/root/compose.app.yaml.$TS` →
+  `$APP up -d --wait --remove-orphans api worker mail-bridge` (gỡ `web`); `~/mg` = `~/mg.bak-$TS`. Gián đoạn `app.`
+  ~1,5 s, `/key` của tenant 0 lỗi. Bản ghi DNS (P4-T12) tạo trong cửa sổ vẫn nằm ở `records/extra-records.json` của
+  instance và Headscale vẫn phát chúng (Agent/worker cũ không đọc) — F-5.
+- **B — restore bộ pre-migration của bước 4** ([backup-restore.md](backup-restore.md) 6.3 + 6.5, sau A): bảo trì →
+  dừng api/worker → đổi tên DB → globals → `pg_restore --create` → `migrate status` (image cũ: schema 19, exit 0) → cờ bảo
+  trì trong DB mới → `up` → `post-restore-reconcile` (dry-run rồi thật) → tắt bảo trì → backup `manual`. API không phục
+  vụ ~22 s (gồm 11 s chờ worker dừng job). Sau B: instance có `records/extra-records.json` không rỗng trong khi DB vừa
+  restore không có bản ghi DNS nào ⇒ ghi lại file `[]` hoặc để lần ghi DNS đầu tiên sau khi nâng lại ghi lại toàn bộ file
+  từ DB (job level-triggered — đã kiểm) — F-5.
