@@ -355,6 +355,7 @@ describe("áp dụng / rollback", () => {
   it("202 + Location ⇒ job policy.apply poll tới succeeded ⇒ trạng thái áp dụng làm mới", async () => {
     let polls = 0;
     let currents = 0;
+    let atApply = -1;
     const { requests } = mockApi({
       ...common("tenant_admin"),
       [`GET ${base}/policies/current`]: () => {
@@ -363,7 +364,10 @@ describe("áp dụng / rollback", () => {
       },
       [`GET ${vpath(V2)}`]: etagged(approved),
       [`GET ${vpath(V2)}/diff`]: diff,
-      [`POST ${vpath(V2)}/apply`]: json(202, { version: { ...approved, desired: true }, job: job("queued") }, { Location: `/api/v1/tenants/${TENANT_A}/jobs/${JOB}` }),
+      [`POST ${vpath(V2)}/apply`]: () => {
+        atApply = currents;
+        return json(202, { version: { ...approved, desired: true }, job: job("queued") }, { Location: `/api/v1/tenants/${TENANT_A}/jobs/${JOB}` });
+      },
       [`GET ${base}/jobs/${JOB}`]: () => {
         polls++;
         return json(200, job(polls < 2 ? "running" : "succeeded"));
@@ -378,7 +382,8 @@ describe("áp dụng / rollback", () => {
     await waitFor(() => expect(screen.getByTestId("apply-job")).toHaveAttribute("data-status", "succeeded"), { timeout: 8000 });
     expect(screen.getByTestId("apply-done")).toBeInTheDocument();
     expect(find(requests, "POST", "/apply")[0]!.headers.get("Idempotency-Key")).toMatch(UUID4);
-    await waitFor(() => expect(currents).toBeGreaterThanOrEqual(2));
+    // trạng thái áp dụng được đọc lại hai lần: khi 202 về (version thành desired) và khi job tới trạng thái cuối
+    await waitFor(() => expect(currents).toBeGreaterThanOrEqual(atApply + 2));
   }, 15_000);
 
   it("409 stale_base ⇒ giải thích + soạn lại từ nội dung này (POST /policies)", async () => {

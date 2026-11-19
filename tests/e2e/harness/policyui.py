@@ -65,8 +65,9 @@ def prepare(st: Stack, run: str) -> dict:
     state = json.loads((st.work / "state" / "backend.json").read_text(encoding="utf-8"))
     pre = checks.Results(st)
     backend.check_ready(pre, st, state)
-    backend.check_idp_bootstrap(pre, st)
-    backend.check_registry(pre, st, state)
+    if not tenant_id(st, SLUG):      # lượt đầu trên stack này (E2E-20/21 không chạy lại được: adopt đã xong)
+        backend.check_idp_bootstrap(pre, st)
+        backend.check_registry(pre, st, state)
     if pre.failed:
         raise StackError("chuẩn bị (E2E-17/20/21) thất bại: " + "; ".join(x["id"] for x in pre.rows if x["result"] != "PASS"))
     base = (ROOT / "infrastructure" / "headscale" / "templates" / "bootstrap-policy.hujson").read_text(encoding="utf-8")

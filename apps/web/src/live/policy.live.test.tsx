@@ -165,8 +165,9 @@ describe.skipIf(!ADMIN || !OWNER || !TENANT || PHASE !== "a")("Policies trên st
           `    {"src": ["group:${GROUP}", "${email}"], "dst": ["${TAG}"], "ip": ["tcp:443"]},\n  ],\n}\n`,
       );
       await screen.findByTestId("policy-form", {}, T);
-      expect(within(screen.getByTestId("grant-1")).getByText(`group:${GROUP}`)).toBeInTheDocument();
-      expect(within(screen.getByTestId("grant-1")).getByText(TAG)).toBeInTheDocument();
+      // chip của principal (không tính <option> của bộ chọn)
+      expect(within(screen.getByTestId("grant-1")).getByText(`group:${GROUP}`, { selector: "li span" })).toBeInTheDocument();
+      expect(within(screen.getByTestId("grant-1")).getByText(TAG, { selector: "li span" })).toBeInTheDocument();
       await saveDraft();
       expect(await validate()).toBe("passed");
       expect(screen.getByTestId("policy-report")).toHaveAttribute("data-check", "passed");
@@ -261,7 +262,14 @@ describe.skipIf(!ADMIN || !OWNER || !TENANT || PHASE !== "b")("Policies trên st
       record("version_d", lastId(router));
       // rollback về nội dung của A (đã duyệt — phê duyệt được kế thừa)
       await router.navigate(`/t/${TENANT}/policies/${String(facts.version_a)}`);
-      await screen.findByTestId("version-state", {}, T);
+      await waitFor(() => expect(screen.getByTestId("version-state")).toHaveAttribute("data-status", "superseded"), T);
+      const rb = await screen.findByRole("button", { name: "Rollback về nội dung này" }, T);
+      record("rollback_button", {
+        disabled: (rb as HTMLButtonElement).disabled,
+        path: pathOf(router),
+        actions: screen.getByTestId("policy-actions").textContent,
+        bodyStyle: document.body.getAttribute("style"),
+      });
       const job = await applyAndWait(router, "Rollback về nội dung này");
       record("rollback_job", job);
       record("rollback_version", lastId(router));
