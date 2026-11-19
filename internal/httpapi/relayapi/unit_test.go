@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -229,10 +230,13 @@ func TestHandlersFailClosed(t *testing.T) {
 			t.Errorf("%s: %d (%d tenant, %d platform calls), want %d and no call", c.name, rec.Code, len(svc.tenants), len(svc.filters), c.status)
 		}
 	}
+	// Every leak marker holds a character outside [0-9a-f-]: a UUID (tenant id of the path, request_id) can never
+	// contain one — a bare "4242" matched a random UUID about once in a thousand runs.
+	leak := []string{"database said", "relation relay_regions", "locked by pid", "pid 4242"}
 	svc := &fakeService{err: errors.New("database said: relation relay_regions is locked by pid 4242")}
 	for _, p := range []string{path, "/platform/relay-regions"} {
 		rec := serve(t, svc, authzhook.Authz(fakeAuthorizer{}), p, nil)
-		if rec.Code != 500 || strings.Contains(rec.Body.String(), "4242") || strings.Contains(rec.Body.String(), "database said") {
+		if rec.Code != 500 || slices.ContainsFunc(leak, func(m string) bool { return strings.Contains(rec.Body.String(), m) }) {
 			t.Errorf("%s with a service error: %d %s", p, rec.Code, rec.Body.String())
 		}
 	}

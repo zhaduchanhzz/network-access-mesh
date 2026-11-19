@@ -66,7 +66,7 @@ func alertsinkCmd(ctx context.Context, getenv func(string) string, stdout, stder
 		ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second,
 		MaxHeaderBytes: 16 << 10, ErrorLog: slog.NewLogLogger(log.Handler(), slog.LevelWarn)}
 	internal := httpx.NewServer(internalAddr, httpx.InternalMux(map[string]httpx.Probe{}, reg, log), log)
-	if err := httpx.Serve(ctx, log, api, internal); err != nil {
+	if err := httpx.ServeWith(ctx, log, listenTCP, api, internal); err != nil {
 		return 1
 	}
 	log.Info("stopped")

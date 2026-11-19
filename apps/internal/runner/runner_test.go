@@ -5,12 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"net"
 	"net/http"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/zhaduchanhzz/network-access-mesh/internal/kit/httpx/httpxtest"
 )
 
 type syncBuffer struct {
@@ -30,18 +31,16 @@ func (s *syncBuffer) String() string {
 	return s.b.String()
 }
 
-// freeAddr returns a loopback address with a port that was free a moment ago.
-func freeAddr(t *testing.T) string {
+// ports holds the listeners of the processes under test: run() binds through listenTCP, which only hands these over.
+var ports httpxtest.Listeners
+
+func init() { listenTCP = ports.Listen }
+
+// heldAddr returns the loopback address of a listener held for run() (no "free port" picked by listening and closing:
+// another test or process could take it before run() binds it).
+func heldAddr(t *testing.T) string {
 	t.Helper()
-	l, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	addr := l.Addr().String()
-	if err := l.Close(); err != nil {
-		t.Fatal(err)
-	}
-	return addr
+	return ports.Addr(t)
 }
 
 func environment(m map[string]string) (func(string) string, []string) {
@@ -79,7 +78,7 @@ func get(t *testing.T, url string) (response, error) {
 // the generated API under /api/v1 behind the middleware chain (501 problem for every operation until handlers are
 // mounted) and nothing else; the internal one still serves /healthz, /readyz and /metrics and no API.
 func TestRunServesPublicAndInternalListeners(t *testing.T) {
-	public, internal := freeAddr(t), freeAddr(t)
+	public, internal := heldAddr(t), heldAddr(t)
 	getenv, environ := environment(map[string]string{"MG_HTTP_ADDR": public, "MG_INTERNAL_ADDR": internal})
 	var stdout, stderr syncBuffer
 	ctx, cancel := context.WithCancel(context.Background())
