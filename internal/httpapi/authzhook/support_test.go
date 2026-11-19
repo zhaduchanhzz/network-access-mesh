@@ -32,7 +32,7 @@ func TestAuthzMarksSupportActors(t *testing.T) {
 		f := &fakeAuthorizer{decide: func(string) (authz.Decision, error) { return c.d, c.err }}
 		req := &audit.Request{ActorType: audit.ActorIdentity}
 		ctx := audit.WithRequest(context.Background(), req)
-		r := httptest.NewRequest(http.MethodGet, "/api/v1/tenants/"+tenant.String()+"/devices", nil)
+		r := httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/v1/tenants/"+tenant.String()+"/devices", nil)
 		r.SetPathValue("tenantId", tenant.String())
 		ran := false
 		h := Authz(f)(func(context.Context, http.ResponseWriter, *http.Request, any) (any, error) {
