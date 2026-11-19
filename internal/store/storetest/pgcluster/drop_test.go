@@ -159,7 +159,7 @@ func TestDropDatabasesBounded(t *testing.T) {
 			t.Error("the report holds the superuser password")
 		}
 	}
-	t.Setenv("MG_TEST_PG_CLEANUP_TIMEOUT", "10m") // the bound was checked above; now every database must go
+	t.Setenv("MG_TEST_PG_CLEANUP_TIMEOUT", "10m")                 // the bound was checked above; now every database must go
 	if left := DropDatabases("test", raw, left); len(left) != 0 { // once released, they go
 		t.Errorf("second drop left %v", left)
 	}
