@@ -151,14 +151,28 @@ WHERE tenant_id = sqlc.arg(tenant_id) AND status = 'consumed' AND reusable AND h
   AND credential_expires_at > sqlc.arg(expired_after)::timestamptz
 ORDER BY created_at, id;
 
+-- name: CountPendingEnrollmentLinks :one
+-- worker (lịch enrollment.reconcile): số hàng sổ thiết bị mà LinkConsumedEnrollmentDevices sẽ gắn liên kết — cùng điều
+-- kiện. inventory.sync ghi hàng của node SAU khi yêu cầu đã kết thúc (consumed/verified — node id dùng lại) ⇒ lịch vẫn
+-- chạy reconcile một lượt để gắn (và thông báo device.new cho pre-auth key), dù tenant không còn yêu cầu mở.
+SELECT count(*) FROM device_inventory_cache d
+JOIN enrollment_requests r ON r.tenant_id = d.tenant_id AND r.instance_id = d.instance_id
+  AND r.consumed_node_id = d.headscale_node_id
+WHERE d.tenant_id = sqlc.arg(tenant_id) AND d.removed_at IS NULL AND d.enrollment_request_id IS NULL
+  AND (r.registered_machine_key IS NULL OR d.machine_key = r.registered_machine_key)
+  AND r.status IN ('consumed', 'verified') AND r.updated_at > now() - interval '7 days';
+
 -- name: LinkConsumedEnrollmentDevices :many
 -- worker: thiết bị đăng ký bằng key một lần (consumed) hoặc web-auth (verified) mà sổ đã có nhưng chưa có liên kết
 -- enrollment — gắn liên kết (dữ liệu authoritative, §6.3). Chỉ yêu cầu kết thúc trong 7 ngày gần nhất. Trả hàng vừa
--- gắn kèm phương thức của yêu cầu: hàng của pre-auth key được thông báo device.new đúng lần gắn này (P4-T06).
+-- gắn kèm phương thức của yêu cầu: hàng của pre-auth key được thông báo device.new đúng lần gắn này (P4-T06). Hàng
+-- phải mang đúng machine key node đã đăng ký (registered_machine_key): hàng cũ của một node id dùng lại (machine key
+-- khác) không bao giờ nhận liên kết của yêu cầu mới.
 UPDATE device_inventory_cache d
 SET enrollment_request_id = r.id
 FROM enrollment_requests r
 WHERE d.tenant_id = sqlc.arg(tenant_id) AND r.tenant_id = sqlc.arg(tenant_id) AND d.instance_id = r.instance_id
   AND d.headscale_node_id = r.consumed_node_id AND d.removed_at IS NULL AND d.enrollment_request_id IS NULL
+  AND (r.registered_machine_key IS NULL OR d.machine_key = r.registered_machine_key)
   AND r.status IN ('consumed', 'verified') AND r.updated_at > now() - interval '7 days'
 RETURNING d.id, d.owner_membership_id, d.name, d.given_name, d.hs_created_at, r.method;

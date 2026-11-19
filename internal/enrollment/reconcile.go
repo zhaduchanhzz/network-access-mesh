@@ -39,11 +39,18 @@ type ReconcileReport struct {
 	// NewDevices counts the devices of pre-auth keys that entered the inventory (or got their link) in this run, each
 	// notified once (device.new).
 	NewDevices int `json:"new_devices"`
+	// Revoked counts the consumed reusable keys found ended at Headscale before their expiry (a device revocation
+	// expired them): no live credential any more.
+	Revoked int `json:"revoked"`
 }
 
 // reusableGrace is how long after its expiry a consumed reusable key is still looked at: a node it registered before
 // expiring may reach the next run late (the schedule runs every 2 minutes).
 const reusableGrace = 30 * time.Minute
+
+// endedSlack: a consumed reusable key is taken as ended early (A3) only while its recorded expiry is further away than
+// this — Headscale may store the expiration a little earlier than the platform recorded it.
+const endedSlack = time.Minute
 
 // Register registers the handler of enrollment.reconcile on the worker.
 func (s *Service) Register(w *jobs.Worker) error {
@@ -67,9 +74,11 @@ func (s *Service) runReconcile(ctx context.Context, run *jobs.Run) error {
 // Reconcile converges the open enrollment requests of a tenant (§13.5 enrollment.reconcile): expired decisions, codes
 // and keys ⇒ expired; used keys ⇒ consumed with their node; unfinished issuances and claims ⇒ failed; device rows of
 // consumed/verified requests get their enrollment link. The nodes a pre-auth key registered enter the inventory with
-// that link and are notified once (device.new — adoptKeyNodes): at the consumed transition, then for a reusable key
-// while it is live (and reusableGrace after). Headscale is asked only when an issued or live reusable key is open; when
-// it does not answer, the keys wait for the next run and the error is returned (the job retries).
+// that link and are notified once (device.new — adoptKeyNodes): at the consumed transition — the device counts against
+// max_devices from that transaction on (C9) —, then for a reusable key while it is live (and reusableGrace after); a
+// reusable key Headscale ended before its expiry (a device revocation) is revoked (A3). Headscale is asked only when an
+// issued or live reusable key is open; when it does not answer, the keys wait for the next run and the error is
+// returned (the job retries).
 func (s *Service) Reconcile(ctx context.Context, tenantID uuid.UUID) (ReconcileReport, error) {
 	var (
 		rep      ReconcileReport
@@ -193,10 +202,17 @@ func (s *Service) Reconcile(ctx context.Context, tenantID uuid.UUID) (ReconcileR
 			continue
 		}
 		kid := uint64(*r.HeadscalePreauthkeyID) //nolint:gosec // CHECK > 0; the query selects non-null ids
-		if len(nodes[kid]) == 0 {
+		// A3: the key ended at Headscale before its own expiry (a device revocation expires the keys that could register
+		// the device again — §7.4 "Thu hồi thiết bị"; a restore invalidates them): the request no longer holds a live
+		// credential — revoked, so it stops counting against max_live_enrollment_credentials and as a tag reference
+		// (only while the recorded expiry is more than endedSlack away: never a key expiring on its own time)
+		k, ok := keys[kid]
+		ended := r.CredentialExpiresAt != nil && now.Add(endedSlack).Before(*r.CredentialExpiresAt) &&
+			(!ok || !k.Expiration.After(now))
+		if len(nodes[kid]) == 0 && !ended {
 			continue
 		}
-		adopted := 0
+		adopted, revoked := 0, false
 		err := s.st.WithTenantJobTx(ctx, tenantID, func(tx *store.Tx) error {
 			cur, err := tx.Q.LockEnrollmentRequest(ctx, sqlcdb.LockEnrollmentRequestParams{TenantID: tenantID, ID: r.ID})
 			switch {
@@ -207,13 +223,27 @@ func (s *Service) Reconcile(ctx context.Context, tenantID uuid.UUID) (ReconcileR
 			case cur.Status != StatusConsumed:
 				return nil // revoked meanwhile
 			}
-			adopted, err = s.adoptKeyNodes(ctx, tx, tenantID, cur, nodes[kid])
-			return err
+			if adopted, err = s.adoptKeyNodes(ctx, tx, tenantID, cur, nodes[kid]); err != nil || !ended {
+				return err
+			}
+			if _, err := tx.Q.SetEnrollmentRequestOutcome(ctx, sqlcdb.SetEnrollmentRequestOutcomeParams{
+				Status: StatusRevoked, RegisteredMachineKey: cur.RegisteredMachineKey, ReportedHostname: cur.ReportedHostname,
+				ConsumedNodeID: cur.ConsumedNodeID, FailureCode: cur.FailureCode, TenantID: tenantID, ID: cur.ID}); err != nil {
+				return err
+			}
+			revoked = true
+			t := tenantID
+			return audit.Record(ctx, tx.Q, audit.Event{Action: ActionRevoke, ActorType: audit.ActorSystem, TenantID: &t,
+				ResourceType: resourceType, ResourceID: cur.ID.String(), Details: audit.Details{"status_before": cur.Status,
+					"reason": "key_ended_at_headscale", "key_id": *cur.HeadscalePreauthkeyID, "key_listed": ok}})
 		})
 		if err != nil {
 			return rep, err
 		}
 		rep.NewDevices += adopted
+		if revoked {
+			rep.Revoked++
+		}
 	}
 	if err := s.st.WithTenantJobTx(ctx, tenantID, func(tx *store.Tx) error {
 		rows, err := tx.Q.LinkConsumedEnrollmentDevices(ctx, tenantID)
@@ -419,8 +449,9 @@ type SchedulerConfig struct {
 	Tick     time.Duration // default 30 s (≤ Interval)
 }
 
-// Scheduler enqueues enrollment.reconcile for every tenant with a running instance AND an open enrollment request or a
-// live reusable key (its later nodes are adopted — adoptKeyNodes), once per Interval, each tenant at its own offset (a
+// Scheduler enqueues enrollment.reconcile for every tenant with a running instance AND an open enrollment request, a
+// live reusable key (its later nodes are adopted — adoptKeyNodes) or an inventory row still waiting for its enrollment
+// link (written by inventory.sync after its request ended — B1), once per Interval, each tenant at its own offset (a
 // hash of its id). Worker process (workerSchedules in apps/).
 type Scheduler struct {
 	svc  *Service
@@ -496,8 +527,15 @@ func (sc *Scheduler) Tick(ctx context.Context, now time.Time) (int, error) {
 			if len(open) == 0 {
 				live, err := tx.Q.ListLiveReusableEnrollmentKeys(ctx, sqlcdb.ListLiveReusableEnrollmentKeysParams{
 					TenantID: tenant, ExpiredAfter: sc.svc.now().Add(-reusableGrace)})
-				if err != nil || len(live) == 0 {
+				if err != nil {
 					return err
+				}
+				if len(live) == 0 {
+					// a device row inventory.sync wrote after its request ended still needs its link (B1)
+					pending, err := tx.Q.CountPendingEnrollmentLinks(ctx, tenant)
+					if err != nil || pending == 0 {
+						return err
+					}
 				}
 			}
 			_, err = jobs.Enqueue(ctx, tx, jobs.Spec{Kind: KindReconcile, TenantID: &tenant,

@@ -13,12 +13,17 @@ import (
 
 const countLiveEnrollmentCredentials = `-- name: CountLiveEnrollmentCredentials :one
 SELECT count(*) FROM enrollment_requests
-WHERE tenant_id = $1 AND credential_expires_at > now()
-  AND (status IN ('awaiting_device', 'claimed', 'credential_issued') OR (status = 'consumed' AND reusable))
+WHERE tenant_id = $1
+  AND (status = 'requested'
+       OR (credential_expires_at > now()
+           AND (status IN ('awaiting_device', 'claimed', 'credential_issued') OR (status = 'consumed' AND reusable))))
 `
 
 // Credential enrollment còn hạn (PlanLimits.max_live_enrollment_credentials): mã/lệnh web-auth và pre-auth key đã phát
-// chưa dùng, cộng key reusable đã dùng nhưng còn hạn.
+// chưa dùng, cộng key reusable đã dùng nhưng còn hạn, cộng yêu cầu đang phát (requested — pre-auth key được tạo ở
+// Headscale SAU khi transaction quota commit: chưa có hạn nhưng sắp là một credential sống; dở dang quá 15 phút thì
+// enrollment.reconcile chuyển failed). /start đang phát key giữ khóa tenant `enrollment` tới khi ghi xong — lần tạo yêu
+// cầu chờ khóa đó trước khi đếm.
 func (q *Queries) CountLiveEnrollmentCredentials(ctx context.Context, tenantID uuid.UUID) (int64, error) {
 	row := q.db.QueryRow(ctx, countLiveEnrollmentCredentials, tenantID)
 	var count int64

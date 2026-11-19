@@ -162,88 +162,98 @@ func (s *Service) createOnce(ctx context.Context, tenantID uuid.UUID, a Actor, p
 		op    audit.Operation
 		issue bool
 	)
-	err := s.st.WithTenantTx(ctx, tenantID, func(q *sqlcdb.Queries) error {
-		var err error
-		if tc, err = loadContext(ctx, q, tenantID); err != nil {
-			return err
-		}
-		if err := checkSelfEnroll(a, tc); err != nil {
-			return err
-		}
-		set := tc.settings.Enrollment
-		if p.method == MethodWebAuth && !set.WebAuthEnabled {
-			return invalid("method", "web_auth_disabled", "This tenant does not accept web-auth enrollment: use a pre-auth key.")
-		}
-		if p.target != nil && set.IdentityMode == config.IdentityModeHeadscaleOIDC {
-			return conflict("identity_mode_headscale_oidc",
-				"Devices of members enroll through the tenant's own OIDC login (identity mode headscale_oidc).")
-		}
-		var owner *member
-		if p.target != nil {
-			field := "target_membership_id"
-			if !p.privileged {
-				field = "membership"
+	// The quota transaction runs under the tenant's enrollment lock (C3): a /start issuing a key holds that lock until
+	// the key is recorded (its row stays approved meanwhile), so this count waits for it and sees its credential. A
+	// create's own key is made at Headscale after this transaction commits — its requested row counts as a live
+	// credential meanwhile (CountLiveEnrollmentCredentials), so creations need not hold the lock across Headscale.
+	err := s.st.WithTenantLock(ctx, tenantID, lockName, lockWait, func(ctx context.Context) error {
+		return s.st.WithTenantTx(ctx, tenantID, func(q *sqlcdb.Queries) error {
+			var err error
+			if tc, err = loadContext(ctx, q, tenantID); err != nil {
+				return err
 			}
-			m, err := loadMember(ctx, q, tenantID, *p.target, field)
+			if err := checkSelfEnroll(a, tc); err != nil {
+				return err
+			}
+			set := tc.settings.Enrollment
+			if p.method == MethodWebAuth && !set.WebAuthEnabled {
+				return invalid("method", "web_auth_disabled", "This tenant does not accept web-auth enrollment: use a pre-auth key.")
+			}
+			if p.target != nil && set.IdentityMode == config.IdentityModeHeadscaleOIDC {
+				return conflict("identity_mode_headscale_oidc",
+					"Devices of members enroll through the tenant's own OIDC login (identity mode headscale_oidc).")
+			}
+			var owner *member
+			if p.target != nil {
+				field := "target_membership_id"
+				if !p.privileged {
+					field = "membership"
+				}
+				m, err := loadMember(ctx, q, tenantID, *p.target, field)
+				if err != nil {
+					return err
+				}
+				owner = &m
+			}
+			tags := []string{}
+			if len(p.tags) > 0 {
+				if s.tags == nil {
+					return errors.New("enrollment: no tag catalog wired (fail closed)")
+				}
+				if tags, err = s.tags(ctx, q, tenantID, p.tags, "tags"); err != nil {
+					return tagRefusal(err)
+				}
+			}
+			if p.method == MethodPreauthKey {
+				ttl, err := keyTTL(p.ttlMinutes, tc.settings)
+				if err != nil {
+					return err
+				}
+				kp = keyPlan{owner: owner, ttl: ttl, tags: tags, reusable: p.reusable, ephemeral: p.ephemeral}
+			}
+			// approval before the device step (§7.4): a member who cannot approve waits for a decider; privileged keys
+			// already need issue_privileged
+			issue = p.privileged || !set.RequiresApproval || a.CanApprove
+			// under the subscription lock: devices, tagged devices (a key with tags — max_tagged_devices), credentials
+			if _, err := usage.EnrollmentTx(ctx, q, tenantID, usage.Enrollment{NewRequest: true, Issuing: issue,
+				Tagged: len(tags) > 0}); err != nil {
+				return err
+			}
+			status := StatusRequested
+			if !issue {
+				status = StatusPendingApproval
+			}
+			row, err = q.InsertEnrollmentRequest(ctx, sqlcdb.InsertEnrollmentRequestParams{TenantID: tenantID,
+				InstanceID: tc.instance, RequestedByMembershipID: a.MembershipID, Method: p.method, TargetMembershipID: p.target,
+				DeviceLabel: p.label, RequestedTags: tags, Ephemeral: p.ephemeral, Reusable: p.reusable, Status: status})
 			if err != nil {
 				return err
 			}
-			owner = &m
-		}
-		tags := []string{}
-		if len(p.tags) > 0 {
-			if s.tags == nil {
-				return errors.New("enrollment: no tag catalog wired (fail closed)")
+			ev := audit.Event{Action: p.action, TenantID: &tenantID, ResourceType: resourceType, ResourceID: row.ID.String(),
+				Details: audit.Details{"method": p.method, "status": status, "tags": tags, "reusable": p.reusable,
+					"ephemeral": p.ephemeral, "tag_only": p.target == nil}}
+			if p.target != nil {
+				ev.Details["target_membership_id"] = p.target.String()
 			}
-			if tags, err = s.tags(ctx, q, tenantID, p.tags, "tags"); err != nil {
-				return tagRefusal(err)
-			}
-		}
-		if p.method == MethodPreauthKey {
-			ttl, err := keyTTL(p.ttlMinutes, tc.settings)
-			if err != nil {
+			switch {
+			case issue && p.method == MethodWebAuth:
+				if row, cred, err = s.issueCode(ctx, q, row, a, tc.loginServer); err != nil {
+					return err
+				}
+				ev.Details["status"] = row.Status
+				ev.Details["expires_at"] = *row.CredentialExpiresAt
+				return audit.Record(ctx, q, ev)
+			case issue:
+				op, err = audit.Requested(ctx, q, ev) // the key is created at Headscale after this commits
 				return err
 			}
-			kp = keyPlan{owner: owner, ttl: ttl, tags: tags, reusable: p.reusable, ephemeral: p.ephemeral}
-		}
-		// approval before the device step (§7.4): a member who cannot approve waits for a decider; privileged keys
-		// already need issue_privileged
-		issue = p.privileged || !set.RequiresApproval || a.CanApprove
-		// under the subscription lock: devices, tagged devices (a key with tags — max_tagged_devices), credentials
-		if _, err := usage.EnrollmentTx(ctx, q, tenantID, usage.Enrollment{NewRequest: true, Issuing: issue,
-			Tagged: len(tags) > 0}); err != nil {
-			return err
-		}
-		status := StatusRequested
-		if !issue {
-			status = StatusPendingApproval
-		}
-		row, err = q.InsertEnrollmentRequest(ctx, sqlcdb.InsertEnrollmentRequestParams{TenantID: tenantID,
-			InstanceID: tc.instance, RequestedByMembershipID: a.MembershipID, Method: p.method, TargetMembershipID: p.target,
-			DeviceLabel: p.label, RequestedTags: tags, Ephemeral: p.ephemeral, Reusable: p.reusable, Status: status})
-		if err != nil {
-			return err
-		}
-		ev := audit.Event{Action: p.action, TenantID: &tenantID, ResourceType: resourceType, ResourceID: row.ID.String(),
-			Details: audit.Details{"method": p.method, "status": status, "tags": tags, "reusable": p.reusable,
-				"ephemeral": p.ephemeral, "tag_only": p.target == nil}}
-		if p.target != nil {
-			ev.Details["target_membership_id"] = p.target.String()
-		}
-		switch {
-		case issue && p.method == MethodWebAuth:
-			if row, cred, err = s.issueCode(ctx, q, row, a, tc.loginServer); err != nil {
-				return err
-			}
-			ev.Details["status"] = row.Status
-			ev.Details["expires_at"] = *row.CredentialExpiresAt
 			return audit.Record(ctx, q, ev)
-		case issue:
-			op, err = audit.Requested(ctx, q, ev) // the key is created at Headscale after this commits
-			return err
-		}
-		return audit.Record(ctx, q, ev)
+		})
 	})
+	if errors.Is(err, store.ErrLockTimeout) {
+		return Issue{}, &Error{Code: CodeConflict, Reason: "busy", RetryAfter: 5 * time.Second,
+			Detail: "Another enrollment operation of this tenant is in progress; try again."}
+	}
 	if err != nil {
 		return Issue{}, err
 	}

@@ -117,7 +117,10 @@ type Enrollment struct {
 //   - tagged devices (op.Tagged): the tagged devices of the inventory PLUS the open requests with tags (and the new one
 //     when op.NewRequest) must stay within PlanLimits.max_tagged_devices;
 //   - credentials (op.Issuing): the live enrollment credentials (codes and keys issued and not yet used or expired,
-//     reusable keys still valid) plus the one being issued must stay within PlanLimits.max_live_enrollment_credentials.
+//     reusable keys still valid, and requests whose key is being created — status requested, the key is made at
+//     Headscale after this transaction commits) plus the one being issued must stay within
+//     PlanLimits.max_live_enrollment_credentials. A /start issues while holding the tenant's enrollment lock, which the
+//     creating caller takes before this transaction (enrollment), so its in-flight key is never missed either.
 //
 // The first limit exceeded is returned as a *tenants.QuotaExceededError (Resource QuotaDevices, QuotaTaggedDevices or
 // QuotaEnrollmentCredentials). A reusable key with tags counts once: it is checked when it is issued (≤ 15 minutes).

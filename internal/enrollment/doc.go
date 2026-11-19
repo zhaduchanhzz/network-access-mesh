@@ -25,12 +25,14 @@
 //	           synced (inventory.sync clamps its expiry).
 //	revoke     POST /…/revoke: an unfinished request ends revoked; an issued pre-auth key is expired at Headscale and
 //	           read back first (audit pair enrollment.revoke.requested → .succeeded/.failed).
-//	reconcile  job enrollment.reconcile (worker, per tenant, scheduled while the tenant has open requests or a live
-//	           reusable key): requests waiting for a decision or for /start for 24 hours, codes and keys past their
-//	           expiry ⇒ expired; used keys ⇒ consumed with the node that used them; claims or issuances that never
-//	           finished ⇒ failed; inventory rows of consumed/verified requests get their enrollment link. The nodes a
-//	           pre-auth key registered enter the inventory (or get their link when inventory.sync came first) and are
-//	           notified once each (device.new) — at the consumed transition, then for a reusable key while it is live.
+//	reconcile  job enrollment.reconcile (worker, per tenant, scheduled while the tenant has open requests, a live
+//	           reusable key or an inventory row waiting for its enrollment link): requests waiting for a decision or for
+//	           /start for 24 hours, codes and keys past their expiry ⇒ expired; used keys ⇒ consumed with the node that
+//	           used them; claims or issuances that never finished ⇒ failed; inventory rows of consumed/verified requests
+//	           get their enrollment link. The nodes a pre-auth key registered enter the inventory (or get their link
+//	           when inventory.sync came first) and are notified once each (device.new) — at the consumed transition
+//	           (so they count against max_devices at once), then for a reusable key while it is live; a reusable key
+//	           Headscale ended early (a device revocation expires it) ⇒ revoked.
 //
 // Plaintext pre-auth keys, enrollment codes and Auth IDs are never stored nor logged (only SHA-256 hashes and the key's
 // numeric id); a credential is shown once — the response of an Idempotency-Key replay gets it back from the SecretStore
