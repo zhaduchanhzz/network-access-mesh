@@ -43,6 +43,12 @@ const TONES: Record<string, Tone> = {
   expired: "neutral",
   skipped: "neutral",
   unknown: "neutral",
+  // policy version / áp dụng (P4-T11)
+  draft: "neutral",
+  validated: "info",
+  pending_approval: "warn",
+  superseded: "neutral",
+  applied: "ok",
 };
 
 export function toneOf(status: string): Tone {

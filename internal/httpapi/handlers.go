@@ -242,6 +242,13 @@ type PolicyHandlers interface {
 	DiffTenantPolicy(ctx context.Context, request gen.DiffTenantPolicyRequestObject) (gen.DiffTenantPolicyResponseObject, error)
 }
 
+// PolicyHuJSONHandlers — P4-T11 (`policies` editor): the HuJSON ⇄ PolicySource translator of the Policies editor
+// (§7.2 import/export — nothing stored, nothing sent to Headscale).
+type PolicyHuJSONHandlers interface {
+	ImportTenantPolicy(ctx context.Context, request gen.ImportTenantPolicyRequestObject) (gen.ImportTenantPolicyResponseObject, error)
+	ExportTenantPolicy(ctx context.Context, request gen.ExportTenantPolicyRequestObject) (gen.ExportTenantPolicyResponseObject, error)
+}
+
 // Handlers is the extension point of the API: one handler set per building task. A nil set answers every operation
 // of its interface with 501 not_implemented. A set may also implement only part of its interface by embedding
 // NotImplemented. Handlers return a *problem.Error for an expected failure (not_found, conflict…); any other error
@@ -321,6 +328,7 @@ type Handlers struct {
 	Admin         AdminHandlers              // P4-T03a
 	TenantView    PlatformTenantViewHandlers // P4-T02
 	Policies      PolicyHandlers             // P4-T10
+	PolicyHuJSON  PolicyHuJSONHandlers       // P4-T11
 }
 
 func (h Handlers) mounted() bool {
@@ -328,7 +336,7 @@ func (h Handlers) mounted() bool {
 		h.Notifications != nil || h.Approvals != nil || h.Invitations != nil || h.Hosts != nil || h.IdPConsole != nil ||
 		h.Provisioning != nil || h.Lifecycle != nil || h.Relay != nil || h.Reconfigure != nil || h.Backups != nil ||
 		h.InstanceOps != nil || h.Quarantine != nil || h.Deprovision != nil || h.Tags != nil || h.Members != nil ||
-		h.Portal != nil || h.Admin != nil || h.TenantView != nil || h.Policies != nil
+		h.Portal != nil || h.Admin != nil || h.TenantView != nil || h.Policies != nil || h.PolicyHuJSON != nil
 }
 
 // dispatcher implements gen.StrictServerInterface by promotion from the disjoint interfaces.
@@ -358,6 +366,7 @@ type dispatcher struct {
 	AdminHandlers
 	PlatformTenantViewHandlers
 	PolicyHandlers
+	PolicyHuJSONHandlers
 }
 
 var _ gen.StrictServerInterface = dispatcher{}
@@ -365,12 +374,15 @@ var _ gen.StrictServerInterface = dispatcher{}
 func newDispatcher(h Handlers) dispatcher {
 	d := dispatcher{h.Auth, h.Tenants, h.Devices, h.Audit, h.Jobs, h.Monitoring, h.Notifications, h.Approvals, h.Invitations,
 		h.Hosts, h.IdPConsole, h.Provisioning, h.Lifecycle, h.Relay, h.Reconfigure, h.Backups, h.InstanceOps,
-		h.Quarantine, h.Deprovision, h.Tags, h.Members, h.Portal, h.Admin, h.TenantView, h.Policies}
+		h.Quarantine, h.Deprovision, h.Tags, h.Members, h.Portal, h.Admin, h.TenantView, h.Policies, h.PolicyHuJSON}
 	if d.AdminHandlers == nil {
 		d.AdminHandlers = NotImplemented{}
 	}
 	if d.PolicyHandlers == nil {
 		d.PolicyHandlers = NotImplemented{}
+	}
+	if d.PolicyHuJSONHandlers == nil {
+		d.PolicyHuJSONHandlers = NotImplemented{}
 	}
 	if d.TagHandlers == nil {
 		d.TagHandlers = NotImplemented{}
@@ -928,4 +940,12 @@ func (NotImplemented) RollbackTenantPolicy(context.Context, gen.RollbackTenantPo
 
 func (NotImplemented) DiffTenantPolicy(context.Context, gen.DiffTenantPolicyRequestObject) (gen.DiffTenantPolicyResponseObject, error) {
 	return nil, problem.NotImplemented("DiffTenantPolicy")
+}
+
+func (NotImplemented) ImportTenantPolicy(context.Context, gen.ImportTenantPolicyRequestObject) (gen.ImportTenantPolicyResponseObject, error) {
+	return nil, problem.NotImplemented("ImportTenantPolicy")
+}
+
+func (NotImplemented) ExportTenantPolicy(context.Context, gen.ExportTenantPolicyRequestObject) (gen.ExportTenantPolicyResponseObject, error) {
+	return nil, problem.NotImplemented("ExportTenantPolicy")
 }

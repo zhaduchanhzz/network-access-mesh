@@ -81,6 +81,58 @@ func (f *fakeService) Diff(_ context.Context, t, id uuid.UUID, against *uuid.UUI
 		GrantsAdded: []string{"g"}, GrantsRemoved: []string{}}, f.err
 }
 
+func (f *fakeService) Import(_ context.Context, t uuid.UUID, text string) (policies.ImportResult, error) {
+	f.tenant, f.reason = t, text
+	src := policies.PolicySource{Grants: []policies.Grant{}, SSH: []policies.SSHRule{}}
+	return policies.ImportResult{Result: policies.ResultPassed, Source: &src, Errors: []policies.Finding{},
+		Warnings:   []policies.Finding{{Rule: "L6", Severity: "warning", Code: "x", Line: 3, Message: "m"}},
+		Principals: []policies.PrincipalName{{Type: "group", Ref: "g", Name: "group:eng"}}}, f.err
+}
+func (f *fakeService) Export(_ context.Context, t uuid.UUID, src json.RawMessage) (policies.ExportResult, error) {
+	f.tenant, f.source = t, src
+	return policies.ExportResult{HuJSON: "{\"grants\": []}\n", Warnings: []policies.Finding{}, Principals: []policies.PrincipalName{}}, f.err
+}
+
+// TestHuJSONHandlers (P4-T11) — import passes the text through and answers the translation (line of a finding kept);
+// export passes the source as JSON; a missing body is refused; a refusal of the service maps like the lifecycle's.
+func TestHuJSONHandlers(t *testing.T) {
+	f := &fakeService{}
+	h := New(f)
+	ctx, tenant := context.Background(), uuid.New()
+	r, err := h.ImportTenantPolicy(ctx, gen.ImportTenantPolicyRequestObject{TenantId: tenant,
+		Body: &gen.PolicyImportRequest{Hujson: "// c\n{\"grants\": []}"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	im := r.(gen.ImportTenantPolicy200JSONResponse)
+	if f.tenant != tenant || f.reason != "// c\n{\"grants\": []}" || im.Result != gen.PolicyImportResultPassed || im.Source == nil ||
+		len(im.Warnings) != 1 || im.Warnings[0].Line == nil || *im.Warnings[0].Line != 3 || len(im.Principals) != 1 ||
+		im.Principals[0].Name != "group:eng" {
+		t.Fatalf("import: %+v (service saw %q)", im, f.reason)
+	}
+	er, err := h.ExportTenantPolicy(ctx, gen.ExportTenantPolicyRequestObject{TenantId: tenant,
+		Body: &gen.PolicyExportRequest{Source: gen.PolicySource{Grants: []gen.PolicyGrant{}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ex := er.(gen.ExportTenantPolicy200JSONResponse); ex.Hujson != "{\"grants\": []}\n" || !strings.Contains(string(f.source), `"grants":[]`) {
+		t.Fatalf("export: %+v (service saw %s)", ex, f.source)
+	}
+	if _, err := h.ImportTenantPolicy(ctx, gen.ImportTenantPolicyRequestObject{TenantId: tenant}); err == nil {
+		t.Fatal("an import without a body must be refused")
+	}
+	if _, err := h.ExportTenantPolicy(ctx, gen.ExportTenantPolicyRequestObject{TenantId: tenant}); err == nil {
+		t.Fatal("an export without a body must be refused")
+	}
+	f.err = &policies.PolicyError{Kind: policies.ErrPolicyInvalid, Reason: "invalid_id", Field: "source.grants[0].src[0].ref"}
+	_, err = h.ExportTenantPolicy(ctx, gen.ExportTenantPolicyRequestObject{TenantId: tenant,
+		Body: &gen.PolicyExportRequest{Source: gen.PolicySource{Grants: []gen.PolicyGrant{}}}})
+	var p *problem.Error
+	if !errors.As(err, &p) || p.Code != gen.ProblemCodeValidationFailed {
+		t.Fatalf("export refusal: %v", err)
+	}
+}
+
 // TestHandlersMapRequests — parameters, If-Match, bodies, the caller and the Idempotency-Key hash reach the service;
 // answers carry the version's etag (ETag header) and the job's Location.
 func TestHandlersMapRequests(t *testing.T) {

@@ -249,6 +249,8 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 		Admin: adminapi.New(platform.New(w.Store), dir, appr),
 		// Policies (P4-T10): the policy lifecycle over the production registry (validate's dry run — unreachable)
 		Policies: policiesapi.New(versions),
+		// PolicyHuJSON (P4-T11): the HuJSON translator of the editor, the same handler set
+		PolicyHuJSON: policiesapi.New(versions),
 	}
 }
 

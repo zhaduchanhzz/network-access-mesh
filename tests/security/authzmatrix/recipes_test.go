@@ -243,6 +243,10 @@ var recipes = map[string]recipe{
 		ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
 	"applyTenantPolicy":    {idempotent: true, ok: answer{http.StatusConflict, gen.ProblemCodeConflict}},
 	"rollbackTenantPolicy": {idempotent: true, ok: answer{http.StatusConflict, gen.ProblemCodeConflict}},
+	// HuJSON translator of the editor (P4-T11, policiesapi — mounted): pure functions over the tenant's names, nothing
+	// stored — a granted import or export answers 200 (the import of an empty grants list passes).
+	"importTenantPolicy": {body: `{"hujson":"{\"grants\": []}"}`, ok: answer{status: http.StatusOK}},
+	"exportTenantPolicy": {body: `{"source":{"grants":[]}}`, ok: answer{status: http.StatusOK}},
 }
 
 // objectKind is what a path parameter (other than the {tenantId} context of a tenant route) designates.

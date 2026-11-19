@@ -122,6 +122,8 @@ var routes = []struct {
 	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/policies/" + itemID + "/apply", "", "ApplyTenantPolicy", idempotency},
 	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/policies/" + itemID + "/rollback", "", "RollbackTenantPolicy", idempotency},
 	{http.MethodGet, "/api/v1/tenants/" + tenantID + "/policies/" + itemID + "/diff", "", "DiffTenantPolicy", nil},
+	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/policies/import", `{"hujson":"{}"}`, "ImportTenantPolicy", nil},
+	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/policies/export", `{"source":{"grants":[]}}`, "ExportTenantPolicy", nil},
 	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/invitations/" + itemID + "/resend", `{"expires_in_hours":24}`, "ResendTenantInvitation", nil},
 	// administration (P4-T03a)
 	{http.MethodPatch, "/api/v1/platform/tenants/" + tenantID, `{"name":"Acme 2"}`, "UpdatePlatformTenant", map[string]string{"If-Match": `"1"`}},

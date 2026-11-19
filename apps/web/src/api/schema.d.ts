@@ -2175,6 +2175,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tenants/{tenantId}/policies/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dịch HuJSON của admin sang mô hình có kiểu (không lưu, không gọi Headscale)
+         * @description Bộ dịch HuJSON ↔ `PolicySource` của editor (P4-T11, §7.2 — chạy phía server: chỉ server biết mọi tên, kể cả tài
+         *     nguyên mạng). Văn bản được parse bằng parser của Headscale (`tailscale/hujson`) rồi dịch tên ⇒ id: `group:<tên>`,
+         *     `tag:<tên>` của danh mục, e-mail của thành viên hoặc `mg-<membership>@` ⇒ `user`, tên tài nguyên (alias `hosts`) ⇒
+         *     `resource`, `autogroup:<x>`, `*`/IP/prefix ⇒ `cidr`. Chỉ nhận `grants` (bắt buộc — thiếu, `null` hay không phải
+         *     mảng ⇒ L1), `ssh`, `autoApprovers`; `groups`/`hosts`/`tagOwners` (render từ bảng), `acls`, `nodeAttrs`, `tests`,
+         *     khóa lạ ⇒ L3; khóa `#…`, khóa trùng hoặc sai hoa thường, `null` ⇒ `decoder_guard`; văn bản rỗng ⇒ L2; tên không
+         *     tồn tại ⇒ L6. `200` cả khi không dịch được (`result: failed` kèm `errors` có `path`/`line`); `source` chỉ có khi
+         *     `passed` — editor đặt nó vào form và lưu bằng `PATCH /policies/{versionId}` như mọi lần sửa. Xác nhận
+         *     (`acknowledgements`) không nằm trong văn bản.
+         */
+        post: operations["importTenantPolicy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/policies/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Viết một PolicySource thành HuJSON có tên (không lưu)
+         * @description Chiều ngược của `import` (P4-T11): thành viên viết bằng e-mail khi e-mail đó là duy nhất trong tenant (không thì
+         *     `mg-<membership>@`), group/tag/tài nguyên bằng tên; tham chiếu không còn tồn tại ⇒ chỗ giữ chỗ không dịch ngược
+         *     được + cảnh báo L6. Tất định (cùng nguồn + cùng bảng ⇒ cùng văn bản). `principals` = tên của mọi principal được
+         *     tham chiếu (editor dùng để hiển thị). `source` được kiểm như bản nháp (sai ⇒ `422`). Là POST vì nhận nội dung đang
+         *     soạn (chưa lưu); không đổi gì.
+         */
+        post: operations["exportTenantPolicy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -3408,6 +3460,8 @@ export interface components {
             severity: "error" | "warning" | "info";
             code: string;
             path?: string;
+            /** @description Dòng của văn bản HuJSON (chỉ ở kết quả `import`) */
+            line?: number;
             message: string;
             requires_ack?: boolean;
             owner_only?: boolean;
@@ -3542,6 +3596,33 @@ export interface components {
             grants_added: string[];
             grants_removed: string[];
             report_blocking: boolean;
+        };
+        /** @description Tên HuJSON của một principal có kiểu (`import`/`export` — P4-T11) */
+        PolicyPrincipalName: {
+            /** @enum {string} */
+            type: "user" | "group" | "tag" | "resource" | "autogroup" | "cidr";
+            ref: string;
+            name: string;
+        };
+        PolicyImportRequest: {
+            /** @description Văn bản HuJSON của admin (chú thích và dấu phẩy cuối được phép) */
+            hujson: string;
+        };
+        PolicyImport: {
+            /** @enum {string} */
+            result: "passed" | "failed";
+            source?: components["schemas"]["PolicySource"];
+            errors: components["schemas"]["PolicyFinding"][];
+            warnings: components["schemas"]["PolicyFinding"][];
+            principals: components["schemas"]["PolicyPrincipalName"][];
+        };
+        PolicyExportRequest: {
+            source: components["schemas"]["PolicySource"];
+        };
+        PolicyExport: {
+            hujson: string;
+            warnings: components["schemas"]["PolicyFinding"][];
+            principals: components["schemas"]["PolicyPrincipalName"][];
         };
         TagList: {
             items: components["schemas"]["Tag"][];
@@ -8211,6 +8292,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PolicyDiff"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    importTenantPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyImportRequest"];
+            };
+        };
+        responses: {
+            /** @description Kết quả dịch */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyImport"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    exportTenantPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyExportRequest"];
+            };
+        };
+        responses: {
+            /** @description HuJSON có tên */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyExport"];
                 };
             };
             401: components["responses"]["Unauthenticated"];
