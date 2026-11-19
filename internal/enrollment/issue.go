@@ -307,8 +307,9 @@ func (s *Service) closeOp(ctx context.Context, q *sqlcdb.Queries, op *audit.Oper
 
 const idempotencyLock = 60 * time.Second
 
-// storedIssue is the body an Idempotency-Key replays: the issue without its secrets (§13.1); the secrets are in the
-// Vault under the stored reference.
+// storedIssue is the body an Idempotency-Key replays: the issue without its secrets (§13.1) — nor anything derived from
+// them: the hostname mg-<code> and the command of a web-auth code carry the code, so they are rebuilt from the Vault at a
+// replay; the secrets are in the Vault under the stored reference.
 type storedIssue struct {
 	Request    Request           `json:"request"`
 	Credential *storedCredential `json:"credential,omitempty"`
@@ -384,6 +385,10 @@ func (s *Service) beginIdempotent(ctx context.Context, tenantID uuid.UUID, a Act
 			return nil, nil, errors.New("enrollment: kept credential unreadable")
 		}
 		c.PreauthKey, c.EnrollCode = headscale.NewSecret(sp.PreauthKey), headscale.NewSecret(sp.EnrollCode)
+		if c.Kind == CredentialEnrollCode { // never stored: both carry the code (issueCode)
+			c.Hostname = HostnamePrefix + sp.EnrollCode
+			c.Command = webAuthCommand(st.Request.LoginServer, c.Hostname)
+		}
 		out.Credential = c
 	}
 	return nil, out, nil
@@ -404,7 +409,10 @@ func (s *Service) finishIdempotent(ctx context.Context, tenantID uuid.UUID, key 
 	st := storedIssue{Request: out.Request}
 	var ref *string
 	if c := out.Credential; c != nil {
-		st.Credential = &storedCredential{Kind: c.Kind, Hostname: c.Hostname, Command: c.Command, ExpiresAt: c.ExpiresAt}
+		st.Credential = &storedCredential{Kind: c.Kind, ExpiresAt: c.ExpiresAt}
+		if c.Kind != CredentialEnrollCode { // the hostname and command of a code hold the code: rebuilt at a replay
+			st.Credential.Hostname, st.Credential.Command = c.Hostname, c.Command
+		}
 		if s.vault != nil {
 			raw, err := json.Marshal(secretPayload{PreauthKey: c.PreauthKey.Reveal(), EnrollCode: c.EnrollCode.Reveal()})
 			if err != nil {
