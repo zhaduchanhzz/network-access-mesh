@@ -1414,7 +1414,7 @@ type Host struct {
 	TenantNetPool string    `json:"tenant_net_pool"`
 	UpdatedAt     time.Time `json:"updated_at"`
 
-	// Usage Mức dùng của host lúc đọc: `live_instances` = instance chưa `removed` (so với `capacity.max_instances`), `by_status` = số instance chưa `removed` theo trạng thái, `run_uids_free` = UID của `run_uid_range` chưa từng được cấp (UID không tái sử dụng, kể cả sau `removed`; không tính UID/GID của service core), `net_slots_free` = số /29 của `tenant_net_pool` chưa thuộc instance chưa `removed`
+	// Usage Mức dùng của host lúc đọc: `live_instances` = instance chưa `removed` (so với `capacity.max_instances`), `by_status` = số instance chưa `removed` theo trạng thái, `run_uids_free` = UID của `run_uid_range` chưa từng được cấp (UID không tái sử dụng, kể cả sau `removed`; không tính UID/GID của service core), `net_slots_free` = số /29 của `tenant_net_pool` chưa thuộc instance chưa `removed`, `stun_ports_free` = số cổng của `stun_port_range` chưa thuộc instance chưa `removed` (`null` khi host không có `stun_port_range` — STUN chung, MVP; P4-T03)
 	Usage HostUsage `json:"usage"`
 }
 
@@ -1495,13 +1495,14 @@ type HostUpdate struct {
 	TenantNetPool *string    `json:"tenant_net_pool,omitempty"`
 }
 
-// HostUsage Mức dùng của host lúc đọc: `live_instances` = instance chưa `removed` (so với `capacity.max_instances`), `by_status` = số instance chưa `removed` theo trạng thái, `run_uids_free` = UID của `run_uid_range` chưa từng được cấp (UID không tái sử dụng, kể cả sau `removed`; không tính UID/GID của service core), `net_slots_free` = số /29 của `tenant_net_pool` chưa thuộc instance chưa `removed`
+// HostUsage Mức dùng của host lúc đọc: `live_instances` = instance chưa `removed` (so với `capacity.max_instances`), `by_status` = số instance chưa `removed` theo trạng thái, `run_uids_free` = UID của `run_uid_range` chưa từng được cấp (UID không tái sử dụng, kể cả sau `removed`; không tính UID/GID của service core), `net_slots_free` = số /29 của `tenant_net_pool` chưa thuộc instance chưa `removed`, `stun_ports_free` = số cổng của `stun_port_range` chưa thuộc instance chưa `removed` (`null` khi host không có `stun_port_range` — STUN chung, MVP; P4-T03)
 type HostUsage struct {
 	// ByStatus Số lượng theo trạng thái
 	ByStatus      StatusCounts `json:"by_status"`
 	LiveInstances int          `json:"live_instances"`
 	NetSlotsFree  int64        `json:"net_slots_free"`
 	RunUidsFree   int64        `json:"run_uids_free"`
+	StunPortsFree *int64       `json:"stun_ports_free"`
 }
 
 // IdentityProvider Đăng ký IdP (`identity_providers` — §8.2): bộ ba (issuer, client_id, ràng buộc tổ chức). `issuer`, `client_id`, `driver`, `scope` bất biến; client secret không bao giờ được trả (`client_secret_set` cho biết đã có).
@@ -1637,6 +1638,34 @@ type Instance struct {
 	Status   InstanceStatus     `json:"status"`
 	TenantId openapi_types.UUID `json:"tenant_id"`
 	Version  int64              `json:"version"`
+}
+
+// InstanceConfigVersion Một version cấu hình của instance (`instance_config_versions`, §6.3) — bản ghi do orchestrator (bước 8 của §11.3) và job reconfigure (P3-T13) viết. Không có `rendered_config` (nội dung thật nằm trên host, đối chiếu bằng `config_sha256`); `params` là tham số render như đã lưu — không chứa secret (§6.3).
+type InstanceConfigVersion struct {
+	AppliedAt    *time.Time `json:"applied_at"`
+	ConfigSha256 string     `json:"config_sha256"`
+	CreatedAt    time.Time  `json:"created_at"`
+
+	// CreatedBy Actor đã yêu cầu (identity; null với bản do orchestrator ghi)
+	CreatedBy *openapi_types.UUID `json:"created_by"`
+
+	// Current Version mà instance đang trỏ tới (`tenant_instances.config_version_id`)
+	Current bool               `json:"current"`
+	Id      openapi_types.UUID `json:"id"`
+
+	// Params Tham số render (không secret) như đã lưu
+	Params json.RawMessage `json:"params"`
+
+	// Status `rendered` (orchestrator đã ghi), `pending` (reconfigure đã ghi, chưa áp dụng), `applied` (đang hoặc đã từng hiệu lực), `superseded` (đã bị version sau thay), `failed` (đã lùi về version trước); tập giá trị chỉ được bổ sung
+	Status          string `json:"status"`
+	TemplateVersion string `json:"template_version"`
+	Version         int64  `json:"version"`
+}
+
+// InstanceConfigVersionList defines model for InstanceConfigVersionList.
+type InstanceConfigVersionList struct {
+	Items      []InstanceConfigVersion `json:"items"`
+	NextCursor *string                 `json:"next_cursor"`
 }
 
 // InstanceCounts Instance chưa `removed`: theo trạng thái, theo health (`healthy`/`unhealthy`/`unknown`, cùng quy tắc với `InstanceHealth`) và theo version Headscale báo ở lần probe gần nhất (`by_version` chỉ đếm instance đã báo version); `unhealthy` = `by_health.unhealthy`
@@ -3079,6 +3108,15 @@ type BackupPlatformInstanceParams struct {
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
 
+// ListPlatformInstanceConfigVersionsParams defines parameters for ListPlatformInstanceConfigVersions.
+type ListPlatformInstanceConfigVersionsParams struct {
+	// Limit Số phần tử tối đa của trang
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Con trỏ mờ lấy từ `next_cursor` của trang trước
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
 // QuarantinePlatformInstanceParams defines parameters for QuarantinePlatformInstance.
 type QuarantinePlatformInstanceParams struct {
 	// IdempotencyKey Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ
@@ -3707,6 +3745,9 @@ type ServerInterface interface {
 	// BackupPlatformInstance Backup một instance ngay — job `instance.backup` (202)
 	// (POST /platform/instances/{instanceId}/backup)
 	BackupPlatformInstance(w http.ResponseWriter, r *http.Request, instanceId InstanceId, params BackupPlatformInstanceParams)
+	// ListPlatformInstanceConfigVersions Version cấu hình của một instance — mới nhất trước
+	// (GET /platform/instances/{instanceId}/config-versions)
+	ListPlatformInstanceConfigVersions(w http.ResponseWriter, r *http.Request, instanceId InstanceId, params ListPlatformInstanceConfigVersionsParams)
 	// QuarantinePlatformInstance Quarantine instance nghi bị chiếm — cô lập ngay (job instance.quarantine), không cần 2P
 	// (POST /platform/instances/{instanceId}/quarantine)
 	QuarantinePlatformInstance(w http.ResponseWriter, r *http.Request, instanceId InstanceId, params QuarantinePlatformInstanceParams)
@@ -5157,6 +5198,61 @@ func (siw *ServerInterfaceWrapper) BackupPlatformInstance(w http.ResponseWriter,
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.BackupPlatformInstance(w, r, instanceId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListPlatformInstanceConfigVersions operation middleware
+func (siw *ServerInterfaceWrapper) ListPlatformInstanceConfigVersions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "instanceId" -------------
+	var instanceId InstanceId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "instanceId", r.PathValue("instanceId"), &instanceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "instanceId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListPlatformInstanceConfigVersionsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListPlatformInstanceConfigVersions(w, r, instanceId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -9477,6 +9573,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/platform/tenants/{tenantId}/relay-regions", wrapper.ListPlatformTenantRelayRegions)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/platform/instances", wrapper.ListPlatformInstances)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/platform/instances/{instanceId}", wrapper.GetPlatformInstance)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/platform/instances/{instanceId}/config-versions", wrapper.ListPlatformInstanceConfigVersions)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/platform/instances/{instanceId}/reconfigure", wrapper.ReconfigurePlatformInstance)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/platform/instances/{instanceId}/restart", wrapper.RestartPlatformInstance)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/platform/instances/{instanceId}/upgrade", wrapper.UpgradePlatformInstance)
@@ -13265,6 +13362,157 @@ type BackupPlatformInstancedefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response BackupPlatformInstancedefaultApplicationProblemPlusJSONResponse) VisitBackupPlatformInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPlatformInstanceConfigVersionsRequestObject struct {
+	InstanceId InstanceId `json:"instanceId"`
+	Params     ListPlatformInstanceConfigVersionsParams
+}
+
+type ListPlatformInstanceConfigVersionsResponseObject interface {
+	VisitListPlatformInstanceConfigVersionsResponse(w http.ResponseWriter) error
+}
+
+type ListPlatformInstanceConfigVersions200JSONResponse InstanceConfigVersionList
+
+func (response ListPlatformInstanceConfigVersions200JSONResponse) VisitListPlatformInstanceConfigVersionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPlatformInstanceConfigVersions401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response ListPlatformInstanceConfigVersions401ApplicationProblemPlusJSONResponse) VisitListPlatformInstanceConfigVersionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPlatformInstanceConfigVersions403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response ListPlatformInstanceConfigVersions403ApplicationProblemPlusJSONResponse) VisitListPlatformInstanceConfigVersionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPlatformInstanceConfigVersions404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response ListPlatformInstanceConfigVersions404ApplicationProblemPlusJSONResponse) VisitListPlatformInstanceConfigVersionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPlatformInstanceConfigVersions422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response ListPlatformInstanceConfigVersions422ApplicationProblemPlusJSONResponse) VisitListPlatformInstanceConfigVersionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPlatformInstanceConfigVersions429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response ListPlatformInstanceConfigVersions429ApplicationProblemPlusJSONResponse) VisitListPlatformInstanceConfigVersionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPlatformInstanceConfigVersionsdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response ListPlatformInstanceConfigVersionsdefaultApplicationProblemPlusJSONResponse) VisitListPlatformInstanceConfigVersionsResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -27174,6 +27422,9 @@ type StrictServerInterface interface {
 	// BackupPlatformInstance Backup một instance ngay — job `instance.backup` (202)
 	// (POST /platform/instances/{instanceId}/backup)
 	BackupPlatformInstance(ctx context.Context, request BackupPlatformInstanceRequestObject) (BackupPlatformInstanceResponseObject, error)
+	// ListPlatformInstanceConfigVersions Version cấu hình của một instance — mới nhất trước
+	// (GET /platform/instances/{instanceId}/config-versions)
+	ListPlatformInstanceConfigVersions(ctx context.Context, request ListPlatformInstanceConfigVersionsRequestObject) (ListPlatformInstanceConfigVersionsResponseObject, error)
 	// QuarantinePlatformInstance Quarantine instance nghi bị chiếm — cô lập ngay (job instance.quarantine), không cần 2P
 	// (POST /platform/instances/{instanceId}/quarantine)
 	QuarantinePlatformInstance(ctx context.Context, request QuarantinePlatformInstanceRequestObject) (QuarantinePlatformInstanceResponseObject, error)
@@ -28140,6 +28391,33 @@ func (sh *strictHandler) BackupPlatformInstance(w http.ResponseWriter, r *http.R
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(BackupPlatformInstanceResponseObject); ok {
 		if err := validResponse.VisitBackupPlatformInstanceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListPlatformInstanceConfigVersions operation middleware
+func (sh *strictHandler) ListPlatformInstanceConfigVersions(w http.ResponseWriter, r *http.Request, instanceId InstanceId, params ListPlatformInstanceConfigVersionsParams) {
+	var request ListPlatformInstanceConfigVersionsRequestObject
+
+	request.InstanceId = instanceId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListPlatformInstanceConfigVersions(ctx, request.(ListPlatformInstanceConfigVersionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListPlatformInstanceConfigVersions")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListPlatformInstanceConfigVersionsResponseObject); ok {
+		if err := validResponse.VisitListPlatformInstanceConfigVersionsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

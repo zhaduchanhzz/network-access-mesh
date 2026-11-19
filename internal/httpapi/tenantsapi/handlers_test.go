@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -184,7 +185,8 @@ func TestRegistryReadsThroughTheChain(t *testing.T) {
 	h, err := httpapi.New(httpapi.Options{
 		Logger: logx.New(&strings.Builder{}, slog.LevelInfo, "api"),
 		Handlers: httpapi.Handlers{Auth: identityapi.New(svc), Tenants: registry,
-			TenantView: httpapi.PlatformTenantView{Instances: registry}}, // P4-T02
+			TenantView:   httpapi.PlatformTenantView{Instances: registry}, // P4-T02
+			InstanceView: registry},                                       // P4-T03
 		Hooks: unaudited(authzhook.Hooks(svc, authz.New(st))),
 	})
 	if err != nil {
@@ -295,6 +297,54 @@ func TestRegistryReadsThroughTheChain(t *testing.T) {
 		gen.ProblemCodeNotFound)
 	problemOf(t, "tenant instances, bad limit", staff.get(admin+"/platform/tenants/"+b.String()+"/instances?limit=0"), 422,
 		gen.ProblemCodeValidationFailed)
+	// P4-T03: the configuration versions of an instance (instance detail of the Platform Console) — newest first, the
+	// one tenant_instances.config_version_id points at marked current, never rendered_config; cursor over the version
+	cv := func(version int, status string) uuid.UUID {
+		id := uuid.Must(uuid.NewV7())
+		exec(`INSERT INTO instance_config_versions (id, tenant_id, instance_id, version, template_version, params,
+				rendered_config, config_sha256, status, applied_at)
+			VALUES ($1, $2, $3, $4, 'tmpl-1', $5::jsonb, 'RENDERED-CONFIG-BODY', $6, $7,
+				CASE WHEN $7 IN ('applied', 'superseded') THEN now() END)`,
+			id, b, instB, version, `{"log_level":"LOG_LEVEL_INFO","node_expiry_days":`+strconv.Itoa(30*version)+`}`,
+			strings.Repeat(strconv.Itoa(version), 64), status)
+		return id
+	}
+	cv(1, "superseded")
+	v2 := cv(2, "applied")
+	v3 := cv(3, "failed")
+	exec(`UPDATE tenant_instances SET config_version_id = $2 WHERE id = $1`, instB, v2)
+	cvPath := admin + "/platform/instances/" + instB.String() + "/config-versions"
+	rec = staff.get(cvPath + "?limit=2")
+	page1 := decode[gen.InstanceConfigVersionList](t, "GET config-versions", rec)
+	if len(page1.Items) != 2 || page1.Items[0].Id != v3 || page1.Items[0].Version != 3 || page1.Items[0].Current ||
+		page1.Items[0].Status != "failed" || page1.Items[0].AppliedAt != nil || page1.Items[1].Id != v2 ||
+		!page1.Items[1].Current || page1.Items[1].AppliedAt == nil || page1.Items[1].ConfigSha256 != strings.Repeat("2", 64) ||
+		page1.Items[1].TemplateVersion != "tmpl-1" || page1.Items[1].CreatedBy != nil || page1.NextCursor == nil {
+		t.Fatalf("GET config-versions page 1 = %s", rec.Body)
+	}
+	var params map[string]any
+	if err := json.Unmarshal(page1.Items[1].Params, &params); err != nil || params["node_expiry_days"] != float64(60) {
+		t.Fatalf("params of v2: %s (%v)", page1.Items[1].Params, err)
+	}
+	if strings.Contains(rec.Body.String(), "rendered_config") || strings.Contains(rec.Body.String(), "RENDERED-CONFIG-BODY") {
+		t.Fatal("the configuration versions carry the rendered configuration")
+	}
+	page2 := decode[gen.InstanceConfigVersionList](t, "GET config-versions page 2", staff.get(cvPath+"?limit=2&cursor="+*page1.NextCursor))
+	if len(page2.Items) != 1 || page2.Items[0].Version != 1 || page2.Items[0].Current || page2.NextCursor != nil {
+		t.Fatalf("GET config-versions page 2 = %+v", page2)
+	}
+	if all := decode[gen.InstanceConfigVersionList](t, "all versions", staff.get(cvPath)); len(all.Items) != 3 || all.NextCursor != nil {
+		t.Fatalf("GET config-versions = %+v", all)
+	}
+	if ofA := decode[gen.InstanceConfigVersionList](t, "versions of A", staff.get(admin+"/platform/instances/"+instA.String()+"/config-versions")); len(ofA.Items) != 0 || ofA.NextCursor != nil {
+		t.Fatalf("GET config-versions of A (none recorded) = %+v", ofA)
+	}
+	problemOf(t, "versions of an unknown instance", staff.get(admin+"/platform/instances/"+uuid.NewString()+"/config-versions"), 404,
+		gen.ProblemCodeNotFound)
+	problemOf(t, "versions, bad cursor", staff.get(cvPath+"?cursor=@@"), 422, gen.ProblemCodeValidationFailed)
+	problemOf(t, "versions, bad limit", staff.get(cvPath+"?limit=0"), 422, gen.ProblemCodeValidationFailed)
+	problemOf(t, "versions from a tenant origin", alice.get(app+"/platform/instances/"+instB.String()+"/config-versions"), 403,
+		gen.ProblemCodeForbidden)
 	// instance health: the rule of the dashboards (monitoring.HealthOf, P2-T13a) at the database clock of the read
 	if h := insts.Items[0].Health; h.CheckedAt != nil || h.Reason == nil || *h.Reason != "never_checked" {
 		t.Fatalf("never probed: %+v", h)

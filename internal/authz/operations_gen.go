@@ -56,6 +56,7 @@ var specOperations = []Operation{
 	{ID: "listPlatformBackups", Method: "GET", Path: "/platform/backups", Permission: "platform.backup:read", AuditAction: "platform.backup.list"},
 	{ID: "listPlatformHosts", Method: "GET", Path: "/platform/hosts", Permission: "platform.host:read", AuditAction: "platform.host.list"},
 	{ID: "listPlatformIdentityProviders", Method: "GET", Path: "/platform/identity-providers", Permission: "platform.idp:read", AuditAction: "platform.idp.list"},
+	{ID: "listPlatformInstanceConfigVersions", Method: "GET", Path: "/platform/instances/{instanceId}/config-versions", Permission: "platform.instance:read", AuditAction: "platform.instance.config_version.list"},
 	{ID: "listPlatformInstances", Method: "GET", Path: "/platform/instances", Permission: "platform.instance:read", AuditAction: "platform.instance.list"},
 	{ID: "listPlatformJobs", Method: "GET", Path: "/platform/jobs", Permission: "platform.job:read", AuditAction: "platform.job.list"},
 	{ID: "listPlatformPlans", Method: "GET", Path: "/platform/plans", Permission: "platform.plan:read", AuditAction: "platform.plan.list"},

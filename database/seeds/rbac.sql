@@ -22,7 +22,7 @@ WITH seed (key, scope, description) AS (VALUES
     ('platform.idp:read', 'platform', 'GET /platform/identity-providers, GET /platform/idp-console/sessions'),
     ('platform.instance:operate', 'platform', 'POST /platform/instances/{id}/backup, POST /platform/instances/{id}/reconfigure, POST /platform/instances/{id}/restart'),
     ('platform.instance:quarantine', 'platform', 'POST /platform/instances/{id}/quarantine'),
-    ('platform.instance:read', 'platform', 'GET /platform/instances, GET /platform/instances/{id}, GET /platform/tenants/{id}/instances'),
+    ('platform.instance:read', 'platform', 'GET /platform/instances, GET /platform/instances/{id}, GET /platform/instances/{id}/config-versions, GET /platform/tenants/{id}/instances'),
     ('platform.instance:release', 'platform', 'POST /platform/instances/{id}/release'),
     ('platform.instance:restore', 'platform', 'POST /platform/instances/{id}/restore'),
     ('platform.instance:upgrade', 'platform', 'POST /platform/instances/{id}/upgrade'),

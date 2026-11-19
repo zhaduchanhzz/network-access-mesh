@@ -90,6 +90,8 @@ var recipes = map[string]recipe{
 	"listPlatformTenantJobs":         {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
 	"listPlatformTenantInstances":    {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
 	"listPlatformTenantRelayRegions": {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
+	// instance detail of the Platform Console (P4-T03 — tenantsapi as PlatformInstanceViewHandlers)
+	"listPlatformInstanceConfigVersions": {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
 	// dual control (P3-T04a, approvalsapi — mounted with the matrix's actions, world_test.go): granted deciders race
 	// on the same request (one executes, the others get 409) — any answer that is not a refusal
 	"listPlatformApprovals":   {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},

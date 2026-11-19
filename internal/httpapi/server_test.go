@@ -62,6 +62,7 @@ var operations = []struct {
 	{http.MethodGet, "/api/v1/platform/tenants/" + tenantID + "/instances", "", "ListPlatformTenantInstances", nil},
 	{http.MethodGet, "/api/v1/platform/tenants/" + tenantID + "/relay-regions", "", "ListPlatformTenantRelayRegions", nil},
 	{http.MethodGet, "/api/v1/platform/instances/" + itemID, "", "GetPlatformInstance", nil},
+	{http.MethodGet, "/api/v1/platform/instances/" + itemID + "/config-versions?limit=5", "", "ListPlatformInstanceConfigVersions", nil},
 	// instance.reconfigure (P3-T13)
 	{http.MethodPost, "/api/v1/platform/instances/" + itemID + "/reconfigure", `{"node_expiry_days":30}`, "ReconfigurePlatformInstance", []func(*http.Request){idempotency}},
 	// instance.restart, instance.upgrade (P3-T13a)

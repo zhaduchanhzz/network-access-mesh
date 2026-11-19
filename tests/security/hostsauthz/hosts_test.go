@@ -99,7 +99,8 @@ func TestHostsThroughTheAPI(t *testing.T) {
 	h := created.host
 	if created.rec.Code != http.StatusCreated || h.Name != "api-host" || h.Status != "active" || h.Capacity.MaxInstances != 4 ||
 		h.Etag == "" || created.rec.Header().Get("ETag") != h.Etag || h.PublicEntry.Ipv4 != nil || h.Usage.RunUidsFree != 100 ||
-		h.Usage.NetSlotsFree != 32 {
+		h.Usage.NetSlotsFree != 32 || h.Usage.StunPortsFree != nil ||
+		!strings.Contains(created.rec.Body.String(), `"stun_ports_free":null`) {
 		t.Fatalf("create: %d %s", created.rec.Code, created.rec.Body)
 	}
 	path := "/platform/hosts/" + h.Id.String()

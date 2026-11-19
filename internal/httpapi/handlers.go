@@ -278,31 +278,38 @@ func (v PlatformTenantView) ListPlatformTenantRelayRegions(ctx context.Context, 
 	return v.Relay.ListPlatformTenantRelayRegions(ctx, request)
 }
 
+// PlatformInstanceViewHandlers — P4-T03 (Platform Console, instance detail — §12.2): the configuration versions of an
+// instance, read on the platform pool; implemented by the registry set of P2-T11 (tenantsapi).
+type PlatformInstanceViewHandlers interface {
+	ListPlatformInstanceConfigVersions(ctx context.Context, request gen.ListPlatformInstanceConfigVersionsRequestObject) (gen.ListPlatformInstanceConfigVersionsResponseObject, error)
+}
+
 type Handlers struct {
-	Auth          AuthHandlers               // P2-T06
-	Tenants       TenantHandlers             // P2-T11
-	Devices       DeviceHandlers             // P2-T13
-	Audit         AuditHandlers              // P2-T08
-	Jobs          JobHandlers                // P2-T12
-	Monitoring    MonitoringHandlers         // P2-T13a
-	Hosts         HostHandlers               // P3-T04
-	Approvals     ApprovalHandlers           // P3-T04a
-	Invitations   InvitationHandlers         // P3-T05a
-	Notifications NotificationHandlers       // P3-T05b
-	IdPConsole    IdPConsoleHandlers         // P3-T15
-	Provisioning  ProvisioningHandlers       // P3-T05
-	Lifecycle     LifecycleHandlers          // P3-T08
-	Relay         RelayHandlers              // P3-T05c
-	Reconfigure   ReconfigureHandlers        // P3-T13
-	Backups       BackupHandlers             // P3-T11
-	InstanceOps   InstanceOpsHandlers        // P3-T13a
-	Deprovision   DeprovisionHandlers        // P3-T09
-	Quarantine    QuarantineHandlers         // P3-T18
-	Tags          TagHandlers                // P4-T15
-	Members       MemberHandlers             // P4-T09
-	Portal        PortalHandlers             // P4-T04
-	Admin         AdminHandlers              // P4-T03a
-	TenantView    PlatformTenantViewHandlers // P4-T02
+	Auth          AuthHandlers                 // P2-T06
+	Tenants       TenantHandlers               // P2-T11
+	Devices       DeviceHandlers               // P2-T13
+	Audit         AuditHandlers                // P2-T08
+	Jobs          JobHandlers                  // P2-T12
+	Monitoring    MonitoringHandlers           // P2-T13a
+	Hosts         HostHandlers                 // P3-T04
+	Approvals     ApprovalHandlers             // P3-T04a
+	Invitations   InvitationHandlers           // P3-T05a
+	Notifications NotificationHandlers         // P3-T05b
+	IdPConsole    IdPConsoleHandlers           // P3-T15
+	Provisioning  ProvisioningHandlers         // P3-T05
+	Lifecycle     LifecycleHandlers            // P3-T08
+	Relay         RelayHandlers                // P3-T05c
+	Reconfigure   ReconfigureHandlers          // P3-T13
+	Backups       BackupHandlers               // P3-T11
+	InstanceOps   InstanceOpsHandlers          // P3-T13a
+	Deprovision   DeprovisionHandlers          // P3-T09
+	Quarantine    QuarantineHandlers           // P3-T18
+	Tags          TagHandlers                  // P4-T15
+	Members       MemberHandlers               // P4-T09
+	Portal        PortalHandlers               // P4-T04
+	Admin         AdminHandlers                // P4-T03a
+	TenantView    PlatformTenantViewHandlers   // P4-T02
+	InstanceView  PlatformInstanceViewHandlers // P4-T03
 }
 
 func (h Handlers) mounted() bool {
@@ -310,7 +317,7 @@ func (h Handlers) mounted() bool {
 		h.Notifications != nil || h.Approvals != nil || h.Invitations != nil || h.Hosts != nil || h.IdPConsole != nil ||
 		h.Provisioning != nil || h.Lifecycle != nil || h.Relay != nil || h.Reconfigure != nil || h.Backups != nil ||
 		h.InstanceOps != nil || h.Quarantine != nil || h.Deprovision != nil || h.Tags != nil || h.Members != nil ||
-		h.Portal != nil || h.Admin != nil || h.TenantView != nil
+		h.Portal != nil || h.Admin != nil || h.TenantView != nil || h.InstanceView != nil
 }
 
 // dispatcher implements gen.StrictServerInterface by promotion from the disjoint interfaces.
@@ -339,6 +346,7 @@ type dispatcher struct {
 	PortalHandlers
 	AdminHandlers
 	PlatformTenantViewHandlers
+	PlatformInstanceViewHandlers
 }
 
 var _ gen.StrictServerInterface = dispatcher{}
@@ -346,7 +354,7 @@ var _ gen.StrictServerInterface = dispatcher{}
 func newDispatcher(h Handlers) dispatcher {
 	d := dispatcher{h.Auth, h.Tenants, h.Devices, h.Audit, h.Jobs, h.Monitoring, h.Notifications, h.Approvals, h.Invitations,
 		h.Hosts, h.IdPConsole, h.Provisioning, h.Lifecycle, h.Relay, h.Reconfigure, h.Backups, h.InstanceOps,
-		h.Quarantine, h.Deprovision, h.Tags, h.Members, h.Portal, h.Admin, h.TenantView}
+		h.Quarantine, h.Deprovision, h.Tags, h.Members, h.Portal, h.Admin, h.TenantView, h.InstanceView}
 	if d.AdminHandlers == nil {
 		d.AdminHandlers = NotImplemented{}
 	}
@@ -419,6 +427,9 @@ func newDispatcher(h Handlers) dispatcher {
 	if d.PlatformTenantViewHandlers == nil {
 		d.PlatformTenantViewHandlers = NotImplemented{}
 	}
+	if d.PlatformInstanceViewHandlers == nil {
+		d.PlatformInstanceViewHandlers = NotImplemented{}
+	}
 	return d
 }
 
@@ -478,6 +489,10 @@ func (NotImplemented) GetPlatformTenant(context.Context, gen.GetPlatformTenantRe
 
 func (NotImplemented) ListPlatformInstances(context.Context, gen.ListPlatformInstancesRequestObject) (gen.ListPlatformInstancesResponseObject, error) {
 	return nil, problem.NotImplemented("ListPlatformInstances")
+}
+
+func (NotImplemented) ListPlatformInstanceConfigVersions(context.Context, gen.ListPlatformInstanceConfigVersionsRequestObject) (gen.ListPlatformInstanceConfigVersionsResponseObject, error) {
+	return nil, problem.NotImplemented("ListPlatformInstanceConfigVersions")
 }
 
 func (NotImplemented) GetPlatformInstance(context.Context, gen.GetPlatformInstanceRequestObject) (gen.GetPlatformInstanceResponseObject, error) {

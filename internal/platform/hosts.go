@@ -227,6 +227,9 @@ type HostUsage struct {
 	ByStatus      map[string]int // the same, by status
 	RunUIDsFree   int64          // UIDs of run_uid_range never handed out (UIDs are never reused), reserved IDs aside
 	NetSlotsFree  int64          // /29 of tenant_net_pool held by no instance that is not removed
+	// STUNPortsFree: ports of stun_port_range held by no instance that is not removed (the live UNIQUE(host_id,
+	// stun_port) of 0001); nil when the host has no stun_port_range (shared STUN — MVP). P4-T03 (Hosts screen).
+	STUNPortsFree *int64
 }
 
 // HostView is a host as GET /platform/hosts shows it (schema Host).
@@ -665,6 +668,7 @@ func usageOf(h Host, rows []sqlcdb.ListHostAllocationsRow) HostUsage {
 	u := HostUsage{ByStatus: map[string]int{}}
 	uids := map[int32]bool{}
 	nets := map[netip.Prefix]bool{}
+	stun := map[int32]bool{}
 	for _, r := range rows {
 		if r.RunUid >= h.RunUIDFirst && r.RunUid <= h.RunUIDLast && !slices.Contains(ReservedIDs, r.RunUid) {
 			uids[r.RunUid] = true
@@ -677,6 +681,9 @@ func usageOf(h Host, rows []sqlcdb.ListHostAllocationsRow) HostUsage {
 		if r.NetCidr.Bits() >= h.TenantNetPool.Bits() && h.TenantNetPool.Contains(r.NetCidr.Addr()) {
 			nets[r.NetCidr.Masked()] = true
 		}
+		if r.StunPort != nil && *r.StunPort >= h.STUNPortFirst && *r.StunPort <= h.STUNPortLast {
+			stun[*r.StunPort] = true
+		}
 	}
 	total := int64(h.RunUIDLast) - int64(h.RunUIDFirst) + 1
 	for _, id := range ReservedIDs {
@@ -687,6 +694,10 @@ func usageOf(h Host, rows []sqlcdb.ListHostAllocationsRow) HostUsage {
 	u.RunUIDsFree = max(0, total-int64(len(uids)))
 	if b := h.TenantNetPool.Bits(); b >= 8 && b <= 29 {
 		u.NetSlotsFree = max(0, int64(1)<<(29-b)-int64(len(nets)))
+	}
+	if h.STUNPortFirst != 0 {
+		free := max(0, int64(h.STUNPortLast)-int64(h.STUNPortFirst)+1-int64(len(stun)))
+		u.STUNPortsFree = &free
 	}
 	return u
 }
