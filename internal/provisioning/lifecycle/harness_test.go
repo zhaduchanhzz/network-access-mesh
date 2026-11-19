@@ -179,6 +179,7 @@ type rig struct {
 	h      *Handler
 	worker *jobs.Worker
 	actor  uuid.UUID // the platform staff member asking
+	policy bool      // the worker also runs policy.apply (the policy core's handler — P4-T10)
 	host   uuid.UUID
 	n      int
 }
@@ -210,6 +211,9 @@ type rigOptions struct {
 	statuses []string               // the registry's reachable statuses; nil ⇒ ReachableStatuses (what the worker wires)
 	noWorker bool                   // API-side tests: the jobs stay queued
 	notifier notifications.Enqueuer // nil ⇒ notifications.Default
+	// policyApply: the worker also runs policy.apply (the job the suspend request enqueues — P4-T10); without it
+	// that job stays queued and only the lifecycle job's own policy step applies the suspension.
+	policyApply bool
 }
 
 func newRig(t *testing.T, o rigOptions) *rig {
@@ -221,7 +225,7 @@ func newRig(t *testing.T, o rigOptions) *rig {
 	}
 	db := shared.db
 	shared.mu.Unlock()
-	g := &rig{env: env, db: db, su: env.Admin(t, db), actor: uuid.New(), host: uuid.New()}
+	g := &rig{env: env, db: db, su: env.Admin(t, db), actor: uuid.New(), host: uuid.New(), policy: o.policyApply}
 	g.exec(t, `INSERT INTO hosts (id, name, region, run_uid_range, tenant_net_pool)
 		VALUES ($1, $2, 'lab', int4range(30000, 40000), '10.250.0.0/16')`, g.host, "host-"+randomHex(6))
 	g.api = env.OpenStore(t, db, "mg_api_tenant", "mg_api_platform", 6)
@@ -265,6 +269,11 @@ func (g *rig) startWorker(t *testing.T) {
 	}
 	if err := g.h.Register(w); err != nil {
 		t.Fatal(err)
+	}
+	if g.policy {
+		if err := g.core.Register(w); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := w.Start(context.Background()); err != nil {
 		t.Fatal(err)

@@ -63,6 +63,10 @@ func TestSuspendResumeDB(t *testing.T) {
 		r.Job.Steps[0].Name != StepValidate || r.Job.Steps[0].Status != jobs.StepSucceeded {
 		t.Fatalf("suspend: %+v, %v", r, err)
 	}
+	if n := g.str(t, `SELECT count(*)::text FROM provisioning_jobs WHERE tenant_id = $1 AND kind = 'policy.apply'
+		AND input->>'trigger' = 'suspend'`, a.id); n != "1" {
+		t.Errorf("policy.apply (suspend) jobs enqueued by the request: %s, want 1 (P4-T10)", n)
+	}
 	replay, err := g.suspend(t, a, "suspend-a-0001")
 	if err != nil || replay.Changed || replay.Job.ID != r.Job.ID {
 		t.Errorf("replay of the same request: %+v, %v (want the same job, nothing written)", replay, err)
@@ -249,6 +253,42 @@ func TestSuspendWaitsForTheLifecycleLock(t *testing.T) {
 	g.wait(t, r.Job.ID, jobs.StatusSucceeded)
 	if g.status(t, a) != "suspended" {
 		t.Errorf("after the holder ended: tenant %s", g.status(t, a))
+	}
+}
+
+// TestSuspendDenyAllDoesNotWaitForTheLock — P4-T10 (§11.4, the "Còn lại" of P3-T08): the suspend request enqueues, in
+// its own transaction, a policy.apply job (trigger suspend) next to tenant.suspend. While an instance job holds the
+// lifecycle lock, that job applies the deny-all policy at once — the tenant is still active and tenant.suspend still
+// queued —; once the lock is free tenant.suspend completes (its policy step asserts the same suspension policy).
+func TestSuspendDenyAllDoesNotWaitForTheLock(t *testing.T) {
+	g := newRig(t, rigOptions{policyApply: true})
+	a := g.newTenant(t)
+	deny := canonical(t, templates.SuspensionPolicy)
+	holder := uuid.New()
+	g.exec(t, `INSERT INTO provisioning_jobs (id, tenant_id, instance_id, kind, dedupe_key, lock_key, status, attempt,
+			max_attempts, started_at, timeout_at)
+		VALUES ($1, $2, $3, 'instance.upgrade', $4, $5, 'running', 1, 6, now(), now() + interval '10 minutes')`,
+		holder, a.id, a.instance, "instance:"+a.instance.String()+":instance.upgrade", jobs.LockKey(a.id))
+	r, err := g.suspend(t, a, "")
+	if err != nil || !r.Changed {
+		t.Fatalf("suspend: %+v, %v", r, err)
+	}
+	pa := g.str(t, `SELECT id::text FROM provisioning_jobs WHERE tenant_id = $1 AND kind = 'policy.apply'
+		AND input->>'trigger' = 'suspend' ORDER BY created_at DESC LIMIT 1`, a.id)
+	g.wait(t, uuid.MustParse(pa), jobs.StatusSucceeded)
+	if st := g.str(t, `SELECT status || ':' || attempt FROM provisioning_jobs WHERE id = $1`, r.Job.ID); st != "queued:0" ||
+		g.status(t, a) != "active" || a.hs.Stored() != deny {
+		t.Fatalf("while the lock is held: job %s, tenant %s, Headscale %q (want the deny-all applied already)", st,
+			g.status(t, a), a.hs.Stored())
+	}
+	if got := g.str(t, `SELECT v.kind || ':' || p.trigger FROM policy_applications p JOIN policy_versions v ON v.id = p.policy_version_id
+		WHERE p.tenant_id = $1 AND p.state = 'applied' AND p.superseded_at IS NULL`, a.id); got != "suspension:suspend" {
+		t.Fatalf("current application %s, want suspension:suspend", got)
+	}
+	g.exec(t, `UPDATE provisioning_jobs SET status = 'succeeded', finished_at = now() WHERE id = $1`, holder)
+	g.wait(t, r.Job.ID, jobs.StatusSucceeded)
+	if g.status(t, a) != "suspended" || a.hs.Stored() != deny {
+		t.Errorf("after the holder ended: tenant %s, Headscale %q", g.status(t, a), a.hs.Stored())
 	}
 }
 

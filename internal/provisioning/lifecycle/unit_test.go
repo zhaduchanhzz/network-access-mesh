@@ -197,3 +197,7 @@ type applierFunc func()
 func (applierFunc) Apply(context.Context, policies.ApplyRequest) (policies.Result, error) {
 	return policies.Result{}, errors.New("not called")
 }
+
+func (applierFunc) ApplyDesired(context.Context, policies.DesiredRequest) (policies.Result, error) {
+	return policies.Result{}, errors.New("not called")
+}

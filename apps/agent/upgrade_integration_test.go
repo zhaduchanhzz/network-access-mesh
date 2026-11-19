@@ -409,6 +409,11 @@ type cliPolicies struct {
 	reqs []policies.ApplyRequest
 }
 
+// ApplyDesired is not used here: the instance runs a platform version (the core's text path).
+func (p *cliPolicies) ApplyDesired(context.Context, policies.DesiredRequest) (policies.Result, error) {
+	return policies.Result{}, errors.New("cliPolicies: no typed version in this test")
+}
+
 func (p *cliPolicies) Apply(ctx context.Context, req policies.ApplyRequest) (policies.Result, error) {
 	p.reqs = append(p.reqs, req)
 	if err := os.WriteFile(p.file, []byte(req.HuJSON), 0o440); err != nil { //nolint:gosec // G306: a policy file like the agent's
