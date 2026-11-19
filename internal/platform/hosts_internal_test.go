@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/netip"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -201,8 +202,35 @@ func TestUsageOf(t *testing.T) {
 	if u.RunUIDsFree != 1 || u.NetSlotsFree != 2 {
 		t.Errorf("free UIDs %d (want 1), free /29 %d (want 2)", u.RunUIDsFree, u.NetSlotsFree)
 	}
-	if u := usageOf(Host{RunUIDFirst: 30000, RunUIDLast: 39999, TenantNetPool: netip.MustParsePrefix("10.250.0.0/16")}, nil); u.RunUIDsFree != 10000 || u.NetSlotsFree != 8192 || u.LiveInstances != 0 {
+	if u.STUNPortsFree != nil {
+		t.Errorf("no stun_port_range (shared STUN): free STUN ports %d, want none", *u.STUNPortsFree)
+	}
+	if u := usageOf(Host{RunUIDFirst: 30000, RunUIDLast: 39999, TenantNetPool: netip.MustParsePrefix("10.250.0.0/16")}, nil); u.RunUIDsFree != 10000 || u.NetSlotsFree != 8192 || u.LiveInstances != 0 || u.STUNPortsFree != nil {
 		t.Errorf("empty host: %+v", u)
+	}
+	// P4-T03: free STUN ports = ports of the range held by no live instance (a removed instance releases its port —
+	// the live UNIQUE(host_id, stun_port) of 0001; a port outside the range or NULL counts for nothing)
+	port := func(p int32) *int32 { return &p }
+	show := func(n *int64) string {
+		if n == nil {
+			return "null"
+		}
+		return strconv.FormatInt(*n, 10)
+	}
+	sh := Host{RunUIDFirst: 30000, RunUIDLast: 39999, TenantNetPool: netip.MustParsePrefix("10.250.0.0/16"),
+		STUNPortFirst: 3478, STUNPortLast: 3487}
+	stunRows := []sqlcdb.ListHostAllocationsRow{
+		{Status: "running", RunUid: 30000, NetCidr: netip.MustParsePrefix("10.250.0.0/29"), StunPort: port(3478)},
+		{Status: "removed", RunUid: 30001, NetCidr: netip.MustParsePrefix("10.250.0.8/29"), StunPort: port(3479)},
+		{Status: "quarantined", RunUid: 30002, NetCidr: netip.MustParsePrefix("10.250.0.16/29"), StunPort: port(3487)},
+		{Status: "allocated", RunUid: 30003, NetCidr: netip.MustParsePrefix("10.250.0.24/29"), StunPort: port(4000)},
+		{Status: "starting", RunUid: 30004, NetCidr: netip.MustParsePrefix("10.250.0.32/29")},
+	}
+	if u := usageOf(sh, stunRows); u.STUNPortsFree == nil || *u.STUNPortsFree != 8 {
+		t.Errorf("free STUN ports %s, want 8 (10 in the range, 2 held by live instances)", show(u.STUNPortsFree))
+	}
+	if u := usageOf(sh, nil); u.STUNPortsFree == nil || *u.STUNPortsFree != 10 {
+		t.Errorf("empty host with a STUN range: %s, want 10", show(u.STUNPortsFree))
 	}
 }
 

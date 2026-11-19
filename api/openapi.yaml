@@ -2170,6 +2170,42 @@ paths:
           $ref: '#/components/responses/RateLimited'
         default:
           $ref: '#/components/responses/Unexpected'
+  # ---------------------------------------------------------------- chi tiết instance: version cấu hình (P4-T03)
+  /platform/instances/{instanceId}/config-versions:
+    get:
+      tags: [platform]
+      operationId: listPlatformInstanceConfigVersions
+      summary: Version cấu hình của một instance — mới nhất trước
+      description: >-
+        Chi tiết instance của Platform Console (§12.2): các hàng `instance_config_versions` của instance theo `version`
+        giảm dần, mỗi hàng đánh dấu `current` (hàng `tenant_instances.config_version_id` trỏ tới). Không trả
+        `rendered_config`. Instance không tồn tại ⇒ `404`.
+      x-permission: platform.instance:read
+      x-task: P4-T03
+      x-audit-action: platform.instance.config_version.list
+      parameters:
+        - $ref: '#/components/parameters/InstanceId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Một trang version cấu hình
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InstanceConfigVersionList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
   # ---------------------------------------------------------------- thao tác trên instance: reconfigure (P3-T13)
   /platform/instances/{instanceId}/reconfigure:
     post:
@@ -6872,6 +6908,60 @@ components:
             $ref: '#/components/schemas/Instance'
         next_cursor:
           type: [string, 'null']
+    InstanceConfigVersion:
+      type: object
+      description: >-
+        Một version cấu hình của instance (`instance_config_versions`, §6.3) — bản ghi do orchestrator (bước 8 của §11.3)
+        và job reconfigure (P3-T13) viết. Không có `rendered_config` (nội dung thật nằm trên host, đối chiếu bằng
+        `config_sha256`); `params` là tham số render như đã lưu — không chứa secret (§6.3).
+      required: [id, version, status, current, template_version, config_sha256, params, created_at, applied_at, created_by]
+      properties:
+        id:
+          type: string
+          format: uuid
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+        status:
+          type: string
+          pattern: '^[a-z][a-z0-9_]{0,63}$'
+          description: >-
+            `rendered` (orchestrator đã ghi), `pending` (reconfigure đã ghi, chưa áp dụng), `applied` (đang hoặc đã từng
+            hiệu lực), `superseded` (đã bị version sau thay), `failed` (đã lùi về version trước); tập giá trị chỉ được bổ sung
+        current:
+          type: boolean
+          description: Version mà instance đang trỏ tới (`tenant_instances.config_version_id`)
+        template_version:
+          type: string
+        config_sha256:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        params:
+          type: object
+          additionalProperties: true
+          x-go-type: json.RawMessage
+          description: Tham số render (không secret) như đã lưu
+        created_at:
+          type: string
+          format: date-time
+        applied_at:
+          type: [string, 'null']
+          format: date-time
+        created_by:
+          type: [string, 'null']
+          format: uuid
+          description: Actor đã yêu cầu (identity; null với bản do orchestrator ghi)
+    InstanceConfigVersionList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/InstanceConfigVersion'
+        next_cursor:
+          type: [string, 'null']
     # ------------------------------------------------------------ backup/restore (§6.3 `backups` — P3-T11)
     InstanceRestoreCreate:
       type: object
@@ -7103,8 +7193,9 @@ components:
         Mức dùng của host lúc đọc: `live_instances` = instance chưa `removed` (so với `capacity.max_instances`),
         `by_status` = số instance chưa `removed` theo trạng thái, `run_uids_free` = UID của `run_uid_range` chưa từng
         được cấp (UID không tái sử dụng, kể cả sau `removed`; không tính UID/GID của service core), `net_slots_free` = số
-        /29 của `tenant_net_pool` chưa thuộc instance chưa `removed`
-      required: [live_instances, by_status, run_uids_free, net_slots_free]
+        /29 của `tenant_net_pool` chưa thuộc instance chưa `removed`, `stun_ports_free` = số cổng của `stun_port_range`
+        chưa thuộc instance chưa `removed` (`null` khi host không có `stun_port_range` — STUN chung, MVP; P4-T03)
+      required: [live_instances, by_status, run_uids_free, net_slots_free, stun_ports_free]
       properties:
         live_instances:
           type: integer
@@ -7117,6 +7208,10 @@ components:
           minimum: 0
         net_slots_free:
           type: integer
+          format: int64
+          minimum: 0
+        stun_ports_free:
+          type: [integer, 'null']
           format: int64
           minimum: 0
     Host:

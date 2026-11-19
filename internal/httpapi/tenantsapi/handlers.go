@@ -55,6 +55,7 @@ type TenantService interface {
 type InstanceService interface {
 	ListInstances(ctx context.Context, f platform.InstanceFilter) (platform.InstancePage, error)
 	GetInstance(ctx context.Context, id uuid.UUID) (platform.Instance, error)
+	ListInstanceConfigVersions(ctx context.Context, instanceID uuid.UUID, limit int, cursor string) (platform.ConfigVersionPage, error)
 }
 
 var (
@@ -68,7 +69,10 @@ type Handlers struct {
 	platform InstanceService
 }
 
-var _ httpapi.TenantHandlers = (*Handlers)(nil)
+var (
+	_ httpapi.TenantHandlers               = (*Handlers)(nil)
+	_ httpapi.PlatformInstanceViewHandlers = (*Handlers)(nil) // P4-T03
+)
 
 // New returns the handler set of P2-T11.
 func New(t TenantService, p InstanceService) *Handlers { return &Handlers{tenants: t, platform: p} }
@@ -284,6 +288,31 @@ func (h *Handlers) GetPlatformInstance(ctx context.Context, req gen.GetPlatformI
 		return nil, notFound()
 	}
 	return gen.GetPlatformInstance200JSONResponse(toInstance(i)), nil
+}
+
+// ListPlatformInstanceConfigVersions implements GET /platform/instances/{instanceId}/config-versions (P4-T03 — the
+// instance detail of the Platform Console): the configuration versions of the instance, newest first, the current one
+// marked; an unknown instance ⇒ 404. rendered_config is not part of the view.
+func (h *Handlers) ListPlatformInstanceConfigVersions(ctx context.Context, req gen.ListPlatformInstanceConfigVersionsRequestObject) (gen.ListPlatformInstanceConfigVersionsResponseObject, error) {
+	if req.InstanceId == uuid.Nil {
+		return nil, notFound()
+	}
+	p, err := h.platform.ListInstanceConfigVersions(ctx, req.InstanceId, limitOf(req.Params.Limit), str(req.Params.Cursor))
+	if err != nil {
+		return nil, failure(err)
+	}
+	out := gen.ListPlatformInstanceConfigVersions200JSONResponse{Items: make([]gen.InstanceConfigVersion, 0, len(p.Items)),
+		NextCursor: cursorOf(p.NextCursor)}
+	for _, v := range p.Items {
+		params := json.RawMessage(v.Params)
+		if len(params) == 0 {
+			params = json.RawMessage(`{}`)
+		}
+		out.Items = append(out.Items, gen.InstanceConfigVersion{Id: v.ID, Version: int64(v.Version), Status: v.Status,
+			Current: v.Current, TemplateVersion: v.TemplateVersion, ConfigSha256: v.ConfigSHA256, Params: params,
+			CreatedAt: v.CreatedAt, AppliedAt: v.AppliedAt, CreatedBy: v.CreatedBy})
+	}
+	return out, nil
 }
 
 // ToTenant maps the registry view to schema Tenant — shared with PATCH /platform/tenants/{id} (P4-T03a, adminapi).

@@ -4,7 +4,7 @@
 // (cùng pattern của spec); server kiểm lại tất cả (slug cấm, slug đã dùng, gói, quota).
 // `client_secret` của IdP ngoài là trường chỉ-ghi: chỉ nằm trong state của form tới khi gửi, không vào khóa
 // idempotency, không bao giờ được hiển thị lại.
-import { useId, useState, type ReactNode } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate } from "react-router";
 import { api, callWithResponse } from "../../api/client";
@@ -14,6 +14,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { can } from "../../auth/permissions";
 import { SLUG_RE } from "../../auth/session";
 import { Field } from "../../ui/Data";
+import { TextField } from "../../ui/Form";
 import { Page } from "../../components/Page";
 import { ProblemAlert } from "../../components/ProblemAlert";
 import { ForbiddenPage } from "../../pages/StatusPages";
@@ -182,11 +183,11 @@ export function TenantCreatePage() {
 
         {step === 0 ? (
           <>
-            <Input label={t("platform.tenantCreate.slug")} hint={t("platform.tenantCreate.slugHint")} value={form.slug} onChange={set("slug")} error={err("slug")} mono autoFocus />
-            <Input label={t("platform.tenantCreate.name")} value={form.name} onChange={set("name")} error={err("name")} />
-            <Input label={t("platform.tenantCreate.ownerEmail")} hint={t("platform.tenantCreate.ownerEmailHint")} type="email" value={form.ownerEmail} onChange={set("ownerEmail")} error={err("ownerEmail")} />
-            <Input label={t("platform.tenantCreate.plan")} hint={t("platform.tenantCreate.planHint")} value={form.planKey} onChange={set("planKey")} error={err("planKey")} mono />
-            <Input label={t("platform.tenantCreate.region")} hint={t("platform.tenantCreate.regionHint")} value={form.region} onChange={set("region")} error={err("region")} mono />
+            <TextField label={t("platform.tenantCreate.slug")} hint={t("platform.tenantCreate.slugHint")} value={form.slug} onChange={set("slug")} error={err("slug")} mono autoFocus />
+            <TextField label={t("platform.tenantCreate.name")} value={form.name} onChange={set("name")} error={err("name")} />
+            <TextField label={t("platform.tenantCreate.ownerEmail")} hint={t("platform.tenantCreate.ownerEmailHint")} type="email" value={form.ownerEmail} onChange={set("ownerEmail")} error={err("ownerEmail")} />
+            <TextField label={t("platform.tenantCreate.plan")} hint={t("platform.tenantCreate.planHint")} value={form.planKey} onChange={set("planKey")} error={err("planKey")} mono />
+            <TextField label={t("platform.tenantCreate.region")} hint={t("platform.tenantCreate.regionHint")} value={form.region} onChange={set("region")} error={err("region")} mono />
           </>
         ) : null}
 
@@ -214,12 +215,12 @@ export function TenantCreatePage() {
             </fieldset>
             {form.driver === "external" ? (
               <>
-                <Input label={t("platform.tenantCreate.issuer")} type="url" value={form.issuer} onChange={set("issuer")} error={err("issuer")} mono />
-                <Input label={t("platform.tenantCreate.clientId")} value={form.clientId} onChange={set("clientId")} error={err("clientId")} mono />
-                <Input label={t("platform.tenantCreate.clientSecret")} hint={t("platform.tenantCreate.clientSecretHint")} type="password" value={form.clientSecret} onChange={set("clientSecret")} error={err("clientSecret")} />
+                <TextField label={t("platform.tenantCreate.issuer")} type="url" value={form.issuer} onChange={set("issuer")} error={err("issuer")} mono />
+                <TextField label={t("platform.tenantCreate.clientId")} value={form.clientId} onChange={set("clientId")} error={err("clientId")} mono />
+                <TextField label={t("platform.tenantCreate.clientSecret")} hint={t("platform.tenantCreate.clientSecretHint")} type="password" value={form.clientSecret} onChange={set("clientSecret")} error={err("clientSecret")} />
               </>
             ) : null}
-            <Input label={t("platform.tenantCreate.domains")} hint={t("platform.tenantCreate.domainsHint")} value={form.domains} onChange={set("domains")} error={err("domains")} mono />
+            <TextField label={t("platform.tenantCreate.domains")} hint={t("platform.tenantCreate.domainsHint")} value={form.domains} onChange={set("domains")} error={err("domains")} mono />
           </>
         ) : null}
 
@@ -271,50 +272,5 @@ export function TenantCreatePage() {
         </div>
       </form>
     </Page>
-  );
-}
-
-function Input(props: {
-  label: string;
-  hint?: string;
-  value: string;
-  onChange: (v: string) => void;
-  error?: string;
-  type?: "text" | "email" | "url" | "password";
-  mono?: boolean;
-  autoFocus?: boolean;
-}): ReactNode {
-  const id = useId();
-  const described = [props.hint ? `${id}-hint` : "", props.error ? `${id}-err` : ""].filter(Boolean).join(" ") || undefined;
-  return (
-    <div>
-      <label htmlFor={id} className="label">
-        {props.label}
-      </label>
-      <input
-        id={id}
-        type={props.type ?? "text"}
-        className={props.mono ? "input font-mono" : "input"}
-        value={props.value}
-        autoComplete={props.type === "password" ? "new-password" : "off"}
-        spellCheck={false}
-        autoFocus={props.autoFocus}
-        aria-invalid={props.error ? true : undefined}
-        aria-describedby={described}
-        onChange={(e) => {
-          props.onChange(e.target.value);
-        }}
-      />
-      {props.hint ? (
-        <p id={`${id}-hint`} className="hint">
-          {props.hint}
-        </p>
-      ) : null}
-      {props.error ? (
-        <p id={`${id}-err`} className="field-error">
-          {props.error}
-        </p>
-      ) : null}
-    </div>
   );
 }

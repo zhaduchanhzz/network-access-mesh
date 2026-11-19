@@ -876,6 +876,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/platform/instances/{instanceId}/config-versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Version cấu hình của một instance — mới nhất trước
+         * @description Chi tiết instance của Platform Console (§12.2): các hàng `instance_config_versions` của instance theo `version` giảm dần, mỗi hàng đánh dấu `current` (hàng `tenant_instances.config_version_id` trỏ tới). Không trả `rendered_config`. Instance không tồn tại ⇒ `404`.
+         */
+        get: operations["listPlatformInstanceConfigVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/platform/instances/{instanceId}/reconfigure": {
         parameters: {
             query?: never;
@@ -2878,6 +2898,36 @@ export interface components {
             items: components["schemas"]["Instance"][];
             next_cursor: string | null;
         };
+        /** @description Một version cấu hình của instance (`instance_config_versions`, §6.3) — bản ghi do orchestrator (bước 8 của §11.3) và job reconfigure (P3-T13) viết. Không có `rendered_config` (nội dung thật nằm trên host, đối chiếu bằng `config_sha256`); `params` là tham số render như đã lưu — không chứa secret (§6.3). */
+        InstanceConfigVersion: {
+            /** Format: uuid */
+            id: string;
+            /** Format: int64 */
+            version: number;
+            /** @description `rendered` (orchestrator đã ghi), `pending` (reconfigure đã ghi, chưa áp dụng), `applied` (đang hoặc đã từng hiệu lực), `superseded` (đã bị version sau thay), `failed` (đã lùi về version trước); tập giá trị chỉ được bổ sung */
+            status: string;
+            /** @description Version mà instance đang trỏ tới (`tenant_instances.config_version_id`) */
+            current: boolean;
+            template_version: string;
+            config_sha256: string;
+            /** @description Tham số render (không secret) như đã lưu */
+            params: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            applied_at: string | null;
+            /**
+             * Format: uuid
+             * @description Actor đã yêu cầu (identity; null với bản do orchestrator ghi)
+             */
+            created_by: string | null;
+        };
+        InstanceConfigVersionList: {
+            items: components["schemas"]["InstanceConfigVersion"][];
+            next_cursor: string | null;
+        };
         /** @description Xin restore một instance từ một bản backup (luôn cần người thứ hai duyệt — §8.5) */
         InstanceRestoreCreate: {
             /**
@@ -3009,7 +3059,7 @@ export interface components {
             /** Format: int64 */
             last: number;
         };
-        /** @description Mức dùng của host lúc đọc: `live_instances` = instance chưa `removed` (so với `capacity.max_instances`), `by_status` = số instance chưa `removed` theo trạng thái, `run_uids_free` = UID của `run_uid_range` chưa từng được cấp (UID không tái sử dụng, kể cả sau `removed`; không tính UID/GID của service core), `net_slots_free` = số /29 của `tenant_net_pool` chưa thuộc instance chưa `removed` */
+        /** @description Mức dùng của host lúc đọc: `live_instances` = instance chưa `removed` (so với `capacity.max_instances`), `by_status` = số instance chưa `removed` theo trạng thái, `run_uids_free` = UID của `run_uid_range` chưa từng được cấp (UID không tái sử dụng, kể cả sau `removed`; không tính UID/GID của service core), `net_slots_free` = số /29 của `tenant_net_pool` chưa thuộc instance chưa `removed`, `stun_ports_free` = số cổng của `stun_port_range` chưa thuộc instance chưa `removed` (`null` khi host không có `stun_port_range` — STUN chung, MVP; P4-T03) */
         HostUsage: {
             live_instances: number;
             by_status: components["schemas"]["StatusCounts"];
@@ -3017,6 +3067,8 @@ export interface components {
             run_uids_free: number;
             /** Format: int64 */
             net_slots_free: number;
+            /** Format: int64 */
+            stun_ports_free: number | null;
         };
         /** @description Host chạy instance (`hosts`, §6.3) — không chứa secret */
         Host: {
@@ -5855,6 +5907,39 @@ export interface operations {
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    listPlatformInstanceConfigVersions: {
+        parameters: {
+            query?: {
+                /** @description Số phần tử tối đa của trang */
+                limit?: components["parameters"]["Limit"];
+                /** @description Con trỏ mờ lấy từ `next_cursor` của trang trước */
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: never;
+            path: {
+                instanceId: components["parameters"]["InstanceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Một trang version cấu hình */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstanceConfigVersionList"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationFailed"];
             429: components["responses"]["RateLimited"];
             default: components["responses"]["Unexpected"];
         };

@@ -65,6 +65,7 @@ var routes = []struct {
 	{http.MethodGet, "/api/v1/platform/tenants/" + tenantID + "/instances", "", "ListPlatformTenantInstances", nil},
 	{http.MethodGet, "/api/v1/platform/tenants/" + tenantID + "/relay-regions", "", "ListPlatformTenantRelayRegions", nil},
 	{http.MethodGet, "/api/v1/platform/instances/" + itemID, "", "GetPlatformInstance", nil},
+	{http.MethodGet, "/api/v1/platform/instances/" + itemID + "/config-versions?limit=5", "", "ListPlatformInstanceConfigVersions", nil},
 	// instance.reconfigure (P3-T13)
 	{http.MethodPost, "/api/v1/platform/instances/" + itemID + "/reconfigure", `{"log_level":"warn"}`, "ReconfigurePlatformInstance", idempotency},
 	{http.MethodPost, "/api/v1/platform/instances/" + itemID + "/restart", "", "RestartPlatformInstance", idempotency},

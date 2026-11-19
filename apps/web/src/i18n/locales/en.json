@@ -232,6 +232,28 @@
       "pending": "Pending",
       "active": "Active",
       "disabled": "Disabled"
+    },
+    "host": {
+      "active": "Active",
+      "draining": "Draining (no new instances)",
+      "disabled": "Disabled"
+    },
+    "platformUser": {
+      "active": "Active",
+      "disabled": "Disabled"
+    },
+    "idp": {
+      "pending": "Pending",
+      "active": "Active",
+      "retiring": "Retiring",
+      "disabled": "Disabled"
+    },
+    "configVersion": {
+      "rendered": "Rendered",
+      "pending": "Pending",
+      "applied": "In effect",
+      "superseded": "Superseded",
+      "failed": "Failed (rolled back)"
     }
   },
   "platform": {
@@ -436,7 +458,9 @@
       "platform_tenant_delete": "Delete tenant",
       "platform_instance_restore": "Restore instance",
       "platform_instance_release": "Release instance from quarantine",
-      "platform_idp_console_session": "Keycloak admin console session"
+      "platform_idp_console_session": "Keycloak admin console session",
+      "platform_user_super_admin": "Grant/revoke Super Admin",
+      "platform_idp_update_tenant": "Change a tenant's IdP (platform-initiated)"
     },
     "approvals": {
       "title": "Pending approvals (2P)",
@@ -488,6 +512,362 @@
       "rejectDesc": "The request is closed; the requester has to make a new one if needed.",
       "typeSlug": "Type the slug of the tenant to delete",
       "hashLabel": "payload_sha256:"
+    },
+    "instances": {
+      "title": "Instances",
+      "status": "Status",
+      "caption": "Headscale instances of every tenant",
+      "empty": "No instances yet.",
+      "emptyFiltered": "No instance matches the filter.",
+      "pagination": "Instance pagination",
+      "onHost": "Only instances on host",
+      "clearHost": "Clear host filter",
+      "col": {
+        "hostname": "Control hostname",
+        "status": "Status",
+        "health": "Health",
+        "version": "Headscale version",
+        "tenant": "Tenant",
+        "host": "Host"
+      }
+    },
+    "instance": {
+      "title": "Instance detail",
+      "back": "← Instances",
+      "summary": "Instance",
+      "actions": "Operations",
+      "digest": "Image digest",
+      "serverUrl": "Server URL",
+      "runUid": "Run UID",
+      "noiseKey": "Noise key fingerprint",
+      "rowVersion": "Record version",
+      "config": "Configuration versions",
+      "noConfig": "The instance has no configuration version recorded by the orchestrator (adopted instance) — reconfigure/upgrade will be refused (409).",
+      "currentConfig": "In effect: version {{version}}",
+      "noCurrentConfig": "No version is in effect.",
+      "current": "Current",
+      "params": "Render parameters of version {{version}} (no secrets)",
+      "configPagination": "Configuration version pagination",
+      "cv": {
+        "version": "Version",
+        "status": "Status",
+        "template": "Template",
+        "sha": "Config SHA-256",
+        "created": "Created",
+        "applied": "Applied"
+      },
+      "backups": "Recent backups (succeeded)",
+      "noBackups": "No successful backup yet.",
+      "bk": {
+        "started": "Started",
+        "method": "Method",
+        "size": "Size",
+        "version": "Headscale version",
+        "verified": "Manifest verified"
+      },
+      "act": {
+        "restart": "Restart",
+        "reconfigure": "Reconfigure…",
+        "backup": "Back up now",
+        "upgrade": "Upgrade…",
+        "restore": "Request restore…",
+        "quarantine": "Quarantine…",
+        "release": "Request release…"
+      },
+      "restartTitle": "Restart instance {{host}}?",
+      "restartDesc": "Controlled restart: Host Agent start guard, health gate, post-start policy check. The tenant's clients briefly lose the control plane. Follow it on the job timeline.",
+      "backupTitle": "Back up instance {{host}} now?",
+      "backupDesc": "Creates an instance.backup job (VACUUM INTO while running, cold copy when stopped); the backup is encrypted and its signed manifest verified before it succeeds.",
+      "reconfigureTitle": "Reconfigure instance {{host}}",
+      "reconfigureDesc": "Renders a new configuration version from the one in effect plus the changes below, configtest, write, restart and health gate; a failure rolls back to the previous version. Leave empty to keep.",
+      "logLevel": "Log level",
+      "unchanged": "Unchanged",
+      "nodeExpiry": "Node expiry (days)",
+      "nodeExpiryHint": "1–3650 days.",
+      "nameservers": "Nameservers",
+      "nameserversHint": "1–8 addresses, separated by commas or spaces.",
+      "derpRegion": "DERP region",
+      "derpRegionHint": "900–999.",
+      "upgradeTitle": "Upgrade instance {{host}}",
+      "upgradeDesc": "Preflight (allowed version, configtest of the target), cold backup, image swap, health gate, contract smoke; a failure after the swap restores the backup on the old image. The digest must be in the Host Agent's allowlist.",
+      "currentDigest": "Current image:",
+      "targetDigest": "Target image digest",
+      "targetDigestHint": "Format sha256:<64 hex characters>.",
+      "restoreTitle": "Request a restore of instance {{host}}",
+      "restoreDesc": "Restores the tenant's Headscale from a backup: every API key/pre-auth key of the backup stops working, nodes revoked after the backup are expired again.",
+      "twoPerson": "This is a two-person action: a second person approves it in the approval queue; both must have authenticated within 15 minutes.",
+      "chooseBackup": "Backup",
+      "olderRestorePoint": "PostgreSQL was restored to a point OLDER than this backup",
+      "olderRestorePointHint": "Keeps the backup's policy as a version to review and flags the tenant for Owner review.",
+      "requestRestore": "Request restore",
+      "quarantineTitle": "Quarantine instance {{host}}?",
+      "quarantineDesc": "Isolates a suspected compromised instance now: edge detached (the tenant hostname answers 404), container stopped (data and logs kept), Critical security event. Only a two-person request lifts it.",
+      "typeHostname": "Type the control hostname to confirm",
+      "releaseTitle": "Request release of instance {{host}}",
+      "releaseDesc": "Once approved: the Host Agent starts it through the start guard, the applied policy is checked, the edge is attached again; any failure isolates it again.",
+      "requestRelease": "Request release",
+      "errors": {
+        "nodeExpiry": "Node expiry must be an integer 1–3650.",
+        "nameservers": "1–8 distinct nameservers, 2–45 characters each.",
+        "derpRegion": "DERP region must be an integer 900–999.",
+        "nothing": "Nothing changed.",
+        "digest": "The digest must look like sha256:<64 lowercase hex characters>.",
+        "sameDigest": "The instance already runs this image."
+      },
+      "submit": {
+        "reconfigure": "Apply configuration",
+        "upgrade": "Upgrade",
+        "quarantine": "Quarantine"
+      }
+    },
+    "hosts": {
+      "title": "Hosts",
+      "status": "Status",
+      "caption": "Hosts running instances",
+      "empty": "No hosts yet.",
+      "emptyFiltered": "No host matches the filter.",
+      "pagination": "Host pagination",
+      "capacityValue": "{{live}} / {{max}} instances",
+      "noNew": "Takes no new instance (capacity 0).",
+      "sharedStun": "Shared STUN (no own range)",
+      "col": {
+        "name": "Name",
+        "region": "Region",
+        "status": "Status",
+        "capacity": "Capacity",
+        "stunFree": "Free STUN ports",
+        "netFree": "Free /29 slots",
+        "heartbeat": "Last heartbeat"
+      }
+    },
+    "host": {
+      "title": "Host detail",
+      "back": "← Hosts",
+      "summary": "Placement and usage",
+      "stunRange": "STUN port range",
+      "netPool": "Tenant network pool",
+      "uidFree": "UIDs left",
+      "uidRange": "UID range",
+      "publicEntry": "Public entry",
+      "noEntry": "No public IPv4 yet (placement skips this host)",
+      "entryModes": {
+        "direct": "Direct",
+        "vps_gateway": "Through the VPS gateway"
+      },
+      "byStatus": "Instances by status",
+      "instances": "Instances on this host",
+      "noInstances": "No instances on this host.",
+      "instancesPagination": "Host instance pagination"
+    },
+    "health": {
+      "tenants": "Tenants",
+      "instances": "Instances (not removed)",
+      "jobs": "Unfinished jobs",
+      "none": "None.",
+      "unhealthy_one": "{{count}} instance failing health",
+      "unhealthy_other": "{{count}} instances failing health",
+      "failed24h_one": "{{count}} job failed/rolled back in 24 hours",
+      "failed24h_other": "{{count}} jobs failed/rolled back in 24 hours",
+      "byHealth": "By health",
+      "byVersion": "By Headscale version",
+      "components": "Platform components",
+      "noComponents": "The server reports no component.",
+      "noReason": "No reason given.",
+      "openTenants": "Open tenants",
+      "openInstances": "Open instances",
+      "openJobs": "Open jobs"
+    },
+    "relayRegions": {
+      "readOnly": "Read-only in the MVP: the embedded relay (DERP) follows each tenant's instance; adding/changing regions is Phase 7.",
+      "empty": "No relay regions yet.",
+      "owner": "Owning tenant",
+      "shared": "Shared",
+      "assignments": "Assigned instances",
+      "pagination": "Relay region pagination"
+    },
+    "settings": {
+      "intro": "Closed key set: only the keys below exist. Changes need a Super Admin who authenticated within 15 minutes; each change is audited (before/after).",
+      "readOnlyRole": "Your role can only view the settings.",
+      "col": {
+        "key": "Key",
+        "value": "Value",
+        "updated": "Updated",
+        "actions": "Actions"
+      },
+      "desc": {
+        "approval_ttl_hours": "Lifetime of a new approval request (hours, 1–168).",
+        "quota_max_tenants": "Maximum number of tenants not deleted or failed (tenant creation quota).",
+        "maintenance": "Persistent maintenance flag — written by host commands only."
+      },
+      "unset": "not set",
+      "default": "default {{value}}",
+      "version": "version {{version}}",
+      "readOnly": "Read-only (host command)",
+      "edit": "Edit {{key}}",
+      "editTitle": "Edit setting {{key}}",
+      "editDesc": "The new value applies at the next read by the component using this key. If someone else just changed it, you will see the latest value before deciding again.",
+      "value": "Value (JSON)",
+      "rangeHint": "Integer {{min}}–{{max}}.",
+      "jsonHint": "A JSON value.",
+      "save": "Save",
+      "latest": "Latest value on the server:",
+      "useLatest": "Use the latest version and edit again",
+      "errors": {
+        "integer": "Must be an integer.",
+        "range": "Outside the allowed range.",
+        "json": "Not valid JSON."
+      }
+    },
+    "users": {
+      "intro": "Platform roles assigned here are always below Super Admin; granting or revoking Super Admin always needs another Super Admin's approval (two-person). Nobody edits their own entry.",
+      "create": "Add staff",
+      "status": "Status",
+      "role": "Role",
+      "empty": "No staff matches.",
+      "pagination": "Platform staff pagination",
+      "col": {
+        "name": "User",
+        "role": "Role",
+        "status": "Status",
+        "lastLogin": "Last login",
+        "actions": "Actions"
+      },
+      "identityStatus": "identity: {{status}}",
+      "selfNote": "You cannot edit yourself",
+      "rowActions": "Actions for {{name}}",
+      "act": {
+        "edit": "Edit…",
+        "disable": "Disable…",
+        "grantSA": "Grant Super Admin…",
+        "revokeSA": "Revoke Super Admin…"
+      },
+      "actLabel": {
+        "edit": "Edit {{name}}",
+        "disable": "Disable {{name}}",
+        "grantSA": "Grant Super Admin to {{name}}",
+        "revokeSA": "Revoke Super Admin from {{name}}"
+      },
+      "createTitle": "Add platform staff",
+      "createDesc": "The person needs an account at the platform IdP first; the first login matches by sub, never by email. Requires authentication within 15 minutes.",
+      "subject": "Subject (sub) at the platform IdP",
+      "subjectHint": "Keycloak: the user id (lowercase UUID).",
+      "roleHint": "Super Admin cannot be assigned here (use the two-person request).",
+      "displayName": "Display name (optional)",
+      "editTitle": "Edit {{name}}",
+      "editDesc": "Changing the role or disabling revokes every session of that person at once.",
+      "save": "Save",
+      "disableTitle": "Disable {{name}}?",
+      "disableDesc": "Revokes every session of that person; the record is kept for audit, re-enable with Edit → Active.",
+      "grantTitle": "Request Super Admin for {{name}}",
+      "grantDesc": "Super Admin holds every platform permission, including roles and IdPs. Once approved, every session of that person is revoked.",
+      "revokeTitle": "Request revoking Super Admin from {{name}}",
+      "revokeDesc": "The last Super Admin cannot be removed. Once approved, every session of that person is revoked.",
+      "roleAfter": "Role after revoking",
+      "reason": "Reason (the approver reads it)",
+      "twoPerson": "Two-person action: another Super Admin approves it in the approval queue; both must have authenticated within 15 minutes.",
+      "requestApproval": "Request approval"
+    },
+    "idps": {
+      "intro": "Issuer, client ID and driver are immutable; only the claim constraints can change. A tenant's IdP: a change needs a second Super Admin's approval, is written to the tenant's audit and notifies the Tenant Owners.",
+      "scope": "Scope",
+      "scopes": {
+        "platform": "Platform",
+        "tenant": "Tenant"
+      },
+      "empty": "No identity providers.",
+      "pagination": "IdP pagination",
+      "col": {
+        "issuer": "Issuer",
+        "scope": "Scope",
+        "driver": "Driver",
+        "status": "Status",
+        "updated": "Updated"
+      }
+    },
+    "idp": {
+      "title": "Identity provider",
+      "back": "← Identity providers",
+      "edit": "Edit claim constraints…",
+      "identity": "Identity (read-only)",
+      "immutable": "Issuer, client ID, driver and scope cannot change (§8.2) — switching IdP is a separate migration.",
+      "clientId": "Client ID",
+      "secret": "Client secret",
+      "secretSet": "Set (never shown)",
+      "secretUnset": "Not set",
+      "emailVerified": "Verified email required",
+      "yes": "Yes",
+      "no": "No",
+      "claims": "Claim constraints",
+      "mapping": "Claim mapping",
+      "defaultMapping": "Default (email, email_verified, name)",
+      "mapField": "Field {{field}} ← claim",
+      "domains": "Allowed email domains",
+      "anyDomain": "No restriction",
+      "requiredClaims": "Required claims (JSON)",
+      "requiredClaimsHint": "An object of up to 16 claims; values are a string/number/boolean or an array of accepted values. sub, iss, aud are not allowed.",
+      "domainsHint": "Up to 32 domains, separated by commas or new lines.",
+      "editTitle": "Edit claim constraints",
+      "editDesc": "Only changed fields are sent. Requires authentication within 15 minutes.",
+      "tenantTwoPerson": "A tenant's IdP: the change creates an approval request (second Super Admin) and does NOT apply until approved; the Tenant Owners are notified and the tenant's audit records it.",
+      "requestChange": "Request the change",
+      "save": "Save",
+      "errors": {
+        "mapping": "Claim names use letters, digits, _ . : / - only (up to 128).",
+        "requiredClaims": "Invalid required claims (see the hint).",
+        "domains": "A domain is invalid or there are more than 32."
+      }
+    },
+    "plans": {
+      "intro": "A plan key is immutable; every plan holds the four quota limits. A closed plan takes no new tenant, tenants on it keep it. New limits apply at the next quota check.",
+      "create": "Create plan",
+      "empty": "No plans yet.",
+      "open": "Open",
+      "closed": "Closed",
+      "col": {
+        "key": "Plan",
+        "status": "Status",
+        "tenants": "Tenants on it",
+        "limits": "Limits",
+        "updated": "Updated"
+      },
+      "limit": {
+        "max_devices": "Max devices",
+        "max_users": "Max users",
+        "max_tagged_devices": "Max tagged devices",
+        "max_live_enrollment_credentials": "Max live enrollment credentials",
+        "backup_interval_minutes": "Backup interval (minutes)",
+        "cpus": "Instance CPUs",
+        "memory_mb": "Instance memory (MB)",
+        "pids": "Instance max PIDs"
+      },
+      "edit": "Edit",
+      "editLabel": "Edit plan {{key}}",
+      "createTitle": "Create a plan",
+      "createDesc": "The four quota limits are required; leave other fields empty for no such limit.",
+      "editTitle": "Edit plan {{key}}",
+      "editDesc": "The limits sent replace the plan's whole limits document.",
+      "key": "Plan key",
+      "keyHint": "Lowercase letters, digits, _ or -, starting with a letter (up to 63).",
+      "keyImmutable": "The plan key cannot change.",
+      "name": "Plan name",
+      "limitsRequired": "Limits",
+      "limitsOptional": "Limit overrides (empty = not overridden)",
+      "active": "Open (takes new tenants)",
+      "activeHint": "Closing a plan does not affect tenants on it.",
+      "save": "Save",
+      "errors": {
+        "limit": "Invalid value for this limit.",
+        "limits": "Invalid limits.",
+        "name": "Plan name 1–200 characters."
+      }
+    },
+    "tenantEdit": {
+      "edit": "Edit…",
+      "title": "Edit tenant {{slug}}",
+      "desc": "Change the name, plan or limit overrides. Lowering a limit below current use deletes nothing — it only blocks the next addition.",
+      "override": "Replace all limit overrides",
+      "overrideHint": "The API only returns effective limits (plan + overrides): the values sent replace every existing override; leaving every field empty removes all overrides.",
+      "save": "Save"
     }
   },
   "ui": {
@@ -577,7 +957,12 @@
       "never_checked": "Never checked.",
       "stale": "The last check result is stale.",
       "instance_not_running": "The instance is not running.",
-      "invalid_record": "The stored result is invalid."
+      "invalid_record": "The stored result is invalid.",
+      "no_heartbeat": "No heartbeat received yet.",
+      "heartbeat_stale": "The last heartbeat is stale.",
+      "heartbeat_failed": "The heartbeat reported a failure.",
+      "no_probe": "No probe exists for this component yet.",
+      "not_deployed": "The component is not deployed."
     }
   },
   "devices": {

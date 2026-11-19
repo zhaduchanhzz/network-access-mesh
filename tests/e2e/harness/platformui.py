@@ -27,6 +27,21 @@ E2E-22/23 không chạy ở đây nên không tính), Super Admin 2 (bootstrap-s
           thao tác ghi một Idempotency-Key khác nhau, không 5xx, log không chứa secret; bản build qua edge: index.html
           của /platform/tenants/new + chunk lazy của màn hình (JS cùng origin, có CSP)
 
+P4-T03 (src/live/platform-ops.live.test.tsx — chạy sau hai ca trên; mỗi Super Admin đăng nhập LẠI để step-up còn trong
+15 phút; chuẩn bị thêm một user Keycloak của realm platform làm đích của E2E-108):
+  E2E-108 Nhân sự nền tảng qua SPA: SA1 thêm platform user theo sub thật (POST /platform/users, Idempotency-Key UUID v4)
+          → hàng của chính SA1 không có thao tác → xin gán Super Admin (PUT …/super-admin-role) ⇒ 202 + trang phê duyệt,
+          người yêu cầu không có nút → SA2: hàng chờ, hash trình duyệt = server → duyệt ⇒ executed; DB: role super_admin,
+          approval platform.user.super_admin do SA1 yêu cầu, SA2 duyệt với đúng hash SPA hiển thị; audit create + execute
+  E2E-109 Thiết lập + IdP qua SPA: SA1 mở sửa approval.ttl_hours, SA2 sửa trước (API, ETag đúng) ⇒ SA1 lưu với ETag cũ ⇒
+          412, hộp hiện giá trị mới nhất ⇒ dùng bản mới ⇒ 200; DB giá trị cuối, audit hai lần sửa. IdP của tenant-a: sửa
+          claim_mapping ⇒ 202 + phê duyệt, CHƯA có hiệu lực → SA2 duyệt ⇒ có hiệu lực; audit của tenant-a ghi
+          identity_provider.platform_change.request/.apply
+  E2E-110 Instance qua SPA: Platform Health = số của API, Hosts (cổng STUN còn trống), chi tiết instance của tenant-a (health
+          có checked_at, digest, version cấu hình) → Restart ⇒ 202 ⇒ timeline job instance.restart (stack không có Host
+          Agent: worker không chạy kind này ⇒ job dừng ở queued — kiểm tới mức job được tạo, như E2E-79) → hủy qua UI ⇒
+          cancelled; DB: Idempotency-Key của SPA = request_key của job, audit platform.instance.restart.requested
+
 Thư viện chuẩn. Mật khẩu, TOTP, cookie, CSRF token chỉ nằm trong tiến trình này (và tập redaction).
 """
 from __future__ import annotations
@@ -121,13 +136,16 @@ def prepare(st: Stack) -> dict:
         raise StackError("chuẩn bị (E2E-17/20/21) thất bại: " + "; ".join(x["id"] for x in pre.rows if x["result"] != "PASS"))
     backend.check_platform(checks.Results(st), st, state)     # tạo Super Admin 1 (st.platform_sa)
     kc = KeycloakAdmin(st)
-    sa2 = {"username": "ui-sa2-" + secrets.token_hex(3), "password": secrets.token_urlsafe(18)}
+    sa2 = {"username": "ui-sa2-" + secrets.token_hex(3), "password": secrets.token_urlsafe(18), "otp": TOTP()}
     st.secret_values.add(sa2["password"])
     sa2["sub"] = kc.create_user("platform", sa2["username"], sa2["password"])
+    target = {"username": "ui-pu-" + secrets.token_hex(3), "password": secrets.token_urlsafe(18)}   # P4-T03: E2E-108
+    st.secret_values.add(target["password"])
+    target_sub = kc.create_user("platform", target["username"], target["password"])
     p = admin_cmd(st, ["bootstrap-super-admin", "--subject", sa2["sub"], "--display-name", "UI SA2"],
                   env={"MG_IDP_ID_PLATFORM": st.env["MG_IDP_ID_PLATFORM"]})
     b1, s1 = platform_session(st, st.platform_sa)
-    b2, s2 = platform_session(st, sa2, TOTP())
+    b2, s2 = platform_session(st, sa2)
     base = (ROOT / "infrastructure" / "headscale" / "templates" / "bootstrap-policy.hujson").read_text(encoding="utf-8")
     code, out, _ = policy_apply(st, base, "--trigger", "bootstrap")
     desired = psql(st, "SELECT desired_policy_version_id IS NOT NULL FROM tenants WHERE slug = 'tenant-a'")
@@ -136,12 +154,14 @@ def prepare(st: Stack) -> dict:
         raise StackError(f"chuẩn bị: SA2 bootstrap {p.returncode}, roles {roles}, policy-apply {code} {out.get('state')}, "
                          f"desired {desired}")
     log(f"chuẩn bị xong: hai Super Admin, policy-apply {out.get('state')}")
-    state.update(b1=b1, b2=b2, sa2_sub=sa2["sub"])
+    state.update(b1=b1, b2=b2, sa2_sub=sa2["sub"], sa2=sa2, target_sub=target_sub)
     return state
 
 
-def run_live(st: Stack, p1: Proxy, p2: Proxy, tenant_a: str) -> tuple[dict, dict, str]:
-    """src/live/platform.live.test.tsx trong Node pin digest ⇒ (facts, {UI-0n: đạt?}, tóm tắt)."""
+def run_live(st: Stack, p1: Proxy, p2: Proxy, tenant_a: str, test_file: str = "src/live/platform.live.test.tsx",
+             case_ids: tuple[str, ...] = ("UI-01", "UI-04", "UI-05"), name: str = "live",
+             extra_env: dict | None = None) -> tuple[dict, dict, str]:
+    """Một file src/live/*.live.test.tsx trong Node pin digest ⇒ (facts, {UI-0n: đạt?}, tóm tắt); log riêng theo `name`."""
     nm = os.environ.get("WEB_NODE_MODULES", "")
     if not nm or not pathlib.Path(nm, "vitest").exists():
         raise StackError("WEB_NODE_MODULES phải trỏ tới node_modules đã cài của apps/web (npm ci)")
@@ -150,16 +170,17 @@ def run_live(st: Stack, p1: Proxy, p2: Proxy, tenant_a: str) -> tuple[dict, dict
     os.chmod(out, 0o777)
     cmd = [*st.docker_cmd, "run", "--rm", "--network", "host", "-u", f"{os.getuid()}:{os.getgid()}", "-e", "HOME=/tmp",
            "-e", f"MG_LIVE_SA1={p1.url}", "-e", f"MG_LIVE_SA2={p2.url}", "-e", f"MG_LIVE_TENANT_A={tenant_a}",
-           "-e", f"MG_LIVE_RUN={secrets.token_hex(3)}", "-e", "MG_LIVE_OUT=/out/live.json",
+           "-e", f"MG_LIVE_RUN={secrets.token_hex(3)}", "-e", f"MG_LIVE_OUT=/out/{name}.json",
+           *[x for k, v in (extra_env or {}).items() for x in ("-e", f"{k}={v}")],
            "-v", f"{ROOT}:/src", "-v", f"{nm}:/src/apps/web/node_modules", "-v", f"{out}:/out", "-w", "/src/apps/web",
-           NODE_IMAGE, "npx", "vitest", "run", "--reporter=verbose", "src/live/platform.live.test.tsx"]
+           NODE_IMAGE, "npx", "vitest", "run", "--reporter=verbose", test_file]
     t0 = time.time()
     p = subprocess.run(cmd, capture_output=True, text=True, timeout=1800, check=False)
     text = re.sub(r"\x1b\[[0-9;]*m", "", p.stdout + p.stderr)
-    (out / "vitest.log").write_text(st.redact(text), encoding="utf-8")
-    facts = json.loads((out / "live.json").read_text(encoding="utf-8")) if (out / "live.json").exists() else {}
-    cases = {c: bool(re.search(rf"^\s*✓ .*{c} ", text, re.M)) for c in ("UI-01", "UI-04", "UI-05")}
-    return facts, cases, f"vitest exit {p.returncode} sau {time.time() - t0:.0f} s, {sum(cases.values())}/3 ca"
+    (out / ("vitest.log" if name == "live" else f"{name}.log")).write_text(st.redact(text), encoding="utf-8")
+    facts = json.loads((out / f"{name}.json").read_text(encoding="utf-8")) if (out / f"{name}.json").exists() else {}
+    cases = {c: bool(re.search(rf"^\s*✓ .*{c} ", text, re.M)) for c in case_ids}
+    return facts, cases, f"vitest exit {p.returncode} sau {time.time() - t0:.0f} s, {sum(cases.values())}/{len(case_ids)} ca"
 
 
 def ok_uuid(x) -> bool:
@@ -239,6 +260,117 @@ def check_lifecycle(r: checks.Results, st: Stack, facts: dict, cases: dict, prox
           f"{chunk.status if chunk else None} {chunk.header('Content-Type') if chunk else ''}", limit=900)
 
 
+# ---------------------------------------------------------------------------------------------------- P4-T03
+def _ident(st: Stack, sub: str) -> str:
+    return (psql(st, f"SELECT id FROM identities WHERE subject = '{sub}'") or [[""]])[0][0]
+
+
+def _seen(p: Proxy, method: str, path_re: str) -> list[tuple[str, str, int, str]]:
+    return [x for x in p.seen if x[0] == method and re.fullmatch(path_re, x[1])]
+
+
+def check_ops_users(r: checks.Results, st: Stack, facts: dict, cases: dict, summary: str, p1: Proxy, sa2_sub: str,
+                    target_sub: str) -> None:
+    appr = facts.get("sa_approval_id")
+    sa1, sa2, target = _ident(st, st.platform_sa["sub"]), _ident(st, sa2_sub), _ident(st, target_sub)
+    role = psql(st, f"SELECT r.key, pu.status FROM platform_users pu JOIN roles r ON r.id = pu.role_id "
+                    f"WHERE pu.identity_id = '{target}'") if target else []
+    ap = psql(st, "SELECT status, action, payload_sha256, requested_by_identity_id, approved_by_identity_id "
+                  f"FROM approval_requests WHERE id = '{appr}'") if ok_uuid(appr) else []
+    created = _seen(p1, "POST", r"/api/v1/platform/users")
+    audit = {a: int(n) for a, n in psql(st, "SELECT action, count(*) FROM audit_events WHERE outcome = 'success' AND action IN "
+                                            "('platform.user.create', 'platform.user.super_admin.execute') AND "
+                                            f"(resource_id = '{appr}' OR details::text LIKE '%{target}%' OR resource_id IN "
+                                            f"(SELECT id::text FROM platform_users WHERE identity_id = '{target}')) GROUP BY 1")} \
+        if target and ok_uuid(appr) else {}
+    ok = (cases.get("UI-06") and facts.get("target_role_seen") == "super_admin" and role == [["super_admin", "active"]]
+          and bool(ap) and ap[0][:3] == ["executed", "platform.user.super_admin", facts.get("sa_payload_sha256")]
+          and ap[0][3] == sa1 and ap[0][4] == sa2 and len(created) == 1 and created[0][2] == 201
+          and bool(UUID4.match(created[0][3])) and audit.get("platform.user.create", 0) >= 1
+          and audit.get("platform.user.super_admin.execute", 0) >= 1)
+    r.add("E2E-108", "P4-T03: nhân sự nền tảng qua SPA — SA1 thêm user theo sub thật (POST /platform/users, Idempotency-Key "
+          "UUID v4) → không thao tác trên chính mình → xin gán Super Admin ⇒ 202 + phê duyệt (người yêu cầu không có nút) → "
+          "SA2 duyệt với hash tính trong trình duyệt ⇒ executed; DB: role super_admin, người yêu cầu SA1, người duyệt SA2, "
+          "đúng hash; audit create + execute", ok,
+          f"{summary}; role {role}; approval {[x[:3] for x in ap]} requester=SA1 {bool(ap) and ap[0][3] == sa1} "
+          f"decider=SA2 {bool(ap) and ap[0][4] == sa2}; POST users {[(x[2], bool(UUID4.match(x[3]))) for x in created]}; "
+          f"audit {audit}", limit=900)
+
+
+def check_ops_settings_idp(r: checks.Results, st: Stack, facts: dict, cases: dict, p1: Proxy, sa2_sub: str,
+                           tenant_a: str) -> None:
+    puts = [x[2] for x in _seen(p1, "PUT", r"/api/v1/platform/settings/approval\.ttl_hours")]
+    value = (psql(st, "SELECT value::text, version FROM system_settings WHERE key = 'approval.ttl_hours'") or [["", ""]])[0]
+    upd = int((psql(st, "SELECT count(*) FROM audit_events WHERE action = 'platform.settings.update' AND outcome = 'success' "
+                        "AND resource_id = 'approval.ttl_hours'") or [["0"]])[0][0] or 0)
+    idp, appr = facts.get("idp_id"), facts.get("idp_approval_id")
+    sa1, sa2 = _ident(st, st.platform_sa["sub"]), _ident(st, sa2_sub)
+    ap = psql(st, "SELECT status, action, payload_sha256, requested_by_identity_id, approved_by_identity_id "
+                  f"FROM approval_requests WHERE id = '{appr}'") if ok_uuid(appr) else []
+    mapping = (psql(st, f"SELECT claim_mapping ->> 'name', tenant_id FROM identity_providers WHERE id = '{idp}'")
+               or [["", ""]])[0] if ok_uuid(idp) else ["", ""]
+    tenant_audit = {a: int(n) for a, n in psql(st, "SELECT action, count(*) FROM audit_events WHERE tenant_id = "
+                                                   f"'{tenant_a}' AND action IN ('identity_provider.platform_change.request', "
+                                                   "'identity_provider.platform_change.apply') GROUP BY 1")}
+    ok = (cases.get("UI-07") and cases.get("UI-08") and facts.get("sa2_put_status") == 200 and facts.get("stale_seen") is True
+          and puts == [412, 200] and value[0] == "48" and upd >= 2
+          and facts.get("idp_name_before_approval") != "preferred_username" and mapping == ["preferred_username", tenant_a]
+          and bool(ap) and ap[0][:3] == ["executed", "platform.idp.update_tenant", facts.get("idp_payload_sha256")]
+          and ap[0][3] == sa1 and ap[0][4] == sa2
+          and tenant_audit.get("identity_provider.platform_change.request", 0) >= 1
+          and tenant_audit.get("identity_provider.platform_change.apply", 0) >= 1)
+    r.add("E2E-109", "P4-T03: thiết lập + IdP qua SPA — SA2 sửa approval.ttl_hours trong lúc SA1 đang sửa ⇒ SA1 lưu với ETag "
+          "cũ ⇒ 412, hộp hiện giá trị mới nhất ⇒ dùng bản mới ⇒ 200; IdP của tenant-a: sửa claim_mapping ⇒ 202 + phê "
+          "duyệt, chưa hiệu lực trước khi duyệt ⇒ SA2 duyệt ⇒ có hiệu lực; audit của tenant ghi request/apply", ok,
+          f"PUT của SA1 {puts}; SA2 {facts.get('sa2_put_status')}; DB value {value}; audit update {upd}; IdP name trước "
+          f"{facts.get('idp_name_before_approval')!r} sau {mapping[0]!r}; approval {[x[:3] for x in ap]} requester=SA1 "
+          f"{bool(ap) and ap[0][3] == sa1} decider=SA2 {bool(ap) and ap[0][4] == sa2}; audit tenant {tenant_audit}", limit=900)
+
+
+def check_ops_instance(r: checks.Results, st: Stack, facts: dict, cases: dict, p1: Proxy, tenant_a: str) -> None:
+    job, inst = facts.get("restart_job"), facts.get("instance_id")
+    row = psql(st, "SELECT kind, status, request_key, tenant_id FROM provisioning_jobs "
+                   f"WHERE id = '{job}'") if ok_uuid(job) else []
+    posts = _seen(p1, "POST", rf"/api/v1/platform/instances/{inst}/restart") if ok_uuid(inst) else []
+    audit = int((psql(st, "SELECT count(*) FROM audit_events WHERE action = 'platform.instance.restart.requested' "
+                          f"AND resource_id = '{inst}'") or [["0"]])[0][0] or 0) if ok_uuid(inst) else 0
+    totals = int((psql(st, "SELECT count(*) FROM tenants") or [["-1"]])[0][0])
+    ok = (cases.get("UI-09") and facts.get("restart_status_seen") == "queued" and facts.get("restart_final") == "cancelled"
+          and bool(row) and row[0][0] == "instance.restart" and row[0][1] == "cancelled" and row[0][3] == tenant_a
+          and len(posts) == 1 and posts[0][2] == 202 and bool(UUID4.match(posts[0][3])) and row[0][2] == posts[0][3]
+          and audit >= 1 and facts.get("instance_health") in ("healthy", "unhealthy", "unknown")
+          and str(facts.get("image_digest_shown", "")).startswith("sha256:") and facts.get("hosts_seen", 0) >= 1
+          and facts.get("health_tenants_total", -2) <= totals)
+    (st.out / "platformui" / "requests-ops.txt").write_text(
+        "\n".join(f"{p1.name} {m} {path} {s}" for (m, path, s, _) in p1.seen) + "\n", encoding="utf-8")
+    r.add("E2E-110", "P4-T03: instance qua SPA — Platform Health = số của API, Hosts (cổng STUN còn trống), chi tiết instance "
+          "tenant-a (health có checked_at, digest, version cấu hình) → Restart ⇒ 202 ⇒ timeline job instance.restart "
+          "(stack không có Host Agent ⇒ job dừng ở queued — kiểm tới mức job được tạo) → hủy qua UI ⇒ cancelled; "
+          "Idempotency-Key của SPA = request_key của job; audit restart.requested", ok,
+          f"job {row[:1]}; POST {[(x[2], bool(UUID4.match(x[3]))) for x in posts]} = request_key "
+          f"{bool(row) and bool(posts) and row[0][2] == posts[0][3]}; trạng thái thấy {facts.get('restart_status_seen')} → "
+          f"{facts.get('restart_final')}; audit {audit}; health {facts.get('instance_health')}; config "
+          f"{facts.get('config_current')!r}; hosts {facts.get('hosts_seen')} STUN {facts.get('stun_free_text')!r}; tenants "
+          f"(health) {facts.get('health_tenants_total')}", limit=900)
+
+
+def run_ops(r: checks.Results, st: Stack, state: dict, proxies: list[Proxy]) -> None:
+    """Đăng nhập lại hai Super Admin (step-up ≤ 15 phút cho các thao tác ghi), chạy platform-ops.live.test.tsx, 3 ca."""
+    b1, s1 = platform_session(st, st.platform_sa)
+    b2, s2 = platform_session(st, state["sa2"])
+    if (s1.get("principal", {}).get("platform_role"), s2.get("principal", {}).get("platform_role")) != ("super_admin",) * 2:
+        raise StackError("đăng nhập lại hai Super Admin thất bại")
+    p1, p2 = Proxy(st, b1, "sa1-ops"), Proxy(st, b2, "sa2-ops")
+    proxies += [p1, p2]
+    tenant_a = state["tenant_ids"]["tenant-a"]
+    facts, cases, summary = run_live(st, p1, p2, tenant_a, "src/live/platform-ops.live.test.tsx",
+                                     ("UI-06", "UI-07", "UI-08", "UI-09"), "ops", {"MG_LIVE_TARGET_SUB": state["target_sub"]})
+    log(f"P4-T03: {summary}")
+    check_ops_users(r, st, facts, cases, summary, p1, state["sa2_sub"], state["target_sub"])
+    check_ops_settings_idp(r, st, facts, cases, p1, state["sa2_sub"], tenant_a)
+    check_ops_instance(r, st, facts, cases, p1, tenant_a)
+
+
 def main() -> int:
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
@@ -255,6 +387,8 @@ def main() -> int:
         facts, cases, summary = run_live(st, p1, p2, state["tenant_ids"]["tenant-a"])
         check_create(r, st, facts, cases, summary, proxies, state["sa2_sub"])
         check_lifecycle(r, st, facts, cases, proxies)
+        if os.environ.get("PLATFORMUI_SKIP_OPS") != "1":
+            run_ops(r, st, state, proxies)
     except (StackError, OSError, ValueError, KeyError, subprocess.TimeoutExpired) as e:
         error = f"{type(e).__name__}: {st.redact(str(e))[-1500:]}"
         log("LỖI: " + error)
@@ -267,7 +401,8 @@ def main() -> int:
     (st.out / "platformui").mkdir(parents=True, exist_ok=True)
     (st.out / "platformui" / "summary.txt").write_text(text, encoding="utf-8")
     print(text, flush=True)
-    return 1 if error or r.failed or len(r.rows) != 2 else 0
+    expected = 2 if os.environ.get("PLATFORMUI_SKIP_OPS") == "1" else 5
+    return 1 if error or r.failed or len(r.rows) != expected else 0
 
 
 if __name__ == "__main__":
