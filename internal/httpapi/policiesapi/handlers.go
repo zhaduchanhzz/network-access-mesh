@@ -2,7 +2,8 @@
 // (httpapi.PolicyHandlers): listTenantPolicies, getCurrentTenantPolicy, getTenantPolicy, diffTenantPolicy
 // (`tenant.policy:read`), createTenantPolicy, updateTenantPolicy, validateTenantPolicy, submitTenantPolicy
 // (`tenant.policy:edit`), approveTenantPolicy, rejectTenantPolicy (`tenant.policy:approve`), applyTenantPolicy,
-// rollbackTenantPolicy (`tenant.policy:apply` — §8.6). It only translates between the generated types and
+// rollbackTenantPolicy (`tenant.policy:apply` — §8.6) — and, for P4-T11 (httpapi.PolicyHuJSONHandlers), the HuJSON
+// translator of the editor: importTenantPolicy (`tenant.policy:edit`) and exportTenantPolicy (`tenant.policy:read`). It only translates between the generated types and
 // policies.VersionService, which takes every decision (typed model, render, lint, review rule, If-Match, stale base,
 // step-up, the policy.apply job).
 //
@@ -43,6 +44,8 @@ type Service interface {
 	Apply(ctx context.Context, tenantID, id uuid.UUID, actor policies.VersionActor, idem *policies.Idempotency) (policies.Accepted, error)
 	Rollback(ctx context.Context, tenantID, id uuid.UUID, actor policies.VersionActor, idem *policies.Idempotency) (policies.Accepted, error)
 	Diff(ctx context.Context, tenantID, id uuid.UUID, against *uuid.UUID) (policies.Diff, error)
+	Import(ctx context.Context, tenantID uuid.UUID, text string) (policies.ImportResult, error)
+	Export(ctx context.Context, tenantID uuid.UUID, source json.RawMessage) (policies.ExportResult, error)
 }
 
 var _ Service = (*policies.VersionService)(nil)
@@ -53,7 +56,10 @@ type Handlers struct {
 	actor func(ctx context.Context) (policies.VersionActor, error) // actorOf (a test replaces it)
 }
 
-var _ httpapi.PolicyHandlers = (*Handlers)(nil)
+var (
+	_ httpapi.PolicyHandlers       = (*Handlers)(nil)
+	_ httpapi.PolicyHuJSONHandlers = (*Handlers)(nil) // P4-T11: the same set serves the HuJSON translator
+)
 
 // New returns the handler set of P4-T10.
 func New(svc Service) *Handlers { return &Handlers{svc: svc, actor: actorOf} }
@@ -441,4 +447,41 @@ func (h *Handlers) DiffTenantPolicy(ctx context.Context, req gen.DiffTenantPolic
 		return nil, err
 	}
 	return gen.DiffTenantPolicy200JSONResponse(out), nil
+}
+
+// ImportTenantPolicy implements POST /tenants/{tenantId}/policies/import (P4-T11): 200 with the translation or its
+// findings — nothing is stored.
+func (h *Handlers) ImportTenantPolicy(ctx context.Context, req gen.ImportTenantPolicyRequestObject) (gen.ImportTenantPolicyResponseObject, error) {
+	if req.Body == nil {
+		return nil, bodyMissing()
+	}
+	r, err := h.svc.Import(ctx, req.TenantId, req.Body.Hujson)
+	if err != nil {
+		return nil, failure(err)
+	}
+	out, err := convert[gen.PolicyImport](r)
+	if err != nil {
+		return nil, err
+	}
+	return gen.ImportTenantPolicy200JSONResponse(out), nil
+}
+
+// ExportTenantPolicy implements POST /tenants/{tenantId}/policies/export (P4-T11): the source written as HuJSON.
+func (h *Handlers) ExportTenantPolicy(ctx context.Context, req gen.ExportTenantPolicyRequestObject) (gen.ExportTenantPolicyResponseObject, error) {
+	if req.Body == nil {
+		return nil, bodyMissing()
+	}
+	src, err := sourceOf(req.Body.Source)
+	if err != nil {
+		return nil, err
+	}
+	r, err := h.svc.Export(ctx, req.TenantId, src)
+	if err != nil {
+		return nil, failure(err)
+	}
+	out, err := convert[gen.PolicyExport](r)
+	if err != nil {
+		return nil, err
+	}
+	return gen.ExportTenantPolicy200JSONResponse(out), nil
 }

@@ -28,6 +28,30 @@ export const PLATFORM_SCREENS: Readonly<Partial<Record<string, RouteObject[]>>> 
     { path: ":approvalId", lazy: page(() => import("./approvals/ApprovalDetailPage"), "ApprovalDetailPage") },
     { path: "*", element: <NotFoundPage /> },
   ],
+  // P4-T03
+  health: [{ index: true, lazy: page(() => import("./health/HealthPage"), "HealthPage") }, { path: "*", element: <NotFoundPage /> }],
+  instances: [
+    { index: true, lazy: page(() => import("./instances/InstanceListPage"), "InstanceListPage") },
+    { path: ":instanceId", lazy: page(() => import("./instances/InstanceDetailPage"), "InstanceDetailPage") },
+    { path: "*", element: <NotFoundPage /> },
+  ],
+  hosts: [
+    { index: true, lazy: page(() => import("./hosts/HostPages"), "HostListPage") },
+    { path: ":hostId", lazy: page(() => import("./hosts/HostPages"), "HostDetailPage") },
+    { path: "*", element: <NotFoundPage /> },
+  ],
+  "relay-regions": [
+    { index: true, lazy: page(() => import("./relay/RelayRegionListPage"), "RelayRegionListPage") },
+    { path: "*", element: <NotFoundPage /> },
+  ],
+  plans: [{ index: true, lazy: page(() => import("./plans/PlansPage"), "PlansPage") }, { path: "*", element: <NotFoundPage /> }],
+  settings: [{ index: true, lazy: page(() => import("./settings/SettingsPage"), "SettingsPage") }, { path: "*", element: <NotFoundPage /> }],
+  users: [{ index: true, lazy: page(() => import("./users/PlatformUsersPage"), "PlatformUsersPage") }, { path: "*", element: <NotFoundPage /> }],
+  "identity-providers": [
+    { index: true, lazy: page(() => import("./idps/IdpPages"), "IdpListPage") },
+    { path: ":idpId", lazy: page(() => import("./idps/IdpPages"), "IdpDetailPage") },
+    { path: "*", element: <NotFoundPage /> },
+  ],
   // P4-T13
   "support-access": [
     { index: true, lazy: page(() => import("./support/SupportGrantsPage"), "SupportGrantsPage") },

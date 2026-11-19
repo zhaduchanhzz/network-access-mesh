@@ -92,6 +92,8 @@ var recipes = map[string]recipe{
 	"listPlatformTenantJobs":         {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
 	"listPlatformTenantInstances":    {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
 	"listPlatformTenantRelayRegions": {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
+	// instance detail of the Platform Console (P4-T03 — tenantsapi as PlatformInstanceViewHandlers)
+	"listPlatformInstanceConfigVersions": {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
 	// dual control (P3-T04a, approvalsapi — mounted with the matrix's actions, world_test.go): granted deciders race
 	// on the same request (one executes, the others get 409) — any answer that is not a refusal
 	"listPlatformApprovals":   {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
@@ -245,6 +247,10 @@ var recipes = map[string]recipe{
 		ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
 	"applyTenantPolicy":    {idempotent: true, ok: answer{http.StatusConflict, gen.ProblemCodeConflict}},
 	"rollbackTenantPolicy": {idempotent: true, ok: answer{http.StatusConflict, gen.ProblemCodeConflict}},
+	// HuJSON translator of the editor (P4-T11, policiesapi — mounted): pure functions over the tenant's names, nothing
+	// stored — a granted import or export answers 200 (the import of an empty grants list passes).
+	"importTenantPolicy": {body: `{"hujson":"{\"grants\": []}"}`, ok: answer{status: http.StatusOK}},
+	"exportTenantPolicy": {body: `{"source":{"grants":[]}}`, ok: answer{status: http.StatusOK}},
 	// support access grants (P4-T13, supportapi — mounted). The objects are pending grants whose requester/grantee is a
 	// Super Admin that is no actor of the matrix (world_test.go): a granted decision answers 200 for the first caller
 	// and 409 grant_closed after (the order of parallel callers decides), so the answer is left open; the requests

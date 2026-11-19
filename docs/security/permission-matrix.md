@@ -94,7 +94,7 @@ Hai origin tách biệt dùng chung một bản build SPA: `app.<domain>` (Tenan
 | `platform.tenant:suspend` | `POST /platform/tenants/{id}/suspend`, `/resume` | ✔ | ✔ | — | — |
 | `platform.tenant:delete` | `DELETE /platform/tenants/{id}` | 2P | — | — | — |
 | `platform.approval:read` / `:decide` | `GET /platform/approvals[/{id}]` / `POST /platform/approvals/{id}/approve`, `/reject` (người duyệt ≠ người yêu cầu; step-up) | ✔ / ✔ | ✔ / chỉ cho restore | — | ✔ / — |
-| `platform.instance:read` | `GET /platform/instances[/{id}]`, `GET /platform/tenants/{id}/instances` (chi tiết tenant — P4-T02) | ✔ | ✔ | ✔ | ✔ |
+| `platform.instance:read` | `GET /platform/instances[/{id}]`, `GET /platform/tenants/{id}/instances` (chi tiết tenant — P4-T02), `GET /platform/instances/{id}/config-versions` (chi tiết instance — P4-T03) | ✔ | ✔ | ✔ | ✔ |
 | `platform.instance:operate` | `POST /platform/instances/{id}/restart`, `/reconfigure`, `/backup` | ✔ | ✔ | — | — |
 | `platform.instance:upgrade` | `POST /platform/instances/{id}/upgrade` | ✔ | ✔ | — | — |
 | `platform.instance:restore` | `POST /platform/instances/{id}/restore` | 2P | 2P | — | — |
@@ -146,8 +146,8 @@ Quy tắc 2P: thao tác đánh dấu **2P** trả `202` kèm `Location: /api/v1/
 | `tenant.enrollment:issue_privileged` | `POST /enrollment/keys` (key gắn tag / reusable / ephemeral / cho người khác) | ✔ | ✔ | — | — | — | — |
 | `tenant.enrollment:read` | `GET /enrollment/requests[/{id}]`, `GET /enrollment/instructions` | ✔ | ✔ | ✔ | ✔ | ○ | G |
 | `tenant.enrollment:revoke` | `POST /enrollment/requests/{id}/revoke` | ✔ | ✔ | ✔ | — | ○ | G |
-| `tenant.policy:read` | `GET /policies`, `/policies/current`, `/policies/{v}`, `/policies/{v}/diff` | ✔ | ✔ | ✔ | ✔ | — | G |
-| `tenant.policy:edit` | `POST /policies`, `PATCH /policies/{v}`, `/validate`, `/submit` | ✔ | ✔ | — | — | — | — |
+| `tenant.policy:read` | `GET /policies`, `/policies/current`, `/policies/{v}`, `/policies/{v}/diff`, `POST /policies/export` (viết nội dung thành HuJSON có tên, không lưu — P4-T11) | ✔ | ✔ | ✔ | ✔ | — | G |
+| `tenant.policy:edit` | `POST /policies`, `PATCH /policies/{v}`, `/validate`, `/submit`, `POST /policies/import` (dịch HuJSON sang mô hình có kiểu, không lưu — P4-T11) | ✔ | ✔ | — | — | — | — |
 | `tenant.policy:approve` | `POST /policies/{v}/approve`, `/reject` (tenant bật 4-eyes: không tự duyệt bản của mình; không bật: người soạn tự xác nhận — `review_mode=self`, §7.3) | ✔ | ✔ | — | — | — | — |
 | `tenant.policy:apply` | `POST /policies/{v}/apply`, `/rollback` | ✔ | ✔ | — | — | — | G (Admin) |
 | `tenant.dns:read` / `:update` | `GET /dns`, `GET /dns/records` / `PUT /dns/settings`, `POST,DELETE /dns/records` | ✔ / ✔ | ✔ / ✔ | ✔ / — | ✔ / — | — | G / — |

@@ -8,6 +8,7 @@ package sqlcdb
 import (
 	"context"
 	"net/netip"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -321,6 +322,70 @@ func (q *Queries) GetTenantInstance(ctx context.Context, id uuid.UUID) (TenantIn
 		&i.Version,
 	)
 	return i, err
+}
+
+const listInstanceConfigVersionsPage = `-- name: ListInstanceConfigVersionsPage :many
+SELECT v.id, v.version, v.status, v.template_version, v.params, v.config_sha256, v.created_by, v.created_at,
+       v.applied_at, (ti.config_version_id IS NOT DISTINCT FROM v.id)::boolean AS is_current
+FROM instance_config_versions v
+JOIN tenant_instances ti ON ti.tenant_id = v.tenant_id AND ti.id = v.instance_id
+WHERE v.instance_id = $1
+  AND ($2::integer IS NULL OR v.version < $2::integer)
+ORDER BY v.version DESC
+LIMIT $3
+`
+
+type ListInstanceConfigVersionsPageParams struct {
+	InstanceID    uuid.UUID
+	BeforeVersion *int32
+	RowLimit      int32
+}
+
+type ListInstanceConfigVersionsPageRow struct {
+	ID              uuid.UUID
+	Version         int32
+	Status          string
+	TemplateVersion string
+	Params          []byte
+	ConfigSha256    string
+	CreatedBy       *uuid.UUID
+	CreatedAt       time.Time
+	AppliedAt       *time.Time
+	IsCurrent       bool
+}
+
+// GET /platform/instances/{instanceId}/config-versions (P4-T03 — chi tiết instance của Platform Console; pool platform):
+// version giảm dần, con trỏ = version của hàng cuối trang; `current` = hàng mà tenant_instances.config_version_id trỏ
+// tới. Không đọc rendered_config (nội dung thật nằm trên host — §6.3).
+func (q *Queries) ListInstanceConfigVersionsPage(ctx context.Context, arg ListInstanceConfigVersionsPageParams) ([]ListInstanceConfigVersionsPageRow, error) {
+	rows, err := q.db.Query(ctx, listInstanceConfigVersionsPage, arg.InstanceID, arg.BeforeVersion, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListInstanceConfigVersionsPageRow{}
+	for rows.Next() {
+		var i ListInstanceConfigVersionsPageRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Version,
+			&i.Status,
+			&i.TemplateVersion,
+			&i.Params,
+			&i.ConfigSha256,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.AppliedAt,
+			&i.IsCurrent,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listTenants = `-- name: ListTenants :many

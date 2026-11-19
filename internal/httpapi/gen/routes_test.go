@@ -65,6 +65,7 @@ var routes = []struct {
 	{http.MethodGet, "/api/v1/platform/tenants/" + tenantID + "/instances", "", "ListPlatformTenantInstances", nil},
 	{http.MethodGet, "/api/v1/platform/tenants/" + tenantID + "/relay-regions", "", "ListPlatformTenantRelayRegions", nil},
 	{http.MethodGet, "/api/v1/platform/instances/" + itemID, "", "GetPlatformInstance", nil},
+	{http.MethodGet, "/api/v1/platform/instances/" + itemID + "/config-versions?limit=5", "", "ListPlatformInstanceConfigVersions", nil},
 	// instance.reconfigure (P3-T13)
 	{http.MethodPost, "/api/v1/platform/instances/" + itemID + "/reconfigure", `{"log_level":"warn"}`, "ReconfigurePlatformInstance", idempotency},
 	{http.MethodPost, "/api/v1/platform/instances/" + itemID + "/restart", "", "RestartPlatformInstance", idempotency},
@@ -122,6 +123,8 @@ var routes = []struct {
 	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/policies/" + itemID + "/apply", "", "ApplyTenantPolicy", idempotency},
 	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/policies/" + itemID + "/rollback", "", "RollbackTenantPolicy", idempotency},
 	{http.MethodGet, "/api/v1/tenants/" + tenantID + "/policies/" + itemID + "/diff", "", "DiffTenantPolicy", nil},
+	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/policies/import", `{"hujson":"{}"}`, "ImportTenantPolicy", nil},
+	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/policies/export", `{"source":{"grants":[]}}`, "ExportTenantPolicy", nil},
 	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/invitations/" + itemID + "/resend", `{"expires_in_hours":24}`, "ResendTenantInvitation", nil},
 	// support access grants (P4-T13)
 	{http.MethodGet, "/api/v1/tenants/" + tenantID + "/support-grants?status=pending&limit=5", "", "ListTenantSupportGrants", nil},

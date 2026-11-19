@@ -39,6 +39,9 @@ export const APPROVAL_ACTION_PERMISSION: Readonly<Record<string, string>> = {
   "platform.instance.restore": "platform.instance:restore",
   "platform.instance.release": "platform.instance:release",
   "platform.idp.console_session": "platform.idp:console",
+  // P4-T03a (màn hình: P4-T03)
+  "platform.user.super_admin": "platform.user:assign_super_admin",
+  "platform.idp.update_tenant": "platform.idp:manage",
 };
 
 export const PAGE_SIZE = 25;
