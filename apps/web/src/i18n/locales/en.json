@@ -1126,5 +1126,213 @@
     "checkFailed": "Failed",
     "duration": "{{ms}} ms (measured by the prober)",
     "httpStatus": "HTTP {{status}}"
+  },
+  "people": {
+    "you": "(you)",
+    "col": {
+      "name": "Name",
+      "email": "Email",
+      "role": "Role",
+      "status": "Status",
+      "actions": "Actions"
+    },
+    "status": {
+      "active": "Active",
+      "locked": "Locked",
+      "offboarded": "Offboarded"
+    },
+    "invitationStatus": {
+      "pending": "Pending",
+      "accepted": "Accepted",
+      "revoked": "Revoked",
+      "expired": "Expired"
+    },
+    "users": {
+      "filters": "Filter members",
+      "search": "Search by name or email",
+      "empty": "The tenant has no members yet.",
+      "emptyFiltered": "No member matches the filters.",
+      "back": "← Members"
+    },
+    "user": {
+      "info": "Details",
+      "noEmail": "The IdP gives no email",
+      "headscaleUser": "Headscale user",
+      "profileSource": "Profile",
+      "profileFromIdp": "Name and email come from the IdP at every sign-in — not edited here.",
+      "ruleNoActions": "You cannot act on this member: only roles strictly below yours (rule 3a — a Tenant Admin does not lock, offboard or change the role of an Owner or another Admin).",
+      "selfNoActions": "This is your own account: you do not lock, offboard or change your own role here."
+    },
+    "access": {
+      "title": "Portal access",
+      "description": "Locking blocks Portal sign-in and revokes every session (reversible); devices stay on the network — offboarding cuts them off.",
+      "lock": "Lock",
+      "unlock": "Unlock",
+      "lockTitle": "Lock {{name}}?",
+      "unlockTitle": "Unlock {{name}}?",
+      "lockDesc": "The person is signed out at once and cannot sign in to the Portal until unlocked. Nodes and pre-auth keys are not touched.",
+      "unlockDesc": "The person can sign in again if the IdP still allows it.",
+      "revokeSessions": "Revoke sessions",
+      "sessionsTitle": "Revoke every session of {{name}}?",
+      "sessionsDesc": "Every Portal session of the person ends at once; they can sign in again if the membership and the IdP allow it.",
+      "sessionsRevoked": "Every session was revoked."
+    },
+    "role": {
+      "title": "Role",
+      "description": "Only the roles you may give under rule 3a are listed. The Owner role is only given by an ownership transfer.",
+      "newRole": "New role",
+      "submit": "Change role",
+      "confirmTitle": "Change the role of {{name}}?",
+      "sessionsNote": "Every session of the person is revoked (their rights change).",
+      "adminHint": "A change touching the Tenant Admin role or an Owner is made by an Owner only and needs a recent sign-in (step-up).",
+      "done": "Role changed."
+    },
+    "owner": {
+      "title": "Transfer ownership",
+      "description": "Give the Tenant Owner role to this member. By default you become a Tenant Admin.",
+      "open": "Transfer ownership…",
+      "confirmTitle": "Transfer ownership to {{name}}?",
+      "confirmDesc": "This person becomes a Tenant Owner. The sessions of both of you are revoked — you will have to sign in again.",
+      "stepUp": "Needs a recent sign-in (step-up).",
+      "typeLabel": "Type the recipient's email (or name) to confirm",
+      "keep": "I keep the Owner role (two Owners)",
+      "submit": "Transfer"
+    },
+    "offboard": {
+      "title": "Offboard",
+      "description": "Ends access for good: revokes sessions, leaves every group, expires every node and pre-auth key, disables the account at a platform-hosted IdP.",
+      "open": "Offboard…",
+      "confirmTitle": "Offboard {{name}}?",
+      "confirmDesc": "A two-phase operation:",
+      "effects": {
+        "sessions": "At once: the membership becomes offboarded, every Portal session is revoked, the identity is disabled.",
+        "groups": "At once: leaves every group (the policy is applied again).",
+        "nodes": "Job member.offboard: expires every node and pre-auth key of the person, then reads them back to verify.",
+        "idp": "Job member.offboard: disables the account at a platform-hosted IdP (a tenant's own IdP: not applicable)."
+      },
+      "final": "Offboarded is final — it cannot be reactivated here.",
+      "typeLabel": "Type the member's email (or name) to confirm",
+      "submit": "Offboard",
+      "retryTitle": "Offboarding not finished",
+      "retryDescription": "The offboarding job ended in error: nodes or pre-auth keys may still be valid. Running it again creates a new job.",
+      "retry": "Offboard again…",
+      "job": "Job",
+      "state": {
+        "pending": "Offboarding",
+        "applied": "Offboarding applied",
+        "failed": "Offboarding failed"
+      },
+      "explain": {
+        "pending": "Phase 2 is running — nodes and pre-auth keys are NOT known to be expired until the job has verified them.",
+        "applied": "Applied and verified: nodes and pre-auth keys have expired; the account at a platform-hosted IdP is disabled.",
+        "failed": "The job ended in error — nodes or keys may still be valid. Offboard again to create a new job."
+      }
+    },
+    "invite": {
+      "open": "Invite member",
+      "title": "Invite a member",
+      "description": "The invited person signs in for the first time through the tenant's IdP with this exact (verified) email and gets the chosen role.",
+      "email": "Email",
+      "emailInvalid": "The email is not valid.",
+      "roleHint": "Only the roles you may invite are listed (below your own — rule 3a).",
+      "hours": "Invitation lifetime (hours, 1–720)",
+      "hoursInvalid": "The lifetime is a whole number from 1 to 720.",
+      "summary": "Invite",
+      "submit": "Send invitation",
+      "noRoles": "Your role cannot invite anyone."
+    },
+    "invitations": {
+      "intro": "Invitations of people who never signed in. With a platform-hosted IdP, the job member.idp_invite creates (or finds) the account and emails its setup.",
+      "watching": "Invitation sent — its IdP status (job member.idp_invite) updates in the table.",
+      "empty": "No invitations.",
+      "expires": "Expires",
+      "invitedBy": "Invited by",
+      "idp": "IdP",
+      "noJob": "no job yet",
+      "resend": "Resend",
+      "revoke": "Revoke",
+      "resendTitle": "Resend the invitation of {{email}}?",
+      "resendDesc": "The invitation gets a new link and lifetime (7 days); the old link stops working.",
+      "revokeTitle": "Revoke the invitation of {{email}}?",
+      "revokeDesc": "The link in the invitation email no longer works."
+    },
+    "groups": {
+      "intro": "Groups are compiled into the policy as group:<name>. A member change applies the policy again (job policy.apply).",
+      "create": "Create group",
+      "createTitle": "Create a group",
+      "createSubmit": "Create",
+      "search": "Search by group name",
+      "empty": "No groups yet.",
+      "emptyFiltered": "No group matches.",
+      "name": "Name",
+      "nameHint": "Lowercase letters, digits, hyphens; starts with a letter; at most 50 characters.",
+      "description": "Description",
+      "members": "Members",
+      "source": "Source",
+      "sources": {
+        "portal": "Portal",
+        "idp": "IdP"
+      },
+      "updated": "Updated",
+      "sensitive": "Sensitive",
+      "sensitiveLabel": "Sensitive",
+      "notSensitive": "No",
+      "sensitiveExplain": "Sensitive group: a member change needs another Owner/Admin to approve (the flag is set in the Tenant Owner's security settings).",
+      "back": "← Groups",
+      "info": "Details",
+      "policyName": "(policy: group:{{name}})",
+      "membersTitle": "Members",
+      "noMembers": "The group has no members.",
+      "editMembers": "Edit members",
+      "sensitiveEditNote": "Sensitive group: saving does NOT change anything now but creates an approval request (needs a recent sign-in); the set applies once a second person approves.",
+      "draftTitle_one": "Members after saving ({{count}})",
+      "draftTitle_other": "Members after saving ({{count}})",
+      "draftEmpty": "No members left.",
+      "draftList": "Members after saving",
+      "remove": "Remove",
+      "removeMember": "Remove {{name}}",
+      "findMembers": "Find members to add",
+      "findForm": "Member search",
+      "onlyActive": "Only active members can be added to a group.",
+      "candidates": "Search results",
+      "noCandidates": "No active member matches.",
+      "add": "Add",
+      "added": "Added",
+      "addMember": "Add {{name}}",
+      "tooMany": "At most {{max}} members in one save.",
+      "staleReloaded": "Someone else just changed the group — the new version was loaded; check it and save again.",
+      "saveMembers": "Save members",
+      "requestApproval": "Request approval",
+      "editTitle": "Edit group",
+      "renameNote": "Renaming changes group:<name> in the policy — the policy is applied again.",
+      "save": "Save",
+      "saved": "Saved.",
+      "deleteTitle": "Delete group",
+      "deleteDesc": "A group still named as the owner of a network resource cannot be deleted.",
+      "deleteSensitive": "A sensitive group with members cannot be deleted — remove its members through an approval first.",
+      "delete": "Delete group",
+      "deleteConfirmTitle": "Delete the group {{name}}?",
+      "deleteConfirmDesc_one": "{{count}} member leaves the group; the policy is applied again.",
+      "deleteConfirmDesc_other": "{{count}} members leave the group; the policy is applied again.",
+      "typeName": "Type the group name to confirm"
+    },
+    "approval": {
+      "pendingTitle": "Member changes waiting for approval",
+      "requestedBy": "requested by {{name}}",
+      "memberCount_one": "{{count}} member",
+      "memberCount_other": "{{count}} members",
+      "expires": "Expires",
+      "id": "Request ID",
+      "payload": "Proposed members",
+      "requester": "Requested by",
+      "queue": "Open the tenant's approval queue",
+      "explain": {
+        "pending": "An approval request was created — the members have NOT changed. Another Owner/Admin must approve it.",
+        "approved": "Approved, being carried out.",
+        "executed": "Approved and applied with exactly the proposed members.",
+        "rejected": "The request was rejected — the members did not change.",
+        "expired": "The request expired — the members did not change."
+      }
+    }
   }
 }
