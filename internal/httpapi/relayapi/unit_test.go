@@ -243,3 +243,81 @@ func TestHandlersFailClosed(t *testing.T) {
 func noSession(next http.Handler) http.Handler { return next }
 
 func noAudit(f gen.StrictHandlerFunc, _ string) gen.StrictHandlerFunc { return f }
+
+// platformAuthorizer answers like authz on a platform route: granted, no tenant in the decision even when the path
+// carries a {tenantId} (the tenant of /platform/tenants/{tenantId}/… filters the registry, it is not a tenant context).
+type platformAuthorizer struct{}
+
+func (platformAuthorizer) RequireOperation(context.Context, string, uuid.UUID) (authz.Decision, error) {
+	return authz.Decision{}, nil
+}
+
+// TestPlatformTenantRegions (P4-T02): GET /platform/tenants/{tenantId}/relay-regions asks the service for the regions of
+// the tenant of the path only; the page is mapped like the platform list; an unknown tenant is 404; a region of
+// another tenant (or a shared one) returned by a lower layer is never sent (500); without a platform decision nothing
+// reaches the service.
+func TestPlatformTenantRegions(t *testing.T) {
+	tenant, other, host := uuid.New(), uuid.New(), uuid.New()
+	now := time.Date(2026, 11, 19, 9, 0, 0, 0, time.UTC)
+	tr := sample(&now)
+	own := relay.PlatformRegion{Region: tr.Assignments[0].Region, HostID: &host, TenantID: &tenant, Health: tr.Assignments[0].Health,
+		Assignments: []relay.PlatformAssignment{}, CreatedAt: now, UpdatedAt: now, Version: 2}
+	mount := func(svc *fakeService, a gen.StrictMiddlewareFunc, path string) *httptest.ResponseRecorder {
+		t.Helper()
+		h, err := httpapi.New(httpapi.Options{Logger: logx.New(io.Discard, slog.LevelInfo, "api"),
+			Handlers: httpapi.Handlers{TenantView: httpapi.PlatformTenantView{Relay: New(svc)}},
+			Hooks:    httpapi.Hooks{Authz: a, Session: noSession, Audit: noAudit}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "https://admin.mg.test/api/v1"+path, nil)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, r)
+		return rec
+	}
+	base := "/platform/tenants/" + tenant.String() + "/relay-regions"
+	svc := &fakeService{page: relay.RegionPage{Items: []relay.PlatformRegion{own}, Unavailable: relay.Unmeasured()}}
+	rec := mount(svc, authzhook.Authz(platformAuthorizer{}), base+"?limit=5&cursor=abc")
+	var got gen.RelayRegionList
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &got) != nil {
+		t.Fatalf("regions: %d %s", rec.Code, rec.Body.String())
+	}
+	if len(svc.filters) != 1 || svc.filters[0] != (relay.RegionFilter{Limit: 5, Cursor: "abc", TenantID: tenant}) {
+		t.Errorf("filters %+v", svc.filters)
+	}
+	if len(got.Items) != 1 || *got.Items[0].TenantId != tenant || got.Items[0].Region.Code != "mg-acme" || got.NextCursor != nil ||
+		len(got.Unavailable) == 0 || got.Items[0].Health.CheckedAt == nil {
+		t.Errorf("page %+v", got)
+	}
+	if rec := mount(&fakeService{err: relay.ErrNotFound}, authzhook.Authz(platformAuthorizer{}), base); rec.Code != http.StatusNotFound ||
+		!strings.Contains(rec.Body.String(), `"not_found"`) {
+		t.Errorf("unknown tenant: %d %s", rec.Code, rec.Body.String())
+	}
+	foreign := own
+	foreign.TenantID = &other
+	shared := own
+	shared.TenantID = nil
+	for name, item := range map[string]relay.PlatformRegion{"region of another tenant": foreign, "shared region": shared} {
+		s := &fakeService{page: relay.RegionPage{Items: []relay.PlatformRegion{own, item}, Unavailable: relay.Unmeasured()}}
+		if rec := mount(s, authzhook.Authz(platformAuthorizer{}), base); rec.Code != http.StatusInternalServerError ||
+			strings.Contains(rec.Body.String(), "mg-acme") || strings.Contains(rec.Body.String(), other.String()) {
+			t.Errorf("%s: %d %s", name, rec.Code, rec.Body.String())
+		}
+	}
+	noDecision := gen.StrictMiddlewareFunc(func(f gen.StrictHandlerFunc, _ string) gen.StrictHandlerFunc { return f })
+	for name, a := range map[string]gen.StrictMiddlewareFunc{
+		"no decision": noDecision, "tenant decision": authzhook.Authz(fakeAuthorizer{}),
+	} {
+		s := &fakeService{}
+		if rec := mount(s, a, base); rec.Code != http.StatusInternalServerError || len(s.filters) != 0 {
+			t.Errorf("%s: %d, %d calls", name, rec.Code, len(s.filters))
+		}
+	}
+	if rec := mount(&fakeService{}, authzhook.Authz(platformAuthorizer{}), base+"?limit=201"); rec.Code != http.StatusUnprocessableEntity {
+		t.Errorf("limit 201: %d", rec.Code)
+	}
+	if rec := mount(&fakeService{err: errors.New("boom")}, authzhook.Authz(platformAuthorizer{}), base); rec.Code != http.StatusInternalServerError ||
+		strings.Contains(rec.Body.String(), "boom") {
+		t.Errorf("service failure: %d %s", rec.Code, rec.Body.String())
+	}
+}

@@ -61,6 +61,9 @@ var routes = []struct {
 	{http.MethodGet, "/api/v1/platform/backups?instance=" + itemID + "&status=succeeded", "", "ListPlatformBackups", nil},
 	{http.MethodGet, "/api/v1/platform/tenants/" + tenantID, "", "GetPlatformTenant", nil},
 	{http.MethodGet, "/api/v1/platform/instances", "", "ListPlatformInstances", nil},
+	{http.MethodGet, "/api/v1/platform/tenants/" + tenantID + "/jobs?limit=5&status=queued", "", "ListPlatformTenantJobs", nil},
+	{http.MethodGet, "/api/v1/platform/tenants/" + tenantID + "/instances", "", "ListPlatformTenantInstances", nil},
+	{http.MethodGet, "/api/v1/platform/tenants/" + tenantID + "/relay-regions", "", "ListPlatformTenantRelayRegions", nil},
 	{http.MethodGet, "/api/v1/platform/instances/" + itemID, "", "GetPlatformInstance", nil},
 	// instance.reconfigure (P3-T13)
 	{http.MethodPost, "/api/v1/platform/instances/" + itemID + "/reconfigure", `{"log_level":"warn"}`, "ReconfigurePlatformInstance", idempotency},

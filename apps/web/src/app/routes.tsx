@@ -11,6 +11,7 @@ import { PLATFORM_NAV, TENANT_NAV } from "../nav/navModel";
 import { LoginPage } from "../pages/LoginPage";
 import { NotFoundPage, RouteErrorPage } from "../pages/StatusPages";
 import { PlatformHome, PlatformNavRoute, PlatformScope } from "../platform/PlatformScope";
+import { PLATFORM_SCREENS } from "../platform/screens";
 import { TENANT_EXTRA_ROUTES } from "../tenant/pages";
 import { TenantHome, TenantNavRoute, TenantScope } from "../tenant/TenantScope";
 import { TenantSelectPage } from "../tenant/TenantSelectPage";
@@ -63,7 +64,11 @@ export const routes: RouteObject[] = [
             element: <PlatformScope />,
             children: [
               { index: true, element: <PlatformHome /> },
-              ...PLATFORM_NAV.map((item) => ({ path: item.path, element: <PlatformNavRoute item={item} /> })),
+              ...PLATFORM_NAV.map((item) => ({
+                path: item.path,
+                element: <PlatformNavRoute item={item} />,
+                children: item.available ? PLATFORM_SCREENS[item.path] : undefined,
+              })),
               { path: "*", element: <NotFoundPage /> },
             ],
           },

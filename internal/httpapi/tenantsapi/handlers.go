@@ -246,6 +246,34 @@ func (h *Handlers) ListPlatformInstances(ctx context.Context, req gen.ListPlatfo
 	return out, nil
 }
 
+// ListPlatformTenantInstances implements GET /platform/tenants/{tenantId}/instances (P4-T02 — the instances of the
+// tenant detail of the Platform Console; mounted through httpapi.PlatformTenantView): GET /platform/instances filtered
+// by the tenant of the path, which must exist (404). An instance of another tenant is never sent (500).
+func (h *Handlers) ListPlatformTenantInstances(ctx context.Context, req gen.ListPlatformTenantInstancesRequestObject) (gen.ListPlatformTenantInstancesResponseObject, error) {
+	if req.TenantId == uuid.Nil {
+		return nil, notFound()
+	}
+	f := platform.InstanceFilter{Limit: limitOf(req.Params.Limit), Cursor: str(req.Params.Cursor), TenantID: req.TenantId}
+	if req.Params.Status != nil {
+		f.Status = string(*req.Params.Status)
+	}
+	p, err := h.platform.ListInstances(ctx, f)
+	if err != nil {
+		return nil, failure(err)
+	}
+	out := gen.ListPlatformTenantInstances200JSONResponse{Items: make([]gen.Instance, 0, len(p.Items)), NextCursor: cursorOf(p.NextCursor)}
+	for _, i := range p.Items {
+		if i.TenantID != req.TenantId {
+			return nil, problem.Internal(errForeignInstance)
+		}
+		out.Items = append(out.Items, toInstance(i))
+	}
+	return out, nil
+}
+
+// errForeignInstance: the registry answered an instance of another tenant on a tenant-filtered list — never sent.
+var errForeignInstance = errors.New("tenantsapi: an instance of another tenant reached a tenant-filtered list")
+
 // GetPlatformInstance implements GET /platform/instances/{instanceId}.
 func (h *Handlers) GetPlatformInstance(ctx context.Context, req gen.GetPlatformInstanceRequestObject) (gen.GetPlatformInstanceResponseObject, error) {
 	i, err := h.platform.GetInstance(ctx, req.InstanceId)

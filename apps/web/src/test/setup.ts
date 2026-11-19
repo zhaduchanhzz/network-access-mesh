@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { cleanup } from "@testing-library/react";
+import { cleanup, configure } from "@testing-library/react";
 import { afterEach, beforeEach, vi } from "vitest";
 import { setCsrfToken } from "../api/client";
 import { i18n, initI18n } from "../i18n";
@@ -28,6 +28,10 @@ Object.defineProperty(window, "matchMedia", {
 });
 
 initI18n("vi");
+
+// Màn hình Platform Console tải theo route (`lazy` — import động): lần đầu Vitest phải transform module, trên runner chậm
+// hoặc khi nhiều file chạy song song có thể quá 1 s mặc định của findBy*/waitFor (P4-T02).
+configure({ asyncUtilTimeout: 5000 });
 
 beforeEach(async () => {
   localStorage.clear();

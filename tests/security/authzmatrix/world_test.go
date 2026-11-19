@@ -201,12 +201,13 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 	if err != nil {
 		t.Fatal(err)
 	}
+	registry, jobsH, relayH := tenantsapi.New(dir, platform.New(w.Store)), jobsapi.New(jobs.NewService(w.Store)), relayapi.New(relays)
 	inbox := notificationsapi.New(notifications.NewReader(w.Store))
 	return httpapi.Handlers{
-		Tenants:     tenantsapi.New(dir, platform.New(w.Store)),
+		Tenants:     registry,
 		Devices:     devicesapi.New(dev),
 		Audit:       auditapi.New(audit.NewReader(w.Store)),
-		Jobs:        jobsapi.New(jobs.NewService(w.Store)),
+		Jobs:        jobsH,
 		Monitoring:  monitoringapi.New(mon),
 		Approvals:   approvalsapi.New(appr),
 		Invitations: invitationsapi.New(dir, authz.GuardInvitationRole),
@@ -223,7 +224,7 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 		// Lifecycle (P3-T08): suspend/resume requests of the api (no worker here: a job would stay queued)
 		Lifecycle: lifecycleapi.New(lifecycle.NewRequester(w.Store)),
 		// Relay (P3-T05c): the tenant's relays and the platform's regions, reads only
-		Relay: relayapi.New(relays),
+		Relay: relayH,
 		// Reconfigure (P3-T13): instance.reconfigure requests of the api
 		Reconfigure: reconfigureapi.New(orchestrator.NewReconfigureService(w.Store)),
 		// InstanceOps (P3-T13a): instance.restart and instance.upgrade requests of the api (no worker: jobs stay queued)
@@ -232,6 +233,8 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 		Deprovision: deprovisionapi.New(deprovision.NewRequester(w.Store), appr),
 		// Quarantine (P3-T18): quarantine requests of the api; a release becomes an approval request
 		Quarantine: quarantineapi.New(quarantine.NewRequester(w.Store), appr),
+		// Tenant detail of the Platform Console (P4-T02): jobs, instances and relay regions of one tenant, reads only
+		TenantView: httpapi.PlatformTenantView{Jobs: jobsH, Instances: registry, Relay: relayH},
 		// Tags (P4-T15): the tag catalog and PUT /devices/{id}/tags (delegated to the device handlers)
 		Tags: tagsapi.New(tagSvc, devicesapi.New(dev)),
 		// Members (P4-T09): membership writes under authz.GuardMembershipChange, groups (no worker: jobs stay queued)

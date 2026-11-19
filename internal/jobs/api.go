@@ -172,6 +172,32 @@ func (s *Service) ListPlatformJobs(ctx context.Context, f ListFilter) (JobList, 
 	return out, err
 }
 
+// ListPlatformTenantJobs is GET /platform/tenants/{tenantId}/jobs (P4-T02, tenant detail of the Platform Console): the
+// jobs of one tenant on the platform pool — the projection, filters, order and cursor of ListPlatformJobs. A tenant
+// that does not exist is ErrNotFound (a deleted tenant still has its row, and its jobs until retention).
+func (s *Service) ListPlatformTenantJobs(ctx context.Context, tenantID uuid.UUID, f ListFilter) (JobList, error) {
+	p, limit, err := f.params()
+	if err != nil {
+		return JobList{}, err
+	}
+	if tenantID == uuid.Nil {
+		return JobList{}, ErrNotFound
+	}
+	p.TenantID = &tenantID
+	var out JobList
+	err = s.st.WithPlatformTx(ctx, func(q *sqlcdb.Queries) error {
+		if _, err := q.GetTenantView(ctx, tenantID); errors.Is(err, store.ErrNoRows) {
+			return ErrNotFound
+		} else if err != nil {
+			return err
+		}
+		var err error
+		out, err = listPage(ctx, q, p, limit)
+		return err
+	})
+	return out, err
+}
+
 // GetPlatformJob is GET /platform/jobs/{jobId}: the job with raw step detail and its full error.
 func (s *Service) GetPlatformJob(ctx context.Context, jobID uuid.UUID) (PlatformJob, error) {
 	var out PlatformJob

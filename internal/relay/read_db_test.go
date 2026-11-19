@@ -231,4 +231,14 @@ func TestPlatformRegions(t *testing.T) {
 			t.Errorf("filter %+v: %v, want ErrInvalid", bad, err)
 		}
 	}
+	// P4-T02: the regions of one tenant (GET /platform/tenants/{t}/relay-regions) — not the shared one, not the other
+	// tenant's; an unknown tenant is ErrNotFound
+	ofA, err := f.api.PlatformRegions(ctx, RegionFilter{TenantID: f.a.id})
+	if err != nil || len(ofA.Items) != 1 || ofA.Items[0].ID != f.a.region || ofA.NextCursor != "" || len(ofA.Unavailable) != len(unmeasured) ||
+		ofA.Items[0].Health.Status != StatusHealthy || len(ofA.Items[0].Assignments) != 1 {
+		t.Errorf("regions of A: %+v %v", ofA, err)
+	}
+	if _, err := f.api.PlatformRegions(ctx, RegionFilter{TenantID: uuid.New()}); !errors.Is(err, ErrNotFound) {
+		t.Errorf("unknown tenant: %v, want ErrNotFound", err)
+	}
 }

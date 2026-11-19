@@ -1987,6 +1987,119 @@ paths:
           $ref: '#/components/responses/RateLimited'
         default:
           $ref: '#/components/responses/Unexpected'
+  # ------------------------------------------------- chi tiết tenant trên Platform Console (P4-T02, §12.2) — chỉ đọc
+  /platform/tenants/{tenantId}/jobs:
+    get:
+      tags: [platform]
+      operationId: listPlatformTenantJobs
+      summary: Job của một tenant — cùng phép chiếu với GET /platform/jobs, mới nhất trước
+      description: >-
+        Màn hình chi tiết tenant của Platform Console (§12.2): job gần đây của đúng tenant `{tenantId}` (pool platform).
+        Cùng phép chiếu, bộ lọc, thứ tự và con trỏ với `GET /platform/jobs`; chi tiết thô chỉ ở `GET
+        /platform/jobs/{jobId}`. Tenant không tồn tại ⇒ `404`.
+      x-permission: platform.job:read
+      x-task: P4-T02
+      x-audit-action: platform.tenant.job.list
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/JobStatusFilter'
+        - $ref: '#/components/parameters/JobKindFilter'
+      responses:
+        '200':
+          description: Một trang job của tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /platform/tenants/{tenantId}/instances:
+    get:
+      tags: [platform]
+      operationId: listPlatformTenantInstances
+      summary: Headscale instance của một tenant (kể cả bản đã removed) — cùng schema với GET /platform/instances
+      description: >-
+        Màn hình chi tiết tenant (§12.2): instance của đúng tenant `{tenantId}`, thứ tự `(created_at, id)`, cùng lọc
+        `status` và con trỏ với `GET /platform/instances`. Tenant không tồn tại ⇒ `404`.
+      x-permission: platform.instance:read
+      x-task: P4-T02
+      x-audit-action: platform.tenant.instance.list
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/InstanceStatus'
+      responses:
+        '200':
+          description: Một trang instance của tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InstanceList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /platform/tenants/{tenantId}/relay-regions:
+    get:
+      tags: [platform]
+      operationId: listPlatformTenantRelayRegions
+      summary: Relay region của một tenant — cùng schema với GET /platform/relay-regions
+      description: >-
+        Màn hình chi tiết tenant (§12.2): region có `tenant_id = {tenantId}` (`embedded`, `standalone`), mỗi region kèm
+        assignment và health, thứ tự `(created_at, id)`; số đo không có nguồn nằm trong `unavailable` (§10.6, §12.4).
+        Region dùng chung (`shared`, Phase 7) không thuộc riêng tenant nào nên không có ở đây. Tenant không tồn tại ⇒
+        `404`.
+      x-permission: platform.relay:read
+      x-task: P4-T02
+      x-audit-action: platform.tenant.relay_region.list
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Một trang relay region của tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RelayRegionList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
   /platform/instances:
     get:
       tags: [platform]

@@ -61,6 +61,15 @@ interface FetchResult<T> {
  * và báo cho các listener (trừ khi `notify: false`).
  */
 export async function call<T>(pending: Promise<FetchResult<T>>, opts: { notify?: boolean } = {}): Promise<T> {
+  return (await callWithResponse(pending, opts)).data;
+}
+
+/** Như `call`, kèm `Response` của phản hồi 2xx để đọc header (ETag của GET, Location của 202 — src/api/etag.ts,
+ * src/api/jobs.ts). Bản duy nhất (P4-T02 + P4-T04). */
+export async function callWithResponse<T>(
+  pending: Promise<FetchResult<T>>,
+  opts: { notify?: boolean } = {},
+): Promise<{ data: T; response: Response }> {
   let result: FetchResult<T>;
   try {
     result = await pending;
@@ -68,7 +77,7 @@ export async function call<T>(pending: Promise<FetchResult<T>>, opts: { notify?:
     throw ApiError.network();
   }
   if (result.response.ok) {
-    return result.data as T;
+    return { data: result.data as T, response: result.response };
   }
   const error = ApiError.fromResponse(result.response, result.error);
   if (opts.notify !== false) {

@@ -105,3 +105,29 @@ describe("khóa mà mã nguồn dùng", () => {
     expect(formatDateTime("không-phải-ngày", "vi")).toBe("không-phải-ngày");
   });
 });
+
+describe("khóa động của Platform Console (P4-T02)", () => {
+  it("trạng thái, bước provisioning, thao tác 2P, điều khiển job, wizard", async () => {
+    const { JOB_STATUSES, PROVISION_STEPS } = await import("../api/jobs");
+    const { APPROVAL_ACTION_PERMISSION, APPROVAL_STATUSES, TENANT_STATUSES } = await import("../platform/api");
+    const keys = [
+      ...TENANT_STATUSES.map((s) => `status.tenant.${s}`),
+      ...JOB_STATUSES.map((s) => `status.job.${s}`),
+      ...APPROVAL_STATUSES.map((s) => `status.approval.${s}`),
+      ...["pending", "running", "succeeded", "failed", "skipped"].map((s) => `status.step.${s}`),
+      ...["allocated", "starting", "running", "stopped", "failed", "removed", "quarantined"].map((s) => `status.instance.${s}`),
+      ...["healthy", "unhealthy", "unknown"].map((s) => `status.health.${s}`),
+      ...["pending", "active", "disabled"].map((s) => `status.relay.${s}`),
+      ...["embedded", "standalone", "shared"].map((s) => `platform.tenantDetail.relayKinds.${s}`),
+      ...PROVISION_STEPS.map((s) => `platform.steps.provision.${s.replaceAll(".", "_")}`),
+      ...Object.keys(APPROVAL_ACTION_PERMISSION).map((a) => `platform.approvalActions.${a.replaceAll(".", "_")}`),
+      ...["cancel", "retry", "rollback"].flatMap((c) => [`platform.job.control.${c}`, `platform.job.control.${c}Title`, `platform.job.control.${c}Desc`]),
+      ...["details", "identity", "review"].map((s) => `platform.tenantCreate.step.${s}`),
+      ...["keycloak", "external"].flatMap((d) => [`platform.tenantCreate.drivers.${d}`, `platform.tenantCreate.drivers.${d}Hint`]),
+    ];
+    // khóa lỗi của wizard là chuỗi literal trong mã (không qua t("…") trực tiếp)
+    for (const text of sourceTexts()) for (const m of text.matchAll(/"(platform\.tenantCreate\.errors\.[a-zA-Z]+)"/g)) keys.push(m[1] ?? "");
+    expect(keys.filter((k) => k.startsWith("platform.tenantCreate.errors.")).length).toBeGreaterThanOrEqual(9);
+    expect(keys.filter((k) => !has("vi", k) || !has("en", k))).toEqual([]);
+  });
+});

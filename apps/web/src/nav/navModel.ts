@@ -46,9 +46,9 @@ export const TENANT_NAV: readonly NavItem[] = [
 
 export const PLATFORM_NAV: readonly NavItem[] = [
   { path: "health", labelKey: "nav.platform.health", group: "overview", permission: "platform.health:read", task: "P4-T03", phase: "mvp", available: false },
-  { path: "tenants", labelKey: "nav.platform.tenants", group: "overview", permission: "platform.tenant:read", task: "P4-T02", phase: "mvp", available: false },
-  { path: "approvals", labelKey: "nav.platform.approvals", group: "governance", permission: "platform.approval:read", task: "P4-T02", phase: "mvp", available: false },
-  { path: "jobs", labelKey: "nav.platform.jobs", group: "operations", permission: "platform.job:read", task: "P4-T03", phase: "mvp", available: false },
+  { path: "tenants", labelKey: "nav.platform.tenants", group: "overview", permission: "platform.tenant:read", task: "P4-T02", phase: "mvp", available: true },
+  { path: "approvals", labelKey: "nav.platform.approvals", group: "governance", permission: "platform.approval:read", task: "P4-T02", phase: "mvp", available: true },
+  { path: "jobs", labelKey: "nav.platform.jobs", group: "operations", permission: "platform.job:read", task: "P4-T02", phase: "mvp", available: true },
   { path: "instances", labelKey: "nav.platform.instances", group: "operations", permission: "platform.instance:read", task: "P4-T03", phase: "mvp", available: false },
   { path: "hosts", labelKey: "nav.platform.hosts", group: "operations", permission: "platform.host:read", task: "P4-T03", phase: "mvp", available: false },
   { path: "relay-regions", labelKey: "nav.platform.relayRegions", group: "network", permission: "platform.relay:read", task: "P4-T03", phase: "mvp", available: false },
