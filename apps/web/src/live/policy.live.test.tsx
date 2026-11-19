@@ -179,8 +179,8 @@ describe.skipIf(!ADMIN || !OWNER || !TENANT || PHASE !== "a")("Policies trên st
       expect(screen.queryByRole("button", { name: "Duyệt" })).toBeNull();
       record("author_has_approve_button", screen.queryByRole("button", { name: "Duyệt" }) !== null);
       // server quyết định: ép gọi approve như người soạn ⇒ 403
-      const etag = screen.getByTestId("version-etag").textContent ?? "";
-      const sha = screen.getByTestId("content-sha").textContent ?? "";
+      const etag = screen.getByTestId("version-etag").textContent;
+      const sha = screen.getByTestId("content-sha").textContent;
       const forced = await direct(ADMIN, "POST", `/policies/${id}/approve`, { content_sha256: sha }, { "If-Match": etag });
       record("author_forced_approve", { status: forced.status, code: forced.json.code });
       expect(forced.status).toBe(403);
@@ -243,7 +243,7 @@ describe.skipIf(!ADMIN || !OWNER || !TENANT || PHASE !== "b")("Policies trên st
       await userEvent.type(ip, "tcp:8000, tcp:8001");
       await userEvent.click(screen.getByRole("button", { name: "Lưu bản nháp" }));
       const stale = await screen.findByTestId("stale-revision", {}, T);
-      record("stale_412_seen", stale.textContent?.includes("412") ?? false);
+      record("stale_412_seen", stale.textContent.includes("412"));
       await userEvent.click(within(stale).getByRole("button", { name: "Tải lại bản mới nhất" }));
       await waitFor(() => expect(screen.getByTestId("version-etag")).toHaveTextContent('"2"'), T);
       // C: kiểm tra → tự xác nhận → áp dụng ⇒ 409 stale_base (B đã là mong muốn)
@@ -255,7 +255,7 @@ describe.skipIf(!ADMIN || !OWNER || !TENANT || PHASE !== "b")("Policies trên st
       await userEvent.click(within(dialog).getByRole("button", { name: "Áp dụng" }));
       expect(await within(dialog).findByTestId("stale-base-dialog", {}, T)).toBeInTheDocument();
       await userEvent.click(within(dialog).getByRole("button", { name: "Hủy" }));
-      record("stale_base_seen", (await screen.findByTestId("stale-base", {}, T)).textContent?.includes("stale_base") ?? false);
+      record("stale_base_seen", (await screen.findByTestId("stale-base", {}, T)).textContent.includes("stale_base"));
       await userEvent.click(screen.getByRole("button", { name: "Tạo bản nháp mới từ nội dung này" }));
       await waitFor(() => expect(lastId(router)).not.toBe(c), T);
       await screen.findByTestId("version-etag", {}, T);
