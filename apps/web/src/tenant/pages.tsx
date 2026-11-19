@@ -9,6 +9,7 @@ import { DashboardPage } from "./dashboard/DashboardPage";
 import { DeviceDetailPage } from "./devices/DeviceDetailPage";
 import { DevicesPage } from "./devices/DevicesPage";
 import { NotificationsPage } from "./notifications/NotificationsPage";
+import { PoliciesScreen, PolicyVersionScreen, TagsScreen } from "./policies/screens";
 import { RelayPage } from "./relay/RelayPage";
 import { useTenant } from "./TenantScope";
 
@@ -18,6 +19,9 @@ export const TENANT_PAGES: Readonly<Record<string, ComponentType>> = {
   devices: DevicesPage,
   relay: RelayPage,
   notifications: NotificationsPage,
+  // P4-T11 (tải theo route)
+  policies: PoliciesScreen,
+  tags: TagsScreen,
 };
 
 function Guarded({ permission, Screen }: { permission: string; Screen: ComponentType }) {
@@ -27,4 +31,5 @@ function Guarded({ permission, Screen }: { permission: string; Screen: Component
 
 export const TENANT_EXTRA_ROUTES: RouteObject[] = [
   { path: "devices/:deviceId", element: <Guarded permission="tenant.device:read" Screen={DeviceDetailPage} /> },
+  { path: "policies/:versionId", element: <Guarded permission="tenant.policy:read" Screen={PolicyVersionScreen} /> },
 ];

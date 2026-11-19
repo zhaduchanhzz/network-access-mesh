@@ -1315,8 +1315,8 @@ Quy tắc 2P: thao tác đánh dấu **2P** trả `202` kèm `Location: /api/v1/
 | `tenant.enrollment:issue_privileged` | `POST /enrollment/keys` (key gắn tag / reusable / ephemeral / cho người khác) | ✔ | ✔ | — | — | — | — |
 | `tenant.enrollment:read` | `GET /enrollment/requests[/{id}]`, `GET /enrollment/instructions` | ✔ | ✔ | ✔ | ✔ | ○ | G |
 | `tenant.enrollment:revoke` | `POST /enrollment/requests/{id}/revoke` | ✔ | ✔ | ✔ | — | ○ | G |
-| `tenant.policy:read` | `GET /policies`, `/policies/current`, `/policies/{v}`, `/policies/{v}/diff` | ✔ | ✔ | ✔ | ✔ | — | G |
-| `tenant.policy:edit` | `POST /policies`, `PATCH /policies/{v}`, `/validate`, `/submit` | ✔ | ✔ | — | — | — | — |
+| `tenant.policy:read` | `GET /policies`, `/policies/current`, `/policies/{v}`, `/policies/{v}/diff`, `POST /policies/export` (viết nội dung thành HuJSON có tên, không lưu — P4-T11) | ✔ | ✔ | ✔ | ✔ | — | G |
+| `tenant.policy:edit` | `POST /policies`, `PATCH /policies/{v}`, `/validate`, `/submit`, `POST /policies/import` (dịch HuJSON sang mô hình có kiểu, không lưu — P4-T11) | ✔ | ✔ | — | — | — | — |
 | `tenant.policy:approve` | `POST /policies/{v}/approve`, `/reject` (tenant bật 4-eyes: không tự duyệt bản của mình; không bật: người soạn tự xác nhận — `review_mode=self`, §7.3) | ✔ | ✔ | — | — | — | — |
 | `tenant.policy:apply` | `POST /policies/{v}/apply`, `/rollback` | ✔ | ✔ | — | — | — | G (Admin) |
 | `tenant.dns:read` / `:update` | `GET /dns`, `GET /dns/records` / `PUT /dns/settings`, `POST,DELETE /dns/records` | ✔ / ✔ | ✔ / ✔ | ✔ / — | ✔ / — | — | G / — |
@@ -1818,7 +1818,7 @@ Quy ước của bảng: `{t}` là viết tắt của `{tenantId}`; trong các n
 | **groups** | `GET/POST /tenants/{t}/groups` · `GET/PATCH/DELETE /groups/{groupId}` · `PUT /groups/{groupId}/members` | Đổi thành viên ⇒ một lần `policy.apply` mới (trigger `group_change`) trên version đang là desired — **không** tạo version mới; group `sensitive`: trả `202` + yêu cầu phê duyệt phạm vi tenant (§7.3, §8.6) |
 | **tags** | `GET/POST /tenants/{t}/tags` · `PATCH/DELETE /tags/{tagId}` | Danh mục tag (nguồn render `tagOwners`); thay đổi ⇒ `policy.apply` (trigger `tag_change`); `PUT /devices/{id}/tags`, `requested_tags` của enrollment và policy chỉ nhận tag có trong danh mục; xóa tag còn được tham chiếu ⇒ `409` |
 | **enrollment** | `POST /tenants/{t}/enrollment/requests` (thiết bị của mình) · `POST /enrollment/keys` (key đặc quyền) · `GET /enrollment/requests[/{id}]` · `POST /enrollment/requests/{id}/approve` · `/reject` · `/issue` · `/revoke` · `/start` · `POST /enrollment/web-auth/claim` · `GET /enrollment/instructions` | Pre-auth key chỉ hiển thị **một lần** (`x-secret-once`); `web-auth/claim` nhận Auth ID và chỉ thành công khi người gọi có yêu cầu đang chờ trong cùng phiên (§7.4); khi tenant bật `requires_approval`, mã enrollment/pre-auth key chỉ được phát ở `/start` sau khi yêu cầu được duyệt |
-| **policies** | `GET /tenants/{t}/policies` · `GET /policies/current` · `POST /policies` (draft) · `GET/PATCH /policies/{versionId}` · `POST /policies/{versionId}/validate` · `/submit` · `/approve` · `/reject` · `/apply` (202) · `/rollback` (202) · `GET /policies/{versionId}/diff?against=` | Vòng đời ở §7.3 |
+| **policies** | `GET /tenants/{t}/policies` · `GET /policies/current` · `POST /policies` (draft) · `GET/PATCH /policies/{versionId}` · `POST /policies/{versionId}/validate` · `/submit` · `/approve` · `/reject` · `/apply` (202) · `/rollback` (202) · `GET /policies/{versionId}/diff?against=` · `POST /policies/import` · `POST /policies/export` | Vòng đời ở §7.3; `import`/`export` là bộ dịch HuJSON ↔ `PolicySource` của editor (phía server, không lưu, không gọi Headscale — §7.2) |
 | **routes** | `GET /tenants/{t}/routes` · `POST /routes/approve` · `POST /routes/revoke` | Body `{device_id, prefixes[]}` + `If-Match` bắt buộc (ETag = `routes.etag` của thiết bị: hash tập route đã duyệt); server giữ `SELECT … FOR UPDATE` trên hàng thiết bị, đọc **trực tiếp** tập đã duyệt từ Headscale (không dùng cache), ETag lệch ⇒ `412`, rồi mới tính tập mới và gọi `SetApprovedRoutes` (thay thế toàn bộ — PL-10); prefix không đang được quảng bá ⇒ `422`; exit node = `0.0.0.0/0` + `::/0`; khi `routes.four_eyes` bật, `approve` trả `202` + yêu cầu phê duyệt phạm vi tenant và chỉ gọi Headscale sau khi người thứ hai duyệt |
 | **dns** | `GET /tenants/{t}/dns` · `PUT /dns/settings` (202) · `GET/POST /dns/records` · `DELETE /dns/records/{id}` | `settings` ⇒ render lại config + restart có kiểm soát; `records` ⇒ ghi `extra-records.json` (không restart) |
 | **resources** | `GET/POST /tenants/{t}/resources` · `GET/PATCH/DELETE /resources/{id}` | Network Resource Catalog |
@@ -1854,6 +1854,7 @@ Quy ước của bảng: `{t}` là viết tắt của `{tenantId}`; trong các n
 | relay; `platform/relay-regions` (đọc) | 3 | P3-T05c |
 | enrollment (gồm `instructions`) | 4 | P4-T06 |
 | policies | 4 | P4-T10 (lõi áp dụng: P3-T08a) |
+| `policies/import`, `policies/export` | 4 | P4-T11 |
 | `devices/{id}/tags` | 4 | P4-T15 |
 | tags (danh mục tag) | 4 | P4-T15 |
 | users (ghi, `role`, `admin-role`, `ownership-transfer`); groups | 4 | P4-T09 |

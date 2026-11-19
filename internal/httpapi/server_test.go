@@ -108,6 +108,8 @@ var operations = []struct {
 	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/policies/" + itemID + "/apply", "", "ApplyTenantPolicy", []func(*http.Request){idempotency}},
 	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/policies/" + itemID + "/rollback", "", "RollbackTenantPolicy", []func(*http.Request){idempotency}},
 	{http.MethodGet, "/api/v1/tenants/" + tenantID + "/policies/" + itemID + "/diff", "", "DiffTenantPolicy", nil},
+	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/policies/import", `{"hujson":"{}"}`, "ImportTenantPolicy", nil},
+	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/policies/export", `{"source":{"grants":[]}}`, "ExportTenantPolicy", nil},
 	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/invitations/" + itemID + "/resend", "", "ResendTenantInvitation", nil},
 	// administration (P4-T03a)
 	{http.MethodPatch, "/api/v1/platform/tenants/" + tenantID, `{"name":"Acme 2"}`, "UpdatePlatformTenant", nil},
