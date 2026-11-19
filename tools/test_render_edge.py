@@ -364,6 +364,73 @@ def check_idp_console(caddyfile: str, params: dict) -> list[str]:
     return errors
 
 
+AUTH_ID = "hskey-authreq-" + "Ab0_-" * 4 + "Zz9_"          # 24 characters after the prefix (ID-05)
+# path (decoded and cleaned by Caddy before path_regexp) → is it a web-auth Auth ID path?
+REGISTER_SAMPLES = {
+    f"/register/{AUTH_ID}": True,
+    f"/register/{AUTH_ID[:-1]}": False,                     # 23 characters
+    f"/register/{AUTH_ID}x": False,                         # 25 characters
+    f"/register/{AUTH_ID}/": False, f"/register/{AUTH_ID}/x": False, f"/register/{AUTH_ID}.": False,
+    f"/register/{AUTH_ID.replace('authreq', 'authrex')}": False, f"/register/{AUTH_ID.upper()}": False,
+    f"/register/{AUTH_ID[:-1]}.": False, f"/register/{AUTH_ID[:-1]}%": False, f"/register/{AUTH_ID[:-1]}@": False,
+    f"/register/{AUTH_ID[:-1]}\n": False, "/register/hskey-authreq-": False, "/register/": False, "/register": False,
+    f"/register/confirm/{AUTH_ID}": False, f"/x/register/{AUTH_ID}": False, f"/registerx/{AUTH_ID}": False,
+    "/register/hskey-authreq-//evil.example/abcdefghijk": False, "/register/hskey-authreq-ééééééééééééééééééééééé": False,
+}
+
+
+def check_web_auth(caddyfile: str, params: dict) -> list[str]:
+    """P4-T07 (§7.4 flow A step 6, §14.6, template v10): on the tenant wildcard site, GET /register/<auth_id> without
+    via=portal ⇒ 302 to the Portal's claim page built ONLY from the two regex captures (slug, auth_id); with via=portal ⇒
+    the tenant's Headscale; the allow-list keeps /register/confirm/* only — any other /register/* is a 404."""
+    errors = []
+    code = "\n".join(line for line in caddyfile.splitlines() if not line.lstrip().startswith("#")) + "\n"
+    d = params["base_domain"]
+    site = re.search(r"(?m)^\*\.[^\n]* \{\n(.*?)\n\}\n", code, re.S)
+    body = site.group(1) if site else ""
+    tenant = re.search(r"@tenant \{\n(.*?)\n\t\}", body, re.S)
+    paths = re.search(r"path (.+)", tenant.group(1)).group(1).split() if tenant else []
+    if "/register/confirm/*" not in paths or any(p.startswith("/register") and p != "/register/confirm/*" for p in paths):
+        errors.append(f"@tenant: /register/* must be narrowed to /register/confirm/* (got {paths})")
+    host_rx = tenant_regex(caddyfile).pattern
+    blocks = {}
+    for name, last in (("register_portal", "not query via=portal"), ("register_native", "query via=portal")):
+        m = re.search(r"@" + name + r" \{\n(.*?)\n\t\}", body, re.S)
+        lines = [ln.strip() for ln in m.group(1).splitlines()] if m else []
+        rx = re.match(r"path_regexp authid (\S+)$", lines[1]) if len(lines) == 3 else None
+        if not rx or lines[0] != f"vars_regexp tenant {{http.request.host}} {host_rx}" or lines[2] != last:
+            errors.append(f"@{name}: want the tenant host regex, path_regexp authid and {last!r} (got {lines})")
+            continue
+        blocks[name] = rx.group(1)
+        wrong = [p for p, ok in REGISTER_SAMPLES.items() if bool(re.search(rx.group(1), p)) != ok]
+        if wrong:
+            errors.append(f"@{name}: the Auth ID regex decides wrongly for {wrong}")
+        if re.search(rx.group(1), f"/register/{AUTH_ID}").group(1) != AUTH_ID:
+            errors.append(f"@{name}: capture group 1 is not the Auth ID")
+    if len(set(blocks.values())) > 1:
+        errors.append("@register_portal and @register_native use different Auth ID regexes")
+    redirect = re.search(r"\thandle @register_portal \{\n(.*?)\n\t\}", body, re.S)
+    want = [f"redir https://app.{d}/enroll/claim?tenant={{re.tenant.1}}&auth_id={{re.authid.1}} 302",
+            "header Cache-Control no-store"]
+    if not redirect or sorted(ln.strip() for ln in redirect.group(1).splitlines()) != sorted(want):
+        errors.append(f"handle @register_portal: want exactly {want}")
+    native = re.search(r"\thandle @register_native \{\n(.*?)\n\t\}", body, re.S)
+    if not native or "reverse_proxy hs-{re.tenant.1}.:8080 {" not in native.group(1) or \
+            "header_up True-Client-IP {remote_host}" not in native.group(1):
+        errors.append("handle @register_native: not a proxy to hs-<slug>:8080 with the client IP overwritten")
+    # the only redirect of the tenant site, never built from request data other than the two captures
+    redirs = re.findall(r"(?m)^\s*redir (.+)$", body)
+    if len(redirs) != 1 or re.search(r"\{(?!re\.(tenant|authid)\.1\})", redirs[0]):
+        errors.append(f"tenant site: redirects {redirs} (want one, with no placeholder but the two captures)")
+    order = [body.find(h) for h in ("\thandle @unsafe_path {", "\thandle @register_portal {",
+                                    "\thandle @register_native {", "\thandle @tenant {")]
+    if -1 in order or order != sorted(order):
+        errors.append("tenant site: handle order is not @unsafe_path, @register_portal, @register_native, @tenant")
+    if "/enroll/claim" in code.replace(body, ""):
+        errors.append("the claim redirect appears outside the tenant site")
+    return errors
+
+
 def main() -> int:
     update = "--update" in sys.argv
     failures = 0
@@ -412,6 +479,12 @@ def main() -> int:
             failures += 1
         else:
             print(f"PASS {case.name}: Keycloak console only on admin. behind forward_auth, impersonation refused (P3-T15)")
+        errors = check_web_auth(files["caddy/Caddyfile"], params)
+        if errors:
+            print(f"FAIL {case.name}: web-auth: " + "; ".join(errors))
+            failures += 1
+        else:
+            print(f"PASS {case.name}: /register/<auth_id> ⇒ 302 claim of the Portal, via=portal ⇒ Headscale (P4-T07)")
         for name, override in BAD.items():
             try:
                 re_.render({**params, **override})

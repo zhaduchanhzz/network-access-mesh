@@ -44,6 +44,7 @@ import restore  # noqa: E402 — E2E-59, E2E-60 (P3-T11: V-11)
 import spa  # noqa: E402 — E2E-85, E2E-86 (P4-T01a: SPA sau edge template v9)
 import supportgrant  # noqa: E402 — E2E-105 … E2E-107 (P4-T13: Support Access Grant, break-glass, grant.expire)
 import tagcatalog  # noqa: E402 — E2E-91 (P4-T15: danh mục tag)
+import webauth  # noqa: E402 — E2E-117, E2E-118 (P4-T07: chuyển hướng web-auth của edge v10, V-07 functional)
 from stack import CLIENTS, SECRET_RE, TENANTS, Stack, StackError, log  # noqa: E402
 
 PHASES: dict[str, float] = {}
@@ -208,6 +209,9 @@ def test(st: Stack, r: checks.Results) -> None:
     with timed("ca E2E-85, E2E-86 (P4-T01a: SPA sau edge v9 — app./admin. trả SPA, /api/* vẫn tới api, header một nguồn, "
                "conformance platform; web dừng ⇒ 503 có header, api không ảnh hưởng)"):
         spa.run_all(r, st, guarded)
+    with timed("ca E2E-117, E2E-118 (P4-T07: /register/<auth_id> của client thật ⇒ 302 về trang claim của Portal, via=portal "
+               "⇒ Headscale, Auth ID sai ⇒ 404; V-07 functional — client hoàn tất đăng ký sau claim)"):
+        webauth.run_all(r, st, guarded)
     with timed("ca E2E-32 … E2E-36 (Phase 3: helper enrollment P3-T14a, prober P3-T03a, lõi policy P3-T08a)"):
         phase3.run_all(r, st, guarded)
     with timed("ca E2E-37 … E2E-39 (Phase 3: lời mời P3-T05a, dual control P3-T04a — Keycloak + TOTP thật)"):

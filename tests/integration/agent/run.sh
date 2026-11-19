@@ -184,7 +184,7 @@ start = t.index("*.${mesh_domain}${tunnel_tls_site} {")
 end = t.index("\n}\n", start) + 3
 mesh = "mesh.agentit.test"
 block = string.Template(t[start:end]).substitute(mesh_domain=mesh, mesh_domain_re=mesh.replace(".", "\\."),
-    tunnel_tls_site="", tunnel_guard="", public_entry_ipv4="192.0.2.10")
+    base_domain="agentit.test", tunnel_tls_site="", tunnel_guard="", public_entry_ipv4="192.0.2.10")
 lines = [ln for ln in block.splitlines() if ln.strip() not in ("import access_log", "import tls_acme")]
 lines[0] = "http://*." + mesh + ":8080 {"
 head = "{\n\tadmin off\n\tpersist_config off\n\tauto_https off\n\tservers {\n\t\tprotocols h1 h2\n\t}\n}\n\n"
