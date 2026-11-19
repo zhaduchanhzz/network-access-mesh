@@ -14,13 +14,14 @@ import (
 )
 
 const claimRejectionsOfNode = `-- name: ClaimRejectionsOfNode :one
-SELECT COALESCE(bool_or(failure_code = 'node_mismatch'), false)::boolean AS was_mismatch,
-       COALESCE(bool_or(failure_code = 'foreign_node'), false)::boolean  AS was_foreign
+SELECT COALESCE(bool_or(failure_code IN ('node_mismatch', 'claim_unfinished')), false)::boolean AS was_mismatch,
+       COALESCE(bool_or(failure_code = 'foreign_node'), false)::boolean                      AS was_foreign
 FROM enrollment_requests
 WHERE tenant_id = $1 AND instance_id = $2 AND method = 'web_auth'
-  AND status = 'failed' AND failure_code IN ('node_mismatch', 'foreign_node')
-  AND consumed_node_id = $3 AND registered_machine_key = $4
+  AND status = 'failed' AND consumed_node_id = $3 AND registered_machine_key = $4
   AND updated_at >= $5::timestamptz - interval '1 second'
+  AND (failure_code IN ('node_mismatch', 'foreign_node')
+       OR failure_code = 'claim_unfinished' AND $5::timestamptz >= created_at - interval '1 second')
 `
 
 type ClaimRejectionsOfNodeParams struct {
@@ -37,9 +38,12 @@ type ClaimRejectionsOfNodeRow struct {
 }
 
 // Claim (§7.4 bước 8): node này (id + machine key) đã bị một claim trước từ chối SAU khi được tạo — node_mismatch (lẽ ra
-// đã bị xóa: DeleteNode không thành) hay foreign_node (đã expire). Node như vậy không bao giờ được chấp nhận như một
-// lần re-auth. updated_at của yêu cầu failed là lúc từ chối (trạng thái cuối, không ghi lại); id node được cấp lại cho
-// node mới cùng machine key thì node mới có created_at muộn hơn và không bị tính.
+// đã bị xóa: DeleteNode không thành) hay foreign_node (đã expire) — hoặc là node MỚI của một claim không bao giờ tới
+// phán quyết: claim_unfinished (claim không ghi được registered, hay reconcile đóng yêu cầu kẹt ở registered — tiến
+// trình dừng, ghi phán quyết lỗi) với node tạo từ lúc tạo yêu cầu đó — chưa qua kiểm mg-<mã>, tính như node_mismatch.
+// Node như vậy không bao giờ được chấp nhận như một lần re-auth. updated_at của yêu cầu failed là lúc từ chối (trạng
+// thái cuối, không ghi lại); id node được cấp lại cho node mới cùng machine key thì node mới có created_at muộn hơn và
+// không bị tính. record_failed (ghi verified lỗi) không được tính: node đó đã qua kiểm.
 func (q *Queries) ClaimRejectionsOfNode(ctx context.Context, arg ClaimRejectionsOfNodeParams) (ClaimRejectionsOfNodeRow, error) {
 	row := q.db.QueryRow(ctx, claimRejectionsOfNode,
 		arg.TenantID,

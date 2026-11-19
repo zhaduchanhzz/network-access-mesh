@@ -32,7 +32,7 @@ const (
 	FailureNodeMismatch    = "node_mismatch" // a new node failed a check of §7.4 step 8: deleted
 	FailureForeignNode     = "foreign_node"  // an existing node of someone else: expired, never deleted
 	FailureNotPending      = "auth_id_not_pending"
-	FailureClaimUnfinished = "claim_unfinished" // reconcile: the claim never reached a verdict
+	FailureClaimUnfinished = "claim_unfinished" // no verdict: stuck (reconcile), or its node not recorded (kept with it)
 )
 
 const (
@@ -157,9 +157,7 @@ func (s *Service) securityEvent(tenantID uuid.UUID, kind, severity string, a Act
 }
 
 // register calls AuthRegister for a claimed request and checks the node it answers (§7.4 step 8). It runs detached
-// from the request (claimBudget). When the answer of AuthRegister is lost (outcome unknown), the node is found by
-// reading back (lostRegistration) and checked the same way; when the registered node cannot be recorded, it is not
-// left registered unverified (deleted when this claim created it, else expired).
+// from the request (claimBudget) up to its verdict.
 //
 // New or existing is decided by the node itself, never by its machine key alone: AuthRegister on a machine key that
 // already has a node of ANOTHER user creates a new node for the claiming member (V-28), so a row of that other node in
@@ -169,8 +167,13 @@ func (s *Service) securityEvent(tenantID uuid.UUID, kind, severity string, a Act
 // inserts for the new node does not count, whatever the clock of the instance says — or, without such a row, it was
 // created before the request. Anything else is new (rule a: checked, deleted on mismatch). An existing node is
 // accepted as a re-authentication only when it is the member's untagged node, every live row of its machine belongs
-// to the member, and no earlier claim rejected it; anything else is expired. A node an earlier claim rejected as a
-// mismatch (its delete did not go through) is deleted now instead.
+// to the member, and no earlier claim rejected it or registered it without a verdict (ClaimRejectionsOfNode); anything
+// else is expired — a node an earlier claim rejected as a mismatch or left without a verdict is deleted instead.
+//
+// When the answer of AuthRegister is lost (outcome unknown), the node is found by reading back (readBack) and checked
+// the same way; when the claim cannot tell whether a node was registered, the request is left claimed (unsettled).
+// When the registered node cannot be recorded, it is not left registered unverified: deleted when this claim created
+// it, else expired, and the request records it failed claim_unfinished.
 func (s *Service) register(ctx context.Context, tenantID uuid.UUID, a Actor, r sqlcdb.EnrollmentRequest, user member,
 	tc tenantContext, known map[uuid.UUID]bool, authID string, op audit.Operation,
 ) (Request, error) {
@@ -203,27 +206,28 @@ func (s *Service) register(ctx context.Context, tenantID uuid.UUID, a Actor, r s
 			return fail(err, "")
 		}
 		// the request reached the instance and its answer was lost: a node may have been registered (§13.4 rule 3 —
-		// a RetryNever call is reconciled by reading back, never sent again)
-		found, extra, rerr := s.lostRegistration(ctx, tenantID, inst, r, user, tc, claimedAt)
-		for _, n := range extra {
-			deleted, expired := s.removeNode(ctx, inst, n.ID)
-			s.log.ErrorContext(ctx, "enrollment: removed another unverified node registered under the member during a claim",
-				"alert", true, "request_id", r.ID, "node_id", n.ID, "deleted", deleted, "expired", expired)
-		}
-		switch {
-		case rerr != nil:
-			s.log.ErrorContext(ctx, "enrollment: the answer of AuthRegister was lost and the nodes could not be read back",
-				"alert", true, "request_id", r.ID, "error", fromAdapter(rerr).Reason)
-			return fail(err, "")
-		case found == nil: // nothing was registered since the claim began
-			return fail(err, "")
+		// a RetryNever call is reconciled by reading back, never sent again). The verdict gets a budget of its own:
+		// the lost call may have used most of the claim's.
+		vctx, vcancel := context.WithTimeout(context.WithoutCancel(ctx), claimBudget)
+		defer vcancel()
+		ctx = vctx
+		found := s.readBack(ctx, tenantID, inst, r, user, tc, claimedAt)
+		if found == nil {
+			// nothing new was found — the instance may not have applied the call, may apply it later, or could not be
+			// read: the request is not closed as if nothing had been registered
+			e := fromAdapter(err)
+			s.unsettled(ctx, tenantID, r.ID, failureCode(e), &op)
+			return Request{}, e
 		}
 		node = *found
 	}
 	nid := int64(node.ID) //nolint:gosec // Headscale ids are small positive integers
 	host := clip(node.Name, 255)
 	mkey := clip(node.MachineKey, 200)
-	// registered: the node exists — recorded before any corrective call, so a crash leaves a trace for reconcile
+	// registered: the node exists — recorded before any corrective call. A claim that stops after this point (the
+	// process dies, the write of its verdict fails) leaves the request registered with its node: reconcile closes it
+	// claim_unfinished, and ClaimRejectionsOfNode then never accepts a node that claim created as a re-authentication.
+	// Reconcile does not check or remove that node itself (yet); a claim that stops before this point leaves no node id.
 	var (
 		own   *sqlcdb.DeviceInventoryCache    // the live row of this very node
 		rows  []sqlcdb.DeviceInventoryCache   // every live row of its machine key (own included)
@@ -242,9 +246,11 @@ func (s *Service) register(ctx context.Context, tenantID uuid.UUID, a Actor, r s
 		if mkey != "" {
 			p.RegisteredMachineKey = &mkey
 		}
-		if r, err = q.SetEnrollmentRequestState(ctx, p); err != nil {
-			return err
+		row, err := q.SetEnrollmentRequestState(ctx, p)
+		if err != nil {
+			return err // r keeps the claimed request: the failure below is recorded on it
 		}
+		r = row
 		if rows, err = q.LiveDevicesOfMachineKey(ctx, sqlcdb.LiveDevicesOfMachineKeyParams{TenantID: tenantID,
 			InstanceID: tc.instance, MachineKey: node.MachineKey}); err != nil {
 			return err
@@ -260,7 +266,8 @@ func (s *Service) register(ctx context.Context, tenantID uuid.UUID, a Actor, r s
 	})
 	if err != nil {
 		// the node exists but the claim can neither record it nor decide on it: it is not left registered unverified —
-		// the node this claim created is deleted, an older node (never deleted — rule b) is expired
+		// the node this claim created is deleted, an older node (never deleted — rule b) is expired — and the request
+		// records it failed claim_unfinished, so that no claim accepts it as a re-authentication later
 		deleted, expired := false, false
 		if createdSince(node, claimedAt) {
 			deleted, expired = s.removeNode(ctx, inst, node.ID)
@@ -269,14 +276,16 @@ func (s *Service) register(ctx context.Context, tenantID uuid.UUID, a Actor, r s
 		}
 		s.log.ErrorContext(ctx, "enrollment: the registered node could not be recorded", "alert", true, "request_id", r.ID,
 			"node_id", node.ID, "deleted", deleted, "expired", expired, "sqlstate", store.SQLState(err))
-		return fail(fmt.Errorf("enrollment: record the registered node: %w", err), "record_failed")
+		s.failWithNode(ctx, tenantID, r.ID, FailureClaimUnfinished, nid, mkey, host, &op)
+		return Request{}, fromAdapter(fmt.Errorf("enrollment: record the registered node: %w", err))
 	}
 	ownKnown := own != nil && known[own.ID]
 	isNew := createdSince(node, claimedAt) || !ownKnown && createdSince(node, r.CreatedAt)
 	ownUser := node.User != nil && node.User.Name == user.user
 	if !isNew {
 		if prior.WasMismatch {
-			// rejected before as a new node that failed the checks, and still there: it never becomes a device
+			// rejected before as a new node that failed the checks (or registered without a verdict), and still there:
+			// it never becomes a device
 			deleted, expired := s.removeNode(ctx, inst, node.ID)
 			return s.rejected(ctx, tenantID, a, r, EventNodeMismatch, FailureNodeMismatch, audit.Details{"node_id": nid,
 				"checks_failed": []string{"rejected_before"}, "deleted": deleted, "expired": expired}, op)
@@ -327,18 +336,74 @@ func answerLost(err error) bool {
 	return ok && he.Outcome == headscale.OutcomeUnknown
 }
 
+// readBackPauses space the reads of readBack: the instance may apply a registration whose answer was lost after the
+// first read, and a read may fail while the instance is slow.
+var readBackPauses = []time.Duration{0, time.Second, 3 * time.Second}
+
+// readBack finds the node an AuthRegister whose answer was lost may have registered (lostRegistration), reading again
+// while nothing is found or the read fails (readBackPauses); the other unverified nodes found with it are removed.
+// When nothing new is found, the call may have re-authenticated an existing node of the member — the same node with a
+// fresh expiry (V-28, V-21): a node an earlier claim rejected does not stay active that way (reprotect). nil: nothing
+// new was found, or the nodes could not be read.
+func (s *Service) readBack(ctx context.Context, tenantID uuid.UUID, inst headscale.Instance, r sqlcdb.EnrollmentRequest,
+	user member, tc tenantContext, claimedAt time.Time,
+) *headscale.Node {
+	var (
+		listed []headscale.Node
+		read   bool
+	)
+	for _, pause := range readBackPauses {
+		if pause > 0 && !sleep(ctx, pause) {
+			break
+		}
+		found, extra, nodes, err := s.lostRegistration(ctx, tenantID, inst, r, user, tc, claimedAt)
+		if err != nil {
+			s.log.WarnContext(ctx, "enrollment: reading back a registration whose answer was lost failed",
+				"request_id", r.ID, "error", fromAdapter(err).Reason)
+			continue
+		}
+		listed, read = nodes, true
+		if found != nil {
+			for _, n := range extra {
+				deleted, expired := s.removeNode(ctx, inst, n.ID)
+				s.log.ErrorContext(ctx, "enrollment: removed another unverified node registered under the member during a claim",
+					"alert", true, "request_id", r.ID, "node_id", n.ID, "deleted", deleted, "expired", expired)
+			}
+			return found
+		}
+	}
+	if !read {
+		s.log.ErrorContext(ctx, "enrollment: the answer of AuthRegister was lost and the nodes could not be read back",
+			"alert", true, "request_id", r.ID)
+		return nil
+	}
+	s.reprotect(ctx, tenantID, inst, tc, r, listed)
+	return nil
+}
+
+// sleep waits d unless ctx ends first.
+func sleep(ctx context.Context, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
 // lostRegistration reads the member's nodes back after an AuthRegister whose answer was lost. The candidates are the
 // member's untagged web-auth (CLI) nodes created since the claim began, except those another claim of the member
 // accounts for (its recorded node, or a device named mg-<its code> while that claim waits for its own answer). The
 // candidate named mg-<this request's code> is the requester's device and is returned. Without it, the newest candidate
 // is returned — a node this claim may have registered for whoever started the sign-in, which the checks of step 8
-// reject — and the other candidates in extra, to be removed as well.
+// reject — and the other candidates in extra, to be removed as well. nodes is every node of the member read.
 func (s *Service) lostRegistration(ctx context.Context, tenantID uuid.UUID, inst headscale.Instance,
 	r sqlcdb.EnrollmentRequest, user member, tc tenantContext, claimedAt time.Time,
-) (*headscale.Node, []headscale.Node, error) {
-	nodes, err := inst.ListNodes(ctx, user.user)
-	if err != nil {
-		return nil, nil, err
+) (found *headscale.Node, extra, nodes []headscale.Node, err error) {
+	if nodes, err = inst.ListNodes(ctx, user.user); err != nil {
+		return nil, nil, nil, err
 	}
 	var others []sqlcdb.ListMemberWebAuthClaimsRow
 	if err := s.st.WithTenantTx(ctx, tenantID, func(q *sqlcdb.Queries) error {
@@ -347,7 +412,7 @@ func (s *Service) lostRegistration(ctx context.Context, tenantID uuid.UUID, inst
 			InstanceID: tc.instance, Member: r.RequestedByMembershipID, ID: r.ID})
 		return err
 	}); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	accounted := func(n headscale.Node, hash []byte) bool {
 		for _, o := range others {
@@ -370,13 +435,13 @@ func (s *Service) lostRegistration(ctx context.Context, tenantID uuid.UUID, inst
 		}
 		switch {
 		case hash != nil && bytes.Equal(hash, r.EnrollCodeHash):
-			return &n, nil, nil
+			return &n, nil, nodes, nil
 		case !accounted(n, hash):
 			strays = append(strays, n)
 		}
 	}
 	if len(strays) == 0 {
-		return nil, nil, nil
+		return nil, nil, nodes, nil
 	}
 	slices.SortFunc(strays, func(x, y headscale.Node) int {
 		if c := x.CreatedAt.Compare(y.CreatedAt); c != 0 {
@@ -385,12 +450,110 @@ func (s *Service) lostRegistration(ctx context.Context, tenantID uuid.UUID, inst
 		return cmp.Compare(x.ID, y.ID)
 	})
 	newest := strays[len(strays)-1]
-	return &newest, strays[:len(strays)-1], nil
+	return &newest, strays[:len(strays)-1], nodes, nil
+}
+
+// reprotect runs after a lost answer when nothing new was found: the AuthRegister may have re-authenticated an existing
+// node of the member, which then has a fresh expiry (V-28, V-21). A node an earlier claim rejected
+// (ClaimRejectionsOfNode) and found active is deleted when it was rejected as a mismatch or left without a verdict,
+// expired when it was rejected as foreign — what this claim would have decided had its answer arrived.
+func (s *Service) reprotect(ctx context.Context, tenantID uuid.UUID, inst headscale.Instance, tc tenantContext,
+	r sqlcdb.EnrollmentRequest, nodes []headscale.Node,
+) {
+	now := s.now().UTC()
+	type flagged struct {
+		id       uint64
+		mismatch bool
+	}
+	var out []flagged
+	err := s.st.WithTenantTx(ctx, tenantID, func(q *sqlcdb.Queries) error {
+		for _, n := range nodes {
+			if n.Expiry != nil && !n.Expiry.After(now) {
+				continue // expired: nothing to protect
+			}
+			nid, mkey := int64(n.ID), clip(n.MachineKey, 200) //nolint:gosec // small ids
+			p, err := q.ClaimRejectionsOfNode(ctx, sqlcdb.ClaimRejectionsOfNodeParams{TenantID: tenantID,
+				InstanceID: tc.instance, NodeID: &nid, MachineKey: &mkey, NodeCreatedAt: n.CreatedAt})
+			if err != nil {
+				return err
+			}
+			if p.WasMismatch || p.WasForeign {
+				out = append(out, flagged{id: n.ID, mismatch: p.WasMismatch})
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		s.log.ErrorContext(ctx, "enrollment: checking the member's nodes after a lost answer failed", "alert", true,
+			"request_id", r.ID, "sqlstate", store.SQLState(err))
+		return
+	}
+	for _, f := range out {
+		deleted, expired := false, false
+		if f.mismatch {
+			deleted, expired = s.removeNode(ctx, inst, f.id)
+		} else {
+			expired = s.expireNode(ctx, inst, f.id)
+		}
+		s.log.ErrorContext(ctx, "enrollment: a node an earlier claim rejected was active again after a lost answer",
+			"alert", true, "request_id", r.ID, "node_id", f.id, "deleted", deleted, "expired", expired)
+	}
+}
+
+// unsettled closes op failed and leaves the claimed request id as it is: the claim cannot tell whether its
+// AuthRegister registered a node (§13.4 rule 3), so it does not close the request as if nothing had been registered.
+// Reconcile settles a request left claimed (claim_unfinished after stuckAfter).
+func (s *Service) unsettled(ctx context.Context, tenantID, id uuid.UUID, code string, op *audit.Operation) {
+	wctx, cancel := detached(ctx)
+	defer cancel()
+	if err := s.st.WithTenantTx(wctx, tenantID, func(q *sqlcdb.Queries) error {
+		return s.closeOp(wctx, q, op, code)
+	}); err != nil {
+		s.log.ErrorContext(ctx, "enrollment: closing a claim left unsettled failed", "request_id", id,
+			"sqlstate", store.SQLState(err))
+	}
+	s.log.ErrorContext(ctx, "enrollment: a claim cannot tell whether its node was registered: request left claimed",
+		"alert", true, "request_id", id)
+}
+
+// failWithNode ends a claimed request failed with code and the node it registered (consumed_node_id, machine key,
+// hostname), unless it already moved on, and closes op failed — in a transaction of its own.
+func (s *Service) failWithNode(ctx context.Context, tenantID, id uuid.UUID, code string, nid int64, mkey, host string,
+	op *audit.Operation,
+) {
+	wctx, cancel := detached(ctx)
+	defer cancel()
+	err := s.st.WithTenantTx(wctx, tenantID, func(q *sqlcdb.Queries) error {
+		cur, err := q.LockEnrollmentRequest(wctx, sqlcdb.LockEnrollmentRequestParams{TenantID: tenantID, ID: id})
+		if err != nil {
+			return err
+		}
+		if cur.Status == StatusClaimed {
+			p := stateOf(cur)
+			p.Status, p.FailureCode, p.ConsumedNodeID = StatusFailed, &code, &nid
+			if mkey != "" {
+				p.RegisteredMachineKey = &mkey
+			}
+			if host != "" {
+				p.ReportedHostname = &host
+			}
+			if _, err := q.SetEnrollmentRequestState(wctx, p); err != nil {
+				return err
+			}
+		}
+		return s.closeOp(wctx, q, op, code)
+	})
+	if err != nil {
+		s.log.ErrorContext(ctx, "enrollment: recording a claim without a verdict failed", "alert", true,
+			"request_id", id, "node_id", nid, "sqlstate", store.SQLState(err))
+	}
 }
 
 // removeNode deletes a node a claim rejects as new (§7.4 step 8 a). When the delete does not go through, it expires the
-// node at least: the client then has to sign in again, which takes another claim, and a claim never accepts a node it
-// rejected before (ClaimRejectionsOfNode). Detached from the request.
+// node at least: the client then has to sign in again, which takes another claim. Such a claim deletes the node when
+// the earlier verdict was recorded with it (ClaimRejectionsOfNode: the request failed node_mismatch or claim_unfinished
+// with its consumed_node_id); the extra nodes of a read-back are removed without such a record. Detached from the
+// request.
 func (s *Service) removeNode(ctx context.Context, inst headscale.Instance, id uint64) (deleted, expired bool) {
 	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), correctiveBudget)
 	defer cancel()

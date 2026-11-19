@@ -469,15 +469,21 @@ func TestEnrollment(t *testing.T) {
 		a.hs.LoseAnswer(devicestest.OpAuthRegister, true)
 		r, err := f.api.Claim(ctx, a.id, admin, Claim{AuthID: auth})
 		a.hs.LoseAnswer(devicestest.OpAuthRegister, false)
-		if n := nodesOf("mkey:c1-mine"); err != nil || r.Status != StatusVerified || len(n) != 1 || r.NodeID == nil ||
+		n := nodesOf("mkey:c1-mine")
+		if err != nil || r.Status != StatusVerified || len(n) != 1 || r.NodeID == nil ||
 			*r.NodeID != int64(n[0].ID) { //nolint:gosec // small test ids
-			t.Errorf("answer lost, own device: %s %v, nodes %+v", r.Status, err, n)
+			t.Fatalf("answer lost, own device: %s %v, nodes %+v", r.Status, err, n)
 		}
 		if k := f.count(t, `SELECT count(*) FROM device_inventory_cache WHERE enrollment_request_id = $1 AND removed_at IS NULL`,
 			mine.Request.ID); k != 1 {
 			t.Errorf("answer lost, own device: %d device rows", k)
 		}
-		// … and a node that is not the requester's device is deleted (node_mismatch)
+		// … and a node that is not the requester's device is deleted (node_mismatch). The device just verified is
+		// within the read-back window of that claim (created since it began) and is the member's untagged CLI node like
+		// the stray: the claim that recorded it accounts for it, so it is never removed as a stray
+		mineNode := n[0]
+		mineNode.CreatedAt = time.Now()
+		a.hs.PutNode(mineNode)
 		lost := create("k-c1-3")
 		auth = "hskey-authreq-" + strings.Repeat("O", 24)
 		a.hs.PutPending(auth, devicestest.Node{MachineKey: "mkey:c1-lost", Hostname: "evil-lost"})
@@ -489,6 +495,9 @@ func TestEnrollment(t *testing.T) {
 		}
 		if st := state(lost.Request.ID); st != mismatch {
 			t.Errorf("answer lost: request %s, want %s", st, mismatch)
+		}
+		if _, ok := a.hs.Node(mineNode.ID); !ok {
+			t.Error("answer lost: the requester's verified device of another claim was removed as a stray")
 		}
 
 		// (3) the corrective delete is refused: the node is expired instead, so it cannot stay connected
@@ -507,24 +516,282 @@ func TestEnrollment(t *testing.T) {
 			t.Errorf("delete refused: request %s, want %s", st, mismatch)
 		}
 
-		// (4) the registered node cannot be recorded (the database refuses the write): the node this claim created is
-		// deleted, never left for inventory.sync to adopt as the member's device
-		norec := create("k-c1-5")
-		auth = "hskey-authreq-" + strings.Repeat("Q", 24)
-		a.hs.PutPending(auth, devicestest.Node{MachineKey: "mkey:c1-norecord", Hostname: "evil-norecord"})
+		// (4) the registered node cannot be recorded (the database refuses the write of registered): the node this
+		// claim created is deleted, never left for inventory.sync to adopt as the member's device; the request records
+		// it failed claim_unfinished
 		f.exec(t, `CREATE FUNCTION test_refuse_write() RETURNS trigger LANGUAGE plpgsql AS $$
 			BEGIN RAISE EXCEPTION 'write refused by the test'; END $$`)
-		a.hs.After(devicestest.OpAuthRegister, func(uint64) {
+		defer f.exec(t, `DROP FUNCTION test_refuse_write()`)
+		refuse := func(id uuid.UUID, when string) func() {
 			f.exec(t, `CREATE TRIGGER test_refuse_write BEFORE UPDATE ON enrollment_requests FOR EACH ROW
-				WHEN (OLD.id = '`+norec.Request.ID.String()+`'::uuid) EXECUTE FUNCTION test_refuse_write()`)
-		})
-		if _, err := f.api.Claim(ctx, a.id, admin, Claim{AuthID: auth}); err == nil {
-			t.Error("no record: the claim succeeded")
+				WHEN (OLD.id = '`+id.String()+`'::uuid AND `+when+`) EXECUTE FUNCTION test_refuse_write()`)
+			return func() { f.exec(t, `DROP TRIGGER test_refuse_write ON enrollment_requests`) }
 		}
-		f.exec(t, `DROP TRIGGER test_refuse_write ON enrollment_requests`)
-		f.exec(t, `DROP FUNCTION test_refuse_write()`)
+		consumed := func(id uuid.UUID) uint64 {
+			var nid *int64
+			f.scan(t, `SELECT consumed_node_id FROM enrollment_requests WHERE id = $1`, []any{id}, &nid)
+			if nid == nil {
+				return 0
+			}
+			return uint64(*nid) //nolint:gosec // small test ids
+		}
+		unfinished := StatusFailed + "/" + FailureClaimUnfinished
+		norec := create("k-c1-5")
+		auth = "hskey-authreq-" + strings.Repeat("Q", 24)
+		a.hs.PutPending(auth, devicestest.Node{ID: 4610, MachineKey: "mkey:c1-norecord", Hostname: "evil-norecord"})
+		a.hs.ResetCalls()
+		undo := refuse(norec.Request.ID, `NEW.status = 'registered'`)
+		_, err = f.api.Claim(ctx, a.id, admin, Claim{AuthID: auth})
+		undo()
+		if err == nil || a.hs.Calls(devicestest.OpAuthRegister) != 1 || a.hs.Calls(devicestest.OpDeleteNode) != 1 {
+			t.Errorf("no record: claim %v, AuthRegister %d DeleteNode %d calls", err,
+				a.hs.Calls(devicestest.OpAuthRegister), a.hs.Calls(devicestest.OpDeleteNode))
+		}
 		if n := nodesOf("mkey:c1-norecord"); len(n) != 0 {
 			t.Errorf("no record: the unverified node was left registered: %+v", n)
+		}
+		if st, nid := state(norec.Request.ID), consumed(norec.Request.ID); st != unfinished || nid != 4610 {
+			t.Errorf("no record: request %s node %d, want %s node 4610", st, nid, unfinished)
+		}
+		// (4b) … the node answered is an older device of the member (a re-authentication): expired, never deleted
+		a.hs.PutNode(devicestest.Node{ID: 4611, MachineKey: "mkey:c1-older", Hostname: "laptop", GivenName: "laptop",
+			UserName: un(admin), Method: "cli", CreatedAt: time.Now().Add(-time.Hour)})
+		older := create("k-c1-5b")
+		auth = "hskey-authreq-" + strings.Repeat("Q", 23) + "2"
+		a.hs.PutPending(auth, devicestest.Node{MachineKey: "mkey:c1-older", Hostname: "laptop"})
+		undo = refuse(older.Request.ID, `NEW.status = 'registered'`)
+		_, _ = f.api.Claim(ctx, a.id, admin, Claim{AuthID: auth})
+		undo()
+		if n, ok := a.hs.Node(4611); !ok || n.Expiry == nil || n.Expiry.After(f.clk.now().Add(time.Minute)) {
+			t.Errorf("no record, older node: %+v %v, want kept and expired", n, ok)
+		}
+		if st := state(older.Request.ID); st != unfinished {
+			t.Errorf("no record, older node: request %s, want %s", st, unfinished)
+		}
+		// (4c) … and the delete is refused as well: the node is expired; once inventory.sync made it a device of the
+		// member, the next claim on that machine (a re-authentication by then) deletes it — it never passed the checks
+		norec2 := create("k-c1-5c")
+		auth = "hskey-authreq-" + strings.Repeat("Q", 23) + "3"
+		a.hs.PutPending(auth, devicestest.Node{ID: 4612, MachineKey: "mkey:c1-norecord2", Hostname: "evil-norecord"})
+		undo = refuse(norec2.Request.ID, `NEW.status = 'registered'`)
+		a.hs.Refuse(devicestest.OpDeleteNode, true)
+		_, _ = f.api.Claim(ctx, a.id, admin, Claim{AuthID: auth})
+		a.hs.Refuse(devicestest.OpDeleteNode, false)
+		undo()
+		left, ok := a.hs.Node(4612)
+		if !ok || left.Expiry == nil || left.Expiry.After(f.clk.now().Add(time.Minute)) {
+			t.Fatalf("no record, delete refused: %+v %v, want kept and expired", left, ok)
+		}
+		if st, nid := state(norec2.Request.ID), consumed(norec2.Request.ID); st != unfinished || nid != 4612 {
+			t.Errorf("no record, delete refused: request %s node %d, want %s node 4612", st, nid, unfinished)
+		}
+		// time passes: the node was created well after its request, well before the next one
+		f.exec(t, `UPDATE enrollment_requests SET created_at = created_at - interval '1 hour' WHERE id = $1`, norec2.Request.ID)
+		left.CreatedAt = time.Now().Add(-30 * time.Minute)
+		a.hs.PutNode(left)
+		f.exec(t, `INSERT INTO device_inventory_cache (tenant_id, instance_id, headscale_node_id, machine_key, name,
+			owner_membership_id) VALUES ($1, $2, 4612, 'mkey:c1-norecord2', 'evil-norecord', $3)`, a.id, a.instance,
+			admin.MembershipID)
+		create("k-c1-5d")
+		auth = "hskey-authreq-" + strings.Repeat("Q", 23) + "4"
+		a.hs.PutPending(auth, devicestest.Node{MachineKey: "mkey:c1-norecord2", Hostname: "evil-norecord"})
+		r, err = f.api.Claim(ctx, a.id, admin, Claim{AuthID: auth})
+		if err != nil || r.Status != StatusFailed || failureOf(r) != FailureNodeMismatch || r.NodeID == nil || *r.NodeID != 4612 {
+			t.Errorf("re-authentication of a node registered without a verdict: %s/%s node %v %v, want failed/%s node 4612",
+				r.Status, failureOf(r), r.NodeID, err, FailureNodeMismatch)
+		}
+		if _, ok := a.hs.Node(4612); ok {
+			t.Error("the node registered without a verdict was not deleted on re-authentication")
+		}
+	})
+
+	t.Run("LostAnswerReadBack", func(t *testing.T) {
+		// C1: the answer of AuthRegister is lost — the claim reads back until it knows, and never closes the request as
+		// if nothing had been registered when it does not
+		admin := a.actor("admin", uuid.New())
+		ctx := ctxOf(admin, a.id, ActionClaim)
+		create := func(key string) Issue {
+			t.Helper()
+			out, err := f.api.Create(ctx, a.id, admin, NewRequest{Method: MethodWebAuth}, idem(key, key))
+			if err != nil {
+				t.Fatal(err)
+			}
+			return out
+		}
+		state := func(id uuid.UUID) string {
+			return f.str(t, `SELECT status || '/' || COALESCE(failure_code, '') FROM enrollment_requests WHERE id = $1`, id)
+		}
+		gone := func(ids ...uint64) bool {
+			for _, id := range ids {
+				if _, ok := a.hs.Node(id); ok {
+					return false
+				}
+			}
+			return true
+		}
+		mismatch := StatusFailed + "/" + FailureNodeMismatch
+		lostClaim := func(req Issue, authID string) error {
+			t.Helper()
+			a.hs.LoseAnswer(devicestest.OpAuthRegister, true)
+			defer a.hs.LoseAnswer(devicestest.OpAuthRegister, false)
+			_, err := f.api.Claim(ctx, a.id, admin, Claim{AuthID: authID, RequestID: &req.Request.ID})
+			return err
+		}
+
+		// (1) another request of the member is claimed at the same time: while its AuthRegister is in flight, Headscale
+		// registers its device (mg-<its code>) and another stray node of the member appears; then this claim's answer is
+		// lost. The read-back keeps the other claim's device, removes the stray and rejects the newest node (its own)
+		other, mine := create("k-lr-1"), create("k-lr-2")
+		authOther := "hskey-authreq-" + strings.Repeat("T", 23) + "1"
+		authMine := "hskey-authreq-" + strings.Repeat("T", 23) + "2"
+		a.hs.PutPending(authOther, devicestest.Node{MachineKey: "mkey:lr-other", Hostname: "mg-" + other.Credential.EnrollCode.Reveal()})
+		a.hs.PutPending(authMine, devicestest.Node{ID: 4703, MachineKey: "mkey:lr-mine", Hostname: "evil-lr"})
+		var errMine error
+		a.hs.Before(devicestest.OpAuthRegister, func(uint64) {
+			a.hs.PutNode(devicestest.Node{ID: 4701, MachineKey: "mkey:lr-other", Hostname: "mg-" + other.Credential.EnrollCode.Reveal(),
+				GivenName: "mg-" + other.Credential.EnrollCode.Reveal(), UserName: un(admin), Method: "cli", CreatedAt: time.Now()})
+			a.hs.PutNode(devicestest.Node{ID: 4702, MachineKey: "mkey:lr-stray", Hostname: "evil-stray", GivenName: "evil-stray",
+				UserName: un(admin), Method: "cli", CreatedAt: time.Now().Add(-200 * time.Millisecond)})
+			errMine = lostClaim(mine, authMine)
+			if _, ok := a.hs.Node(4701); !ok {
+				t.Error("concurrent claims: the device of the other claim was removed by the read-back")
+			}
+		})
+		r, err := f.api.Claim(ctx, a.id, admin, Claim{AuthID: authOther, RequestID: &other.Request.ID})
+		if err != nil || r.Status != StatusVerified || r.NodeID == nil || *r.NodeID != 4701 {
+			t.Errorf("concurrent claims: the other claim %s %v node %v, want verified node 4701", r.Status, err, r.NodeID)
+		}
+		if st := state(mine.Request.ID); st != mismatch || !gone(4702, 4703) {
+			t.Errorf("concurrent claims: request %s, stray and own node gone %v; want %s, true (%v)", st, gone(4702, 4703),
+				mismatch, errMine)
+		}
+		if got := f.str(t, `SELECT consumed_node_id::text FROM enrollment_requests WHERE id = $1`, mine.Request.ID); got != "4703" {
+			t.Errorf("concurrent claims: the rejected node is %s, want the newest (4703)", got)
+		}
+
+		// (2) the first read-back fails (the instance refuses ListNodes once): the claim reads again and decides
+		readFail := create("k-lr-3")
+		auth := "hskey-authreq-" + strings.Repeat("T", 23) + "3"
+		a.hs.PutPending(auth, devicestest.Node{ID: 4704, MachineKey: "mkey:lr-readfail", Hostname: "evil-readfail"})
+		a.hs.Refuse(devicestest.OpListNodes, true)
+		a.hs.After(devicestest.OpListNodes, func(uint64) { a.hs.Refuse(devicestest.OpListNodes, false) })
+		_ = lostClaim(readFail, auth)
+		a.hs.Refuse(devicestest.OpListNodes, false)
+		if st := state(readFail.Request.ID); st != mismatch || !gone(4704) {
+			t.Errorf("read-back refused once: request %s, node gone %v; want %s, true", st, gone(4704), mismatch)
+		}
+
+		// (3) the instance applies the registration after the first read-back (its answer was lost before it acted)
+		late := create("k-lr-4")
+		auth = "hskey-authreq-" + strings.Repeat("T", 23) + "4" // not pending yet: the instance has not acted
+		a.hs.After(devicestest.OpListNodes, func(uint64) {
+			a.hs.PutNode(devicestest.Node{ID: 4705, MachineKey: "mkey:lr-late", Hostname: "evil-late", GivenName: "evil-late",
+				UserName: un(admin), Method: "cli", CreatedAt: time.Now()})
+		})
+		_ = lostClaim(late, auth)
+		if st := state(late.Request.ID); st != mismatch || !gone(4705) {
+			t.Errorf("registered after the first read-back: request %s, node gone %v; want %s, true", st, gone(4705), mismatch)
+		}
+
+		// (4) nothing new is ever found: the claim cannot tell — the request is left claimed for reconcile (never closed
+		// as if nothing had been registered), the claim operation is closed failed, the caller gets the error
+		none := create("k-lr-5")
+		auth = "hskey-authreq-" + strings.Repeat("T", 23) + "5"
+		if err := lostClaim(none, auth); codeOf(err) != CodeInstanceUnavailable {
+			t.Errorf("nothing found: %v, want %s", err, CodeInstanceUnavailable)
+		}
+		if st := state(none.Request.ID); st != StatusClaimed+"/" {
+			t.Errorf("nothing found: request %s, want left %s", st, StatusClaimed)
+		}
+		if got := f.auditOf(t, none.Request.ID.String()); !slices.Contains(got, "enrollment.claim.failed/failure") {
+			t.Errorf("nothing found: audit %v", got)
+		}
+
+		// (5) the lost AuthRegister re-authenticated a node an earlier claim rejected (its delete refused, so it was only
+		// expired): Headscale gave it a fresh expiry (V-21) — nothing new is found, and the node it rejected before does
+		// not stay active: deleted
+		rej := create("k-lr-6")
+		auth = "hskey-authreq-" + strings.Repeat("T", 23) + "6"
+		a.hs.PutPending(auth, devicestest.Node{ID: 4706, MachineKey: "mkey:lr-again", Hostname: "evil-again"})
+		a.hs.Refuse(devicestest.OpDeleteNode, true)
+		r, err = f.api.Claim(ctx, a.id, admin, Claim{AuthID: auth, RequestID: &rej.Request.ID})
+		a.hs.Refuse(devicestest.OpDeleteNode, false)
+		n, ok := a.hs.Node(4706)
+		if err != nil || failureOf(r) != FailureNodeMismatch || !ok || n.Expiry == nil {
+			t.Fatalf("rejected, delete refused: %s/%s %v node %+v %v", r.Status, failureOf(r), err, n, ok)
+		}
+		n.CreatedAt = time.Now().Add(-time.Hour) // the next sign-in comes later
+		a.hs.PutNode(n)
+		again := create("k-lr-7")
+		auth = "hskey-authreq-" + strings.Repeat("T", 23) + "7"
+		a.hs.PutPending(auth, devicestest.Node{MachineKey: "mkey:lr-again", Hostname: "evil-again"})
+		_ = lostClaim(again, auth)
+		if !gone(4706) {
+			n, _ := a.hs.Node(4706)
+			t.Errorf("lost re-authentication of a node rejected before: left %+v", n)
+		}
+		if st := state(again.Request.ID); st != StatusClaimed+"/" {
+			t.Errorf("lost re-authentication of a node rejected before: request %s, want left %s", st, StatusClaimed)
+		}
+	})
+
+	t.Run("UnfinishedClaim", func(t *testing.T) {
+		// C1 (5), what the claim controls: a claim stops after recording registered — its verdict cannot be written and
+		// its corrective calls are refused, as if the process died. Reconcile closes the request claim_unfinished
+		// (keeping its node id); once inventory.sync made the node a device of the member, the next claim on that
+		// machine (a re-authentication by then) never accepts it: deleted.
+		admin := a.actor("admin", uuid.New())
+		ctx := ctxOf(admin, a.id, ActionClaim)
+		out, err := f.api.Create(ctx, a.id, admin, NewRequest{Method: MethodWebAuth}, idem("k-uc-1", "uc1"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		auth := "hskey-authreq-" + strings.Repeat("U", 23) + "1"
+		a.hs.PutPending(auth, devicestest.Node{ID: 4801, MachineKey: "mkey:uc", Hostname: "evil-uc"})
+		f.exec(t, `CREATE FUNCTION test_refuse_verdict() RETURNS trigger LANGUAGE plpgsql AS $$
+			BEGIN RAISE EXCEPTION 'verdict refused by the test'; END $$`)
+		f.exec(t, `CREATE TRIGGER test_refuse_verdict BEFORE UPDATE ON enrollment_requests FOR EACH ROW
+			WHEN (OLD.id = '`+out.Request.ID.String()+`'::uuid AND OLD.status = 'registered') EXECUTE FUNCTION test_refuse_verdict()`)
+		a.hs.Refuse(devicestest.OpDeleteNode, true)
+		a.hs.Refuse(devicestest.OpExpireNode, true)
+		_, _ = f.api.Claim(ctx, a.id, admin, Claim{AuthID: auth})
+		a.hs.Refuse(devicestest.OpDeleteNode, false)
+		a.hs.Refuse(devicestest.OpExpireNode, false)
+		f.exec(t, `DROP TRIGGER test_refuse_verdict ON enrollment_requests`)
+		f.exec(t, `DROP FUNCTION test_refuse_verdict()`)
+		if st := f.str(t, `SELECT status FROM enrollment_requests WHERE id = $1`, out.Request.ID); st != StatusRegistered {
+			t.Fatalf("stopped claim: request %s, want %s", st, StatusRegistered)
+		}
+		f.exec(t, `UPDATE enrollment_requests SET claimed_at = claimed_at - interval '20 minutes' WHERE id = $1`, out.Request.ID)
+		if _, err := f.wrk.Reconcile(t.Context(), a.id); err != nil {
+			t.Fatal(err)
+		}
+		if st := f.str(t, `SELECT status || '/' || COALESCE(failure_code, '') || '/' || COALESCE(consumed_node_id::text, '')
+			FROM enrollment_requests WHERE id = $1`, out.Request.ID); st != StatusFailed+"/"+FailureClaimUnfinished+"/4801" {
+			t.Fatalf("reconcile: %s", st)
+		}
+		// later: inventory.sync adopted the node as the member's device; the same machine signs in again
+		f.exec(t, `UPDATE enrollment_requests SET created_at = created_at - interval '1 hour' WHERE id = $1`, out.Request.ID)
+		n, ok := a.hs.Node(4801)
+		if !ok {
+			t.Fatal("the node of the stopped claim is gone")
+		}
+		n.CreatedAt = time.Now().Add(-30 * time.Minute)
+		a.hs.PutNode(n)
+		f.exec(t, `INSERT INTO device_inventory_cache (tenant_id, instance_id, headscale_node_id, machine_key, name,
+			owner_membership_id) VALUES ($1, $2, 4801, 'mkey:uc', 'evil-uc', $3)`, a.id, a.instance, admin.MembershipID)
+		if _, err := f.api.Create(ctx, a.id, admin, NewRequest{Method: MethodWebAuth}, idem("k-uc-2", "uc2")); err != nil {
+			t.Fatal(err)
+		}
+		auth = "hskey-authreq-" + strings.Repeat("U", 23) + "2"
+		a.hs.PutPending(auth, devicestest.Node{MachineKey: "mkey:uc", Hostname: "evil-uc"})
+		r, err := f.api.Claim(ctx, a.id, admin, Claim{AuthID: auth})
+		if err != nil || r.Status != StatusFailed || failureOf(r) != FailureNodeMismatch || r.NodeID == nil || *r.NodeID != 4801 {
+			t.Errorf("re-authentication of the node of a stopped claim: %s/%s node %v %v, want failed/%s node 4801",
+				r.Status, failureOf(r), r.NodeID, err, FailureNodeMismatch)
+		}
+		if _, ok := a.hs.Node(4801); ok {
+			t.Error("the node of the stopped claim was not deleted on re-authentication")
 		}
 	})
 

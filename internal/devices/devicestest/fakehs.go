@@ -645,6 +645,13 @@ func (f *Fake) answer(w http.ResponseWriter, r *http.Request, body []byte) {
 				if n.NodeKey != "" {
 					x.NodeKey = n.NodeKey
 				}
+				// the expiry the client asked for replaces the node's (V-21: the client wins on AuthRegister too) — an
+				// expired node is active again; none asked ⇒ no expiry
+				x.Expiry = nil
+				if n.Expiry != nil {
+					e := *n.Expiry
+					x.Expiry = &e
+				}
 				writeJSON(w, map[string]any{"node": x.wire(false)})
 				return
 			}

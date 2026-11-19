@@ -121,16 +121,20 @@ WHERE tenant_id = sqlc.arg(tenant_id) AND instance_id = sqlc.arg(instance_id)
 
 -- name: ClaimRejectionsOfNode :one
 -- Claim (§7.4 bước 8): node này (id + machine key) đã bị một claim trước từ chối SAU khi được tạo — node_mismatch (lẽ ra
--- đã bị xóa: DeleteNode không thành) hay foreign_node (đã expire). Node như vậy không bao giờ được chấp nhận như một
--- lần re-auth. updated_at của yêu cầu failed là lúc từ chối (trạng thái cuối, không ghi lại); id node được cấp lại cho
--- node mới cùng machine key thì node mới có created_at muộn hơn và không bị tính.
-SELECT COALESCE(bool_or(failure_code = 'node_mismatch'), false)::boolean AS was_mismatch,
-       COALESCE(bool_or(failure_code = 'foreign_node'), false)::boolean  AS was_foreign
+-- đã bị xóa: DeleteNode không thành) hay foreign_node (đã expire) — hoặc là node MỚI của một claim không bao giờ tới
+-- phán quyết: claim_unfinished (claim không ghi được registered, hay reconcile đóng yêu cầu kẹt ở registered — tiến
+-- trình dừng, ghi phán quyết lỗi) với node tạo từ lúc tạo yêu cầu đó — chưa qua kiểm mg-<mã>, tính như node_mismatch.
+-- Node như vậy không bao giờ được chấp nhận như một lần re-auth. updated_at của yêu cầu failed là lúc từ chối (trạng
+-- thái cuối, không ghi lại); id node được cấp lại cho node mới cùng machine key thì node mới có created_at muộn hơn và
+-- không bị tính. record_failed (ghi verified lỗi) không được tính: node đó đã qua kiểm.
+SELECT COALESCE(bool_or(failure_code IN ('node_mismatch', 'claim_unfinished')), false)::boolean AS was_mismatch,
+       COALESCE(bool_or(failure_code = 'foreign_node'), false)::boolean                      AS was_foreign
 FROM enrollment_requests
 WHERE tenant_id = sqlc.arg(tenant_id) AND instance_id = sqlc.arg(instance_id) AND method = 'web_auth'
-  AND status = 'failed' AND failure_code IN ('node_mismatch', 'foreign_node')
-  AND consumed_node_id = sqlc.arg(node_id) AND registered_machine_key = sqlc.arg(machine_key)
-  AND updated_at >= sqlc.arg(node_created_at)::timestamptz - interval '1 second';
+  AND status = 'failed' AND consumed_node_id = sqlc.arg(node_id) AND registered_machine_key = sqlc.arg(machine_key)
+  AND updated_at >= sqlc.arg(node_created_at)::timestamptz - interval '1 second'
+  AND (failure_code IN ('node_mismatch', 'foreign_node')
+       OR failure_code = 'claim_unfinished' AND sqlc.arg(node_created_at)::timestamptz >= created_at - interval '1 second');
 
 -- name: ListMemberWebAuthClaims :many
 -- Claim khi câu trả lời của AuthRegister bị mất (§13.4 quy tắc 3 — đọc lại, không gửi lại): các yêu cầu web-auth KHÁC
