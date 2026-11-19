@@ -205,6 +205,50 @@ func TestIssueAndRevoke(t *testing.T) {
 		}
 	})
 
+	t.Run("KeyIDHandedOutAgain", func(t *testing.T) {
+		// a restore of an older snapshot lost the keys of two issued requests and Headscale handed their ids out again
+		// (§6.3): under the first id, a key of the same member issued after the restore (it lives later) registered a
+		// new device; under the second, a key of another member (shorter lifetime). Neither is the request's key.
+		first, err := f.api.Create(ctxOf(owner, a.id, ActionRequest), a.id, owner, NewRequest{Method: MethodPreauthKey},
+			idem("k-i-7", "7"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		k1 := lastKey()
+		second, err := f.api.Create(ctxOf(owner, a.id, ActionRequest), a.id, owner, NewRequest{Method: MethodPreauthKey},
+			idem("k-i-8", "8"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		k2 := lastKey()
+		a.hs.PutKey(devicestest.Key{ID: k1.ID, UserID: k1.UserID, UserName: k1.UserName,
+			Expiration: first.Credential.ExpiresAt.Add(3 * time.Minute)})
+		later := a.hs.UseKey(k1.ID, devicestest.Node{MachineKey: "mkey:after-restore", Hostname: "laptop-new"})
+		other := un(a.actor("user2", uuid.New()))
+		a.hs.PutKey(devicestest.Key{ID: k2.ID, UserID: 4242, UserName: other, Expiration: time.Now().Add(5 * time.Minute)})
+		// revoke: the other member's key under the id is left alone (the request's own key no longer exists)
+		a.hs.ResetCalls()
+		if rv, err := f.api.Revoke(ctxOf(owner, a.id, ActionRevoke), a.id, second.Request.ID, owner); err != nil ||
+			rv.Status != StatusRevoked {
+			t.Fatalf("revoke: %+v %v", rv, err)
+		}
+		if n := a.hs.Calls(devicestest.OpExpirePreAuthKey); n != 0 {
+			t.Fatalf("the revocation expired the key of another member (%d calls)", n)
+		}
+		if k := a.hs.Key(k2.ID); !k.Expiration.After(time.Now().Add(4 * time.Minute)) {
+			t.Fatalf("the other member's key was expired: %+v", k)
+		}
+		// reconcile: the request's key is gone (failed key_missing within its lifetime), never consumed by the node of
+		// the later key
+		if _, err := f.wrk.Reconcile(t.Context(), a.id); err != nil {
+			t.Fatal(err)
+		}
+		r, err := f.api.Get(t.Context(), a.id, first.Request.ID, owner)
+		if err != nil || r.Status != StatusFailed || r.FailureCode == nil || *r.FailureCode != FailureKeyMissing || r.NodeID != nil {
+			t.Fatalf("request whose key id was handed out again: %+v %v (node of the later key %d)", r, err, later.ID)
+		}
+	})
+
 	f.noKeyMaterial(t)
 }
 

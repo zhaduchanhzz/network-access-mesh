@@ -187,6 +187,9 @@ func (s *Service) keyOutcome(r sqlcdb.EnrollmentRequest, keys map[uint64]headsca
 	kid := uint64(*r.HeadscalePreauthkeyID) //nolint:gosec // CHECK > 0
 	k, ok := keys[kid]
 	n, used := nodes[kid]
+	if ok && !issuedKey(r, k) { // the id was handed out again (restore of an older snapshot): r's key is gone
+		ok, used = false, false
+	}
 	switch {
 	case used:
 		return outcome{status: StatusConsumed, node: &n}

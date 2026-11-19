@@ -311,6 +311,33 @@ func issuable(ctx context.Context, q *sqlcdb.Queries, tenantID uuid.UUID, r, cur
 // codeTenantSuspended is the Problem code (403) of a write on a suspended tenant — the one the authorizer answers.
 const codeTenantSuspended = "tenant_suspended"
 
+// memberUserPrefix starts the Headscale user name of every membership (tenant_memberships.headscale_username, generated
+// column of 0002: 'mg-' || id).
+const memberUserPrefix = "mg-"
+
+// issuedKey reports whether k — the key Headscale lists under the id request r recorded — can be the key r issued.
+// After a restore of an older snapshot Headscale hands its ids out again (§6.3 device_inventory_cache: VERIFIED on
+// 0.29.7 for nodes; pre-auth keys follow the same kind of counter), so the key of a request made after the restore may
+// carry the id of r's key, which the restore lost: neither its use nor its expiry is r's. Only what the platform itself
+// guarantees about r's key tells them apart — no guess on how Headscale reports the owner of a tagged key:
+//   - the reusable flag issueKey asked for (checked on the key Headscale answered);
+//   - an expiry no later than r's credential_expires_at (issueKey checked the answered key against it; Headscale
+//     never extends a key, an expiry only shortens it) — a key issued after the restore lives later than r's;
+//   - an owner that is no other member: a key of another member's Headscale user mg-<membership> is not r's.
+func issuedKey(r sqlcdb.EnrollmentRequest, k headscale.PreAuthKey) bool {
+	if k.Reusable != r.Reusable {
+		return false
+	}
+	if r.CredentialExpiresAt != nil && k.Expiration.After(r.CredentialExpiresAt.Add(time.Second)) {
+		return false
+	}
+	if u := k.User; u != nil && strings.HasPrefix(u.Name, memberUserPrefix) &&
+		(r.TargetMembershipID == nil || u.Name != memberUserPrefix+r.TargetMembershipID.String()) {
+		return false
+	}
+	return true
+}
+
 // detached is a context for the closing writes of an operation: not cancelled with the request, bounded.
 func detached(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)

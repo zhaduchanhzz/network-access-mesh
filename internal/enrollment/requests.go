@@ -691,7 +691,8 @@ type keyState struct {
 }
 
 // expireKey expires the pre-auth key of request r at Headscale and reads it back (T-17: "đã áp dụng" only after a
-// verified read). A used key is reported with its first node.
+// verified read). A key listed under the id with another identity is not r's (issuedKey: the id was handed out again
+// after a restore) — it is left alone, r's own key no longer exists. A used key is reported with its first node.
 func (s *Service) expireKey(ctx context.Context, tenantID uuid.UUID, r sqlcdb.EnrollmentRequest) (keyState, error) {
 	inst, err := s.reg.ForTenant(ctx, tenantID)
 	if err != nil {
@@ -706,11 +707,17 @@ func (s *Service) expireKey(ctx context.Context, tenantID uuid.UUID, r sqlcdb.En
 		}
 		return headscale.PreAuthKey{}, false
 	}
+	keys, err := inst.ListPreAuthKeys(ctx)
+	if err != nil {
+		return keyState{}, err
+	}
+	if k, ok := find(keys); ok && !issuedKey(r, k) {
+		return keyState{}, nil
+	}
 	if err := inst.ExpirePreAuthKey(ctx, kid); err != nil && !errors.Is(err, headscale.ErrNotFound) {
 		return keyState{}, err
 	}
-	keys, err := inst.ListPreAuthKeys(ctx)
-	if err != nil {
+	if keys, err = inst.ListPreAuthKeys(ctx); err != nil {
 		return keyState{}, err
 	}
 	k, ok := find(keys)
