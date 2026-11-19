@@ -100,7 +100,9 @@ const (
 // writeContext detaches a write from the cancellation of the request (a client that goes away must not erase the
 // audit of its denial) and bounds it by Config.Timeout.
 func (l *Logger) writeContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.WithoutCancel(ctx), l.cfg.Timeout)
+	// the trail of a support actor (§8.7) is written even when its grant ended during the request: the support check of
+	// store.WithTenantTx guards the actor's own transactions, not the record of what it did (P4-T13)
+	return context.WithTimeout(store.WithoutSupportActor(context.WithoutCancel(ctx)), l.cfg.Timeout)
 }
 
 // RecordDetached writes a denied or failure event on the detached path (§6.1): its own connection as mg_audit_writer,

@@ -24,6 +24,8 @@ type recipe struct {
 	query func(c *call) string
 	// body is the JSON body ("" ⇒ none).
 	body string
+	// bodyOf builds the JSON body from the world (P4-T13: the tenant a support grant is asked for) — wins over body.
+	bodyOf func(m *matrix, c *call) string
 	// idempotent adds Idempotency-Key (required by the binding of the operation).
 	idempotent bool
 	// endsSession: the request revokes the session it is sent with (logout) — sent with a throwaway session.
@@ -249,6 +251,22 @@ var recipes = map[string]recipe{
 	// stored — a granted import or export answers 200 (the import of an empty grants list passes).
 	"importTenantPolicy": {body: `{"hujson":"{\"grants\": []}"}`, ok: answer{status: http.StatusOK}},
 	"exportTenantPolicy": {body: `{"source":{"grants":[]}}`, ok: answer{status: http.StatusOK}},
+	// support access grants (P4-T13, supportapi — mounted). The objects are pending grants whose requester/grantee is a
+	// Super Admin that is no actor of the matrix (world_test.go): a granted decision answers 200 for the first caller
+	// and 409 grant_closed after (the order of parallel callers decides), so the answer is left open; the requests
+	// create a pending grant into tenant A for the calling staff member (201, then 409 support_grant_open) — never a
+	// live grant, so the staff column of every other operation stays "no grant".
+	"listTenantSupportGrants":       {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
+	"approveTenantSupportGrant":     {},
+	"rejectTenantSupportGrant":      {},
+	"revokeTenantSupportGrant":      {},
+	"listPlatformSupportGrants":     {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
+	"approveSupportGrantBreakglass": {},
+	"revokePlatformSupportGrant":    {},
+	"createSupportGrant": {idempotent: true, bodyOf: func(m *matrix, _ *call) string {
+		return `{"tenant_id":"` + m.A.ID.String() + `","effective_role":"support_operator","reason":"matrix",` +
+			`"ticket_ref":"MATRIX-1","duration_minutes":30}`
+	}},
 	// network (P4-T12, networkapi — mounted). Every write that needs If-Match is sent without it: a granted caller is
 	// answered 428 before any read or write (the route approvals check it first — the body's device need not exist; the
 	// objects stay for every caller); the reads answer 200 from the register and the tables; a DNS record whose value is
@@ -297,6 +315,7 @@ const (
 	objSetting      objectKind = "setting"
 	objPlan         objectKind = "plan"
 	objPolicy       objectKind = "policy" // /tenants/{t}/policies/{versionId} (P4-T10)
+	objGrant        objectKind = "grant"  // P4-T13: /tenants/{t}/support-grants/{grantId}, /platform/support-grants/{grantId}
 	// P4-T12: /tenants/{t}/dns/records/{recordId}, /tenants/{t}/resources/{resourceId}
 	objDNSRecord objectKind = "dns-record"
 	objResource  objectKind = "resource"
@@ -308,5 +327,5 @@ var paramObjects = map[string]objectKind{
 	"tenantId": objTenant, "sessionId": objSession, "idpId": objIdP, "approvalId": objApproval, "invitationId": objInvitation,
 	"hostId": objHost, "tagId": objTag, "notificationId": objNotification, "groupId": objGroup,
 	"platformUserId": objPlatformUser, "settingKey": objSetting, "planId": objPlan,
-	"versionId": objPolicy, "recordId": objDNSRecord, "resourceId": objResource,
+	"versionId": objPolicy, "grantId": objGrant, "recordId": objDNSRecord, "resourceId": objResource,
 }

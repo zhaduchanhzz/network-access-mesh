@@ -5,6 +5,8 @@ import type { ComponentType } from "react";
 import type { RouteObject } from "react-router";
 import { can } from "../auth/permissions";
 import { ForbiddenPage } from "../pages/StatusPages";
+import { ApprovalDetailPage, ApprovalsPage } from "./approvals/ApprovalsPage";
+import { AuditPage } from "./audit/AuditPage";
 import { DashboardPage } from "./dashboard/DashboardPage";
 import { DeviceDetailPage } from "./devices/DeviceDetailPage";
 import { DevicesPage } from "./devices/DevicesPage";
@@ -19,9 +21,13 @@ import { UserDetailPage } from "./people/UserDetailPage";
 import { UsersPage } from "./people/UsersPage";
 import { PoliciesScreen, PolicyVersionScreen, TagsScreen } from "./policies/screens";
 import { RelayPage } from "./relay/RelayPage";
+import { IdentityProviderPage } from "./settings/IdentityProviderPage";
+import { SettingsPage } from "./settings/SettingsPage";
+import { SupportAccessPage } from "./support/SupportAccessPage";
 import { useTenant } from "./TenantScope";
 
-/** P4-T04: Tổng quan, Devices, Relay, hộp thông báo; P4-T09a: Users, Groups, Invitations; P4-T12: Routes, DNS, Tài nguyên mạng. */
+/** P4-T04: Tổng quan, Devices, Relay, hộp thông báo; P4-T09a: Users, Groups, Invitations; P4-T12: Routes, DNS, Tài nguyên mạng; P4-T13: Audit,
+ * hàng chờ phê duyệt, Support Access, Settings, IdP. */
 export const TENANT_PAGES: Readonly<Record<string, ComponentType>> = {
   overview: DashboardPage,
   devices: DevicesPage,
@@ -34,6 +40,11 @@ export const TENANT_PAGES: Readonly<Record<string, ComponentType>> = {
   // P4-T11 (tải theo route)
   policies: PoliciesScreen,
   tags: TagsScreen,
+  audit: AuditPage,
+  approvals: ApprovalsPage,
+  "support-access": SupportAccessPage,
+  settings: SettingsPage,
+  "identity-provider": IdentityProviderPage,
   // P4-T12: Routes, DNS, Tài nguyên mạng
   routes: RoutesPage,
   dns: DnsPage,
@@ -50,4 +61,5 @@ export const TENANT_EXTRA_ROUTES: RouteObject[] = [
   { path: "users/:membershipId", element: <Guarded permission="tenant.user:read" Screen={UserDetailPage} /> },
   { path: "groups/:groupId", element: <Guarded permission="tenant.group:read" Screen={GroupDetailPage} /> },
   { path: "policies/:versionId", element: <Guarded permission="tenant.policy:read" Screen={PolicyVersionScreen} /> },
+  { path: "approvals/:approvalId", element: <Guarded permission="tenant.approval:read" Screen={ApprovalDetailPage} /> },
 ];

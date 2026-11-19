@@ -22,6 +22,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/zhaduchanhzz/network-access-mesh/internal/audit"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/authz"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/gen"
@@ -80,11 +81,32 @@ func Authz(a Authorizer) gen.StrictMiddlewareFunc {
 			}
 			d, err := a.RequireOperation(ctx, operationID, tenantID)
 			if err != nil {
+				var denial *authz.Denial
+				if errors.As(err, &denial) && denial.SupportGrantID != uuid.Nil {
+					markSupport(ctx, denial.SupportGrantID, tenantID)
+				}
 				return nil, Problem(err)
+			}
+			if d.Support() {
+				markSupport(ctx, d.SupportGrantID, tenantID)
+				ctx = authz.SupportContext(ctx, d)
 			}
 			return f(context.WithValue(ctx, decisionKey{}, d), w, r, request)
 		}
 	}
+}
+
+// markSupport turns the audit scope of a request decided through a Support Access Grant (§8.7 step 3, P4-T13) into
+// that of a support actor: every event of the request carries actor_type=support and the grant, and belongs to the
+// tenant's trail — a refusal of a granted staff member (its role lacks the permission) is recorded under the tenant
+// (the actor's tenant for this request), not as a platform event, so the tenant sees it.
+func markSupport(ctx context.Context, grantID, tenantID uuid.UUID) {
+	r := audit.RequestFrom(ctx)
+	if r == nil {
+		return
+	}
+	g, t := grantID, tenantID
+	r.ActorType, r.SupportGrantID, r.ActorTenantID = audit.ActorSupport, &g, &t
 }
 
 // PrincipalOf is the authz principal of a session: the identity, its scope and the origin the session is bound to

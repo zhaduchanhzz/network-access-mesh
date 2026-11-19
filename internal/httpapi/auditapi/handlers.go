@@ -55,6 +55,9 @@ func (h *Handlers) ListTenantAuditEvents(ctx context.Context, req gen.ListTenant
 	if err != nil {
 		return nil, err
 	}
+	if p.ActorType != nil {
+		q.ActorType = string(*p.ActorType)
+	}
 	page, err := h.r.ListTenant(ctx, req.TenantId, q)
 	if err != nil {
 		return nil, listError(err)
@@ -68,6 +71,9 @@ func (h *Handlers) ListPlatformAuditEvents(ctx context.Context, req gen.ListPlat
 	q, err := query(p.Limit, p.Cursor, p.Actor, p.Action, p.Outcome, p.From, p.To)
 	if err != nil {
 		return nil, err
+	}
+	if p.ActorType != nil {
+		q.ActorType = string(*p.ActorType)
 	}
 	page, err := h.r.ListPlatform(ctx, q)
 	if err != nil {

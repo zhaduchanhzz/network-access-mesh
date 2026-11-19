@@ -274,21 +274,23 @@ WHERE tenant_id IS NULL
   AND occurred_at >= $1::timestamptz AND occurred_at < $2::timestamptz
   AND (occurred_at, id) < ($3::timestamptz, $4::uuid)
   AND ($5::uuid IS NULL OR actor_identity_id = $5::uuid)
-  AND ($6::text IS NULL OR action = $6::text)
-  AND ($7::text IS NULL OR outcome = $7::text)
+  AND ($6::text IS NULL OR actor_type = $6::text)
+  AND ($7::text IS NULL OR action = $7::text)
+  AND ($8::text IS NULL OR outcome = $8::text)
 ORDER BY occurred_at DESC, id DESC
-LIMIT $8
+LIMIT $9
 `
 
 type ListPlatformAuditEventsParams struct {
-	FromAt   time.Time
-	ToAt     time.Time
-	BeforeAt time.Time
-	BeforeID uuid.UUID
-	Actor    *uuid.UUID
-	Action   *string
-	Outcome  *string
-	RowLimit int32
+	FromAt    time.Time
+	ToAt      time.Time
+	BeforeAt  time.Time
+	BeforeID  uuid.UUID
+	Actor     *uuid.UUID
+	ActorType *string
+	Action    *string
+	Outcome   *string
+	RowLimit  int32
 }
 
 // GET /platform/audit (P2-T08): chỉ sự kiện platform (tenant_id NULL — §6.3 "P (sự kiện platform)", §8.5), cùng thứ
@@ -300,6 +302,7 @@ func (q *Queries) ListPlatformAuditEvents(ctx context.Context, arg ListPlatformA
 		arg.BeforeAt,
 		arg.BeforeID,
 		arg.Actor,
+		arg.ActorType,
 		arg.Action,
 		arg.Outcome,
 		arg.RowLimit,
@@ -347,22 +350,24 @@ WHERE tenant_id = $1::uuid
   AND occurred_at >= $2::timestamptz AND occurred_at < $3::timestamptz
   AND (occurred_at, id) < ($4::timestamptz, $5::uuid)
   AND ($6::uuid IS NULL OR actor_identity_id = $6::uuid)
-  AND ($7::text IS NULL OR action = $7::text)
-  AND ($8::text IS NULL OR outcome = $8::text)
+  AND ($7::text IS NULL OR actor_type = $7::text)
+  AND ($8::text IS NULL OR action = $8::text)
+  AND ($9::text IS NULL OR outcome = $9::text)
 ORDER BY occurred_at DESC, id DESC
-LIMIT $9
+LIMIT $10
 `
 
 type ListTenantAuditEventsParams struct {
-	TenantID uuid.UUID
-	FromAt   time.Time
-	ToAt     time.Time
-	BeforeAt time.Time
-	BeforeID uuid.UUID
-	Actor    *uuid.UUID
-	Action   *string
-	Outcome  *string
-	RowLimit int32
+	TenantID  uuid.UUID
+	FromAt    time.Time
+	ToAt      time.Time
+	BeforeAt  time.Time
+	BeforeID  uuid.UUID
+	Actor     *uuid.UUID
+	ActorType *string
+	Action    *string
+	Outcome   *string
+	RowLimit  int32
 }
 
 // GET /tenants/{tenantId}/audit (P2-T08): sự kiện của một tenant, mới nhất trước, trang theo cursor (occurred_at, id)
@@ -376,6 +381,7 @@ func (q *Queries) ListTenantAuditEvents(ctx context.Context, arg ListTenantAudit
 		arg.BeforeAt,
 		arg.BeforeID,
 		arg.Actor,
+		arg.ActorType,
 		arg.Action,
 		arg.Outcome,
 		arg.RowLimit,

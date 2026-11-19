@@ -239,7 +239,7 @@ func (m *matrix) objectCases(op authz.Operation, a *actor, tenantCase string) []
 	switch kind {
 	case objDevice:
 		return []string{"eu-own", "eu-tagged", "other-member", "other-tenant", "missing"}
-	case objMembership, objJob, objApproval, objInvitation, objTag, objGroup, objPolicy, objDNSRecord, objResource:
+	case objMembership, objJob, objApproval, objInvitation, objTag, objGroup, objPolicy, objGrant, objDNSRecord, objResource:
 		if op.TenantScoped() {
 			return []string{"own", "other-tenant", "missing"}
 		}
@@ -355,6 +355,10 @@ func (m *matrix) place(t *testing.T, c *call) {
 		c.objectID = m.obj.invitation[owner.Name]
 	case kind == objTag:
 		c.objectID = m.obj.tag[owner.Name]
+	case kind == objGrant && c.op.TenantScoped():
+		c.objectID = m.obj.grant[owner.Name]
+	case kind == objGrant:
+		c.objectID = m.obj.platformGrant
 	case kind == objJob && c.op.TenantScoped():
 		c.objectID = m.obj.job[owner.Name]
 	case kind == objJob:
@@ -516,7 +520,9 @@ func (m *matrix) handlerAnswer(c *call, ownOnly bool) expectation {
 // send runs one call through the composed API.
 func (m *matrix) send(c *call) {
 	var body io.Reader
-	if c.recipe.body != "" {
+	if c.recipe.bodyOf != nil {
+		body = strings.NewReader(c.recipe.bodyOf(m, c))
+	} else if c.recipe.body != "" {
 		body = strings.NewReader(c.recipe.body)
 	}
 	r := c.session.Request(context.Background(), c.op.Method, c.path(), body)

@@ -52,4 +52,13 @@ export const PLATFORM_SCREENS: Readonly<Partial<Record<string, RouteObject[]>>> 
     { path: ":idpId", lazy: page(() => import("./idps/IdpPages"), "IdpDetailPage") },
     { path: "*", element: <NotFoundPage /> },
   ],
+  // P4-T13
+  "support-access": [
+    { index: true, lazy: page(() => import("./support/SupportGrantsPage"), "SupportGrantsPage") },
+    { path: "*", element: <NotFoundPage /> },
+  ],
+  audit: [
+    { index: true, lazy: page(() => import("./audit/PlatformAuditPage"), "PlatformAuditPage") },
+    { path: "*", element: <NotFoundPage /> },
+  ],
 };

@@ -27,6 +27,29 @@ JOIN roles r ON r.id = pu.role_id AND r.scope = pu.role_scope
 LEFT JOIN role_permissions rp ON rp.role_id = r.id AND rp.permission_key = sqlc.arg(permission_key)
 WHERE pu.identity_id = sqlc.arg(identity_id);
 
+-- name: GetSupportAccess :one
+-- internal/authz (P4-T13, §8.7): nhân sự nền tảng trên một route của tenant — platform user của identity, Support
+-- Access Grant ĐANG HIỆU LỰC của chính người đó vào tenant của path (approved ∧ starts_at ≤ now() < expires_at — cửa sổ
+-- kiểm ở đây, không chờ job grant.expire; thu hồi ⇒ status đổi ⇒ không khớp ở request kế tiếp) và grant của permission
+-- trên role hiệu lực (support_operator / support_admin). Pool platform (bảng T+P support_access_grants, platform_users,
+-- tenants). Nhiều grant cùng hiệu lực: grant có permission thắng, rồi grant hết hạn muộn nhất. Không có grant ⇒ không hàng.
+SELECT pu.id AS platform_user_id, pu.status AS platform_user_status,
+       i.status AS identity_status,
+       t.status AS tenant_status,
+       g.id AS grant_id,
+       r.id AS role_id, r.key AS role_key, r.rank AS role_rank,
+       rp.scope AS grant_scope, rp.condition AS grant_condition
+FROM platform_users pu
+JOIN identities i ON i.id = pu.identity_id AND i.scope = pu.identity_scope
+JOIN support_access_grants g ON g.grantee_platform_user_id = pu.id AND g.tenant_id = sqlc.arg(tenant_id)
+     AND g.status = 'approved' AND g.starts_at <= now() AND g.expires_at > now()
+JOIN tenants t ON t.id = g.tenant_id
+JOIN roles r ON r.scope = g.effective_role_scope AND r.key = g.effective_role_key
+LEFT JOIN role_permissions rp ON rp.role_id = r.id AND rp.permission_key = sqlc.arg(permission_key)
+WHERE pu.identity_id = sqlc.arg(identity_id)
+ORDER BY (rp.scope IS NOT NULL) DESC, g.expires_at DESC, g.id
+LIMIT 1;
+
 -- name: GetRoleByScopeKey :one
 SELECT * FROM roles
 WHERE scope = sqlc.arg(scope) AND key = sqlc.arg(key);

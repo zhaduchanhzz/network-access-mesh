@@ -105,6 +105,67 @@ func (q *Queries) GetRoleByScopeKey(ctx context.Context, arg GetRoleByScopeKeyPa
 	return i, err
 }
 
+const getSupportAccess = `-- name: GetSupportAccess :one
+SELECT pu.id AS platform_user_id, pu.status AS platform_user_status,
+       i.status AS identity_status,
+       t.status AS tenant_status,
+       g.id AS grant_id,
+       r.id AS role_id, r.key AS role_key, r.rank AS role_rank,
+       rp.scope AS grant_scope, rp.condition AS grant_condition
+FROM platform_users pu
+JOIN identities i ON i.id = pu.identity_id AND i.scope = pu.identity_scope
+JOIN support_access_grants g ON g.grantee_platform_user_id = pu.id AND g.tenant_id = $1
+     AND g.status = 'approved' AND g.starts_at <= now() AND g.expires_at > now()
+JOIN tenants t ON t.id = g.tenant_id
+JOIN roles r ON r.scope = g.effective_role_scope AND r.key = g.effective_role_key
+LEFT JOIN role_permissions rp ON rp.role_id = r.id AND rp.permission_key = $2
+WHERE pu.identity_id = $3
+ORDER BY (rp.scope IS NOT NULL) DESC, g.expires_at DESC, g.id
+LIMIT 1
+`
+
+type GetSupportAccessParams struct {
+	TenantID      uuid.UUID
+	PermissionKey string
+	IdentityID    uuid.UUID
+}
+
+type GetSupportAccessRow struct {
+	PlatformUserID     uuid.UUID
+	PlatformUserStatus string
+	IdentityStatus     string
+	TenantStatus       string
+	GrantID            uuid.UUID
+	RoleID             uuid.UUID
+	RoleKey            string
+	RoleRank           int16
+	GrantScope         *string
+	GrantCondition     *string
+}
+
+// internal/authz (P4-T13, §8.7): nhân sự nền tảng trên một route của tenant — platform user của identity, Support
+// Access Grant ĐANG HIỆU LỰC của chính người đó vào tenant của path (approved ∧ starts_at ≤ now() < expires_at — cửa sổ
+// kiểm ở đây, không chờ job grant.expire; thu hồi ⇒ status đổi ⇒ không khớp ở request kế tiếp) và grant của permission
+// trên role hiệu lực (support_operator / support_admin). Pool platform (bảng T+P support_access_grants, platform_users,
+// tenants). Nhiều grant cùng hiệu lực: grant có permission thắng, rồi grant hết hạn muộn nhất. Không có grant ⇒ không hàng.
+func (q *Queries) GetSupportAccess(ctx context.Context, arg GetSupportAccessParams) (GetSupportAccessRow, error) {
+	row := q.db.QueryRow(ctx, getSupportAccess, arg.TenantID, arg.PermissionKey, arg.IdentityID)
+	var i GetSupportAccessRow
+	err := row.Scan(
+		&i.PlatformUserID,
+		&i.PlatformUserStatus,
+		&i.IdentityStatus,
+		&i.TenantStatus,
+		&i.GrantID,
+		&i.RoleID,
+		&i.RoleKey,
+		&i.RoleRank,
+		&i.GrantScope,
+		&i.GrantCondition,
+	)
+	return i, err
+}
+
 const getTenantAccess = `-- name: GetTenantAccess :one
 SELECT t.status AS tenant_status,
        m.id AS membership_id, m.status AS membership_status,
