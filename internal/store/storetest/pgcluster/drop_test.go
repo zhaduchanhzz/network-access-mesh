@@ -96,6 +96,10 @@ func TestDropDatabases(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = busy.Close(context.Background()) }()
+	// The default 2-minute budget is for the harness cleanup (leftovers there are harmless). This test checks that every
+	// database goes, so it gives the drops room: under `go test ./...` every package's harness hits the cluster at once
+	// and a single DROP can wait minutes on a checkpoint (seen: 8/9 dropped in 2m on VM 105).
+	t.Setenv("MG_TEST_PG_CLEANUP_TIMEOUT", "10m")
 	if left := DropDatabases("test", raw, names); len(left) != 0 {
 		t.Fatalf("left %v; report: %s", left, out)
 	}
@@ -155,6 +159,7 @@ func TestDropDatabasesBounded(t *testing.T) {
 			t.Error("the report holds the superuser password")
 		}
 	}
+	t.Setenv("MG_TEST_PG_CLEANUP_TIMEOUT", "10m") // the bound was checked above; now every database must go
 	if left := DropDatabases("test", raw, left); len(left) != 0 { // once released, they go
 		t.Errorf("second drop left %v", left)
 	}
