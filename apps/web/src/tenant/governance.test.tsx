@@ -201,7 +201,7 @@ describe("settings", () => {
     renderApp({ path: `/t/${TENANT_A}/settings` });
     await user.click(await screen.findByLabelText("Báo Owner và Admin khi có thiết bị mới"));
     await user.click(screen.getByRole("button", { name: "Lưu" }));
-    await waitFor(() => expect(requests.some((r) => r.method === "PATCH")).toBe(true));
+    expect(await screen.findByText("Đã lưu.")).toBeInTheDocument();
     const patch = requests.find((r) => r.method === "PATCH")!;
     expect(patch.headers.get("If-Match")).toBe('"s1"');
     expect(await patch.json()).toEqual({ notifications: { new_device: false, policy_applied: true }, enrollment: { preauth_key_ttl_max: "" } });

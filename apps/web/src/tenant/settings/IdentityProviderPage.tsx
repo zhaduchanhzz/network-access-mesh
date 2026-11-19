@@ -45,6 +45,8 @@ function stringMap(v: Record<string, unknown> | null): Record<string, string> | 
 export function IdentityProviderPage() {
   const { t } = useTranslation();
   const { tenantId } = useTenant();
+  // lưu xong ⇒ ETag mới ⇒ form dựng lại từ bản đã lưu: thông báo "đã lưu" nằm ngoài form
+  const [saved, setSaved] = useState(false);
   const q = useQuery({
     queryKey: queryKeys.tenant(tenantId, "identity-provider"),
     queryFn: () => callWithETag(api.GET("/tenants/{tenantId}/identity-provider", { params: { path: { tenantId } } })),
@@ -56,7 +58,8 @@ export function IdentityProviderPage() {
         {(v) => (
           <div className="space-y-6">
             <IdPSummary idp={v.data} />
-            <IdPForm key={v.etag ?? ""} idp={v.data} etag={v.etag} />
+            {saved ? <p role="status">{t("idp.saved")}</p> : null}
+            <IdPForm key={v.etag ?? ""} idp={v.data} etag={v.etag} onSaved={setSaved} />
           </div>
         )}
       </QueryBlock>
@@ -92,7 +95,7 @@ function IdPSummary({ idp }: { idp: IdentityProvider }) {
   );
 }
 
-function IdPForm({ idp, etag }: { idp: IdentityProvider; etag: string | null }) {
+function IdPForm({ idp, etag, onSaved }: { idp: IdentityProvider; etag: string | null; onSaved: (saved: boolean) => void }) {
   const { t } = useTranslation();
   const { tenantId, role, readOnly } = useTenant();
   const queryClient = useQueryClient();
@@ -118,8 +121,12 @@ function IdPForm({ idp, etag }: { idp: IdentityProvider; etag: string | null }) 
         api.PATCH("/tenants/{tenantId}/identity-provider", { params: { path: { tenantId }, header: ifMatch(etag) }, body }),
       );
     },
+    onMutate: () => {
+      onSaved(false);
+    },
     onSuccess: (v) => {
       setSecret("");
+      onSaved(true);
       queryClient.setQueryData(queryKeys.tenant(tenantId, "identity-provider"), v);
     },
     onError: (e) => {
@@ -186,7 +193,6 @@ function IdPForm({ idp, etag }: { idp: IdentityProvider; etag: string | null }) 
           ) : null}
         </fieldset>
         {save.isError ? <ProblemAlert error={save.error} /> : null}
-        {save.isSuccess ? <p role="status">{t("idp.saved")}</p> : null}
         <p className="hint">{t("idp.stepUpNote")}</p>
         <button type="submit" className="btn-primary" disabled={invalid || save.isPending}>
           {save.isPending ? t("common.working") : t("idp.save")}

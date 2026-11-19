@@ -34,6 +34,8 @@ export function settingsKey(tenantId: string) {
 export function SettingsPage() {
   const { t } = useTranslation();
   const { tenantId } = useTenant();
+  // lưu xong ⇒ ETag mới ⇒ hai form dựng lại từ bản đã lưu: thông báo "đã lưu" nằm ngoài form
+  const [saved, setSaved] = useState(false);
   const q = useQuery({
     queryKey: settingsKey(tenantId),
     queryFn: () => callWithETag(api.GET("/tenants/{tenantId}/settings", { params: { path: { tenantId } } })),
@@ -44,8 +46,9 @@ export function SettingsPage() {
       <QueryBlock query={q}>
         {(v) => (
           <div className="space-y-6">
-            <GeneralSection key={`g${v.etag ?? ""}`} settings={v.data.settings} etag={v.etag} />
-            <SecuritySection key={`s${v.etag ?? ""}`} settings={v.data.settings} etag={v.etag} />
+            {saved ? <p role="status">{t("settings.saved")}</p> : null}
+            <GeneralSection key={`g${v.etag ?? ""}`} settings={v.data.settings} etag={v.etag} onSaved={setSaved} />
+            <SecuritySection key={`s${v.etag ?? ""}`} settings={v.data.settings} etag={v.etag} onSaved={setSaved} />
           </div>
         )}
       </QueryBlock>
@@ -61,7 +64,7 @@ function useStaleReload() {
   };
 }
 
-function GeneralSection({ settings: s, etag }: { settings: TenantSettings; etag: string | null }) {
+function GeneralSection({ settings: s, etag, onSaved }: { settings: TenantSettings; etag: string | null; onSaved: (saved: boolean) => void }) {
   const { t } = useTranslation();
   const { tenantId, role, readOnly } = useTenant();
   const queryClient = useQueryClient();
@@ -82,7 +85,11 @@ function GeneralSection({ settings: s, etag }: { settings: TenantSettings; etag:
           },
         }),
       ),
+    onMutate: () => {
+      onSaved(false);
+    },
     onSuccess: (v) => {
+      onSaved(true);
       queryClient.setQueryData(settingsKey(tenantId), v);
     },
     onError: reloadIfStale,
@@ -116,7 +123,6 @@ function GeneralSection({ settings: s, etag }: { settings: TenantSettings; etag:
           </div>
         </fieldset>
         {save.isError ? <ProblemAlert error={save.error} /> : null}
-        {save.isSuccess ? <p role="status">{t("settings.saved")}</p> : null}
         {editable ? (
           <button type="submit" className="btn-primary" disabled={ttlBad || save.isPending}>
             {save.isPending ? t("common.working") : t("settings.save")}
@@ -129,7 +135,7 @@ function GeneralSection({ settings: s, etag }: { settings: TenantSettings; etag:
   );
 }
 
-function SecuritySection({ settings: s, etag }: { settings: TenantSettings; etag: string | null }) {
+function SecuritySection({ settings: s, etag, onSaved }: { settings: TenantSettings; etag: string | null; onSaved: (saved: boolean) => void }) {
   const { t } = useTranslation();
   const { tenantId, role, readOnly } = useTenant();
   const queryClient = useQueryClient();
@@ -164,12 +170,16 @@ function SecuritySection({ settings: s, etag }: { settings: TenantSettings; etag
         ? { kind: "approval" as const, approval: r.data as ApprovalRequest }
         : { kind: "saved" as const, etag: r.response.headers.get("ETag"), data: r.data as components["schemas"]["TenantSettingsView"] };
     },
+    onMutate: () => {
+      onSaved(false);
+    },
     onSuccess: async (res) => {
       if (res.kind === "approval") {
         setApproval(res.approval);
         await queryClient.invalidateQueries({ queryKey: queryKeys.tenant(tenantId, "approvals") });
         return;
       }
+      onSaved(true);
       queryClient.setQueryData(settingsKey(tenantId), { data: res.data, etag: res.etag });
     },
     onError: reloadIfStale,
@@ -277,7 +287,6 @@ function SecuritySection({ settings: s, etag }: { settings: TenantSettings; etag
           </div>
         </fieldset>
         {save.isError ? <ProblemAlert error={save.error} /> : null}
-        {save.isSuccess && save.data.kind === "saved" ? <p role="status">{t("settings.saved")}</p> : null}
         {editable ? (
           <>
             <p className="hint">{t("settings.stepUpNote")}</p>
