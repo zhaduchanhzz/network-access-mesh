@@ -2,7 +2,9 @@
 // `QuotaChecker`). P3-T06a builds the minimal QuotaChecker: the platform-wide tenant cap (system_settings
 // quota.max_tenants, 0012) used at step 1 `validate` / step 2 `registry.create` of tenant.provision (§11.3), and the
 // device allowance of the tenant's plan (PlanLimits.max_devices of the live subscription ⊕ its override, §13.3) used by
-// enrollment (§7.4 step 3 — P4-T06 wires the API). Usage records and GET …/usage|billing arrive with P6-T11.
+// enrollment (§7.4 step 3 — EnrollmentTx, P4-T06: devices of the inventory plus unfinished enrollment requests within
+// max_devices, live enrollment credentials within max_live_enrollment_credentials). Usage records and GET …/usage|billing
+// arrive with P6-T11.
 //
 // tenants declares the QuotaChecker interface and the typed result (tenants.QuotaStatus, tenants.QuotaExceededError —
 // errors.Is(err, tenants.ErrQuotaExceeded) ⇒ 403 quota_exceeded, §13.1); this package implements it (§13.6: usage may

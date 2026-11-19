@@ -41,3 +41,18 @@ FOR UPDATE OF s;
 SELECT count(*) FROM device_inventory_cache d
 JOIN tenant_instances i ON i.tenant_id = d.tenant_id AND i.id = d.instance_id
 WHERE d.tenant_id = sqlc.arg(tenant_id) AND d.removed_at IS NULL AND i.status <> 'removed';
+
+-- name: CountOpenEnrollmentRequests :one
+-- Yêu cầu enrollment chưa kết thúc của tenant (§7.4 bước 3: quota thiết bị = sổ thiết bị CỘNG yêu cầu còn có thể sinh
+-- thiết bị) — đếm dưới khóa hàng subscription của người gọi (LockTenantSubscriptionLimits).
+SELECT count(*) FROM enrollment_requests
+WHERE tenant_id = sqlc.arg(tenant_id)
+  AND status IN ('requested', 'pending_approval', 'approved', 'awaiting_device', 'claimed', 'registered',
+                 'credential_issued');
+
+-- name: CountLiveEnrollmentCredentials :one
+-- Credential enrollment còn hạn (PlanLimits.max_live_enrollment_credentials): mã/lệnh web-auth và pre-auth key đã phát
+-- chưa dùng, cộng key reusable đã dùng nhưng còn hạn.
+SELECT count(*) FROM enrollment_requests
+WHERE tenant_id = sqlc.arg(tenant_id) AND credential_expires_at > now()
+  AND (status IN ('awaiting_device', 'claimed', 'credential_issued') OR (status = 'consumed' AND reusable));

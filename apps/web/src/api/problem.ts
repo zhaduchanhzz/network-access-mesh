@@ -26,6 +26,7 @@ const PROBLEM_CODES = [
   "maintenance",
   "internal_error",
   "not_implemented",
+  "secret_no_longer_available",
 ] as const satisfies readonly ProblemCode[];
 type MissingCode = Exclude<ProblemCode, (typeof PROBLEM_CODES)[number]>;
 type Assert<T extends true> = T;

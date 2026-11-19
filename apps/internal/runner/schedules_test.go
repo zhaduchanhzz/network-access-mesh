@@ -16,10 +16,11 @@ import (
 )
 
 // TestWorkerSchedules (P3-T17): workerSchedules holds every periodic schedule of the worker process — the four of
-// Phase 2/3, relay.probe (P3-T05c) and, with a Host Agent and a manifest key, instance.backup (P3-T11). A schedule
+// Phase 2/3, relay.probe (P3-T05c), enrollment.reconcile (P4-T06) and, with a Host Agent and a manifest key,
+// instance.backup (P3-T11). A schedule
 // added to the worker without being listed here fails this test (or TestSchedulesOnlyInWorkControl).
 func TestWorkerSchedules(t *testing.T) {
-	base := []string{"apikey.rotate", "health.probe", "inventory.sync", "reconcile", "relay.probe", "policy.drift"}
+	base := []string{"apikey.rotate", "enrollment.reconcile", "health.probe", "inventory.sync", "reconcile", "relay.probe", "policy.drift"}
 	for _, tc := range []struct {
 		name string
 		s    schedulers

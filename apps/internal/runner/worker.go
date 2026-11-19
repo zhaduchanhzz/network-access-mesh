@@ -15,6 +15,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/audit"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/config"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/devices"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/enrollment"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/headscale"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/identity"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/idp"
@@ -187,6 +188,14 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 		return nil, err
 	}
 	alerts.add(mem)
+	// P4-T06: enrollment.reconcile (expiries, used keys, unfinished claims; its schedule is in workerSchedules)
+	enr, err := newEnrollment(d, false)
+	if err != nil {
+		return nil, err
+	}
+	if err := enr.Register(w); err != nil {
+		return nil, err
+	}
 	dep, shred, err := newDeprovision(cfg, d, agent, bk, drivers) // P3-T09: tenant.deprovision + tenant.keys_destroy
 	if err != nil {
 		return nil, err
@@ -276,7 +285,7 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 	}
 	ctl := &workControl{gate: gate, w: w, log: log, check: 2 * time.Second, stopWait: stopTimeout - 5*time.Second,
 		schedules: workerSchedules(schedulers{devices: dev, monitor: mon, reconcile: rec, keys: keys, relays: relays,
-			backups: bk, backupsOn: backupsEnabled(cfg, agent), policies: pol})}
+			backups: bk, backupsOn: backupsEnabled(cfg, agent), policies: pol, enrollment: enr})}
 	var bg []*background
 	c := &component{probes: d.probes(), close: d.close}
 	c.start = func(ctx context.Context) error {
@@ -303,14 +312,15 @@ func buildWorker(ctx context.Context, cfg config.Config, log *slog.Logger, reg p
 
 // schedulers are the services of the worker process that run a periodic schedule.
 type schedulers struct {
-	devices   *devices.Service
-	monitor   *monitoring.Service
-	reconcile *reconcile.Service
-	keys      *apikey.Service
-	relays    *relay.Service // nil without a prober (MG_PROBER_URL): relay.probe then runs nothing
-	backups   *backup.Service
-	backupsOn bool              // backupsEnabled: a Host Agent and a manifest key
-	policies  *policies.Service // policy.drift_check (P4-T10)
+	devices    *devices.Service
+	monitor    *monitoring.Service
+	reconcile  *reconcile.Service
+	keys       *apikey.Service
+	relays     *relay.Service // nil without a prober (MG_PROBER_URL): relay.probe then runs nothing
+	backups    *backup.Service
+	backupsOn  bool                // backupsEnabled: a Host Agent and a manifest key
+	policies   *policies.Service   // policy.drift_check (P4-T10)
+	enrollment *enrollment.Service // P4-T06: enrollment.reconcile for tenants with open requests
 }
 
 // workerSchedules is the ONLY place where a periodic schedule of the worker process is built (P3-T17): the map goes to
@@ -319,12 +329,13 @@ type schedulers struct {
 // anywhere else; the periodic jobs of jobs.Worker (RegisterPeriodic: session.gc, idp.audit_sync, …) stop with it.
 func workerSchedules(s schedulers) map[string]func(context.Context) error {
 	m := map[string]func(context.Context) error{
-		"inventory.sync": s.devices.NewScheduler(devices.SchedulerConfig{}).Run,
-		"health.probe":   s.monitor.NewScheduler(monitoring.SchedulerConfig{}).Run,
-		"reconcile":      s.reconcile.NewScheduler(reconcile.SchedulerConfig{}).Run,
-		"apikey.rotate":  s.keys.NewScheduler(apikey.SchedulerConfig{}).Run,
-		"relay.probe":    relaySchedule(s.relays),
-		"policy.drift":   s.policies.NewScheduler(policies.DriftSchedulerConfig{}).Run, // P4-T10
+		"inventory.sync":       s.devices.NewScheduler(devices.SchedulerConfig{}).Run,
+		"health.probe":         s.monitor.NewScheduler(monitoring.SchedulerConfig{}).Run,
+		"reconcile":            s.reconcile.NewScheduler(reconcile.SchedulerConfig{}).Run,
+		"apikey.rotate":        s.keys.NewScheduler(apikey.SchedulerConfig{}).Run,
+		"relay.probe":          relaySchedule(s.relays),
+		"policy.drift":         s.policies.NewScheduler(policies.DriftSchedulerConfig{}).Run, // P4-T10
+		"enrollment.reconcile": s.enrollment.NewScheduler(enrollment.SchedulerConfig{}).Run,
 	}
 	if s.backupsOn {
 		m["instance.backup"] = s.backups.NewScheduler(0).Run // P3-T11

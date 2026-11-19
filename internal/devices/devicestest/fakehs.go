@@ -88,6 +88,10 @@ type Fake struct {
 	// policyTags: the tags the instance's current policy declares (tagOwners); nil accepts any well-formed tag. SetTags
 	// with a tag outside it is refused like 0.29.7 (400 code 3 "requested tags […] are invalid or not permitted").
 	policyTags map[string]bool
+	// P4-T06: pending web-auth registrations (Auth ID → node AuthRegister creates), the next ids, the full keys issued
+	pending  map[string]Node
+	nextID   uint64
+	fullKeys map[uint64]string
 }
 
 // Operation names used by Refuse, Ignore and Calls.
@@ -104,6 +108,10 @@ const (
 	OpExpirePreAuthKey  = "ExpirePreAuthKey"
 	OpHealth            = "Health"
 	OpVersion           = "Version"
+	// P4-T06
+	OpCreateUser       = "CreateUser"
+	OpCreatePreAuthKey = "CreatePreAuthKey"
+	OpAuthRegister     = "AuthRegister"
 )
 
 // New starts a fake instance for slug, closed when the test ends. Its credentials are generated per test.
@@ -113,7 +121,8 @@ func New(t testing.TB, slug string) *Fake {
 		APIKey: "hskey-" + "api-" + "fakeprefix12" + "-" + strings.ReplaceAll(uuid.NewString(), "-", ""),
 		nodes:  map[uint64]*Node{}, users: map[uint64]string{}, keys: map[uint64]*Key{}, calls: map[string]int{}, refuse: map[string]bool{},
 		ignore: map[string]bool{}, now: time.Now, version: "v0.29.7",
-		before: map[string]func(uint64){}, after: map[string]func(uint64){}, expiries: map[uint64][]time.Time{}}
+		before: map[string]func(uint64){}, after: map[string]func(uint64){}, expiries: map[uint64][]time.Time{},
+		pending: map[string]Node{}, nextID: 1000, fullKeys: map[uint64]string{}}
 	f.Server = httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(f.Server.Close)
 	return f
@@ -180,6 +189,69 @@ func (f *Fake) Key(id uint64) Key {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return *f.keys[id]
+}
+
+// PutPending registers a pending web-auth registration (a client ran `tailscale up` and got /register/<authID>):
+// AuthRegister(user, authID) creates n under that user — n.ID 0 takes the next id; n.CreatedAt zero = now. A node of
+// the same user with the same machine key is re-authenticated instead (V-28): the existing node is answered.
+func (f *Fake) PutPending(authID string, n Node) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.pending[authID] = n
+}
+
+// UseKey registers a node with pre-auth key id as a client would: the key becomes used, the node owned by the key's
+// user (or by its tags), register method authkey. It returns the node.
+func (f *Fake) UseKey(id uint64, n Node) Node {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	k := f.keys[id]
+	k.Used = true
+	if n.ID == 0 {
+		f.nextID++
+		n.ID = f.nextID
+	}
+	n.PreAuthKey, n.Method, n.UserID, n.UserName = id, "authkey", k.UserID, k.UserName
+	if len(k.Tags) > 0 {
+		n.Tags = slices.Clone(k.Tags)
+	}
+	if n.CreatedAt.IsZero() {
+		n.CreatedAt = f.now()
+	}
+	c := n
+	f.nodes[n.ID] = &c
+	return n
+}
+
+// FullKey returns the full secret of a key the fake issued (CreatePreAuthKey), "" for others.
+func (f *Fake) FullKey(id uint64) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.fullKeys[id]
+}
+
+// Keys returns copies of every pre-auth key.
+func (f *Fake) Keys() []Key {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]Key, 0, len(f.keys))
+	for _, k := range f.keys {
+		out = append(out, *k)
+	}
+	slices.SortFunc(out, func(a, b Key) int { return int(a.ID) - int(b.ID) }) //nolint:gosec // small ids
+	return out
+}
+
+// Nodes returns copies of every node.
+func (f *Fake) Nodes() []Node {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]Node, 0, len(f.nodes))
+	for _, n := range f.nodes {
+		out = append(out, *n)
+	}
+	slices.SortFunc(out, func(a, b Node) int { return int(a.ID) - int(b.ID) }) //nolint:gosec // small ids
+	return out
 }
 
 // SetDown makes every call fail as when the instance is stopped (the edge answers 502).
@@ -481,6 +553,93 @@ func (f *Fake) answer(w http.ResponseWriter, r *http.Request, body []byte) {
 		}
 		k.Expiration = f.now().Add(-time.Second)
 		writeJSON(w, map[string]any{})
+	case OpCreateUser:
+		var in struct {
+			Name        string `json:"name"`
+			DisplayName string `json:"displayName"`
+		}
+		_ = json.Unmarshal(body, &in)
+		for _, name := range f.users {
+			if name == in.Name {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = w.Write([]byte(gw(6, "user already exists")))
+				return
+			}
+		}
+		f.nextID++
+		f.users[f.nextID] = in.Name
+		writeJSON(w, map[string]any{"user": map[string]any{"id": strconv.FormatUint(f.nextID, 10), "name": in.Name,
+			"displayName": in.DisplayName, "createdAt": f.now().UTC().Format(time.RFC3339Nano)}})
+	case OpCreatePreAuthKey:
+		var in struct {
+			User       string   `json:"user"`
+			Reusable   bool     `json:"reusable"`
+			Ephemeral  bool     `json:"ephemeral"`
+			Expiration string   `json:"expiration"`
+			ACLTags    []string `json:"aclTags"`
+		}
+		_ = json.Unmarshal(body, &in)
+		exp, err := time.Parse(time.RFC3339Nano, in.Expiration)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(gw(3, "invalid expiration")))
+			return
+		}
+		uid, _ := strconv.ParseUint(in.User, 10, 64)
+		f.nextID++
+		k := &Key{ID: f.nextID, UserID: uid, UserName: f.users[uid], Reusable: in.Reusable, Expiration: exp,
+			Tags: slices.Clone(in.ACLTags)}
+		f.keys[k.ID] = k
+		full := "hskey-" + "auth-" + strings.ReplaceAll(uuid.NewString(), "-", "")[:12] + "-" + strings.ReplaceAll(uuid.NewString(), "-", "")
+		f.fullKeys[k.ID] = full
+		m := k.wire()
+		m["key"], m["ephemeral"] = full, in.Ephemeral
+		writeJSON(w, map[string]any{"preAuthKey": m})
+	case OpAuthRegister:
+		var in struct {
+			User   string `json:"user"`
+			AuthID string `json:"authId"`
+		}
+		_ = json.Unmarshal(body, &in)
+		n, ok := f.pending[in.AuthID]
+		if !ok {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(gw(3, "auth ID not pending")))
+			return
+		}
+		delete(f.pending, in.AuthID)
+		var uid uint64
+		for id, name := range f.users {
+			if name == in.User {
+				uid = id
+			}
+		}
+		for _, x := range f.nodes { // re-authentication of the user's own node (V-28)
+			if x.MachineKey == n.MachineKey && x.UserName == in.User && len(x.Tags) == 0 {
+				writeJSON(w, map[string]any{"node": x.wire(false)})
+				return
+			}
+		}
+		if n.ID == 0 {
+			f.nextID++
+			n.ID = f.nextID
+		}
+		if n.CreatedAt.IsZero() {
+			n.CreatedAt = f.now()
+		}
+		if n.Method == "" {
+			n.Method = "cli"
+		}
+		n.UserID, n.UserName = uid, in.User
+		if n.GivenName == "" {
+			n.GivenName = n.Hostname
+		}
+		c := n
+		f.nodes[n.ID] = &c
+		writeJSON(w, map[string]any{"node": c.wire(false)})
 	default:
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
@@ -502,6 +661,12 @@ func route(r *http.Request) (op string, id uint64, rest string) {
 		return OpListPreAuthKeys, 0, ""
 	case r.Method == http.MethodPost && p == "preauthkey/expire":
 		return OpExpirePreAuthKey, 0, ""
+	case r.Method == http.MethodPost && p == "user":
+		return OpCreateUser, 0, ""
+	case r.Method == http.MethodPost && p == "preauthkey":
+		return OpCreatePreAuthKey, 0, ""
+	case r.Method == http.MethodPost && p == "auth/register":
+		return OpAuthRegister, 0, ""
 	case strings.HasPrefix(p, "node/"):
 		parts := strings.SplitN(strings.TrimPrefix(p, "node/"), "/", 3)
 		n, _ := strconv.ParseUint(parts[0], 10, 64)

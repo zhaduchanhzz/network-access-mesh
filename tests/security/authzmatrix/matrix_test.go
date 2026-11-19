@@ -239,6 +239,8 @@ func (m *matrix) objectCases(op authz.Operation, a *actor, tenantCase string) []
 	switch kind {
 	case objDevice:
 		return []string{"eu-own", "eu-tagged", "other-member", "other-tenant", "missing"}
+	case objEnrollment:
+		return []string{"eu-own", "other-member", "other-tenant", "missing"}
 	case objMembership, objJob, objApproval, objInvitation, objTag, objGroup, objPolicy, objGrant, objDNSRecord, objResource:
 		if op.TenantScoped() {
 			return []string{"own", "other-tenant", "missing"}
@@ -261,7 +263,7 @@ func (m *matrix) objectCases(op authz.Operation, a *actor, tenantCase string) []
 
 func firstCase(k objectKind) string {
 	switch k {
-	case objDevice:
+	case objDevice, objEnrollment:
 		return "eu-own"
 	case objSession:
 		return "missing"
@@ -341,6 +343,10 @@ func (m *matrix) place(t *testing.T, c *call) {
 		c.objectID = m.Actor(t, authz.RoleTenantViewer, owner).MembershipID
 	case kind == objGroup:
 		c.objectID = m.obj.group[owner.Name]
+	case kind == objEnrollment:
+		c.objectID = map[string]map[string]uuid.UUID{
+			"eu-own": m.obj.enrEU, "other-member": m.obj.enrOther, "other-tenant": m.obj.enrEU, "as-path": m.obj.enrEU,
+		}[c.objectCase][owner.Name]
 	case kind == objPolicy:
 		c.objectID = m.obj.policy[owner.Name]
 	case kind == objDNSRecord:

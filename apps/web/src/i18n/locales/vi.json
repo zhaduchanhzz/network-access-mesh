@@ -172,6 +172,7 @@
     "maintenance": "Nền tảng đang bảo trì.",
     "internal_error": "Lỗi nội bộ của máy chủ.",
     "not_implemented": "Chức năng này chưa được hiện thực ở máy chủ.",
+    "secret_no_longer_available": "Không thể hiển thị lại thông tin đăng ký này: hãy thu hồi yêu cầu rồi tạo yêu cầu mới.",
     "network_error": "Không kết nối được tới máy chủ.",
     "unexpected_response": "Máy chủ trả lời không như mong đợi."
   },

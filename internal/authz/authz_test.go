@@ -437,6 +437,27 @@ func TestOperationConditions(t *testing.T) {
 			t.Errorf("%s without x-conditions: granted — want condition_not_enforced", id)
 		}
 	}
+	// P4-T06: the End User's tenant.enrollment:request "nếu tenant cho phép self-enroll" (self_enroll) — granted with
+	// the condition on the three operations that declare it (internal/enrollment checks TenantSettings.enrollment.self_enroll)
+	selfEnroll := []string{"createEnrollmentRequest", "startEnrollmentRequest", "claimEnrollmentWebAuth"}
+	for _, id := range selfEnroll {
+		op, ok := OperationByID(id)
+		if !ok || !slices.Equal(op.Requirement().Conditions, []string{CondSelfEnroll}) {
+			t.Fatalf("%s: conditions %v (found %v)", id, op.Conditions, ok)
+		}
+		pt := Principal{IdentityID: uuid.New(), Scope: ScopeTenant, Origin: OriginApp}
+		eu := &access{tenantStatus: "active", subjectID: uuid.New(), subjectStatus: StatusActive, identityStatus: StatusActive,
+			roleKey: RoleEndUser, roleRank: 0, grantScope: GrantAny, grantCondition: CondSelfEnroll}
+		if d, err := decideTenant(pt, uuid.New(), op.Requirement(), eu); err != nil || d.Condition != CondSelfEnroll {
+			t.Errorf("%s: decision %+v, %v — want a grant carrying self_enroll", id, d, err)
+		}
+		req := op.Requirement()
+		req.Conditions = nil
+		if _, err := decideTenant(pt, uuid.New(), req, eu); err == nil {
+			t.Errorf("%s without x-conditions: granted — want condition_not_enforced", id)
+		}
+		conditional[id] = CondSelfEnroll
+	}
 	for _, o := range Operations() {
 		_, known := conditional[o.ID]
 		if len(o.Conditions) > 0 && o.ID != "approvePlatformApproval" && o.ID != "rejectPlatformApproval" && !known {

@@ -232,6 +232,138 @@ func (e DnsRecordType) Valid() bool {
 	}
 }
 
+// Defines values for EnrollmentCredentialKind.
+const (
+	EnrollmentCredentialKindEnrollCode EnrollmentCredentialKind = "enroll_code"
+	EnrollmentCredentialKindPreauthKey EnrollmentCredentialKind = "preauth_key"
+)
+
+// Valid indicates whether the value is a known member of the EnrollmentCredentialKind enum.
+func (e EnrollmentCredentialKind) Valid() bool {
+	switch e {
+	case EnrollmentCredentialKindEnrollCode:
+		return true
+	case EnrollmentCredentialKindPreauthKey:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for EnrollmentMethod.
+const (
+	EnrollmentMethodOidc       EnrollmentMethod = "oidc"
+	EnrollmentMethodPreauthKey EnrollmentMethod = "preauth_key"
+	EnrollmentMethodWebAuth    EnrollmentMethod = "web_auth"
+)
+
+// Valid indicates whether the value is a known member of the EnrollmentMethod enum.
+func (e EnrollmentMethod) Valid() bool {
+	switch e {
+	case EnrollmentMethodOidc:
+		return true
+	case EnrollmentMethodPreauthKey:
+		return true
+	case EnrollmentMethodWebAuth:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for EnrollmentOS.
+const (
+	EnrollmentOSAndroid EnrollmentOS = "android"
+	EnrollmentOSIos     EnrollmentOS = "ios"
+	EnrollmentOSLinux   EnrollmentOS = "linux"
+	EnrollmentOSMacos   EnrollmentOS = "macos"
+	EnrollmentOSWindows EnrollmentOS = "windows"
+)
+
+// Valid indicates whether the value is a known member of the EnrollmentOS enum.
+func (e EnrollmentOS) Valid() bool {
+	switch e {
+	case EnrollmentOSAndroid:
+		return true
+	case EnrollmentOSIos:
+		return true
+	case EnrollmentOSLinux:
+		return true
+	case EnrollmentOSMacos:
+		return true
+	case EnrollmentOSWindows:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for EnrollmentRequestCreateMethod.
+const (
+	EnrollmentRequestCreateMethodPreauthKey EnrollmentRequestCreateMethod = "preauth_key"
+	EnrollmentRequestCreateMethodWebAuth    EnrollmentRequestCreateMethod = "web_auth"
+)
+
+// Valid indicates whether the value is a known member of the EnrollmentRequestCreateMethod enum.
+func (e EnrollmentRequestCreateMethod) Valid() bool {
+	switch e {
+	case EnrollmentRequestCreateMethodPreauthKey:
+		return true
+	case EnrollmentRequestCreateMethodWebAuth:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for EnrollmentRequestStatus.
+const (
+	EnrollmentRequestStatusApproved        EnrollmentRequestStatus = "approved"
+	EnrollmentRequestStatusClaimed         EnrollmentRequestStatus = "claimed"
+	EnrollmentRequestStatusConsumed        EnrollmentRequestStatus = "consumed"
+	EnrollmentRequestStatusExpired         EnrollmentRequestStatus = "expired"
+	EnrollmentRequestStatusFailed          EnrollmentRequestStatus = "failed"
+	EnrollmentRequestStatusIssued          EnrollmentRequestStatus = "issued"
+	EnrollmentRequestStatusPendingApproval EnrollmentRequestStatus = "pending_approval"
+	EnrollmentRequestStatusRegistered      EnrollmentRequestStatus = "registered"
+	EnrollmentRequestStatusRejected        EnrollmentRequestStatus = "rejected"
+	EnrollmentRequestStatusRequested       EnrollmentRequestStatus = "requested"
+	EnrollmentRequestStatusRevoked         EnrollmentRequestStatus = "revoked"
+	EnrollmentRequestStatusVerified        EnrollmentRequestStatus = "verified"
+)
+
+// Valid indicates whether the value is a known member of the EnrollmentRequestStatus enum.
+func (e EnrollmentRequestStatus) Valid() bool {
+	switch e {
+	case EnrollmentRequestStatusApproved:
+		return true
+	case EnrollmentRequestStatusClaimed:
+		return true
+	case EnrollmentRequestStatusConsumed:
+		return true
+	case EnrollmentRequestStatusExpired:
+		return true
+	case EnrollmentRequestStatusFailed:
+		return true
+	case EnrollmentRequestStatusIssued:
+		return true
+	case EnrollmentRequestStatusPendingApproval:
+		return true
+	case EnrollmentRequestStatusRegistered:
+		return true
+	case EnrollmentRequestStatusRejected:
+		return true
+	case EnrollmentRequestStatusRequested:
+		return true
+	case EnrollmentRequestStatusRevoked:
+		return true
+	case EnrollmentRequestStatusVerified:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for GroupSource.
 const (
 	GroupSourceIdp    GroupSource = "idp"
@@ -1128,23 +1260,24 @@ func (e PrincipalScope) Valid() bool {
 
 // Defines values for ProblemCode.
 const (
-	ProblemCodeConflict             ProblemCode = "conflict"
-	ProblemCodeForbidden            ProblemCode = "forbidden"
-	ProblemCodeIdempotencyKeyReuse  ProblemCode = "idempotency_key_reuse"
-	ProblemCodeInstanceUnavailable  ProblemCode = "instance_unavailable"
-	ProblemCodeInternalError        ProblemCode = "internal_error"
-	ProblemCodeMaintenance          ProblemCode = "maintenance"
-	ProblemCodeNotFound             ProblemCode = "not_found"
-	ProblemCodeNotImplemented       ProblemCode = "not_implemented"
-	ProblemCodePreconditionFailed   ProblemCode = "precondition_failed"
-	ProblemCodePreconditionRequired ProblemCode = "precondition_required"
-	ProblemCodeQuotaExceeded        ProblemCode = "quota_exceeded"
-	ProblemCodeRateLimited          ProblemCode = "rate_limited"
-	ProblemCodeReauthRequired       ProblemCode = "reauth_required"
-	ProblemCodeTenantSuspended      ProblemCode = "tenant_suspended"
-	ProblemCodeUnauthenticated      ProblemCode = "unauthenticated"
-	ProblemCodeUpstreamRejected     ProblemCode = "upstream_rejected"
-	ProblemCodeValidationFailed     ProblemCode = "validation_failed"
+	ProblemCodeConflict                ProblemCode = "conflict"
+	ProblemCodeForbidden               ProblemCode = "forbidden"
+	ProblemCodeIdempotencyKeyReuse     ProblemCode = "idempotency_key_reuse"
+	ProblemCodeInstanceUnavailable     ProblemCode = "instance_unavailable"
+	ProblemCodeInternalError           ProblemCode = "internal_error"
+	ProblemCodeMaintenance             ProblemCode = "maintenance"
+	ProblemCodeNotFound                ProblemCode = "not_found"
+	ProblemCodeNotImplemented          ProblemCode = "not_implemented"
+	ProblemCodePreconditionFailed      ProblemCode = "precondition_failed"
+	ProblemCodePreconditionRequired    ProblemCode = "precondition_required"
+	ProblemCodeQuotaExceeded           ProblemCode = "quota_exceeded"
+	ProblemCodeRateLimited             ProblemCode = "rate_limited"
+	ProblemCodeReauthRequired          ProblemCode = "reauth_required"
+	ProblemCodeSecretNoLongerAvailable ProblemCode = "secret_no_longer_available"
+	ProblemCodeTenantSuspended         ProblemCode = "tenant_suspended"
+	ProblemCodeUnauthenticated         ProblemCode = "unauthenticated"
+	ProblemCodeUpstreamRejected        ProblemCode = "upstream_rejected"
+	ProblemCodeValidationFailed        ProblemCode = "validation_failed"
 )
 
 // Valid indicates whether the value is a known member of the ProblemCode enum.
@@ -1175,6 +1308,8 @@ func (e ProblemCode) Valid() bool {
 	case ProblemCodeRateLimited:
 		return true
 	case ProblemCodeReauthRequired:
+		return true
+	case ProblemCodeSecretNoLongerAvailable:
 		return true
 	case ProblemCodeTenantSuspended:
 		return true
@@ -1921,6 +2056,153 @@ type DnsView struct {
 	// Records Số extra record của tenant
 	Records int `json:"records"`
 }
+
+// EnrollmentClaim defines model for EnrollmentClaim.
+type EnrollmentClaim struct {
+	// AuthId Auth ID trong URL `/register/<auth_id>` mà client nhận — chỉ hash được lưu
+	AuthId string `json:"auth_id"`
+
+	// RequestId Yêu cầu `web_auth` đang chờ được claim (bắt buộc khi người gọi có nhiều yêu cầu đang chờ)
+	RequestId *openapi_types.UUID `json:"request_id,omitempty"`
+}
+
+// EnrollmentCredential defines model for EnrollmentCredential.
+type EnrollmentCredential struct {
+	// Command Lệnh `tailscale up` với đúng `--login-server` (web-auth: kèm `--hostname mg-<mã>`; pre-auth key: key đọc từ biến môi trường `TS_AUTHKEY`, không chép vào lệnh)
+	Command string `json:"command"`
+
+	// EnrollCode Mã enrollment một lần (hostname `mg-<mã>`) — chỉ hiển thị một lần, chỉ hash được lưu
+	EnrollCode *string   `json:"enroll_code,omitempty"`
+	ExpiresAt  time.Time `json:"expires_at"`
+
+	// Hostname Hostname client phải dùng (`mg-<mã>` cho web-auth)
+	Hostname *string                  `json:"hostname,omitempty"`
+	Kind     EnrollmentCredentialKind `json:"kind"`
+
+	// PreauthKey Pre-auth key (`hskey-auth-…`) — chỉ hiển thị một lần, không lưu ở nền tảng
+	PreauthKey *string `json:"preauth_key,omitempty"`
+}
+
+// EnrollmentCredentialKind defines model for EnrollmentCredential.Kind.
+type EnrollmentCredentialKind string
+
+// EnrollmentInstructions defines model for EnrollmentInstructions.
+type EnrollmentInstructions struct {
+	LoginServer string `json:"login_server"`
+
+	// ManagedEnv Biến môi trường cho cài đặt có quản lý (`TS_NO_LOGS_NO_SUPPORT=true` — HS-22)
+	ManagedEnv map[string]string `json:"managed_env"`
+	Os         EnrollmentOS      `json:"os"`
+
+	// PreauthKeyCommand Mẫu lệnh luồng B (key qua biến môi trường `TS_AUTHKEY`)
+	PreauthKeyCommand *string  `json:"preauth_key_command,omitempty"`
+	PrivacyNotice     string   `json:"privacy_notice"`
+	Steps             []string `json:"steps"`
+
+	// WebAuthCommand Mẫu lệnh luồng A (`<mã>` thay bằng mã của yêu cầu); `null` khi tenant tắt web-auth hoặc nền tảng không đặt được hostname
+	WebAuthCommand *string `json:"web_auth_command,omitempty"`
+}
+
+// EnrollmentIssue Response phát credential (tạo yêu cầu, `/start`, key đặc quyền): yêu cầu + credential **một lần**. `credential`
+// vắng khi yêu cầu dừng ở `pending_approval`.
+type EnrollmentIssue struct {
+	Credential *EnrollmentCredential `json:"credential,omitempty"`
+
+	// Request Một yêu cầu enrollment (§13.3 `EnrollmentRequest`). Không bao giờ chứa pre-auth key, mã enrollment hay Auth ID
+	// — các giá trị đó chỉ có trong `EnrollmentIssue` một lần.
+	Request EnrollmentRequest `json:"request"`
+}
+
+// EnrollmentKeyCreate defines model for EnrollmentKeyCreate.
+type EnrollmentKeyCreate struct {
+	DeviceLabel *string   `json:"device_label,omitempty"`
+	Ephemeral   *bool     `json:"ephemeral,omitempty"`
+	Reusable    *bool     `json:"reusable,omitempty"`
+	Tags        *[]string `json:"tags,omitempty"`
+
+	// TargetMembershipId Thành viên `active` sở hữu thiết bị; vắng/`null` = key chỉ-tag (khi đó `tags` bắt buộc)
+	TargetMembershipId *openapi_types.UUID `json:"target_membership_id,omitempty"`
+	TtlMinutes         *int                `json:"ttl_minutes,omitempty"`
+}
+
+// EnrollmentMethod Phương thức enrollment (§7.4): `web_auth` (A — Portal môi giới, `AuthRegister`), `preauth_key` (B — key ngắn hạn), `oidc` (C — OIDC gốc của Headscale, chỉ đọc: Post-MVP)
+type EnrollmentMethod string
+
+// EnrollmentOS defines model for EnrollmentOS.
+type EnrollmentOS string
+
+// EnrollmentRequest Một yêu cầu enrollment (§13.3 `EnrollmentRequest`). Không bao giờ chứa pre-auth key, mã enrollment hay Auth ID
+// — các giá trị đó chỉ có trong `EnrollmentIssue` một lần.
+type EnrollmentRequest struct {
+	ApprovedAt *time.Time `json:"approved_at,omitempty"`
+
+	// ApproverMembershipId Người duyệt hoặc từ chối
+	ApproverMembershipId *openapi_types.UUID `json:"approver_membership_id,omitempty"`
+	ClaimedAt            *time.Time          `json:"claimed_at,omitempty"`
+	CreatedAt            time.Time           `json:"created_at"`
+	CredentialExpiresAt  *time.Time          `json:"credential_expires_at,omitempty"`
+	DeviceLabel          *string             `json:"device_label,omitempty"`
+	Ephemeral            bool                `json:"ephemeral"`
+	FailureCode          *string             `json:"failure_code,omitempty"`
+	Id                   openapi_types.UUID  `json:"id"`
+
+	// IssuedAt Lúc phát mã/lệnh hoặc key
+	IssuedAt *time.Time `json:"issued_at,omitempty"`
+
+	// LoginServer URL `--login-server` của tenant (`server_url` của instance)
+	LoginServer string `json:"login_server"`
+
+	// Method Phương thức enrollment (§7.4): `web_auth` (A — Portal môi giới, `AuthRegister`), `preauth_key` (B — key ngắn hạn), `oidc` (C — OIDC gốc của Headscale, chỉ đọc: Post-MVP)
+	Method EnrollmentMethod `json:"method"`
+
+	// NodeId ID node ở Headscale đã đăng ký bằng yêu cầu này (`consumed_node_id`)
+	NodeId                  *string            `json:"node_id,omitempty"`
+	RequestedByMembershipId openapi_types.UUID `json:"requested_by_membership_id"`
+	Reusable                bool               `json:"reusable"`
+
+	// Status Trạng thái phía API của `enrollment_requests.status` (§6.3, §7.4): `issued` là tên chung của `awaiting_device`
+	// (web-auth) và `credential_issued` (pre-auth key) — mã/lệnh hoặc key đã phát, chờ thiết bị. Web-auth:
+	// `requested` → (`pending_approval` → `approved` | `rejected`) → `issued` → `claimed` → `registered` → `verified`;
+	// pre-auth key: `requested` → (`pending_approval` → `approved` | `rejected`) → `issued` → `consumed`; mọi trạng thái
+	// chưa kết thúc → `expired` | `revoked` | `failed` (kèm `failure_code`).
+	Status EnrollmentRequestStatus `json:"status"`
+
+	// Tags `requested_tags` — chỉ key đặc quyền; luôn là tag của danh mục (P4-T15)
+	Tags []string `json:"tags"`
+
+	// TargetMembershipId Chủ thiết bị; `null` = key chỉ-tag
+	TargetMembershipId *openapi_types.UUID `json:"target_membership_id,omitempty"`
+	UpdatedAt          time.Time           `json:"updated_at"`
+	Version            int64               `json:"version"`
+}
+
+// EnrollmentRequestCreate defines model for EnrollmentRequestCreate.
+type EnrollmentRequestCreate struct {
+	// DeviceLabel Nhãn thiết bị — tên node (DNS label) đặt sau khi xác minh
+	DeviceLabel *string `json:"device_label,omitempty"`
+
+	// Method `web_auth` (thiết bị có trình duyệt) hoặc `preauth_key` (một lần, của chính người gọi)
+	Method EnrollmentRequestCreateMethod `json:"method"`
+
+	// TtlMinutes Chỉ `preauth_key` — hạn của key (mặc định 15, không vượt `enrollment.preauth_key_ttl_max`)
+	TtlMinutes *int `json:"ttl_minutes,omitempty"`
+}
+
+// EnrollmentRequestCreateMethod `web_auth` (thiết bị có trình duyệt) hoặc `preauth_key` (một lần, của chính người gọi)
+type EnrollmentRequestCreateMethod string
+
+// EnrollmentRequestList defines model for EnrollmentRequestList.
+type EnrollmentRequestList struct {
+	Items      []EnrollmentRequest `json:"items"`
+	NextCursor *string             `json:"next_cursor"`
+}
+
+// EnrollmentRequestStatus Trạng thái phía API của `enrollment_requests.status` (§6.3, §7.4): `issued` là tên chung của `awaiting_device`
+// (web-auth) và `credential_issued` (pre-auth key) — mã/lệnh hoặc key đã phát, chờ thiết bị. Web-auth:
+// `requested` → (`pending_approval` → `approved` | `rejected`) → `issued` → `claimed` → `registered` → `verified`;
+// pre-auth key: `requested` → (`pending_approval` → `approved` | `rejected`) → `issued` → `consumed`; mọi trạng thái
+// chưa kết thúc → `expired` | `revoked` | `failed` (kèm `failure_code`).
+type EnrollmentRequestStatus string
 
 // FieldError defines model for FieldError.
 type FieldError struct {
@@ -3173,7 +3455,8 @@ type Problem struct {
 	// Headscale của tenant, IdP ở luồng đăng nhập) · `instance_unavailable` (503) · `maintenance` (503, nền tảng ở
 	// chế độ bảo trì — sau khi restore PostgreSQL, tới khi đối soát xong và người vận hành tắt bảo trì; chỉ đăng nhập
 	// platform trên admin. còn được phục vụ — P3-T17, §17.2; kèm `Retry-After`) · `internal_error` (500) ·
-	// `not_implemented` (501, operation chưa có handler).
+	// `not_implemented` (501, operation chưa có handler) · `secret_no_longer_available` (410, replay của request phát
+	// credential sau khi secret giữ tạm đã hết hạn — §13.1).
 	Code ProblemCode `json:"code"`
 
 	// Detail Giải thích cho người đọc — không bao giờ chứa secret, stack trace hay thông điệp thô của upstream
@@ -3206,7 +3489,8 @@ type Problem struct {
 // Headscale của tenant, IdP ở luồng đăng nhập) · `instance_unavailable` (503) · `maintenance` (503, nền tảng ở
 // chế độ bảo trì — sau khi restore PostgreSQL, tới khi đối soát xong và người vận hành tắt bảo trì; chỉ đăng nhập
 // platform trên admin. còn được phục vụ — P3-T17, §17.2; kèm `Retry-After`) · `internal_error` (500) ·
-// `not_implemented` (501, operation chưa có handler).
+// `not_implemented` (501, operation chưa có handler) · `secret_no_longer_available` (410, replay của request phát
+// credential sau khi secret giữ tạm đã hết hạn — §13.1).
 type ProblemCode string
 
 // RelayAdminStatus Trạng thái quản trị (`relay_regions.status`, `relay_assignments.status` — 0010); sức khỏe đo được nằm ở `health`, không ở đây
@@ -3897,6 +4181,16 @@ type Cursor = string
 // DeviceId defines model for DeviceId.
 type DeviceId = openapi_types.UUID
 
+// EnrollmentRequestId defines model for EnrollmentRequestId.
+type EnrollmentRequestId = openapi_types.UUID
+
+// EnrollmentStatusFilter Trạng thái phía API của `enrollment_requests.status` (§6.3, §7.4): `issued` là tên chung của `awaiting_device`
+// (web-auth) và `credential_issued` (pre-auth key) — mã/lệnh hoặc key đã phát, chờ thiết bị. Web-auth:
+// `requested` → (`pending_approval` → `approved` | `rejected`) → `issued` → `claimed` → `registered` → `verified`;
+// pre-auth key: `requested` → (`pending_approval` → `approved` | `rejected`) → `issued` → `consumed`; mọi trạng thái
+// chưa kết thúc → `expired` | `revoked` | `failed` (kèm `failure_code`).
+type EnrollmentStatusFilter = EnrollmentRequestStatus
+
 // FromFilter defines model for FromFilter.
 type FromFilter = time.Time
 
@@ -4028,6 +4322,9 @@ type PreconditionRequired = Problem
 
 // RateLimited RFC 9457 problem details (§13.1, §13.3)
 type RateLimited = Problem
+
+// SecretNoLongerAvailable RFC 9457 problem details (§13.1, §13.3)
+type SecretNoLongerAvailable = Problem
 
 // Unauthenticated RFC 9457 problem details (§13.1, §13.3)
 type Unauthenticated = Problem
@@ -4553,6 +4850,36 @@ type UpdateTenantDnsSettingsParams struct {
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
 
+// GetEnrollmentInstructionsParams defines parameters for GetEnrollmentInstructions.
+type GetEnrollmentInstructionsParams struct {
+	// Os Hệ điều hành của thiết bị
+	Os EnrollmentOS `form:"os" json:"os"`
+}
+
+// CreateEnrollmentKeyParams defines parameters for CreateEnrollmentKey.
+type CreateEnrollmentKeyParams struct {
+	// IdempotencyKey Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// ListEnrollmentRequestsParams defines parameters for ListEnrollmentRequests.
+type ListEnrollmentRequestsParams struct {
+	// Limit Số phần tử tối đa của trang
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Con trỏ mờ lấy từ `next_cursor` của trang trước
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Status Lọc theo trạng thái phía API của yêu cầu
+	Status *EnrollmentStatusFilter `form:"status,omitempty" json:"status,omitempty"`
+}
+
+// CreateEnrollmentRequestParams defines parameters for CreateEnrollmentRequest.
+type CreateEnrollmentRequestParams struct {
+	// IdempotencyKey Khóa chống lặp request (§13.1) — lưu theo `(tenant, identity, operation, key)`, 24 giờ
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
 // ListTenantGroupsParams defines parameters for ListTenantGroups.
 type ListTenantGroupsParams struct {
 	// Limit Số phần tử tối đa của trang
@@ -4903,6 +5230,15 @@ type CreateTenantDnsRecordJSONRequestBody = DnsRecordCreate
 // UpdateTenantDnsSettingsJSONRequestBody defines body for UpdateTenantDnsSettings for application/json ContentType.
 type UpdateTenantDnsSettingsJSONRequestBody = DnsSettingsUpdate
 
+// CreateEnrollmentKeyJSONRequestBody defines body for CreateEnrollmentKey for application/json ContentType.
+type CreateEnrollmentKeyJSONRequestBody = EnrollmentKeyCreate
+
+// CreateEnrollmentRequestJSONRequestBody defines body for CreateEnrollmentRequest for application/json ContentType.
+type CreateEnrollmentRequestJSONRequestBody = EnrollmentRequestCreate
+
+// ClaimEnrollmentWebAuthJSONRequestBody defines body for ClaimEnrollmentWebAuth for application/json ContentType.
+type ClaimEnrollmentWebAuthJSONRequestBody = EnrollmentClaim
+
 // CreateTenantGroupJSONRequestBody defines body for CreateTenantGroup for application/json ContentType.
 type CreateTenantGroupJSONRequestBody = GroupCreate
 
@@ -5235,6 +5571,36 @@ type ServerInterface interface {
 	// UpdateTenantDnsSettings Đổi nameserver của tailnet ⇒ 202 + job instance.reconfigure (restart có kiểm soát)
 	// (PUT /tenants/{tenantId}/dns/settings)
 	UpdateTenantDnsSettings(w http.ResponseWriter, r *http.Request, tenantId TenantId, params UpdateTenantDnsSettingsParams)
+	// GetEnrollmentInstructions Hướng dẫn cài client theo hệ điều hành với đúng `--login-server` của tenant
+	// (GET /tenants/{tenantId}/enrollment/instructions)
+	GetEnrollmentInstructions(w http.ResponseWriter, r *http.Request, tenantId TenantId, params GetEnrollmentInstructionsParams)
+	// CreateEnrollmentKey Pre-auth key đặc quyền (gắn tag, reusable, ephemeral hoặc cho người khác)
+	// (POST /tenants/{tenantId}/enrollment/keys)
+	CreateEnrollmentKey(w http.ResponseWriter, r *http.Request, tenantId TenantId, params CreateEnrollmentKeyParams)
+	// ListEnrollmentRequests Yêu cầu enrollment của tenant (End User — của chính mình)
+	// (GET /tenants/{tenantId}/enrollment/requests)
+	ListEnrollmentRequests(w http.ResponseWriter, r *http.Request, tenantId TenantId, params ListEnrollmentRequestsParams)
+	// CreateEnrollmentRequest Thêm thiết bị của chính mình (web-auth hoặc pre-auth key một lần)
+	// (POST /tenants/{tenantId}/enrollment/requests)
+	CreateEnrollmentRequest(w http.ResponseWriter, r *http.Request, tenantId TenantId, params CreateEnrollmentRequestParams)
+	// GetEnrollmentRequest Một yêu cầu enrollment
+	// (GET /tenants/{tenantId}/enrollment/requests/{enrollmentRequestId})
+	GetEnrollmentRequest(w http.ResponseWriter, r *http.Request, tenantId TenantId, enrollmentRequestId EnrollmentRequestId)
+	// ApproveEnrollmentRequest Duyệt yêu cầu đang chờ (trước bước thiết bị)
+	// (POST /tenants/{tenantId}/enrollment/requests/{enrollmentRequestId}/approve)
+	ApproveEnrollmentRequest(w http.ResponseWriter, r *http.Request, tenantId TenantId, enrollmentRequestId EnrollmentRequestId)
+	// RejectEnrollmentRequest Từ chối yêu cầu đang chờ
+	// (POST /tenants/{tenantId}/enrollment/requests/{enrollmentRequestId}/reject)
+	RejectEnrollmentRequest(w http.ResponseWriter, r *http.Request, tenantId TenantId, enrollmentRequestId EnrollmentRequestId)
+	// RevokeEnrollmentRequest Thu hồi yêu cầu / credential chưa dùng
+	// (POST /tenants/{tenantId}/enrollment/requests/{enrollmentRequestId}/revoke)
+	RevokeEnrollmentRequest(w http.ResponseWriter, r *http.Request, tenantId TenantId, enrollmentRequestId EnrollmentRequestId)
+	// StartEnrollmentRequest Nhận mã enrollment / pre-auth key của yêu cầu đã được duyệt
+	// (POST /tenants/{tenantId}/enrollment/requests/{enrollmentRequestId}/start)
+	StartEnrollmentRequest(w http.ResponseWriter, r *http.Request, tenantId TenantId, enrollmentRequestId EnrollmentRequestId)
+	// ClaimEnrollmentWebAuth Xác nhận đăng ký web-auth bằng Auth ID (luồng A, §7.4 bước 6–8)
+	// (POST /tenants/{tenantId}/enrollment/web-auth/claim)
+	ClaimEnrollmentWebAuth(w http.ResponseWriter, r *http.Request, tenantId TenantId)
 	// ListTenantGroups Group người dùng của tenant
 	// (GET /tenants/{tenantId}/groups)
 	ListTenantGroups(w http.ResponseWriter, r *http.Request, tenantId TenantId, params ListTenantGroupsParams)
@@ -9588,6 +9954,425 @@ func (siw *ServerInterfaceWrapper) UpdateTenantDnsSettings(w http.ResponseWriter
 	handler.ServeHTTP(w, r)
 }
 
+// GetEnrollmentInstructions operation middleware
+func (siw *ServerInterfaceWrapper) GetEnrollmentInstructions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetEnrollmentInstructionsParams
+
+	// ------------- Required query parameter "os" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "os", r.URL.Query(), &params.Os, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "os"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "os", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetEnrollmentInstructions(w, r, tenantId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateEnrollmentKey operation middleware
+func (siw *ServerInterfaceWrapper) CreateEnrollmentKey(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateEnrollmentKeyParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateEnrollmentKey(w, r, tenantId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListEnrollmentRequests operation middleware
+func (siw *ServerInterfaceWrapper) ListEnrollmentRequests(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListEnrollmentRequestsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListEnrollmentRequests(w, r, tenantId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateEnrollmentRequest operation middleware
+func (siw *ServerInterfaceWrapper) CreateEnrollmentRequest(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateEnrollmentRequestParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateEnrollmentRequest(w, r, tenantId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetEnrollmentRequest operation middleware
+func (siw *ServerInterfaceWrapper) GetEnrollmentRequest(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "enrollmentRequestId" -------------
+	var enrollmentRequestId EnrollmentRequestId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "enrollmentRequestId", r.PathValue("enrollmentRequestId"), &enrollmentRequestId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "enrollmentRequestId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetEnrollmentRequest(w, r, tenantId, enrollmentRequestId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ApproveEnrollmentRequest operation middleware
+func (siw *ServerInterfaceWrapper) ApproveEnrollmentRequest(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "enrollmentRequestId" -------------
+	var enrollmentRequestId EnrollmentRequestId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "enrollmentRequestId", r.PathValue("enrollmentRequestId"), &enrollmentRequestId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "enrollmentRequestId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ApproveEnrollmentRequest(w, r, tenantId, enrollmentRequestId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RejectEnrollmentRequest operation middleware
+func (siw *ServerInterfaceWrapper) RejectEnrollmentRequest(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "enrollmentRequestId" -------------
+	var enrollmentRequestId EnrollmentRequestId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "enrollmentRequestId", r.PathValue("enrollmentRequestId"), &enrollmentRequestId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "enrollmentRequestId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RejectEnrollmentRequest(w, r, tenantId, enrollmentRequestId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RevokeEnrollmentRequest operation middleware
+func (siw *ServerInterfaceWrapper) RevokeEnrollmentRequest(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "enrollmentRequestId" -------------
+	var enrollmentRequestId EnrollmentRequestId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "enrollmentRequestId", r.PathValue("enrollmentRequestId"), &enrollmentRequestId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "enrollmentRequestId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RevokeEnrollmentRequest(w, r, tenantId, enrollmentRequestId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StartEnrollmentRequest operation middleware
+func (siw *ServerInterfaceWrapper) StartEnrollmentRequest(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "enrollmentRequestId" -------------
+	var enrollmentRequestId EnrollmentRequestId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "enrollmentRequestId", r.PathValue("enrollmentRequestId"), &enrollmentRequestId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "enrollmentRequestId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StartEnrollmentRequest(w, r, tenantId, enrollmentRequestId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ClaimEnrollmentWebAuth operation middleware
+func (siw *ServerInterfaceWrapper) ClaimEnrollmentWebAuth(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ClaimEnrollmentWebAuth(w, r, tenantId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListTenantGroups operation middleware
 func (siw *ServerInterfaceWrapper) ListTenantGroups(w http.ResponseWriter, r *http.Request) {
 
@@ -12714,6 +13499,16 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants/{tenantId}/tags", wrapper.CreateTenantTag)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/tenants/{tenantId}/tags/{tagId}", wrapper.DeleteTenantTag)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/tenants/{tenantId}/tags/{tagId}", wrapper.UpdateTenantTag)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tenants/{tenantId}/enrollment/requests", wrapper.ListEnrollmentRequests)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants/{tenantId}/enrollment/requests", wrapper.CreateEnrollmentRequest)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tenants/{tenantId}/enrollment/requests/{enrollmentRequestId}", wrapper.GetEnrollmentRequest)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants/{tenantId}/enrollment/requests/{enrollmentRequestId}/approve", wrapper.ApproveEnrollmentRequest)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants/{tenantId}/enrollment/requests/{enrollmentRequestId}/reject", wrapper.RejectEnrollmentRequest)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants/{tenantId}/enrollment/requests/{enrollmentRequestId}/start", wrapper.StartEnrollmentRequest)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants/{tenantId}/enrollment/requests/{enrollmentRequestId}/revoke", wrapper.RevokeEnrollmentRequest)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants/{tenantId}/enrollment/keys", wrapper.CreateEnrollmentKey)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants/{tenantId}/enrollment/web-auth/claim", wrapper.ClaimEnrollmentWebAuth)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tenants/{tenantId}/enrollment/instructions", wrapper.GetEnrollmentInstructions)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tenants/{tenantId}/settings", wrapper.GetTenantSettings)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/tenants/{tenantId}/settings", wrapper.UpdateTenantSettings)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/tenants/{tenantId}/settings/security", wrapper.PutTenantSecuritySettings)
@@ -12859,6 +13654,15 @@ type RateLimitedApplicationProblemPlusJSONResponse struct {
 	Body Problem
 
 	Headers RateLimitedResponseHeaders
+}
+
+type SecretNoLongerAvailableResponseHeaders struct {
+	XRequestId *string
+}
+type SecretNoLongerAvailableApplicationProblemPlusJSONResponse struct {
+	Body Problem
+
+	Headers SecretNoLongerAvailableResponseHeaders
 }
 
 type UnauthenticatedResponseHeaders struct {
@@ -26306,6 +27110,1839 @@ func (response UpdateTenantDnsSettingsdefaultApplicationProblemPlusJSONResponse)
 	return err
 }
 
+type GetEnrollmentInstructionsRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	Params   GetEnrollmentInstructionsParams
+}
+
+type GetEnrollmentInstructionsResponseObject interface {
+	VisitGetEnrollmentInstructionsResponse(w http.ResponseWriter) error
+}
+
+type GetEnrollmentInstructions200JSONResponse EnrollmentInstructions
+
+func (response GetEnrollmentInstructions200JSONResponse) VisitGetEnrollmentInstructionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEnrollmentInstructions401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response GetEnrollmentInstructions401ApplicationProblemPlusJSONResponse) VisitGetEnrollmentInstructionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEnrollmentInstructions403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response GetEnrollmentInstructions403ApplicationProblemPlusJSONResponse) VisitGetEnrollmentInstructionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEnrollmentInstructions404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response GetEnrollmentInstructions404ApplicationProblemPlusJSONResponse) VisitGetEnrollmentInstructionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEnrollmentInstructions422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response GetEnrollmentInstructions422ApplicationProblemPlusJSONResponse) VisitGetEnrollmentInstructionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEnrollmentInstructions429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response GetEnrollmentInstructions429ApplicationProblemPlusJSONResponse) VisitGetEnrollmentInstructionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEnrollmentInstructionsdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response GetEnrollmentInstructionsdefaultApplicationProblemPlusJSONResponse) VisitGetEnrollmentInstructionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEnrollmentKeyRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	Params   CreateEnrollmentKeyParams
+	Body     *CreateEnrollmentKeyJSONRequestBody
+}
+
+type CreateEnrollmentKeyResponseObject interface {
+	VisitCreateEnrollmentKeyResponse(w http.ResponseWriter) error
+}
+
+type CreateEnrollmentKey201JSONResponse EnrollmentIssue
+
+func (response CreateEnrollmentKey201JSONResponse) VisitCreateEnrollmentKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEnrollmentKey401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateEnrollmentKey401ApplicationProblemPlusJSONResponse) VisitCreateEnrollmentKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEnrollmentKey403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response CreateEnrollmentKey403ApplicationProblemPlusJSONResponse) VisitCreateEnrollmentKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEnrollmentKey404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response CreateEnrollmentKey404ApplicationProblemPlusJSONResponse) VisitCreateEnrollmentKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEnrollmentKey409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response CreateEnrollmentKey409ApplicationProblemPlusJSONResponse) VisitCreateEnrollmentKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEnrollmentKey410ApplicationProblemPlusJSONResponse struct {
+	SecretNoLongerAvailableApplicationProblemPlusJSONResponse
+}
+
+func (response CreateEnrollmentKey410ApplicationProblemPlusJSONResponse) VisitCreateEnrollmentKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(410)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEnrollmentKey422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateEnrollmentKey422ApplicationProblemPlusJSONResponse) VisitCreateEnrollmentKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEnrollmentKey429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateEnrollmentKey429ApplicationProblemPlusJSONResponse) VisitCreateEnrollmentKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEnrollmentKey502ApplicationProblemPlusJSONResponse struct {
+	UpstreamRejectedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateEnrollmentKey502ApplicationProblemPlusJSONResponse) VisitCreateEnrollmentKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(502)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEnrollmentKey503ApplicationProblemPlusJSONResponse struct {
+	InstanceUnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response CreateEnrollmentKey503ApplicationProblemPlusJSONResponse) VisitCreateEnrollmentKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEnrollmentKeydefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response CreateEnrollmentKeydefaultApplicationProblemPlusJSONResponse) VisitCreateEnrollmentKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListEnrollmentRequestsRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	Params   ListEnrollmentRequestsParams
+}
+
+type ListEnrollmentRequestsResponseObject interface {
+	VisitListEnrollmentRequestsResponse(w http.ResponseWriter) error
+}
+
+type ListEnrollmentRequests200JSONResponse EnrollmentRequestList
+
+func (response ListEnrollmentRequests200JSONResponse) VisitListEnrollmentRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListEnrollmentRequests401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response ListEnrollmentRequests401ApplicationProblemPlusJSONResponse) VisitListEnrollmentRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListEnrollmentRequests403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response ListEnrollmentRequests403ApplicationProblemPlusJSONResponse) VisitListEnrollmentRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListEnrollmentRequests404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response ListEnrollmentRequests404ApplicationProblemPlusJSONResponse) VisitListEnrollmentRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListEnrollmentRequests422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response ListEnrollmentRequests422ApplicationProblemPlusJSONResponse) VisitListEnrollmentRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListEnrollmentRequests429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response ListEnrollmentRequests429ApplicationProblemPlusJSONResponse) VisitListEnrollmentRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListEnrollmentRequestsdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response ListEnrollmentRequestsdefaultApplicationProblemPlusJSONResponse) VisitListEnrollmentRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEnrollmentRequestRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	Params   CreateEnrollmentRequestParams
+	Body     *CreateEnrollmentRequestJSONRequestBody
+}
+
+type CreateEnrollmentRequestResponseObject interface {
+	VisitCreateEnrollmentRequestResponse(w http.ResponseWriter) error
+}
+
+type CreateEnrollmentRequest201JSONResponse EnrollmentIssue
+
+func (response CreateEnrollmentRequest201JSONResponse) VisitCreateEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEnrollmentRequest401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateEnrollmentRequest401ApplicationProblemPlusJSONResponse) VisitCreateEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEnrollmentRequest403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response CreateEnrollmentRequest403ApplicationProblemPlusJSONResponse) VisitCreateEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEnrollmentRequest404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response CreateEnrollmentRequest404ApplicationProblemPlusJSONResponse) VisitCreateEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEnrollmentRequest409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response CreateEnrollmentRequest409ApplicationProblemPlusJSONResponse) VisitCreateEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEnrollmentRequest410ApplicationProblemPlusJSONResponse struct {
+	SecretNoLongerAvailableApplicationProblemPlusJSONResponse
+}
+
+func (response CreateEnrollmentRequest410ApplicationProblemPlusJSONResponse) VisitCreateEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(410)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEnrollmentRequest422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateEnrollmentRequest422ApplicationProblemPlusJSONResponse) VisitCreateEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEnrollmentRequest429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateEnrollmentRequest429ApplicationProblemPlusJSONResponse) VisitCreateEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEnrollmentRequest502ApplicationProblemPlusJSONResponse struct {
+	UpstreamRejectedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateEnrollmentRequest502ApplicationProblemPlusJSONResponse) VisitCreateEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(502)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEnrollmentRequest503ApplicationProblemPlusJSONResponse struct {
+	InstanceUnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response CreateEnrollmentRequest503ApplicationProblemPlusJSONResponse) VisitCreateEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEnrollmentRequestdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response CreateEnrollmentRequestdefaultApplicationProblemPlusJSONResponse) VisitCreateEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEnrollmentRequestRequestObject struct {
+	TenantId            TenantId            `json:"tenantId"`
+	EnrollmentRequestId EnrollmentRequestId `json:"enrollmentRequestId"`
+}
+
+type GetEnrollmentRequestResponseObject interface {
+	VisitGetEnrollmentRequestResponse(w http.ResponseWriter) error
+}
+
+type GetEnrollmentRequest200JSONResponse EnrollmentRequest
+
+func (response GetEnrollmentRequest200JSONResponse) VisitGetEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEnrollmentRequest401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response GetEnrollmentRequest401ApplicationProblemPlusJSONResponse) VisitGetEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEnrollmentRequest403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response GetEnrollmentRequest403ApplicationProblemPlusJSONResponse) VisitGetEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEnrollmentRequest404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response GetEnrollmentRequest404ApplicationProblemPlusJSONResponse) VisitGetEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEnrollmentRequest429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response GetEnrollmentRequest429ApplicationProblemPlusJSONResponse) VisitGetEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEnrollmentRequestdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response GetEnrollmentRequestdefaultApplicationProblemPlusJSONResponse) VisitGetEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveEnrollmentRequestRequestObject struct {
+	TenantId            TenantId            `json:"tenantId"`
+	EnrollmentRequestId EnrollmentRequestId `json:"enrollmentRequestId"`
+}
+
+type ApproveEnrollmentRequestResponseObject interface {
+	VisitApproveEnrollmentRequestResponse(w http.ResponseWriter) error
+}
+
+type ApproveEnrollmentRequest200JSONResponse EnrollmentRequest
+
+func (response ApproveEnrollmentRequest200JSONResponse) VisitApproveEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveEnrollmentRequest401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response ApproveEnrollmentRequest401ApplicationProblemPlusJSONResponse) VisitApproveEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveEnrollmentRequest403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response ApproveEnrollmentRequest403ApplicationProblemPlusJSONResponse) VisitApproveEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveEnrollmentRequest404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response ApproveEnrollmentRequest404ApplicationProblemPlusJSONResponse) VisitApproveEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveEnrollmentRequest409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response ApproveEnrollmentRequest409ApplicationProblemPlusJSONResponse) VisitApproveEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveEnrollmentRequest429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response ApproveEnrollmentRequest429ApplicationProblemPlusJSONResponse) VisitApproveEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveEnrollmentRequestdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response ApproveEnrollmentRequestdefaultApplicationProblemPlusJSONResponse) VisitApproveEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectEnrollmentRequestRequestObject struct {
+	TenantId            TenantId            `json:"tenantId"`
+	EnrollmentRequestId EnrollmentRequestId `json:"enrollmentRequestId"`
+}
+
+type RejectEnrollmentRequestResponseObject interface {
+	VisitRejectEnrollmentRequestResponse(w http.ResponseWriter) error
+}
+
+type RejectEnrollmentRequest200JSONResponse EnrollmentRequest
+
+func (response RejectEnrollmentRequest200JSONResponse) VisitRejectEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectEnrollmentRequest401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response RejectEnrollmentRequest401ApplicationProblemPlusJSONResponse) VisitRejectEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectEnrollmentRequest403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response RejectEnrollmentRequest403ApplicationProblemPlusJSONResponse) VisitRejectEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectEnrollmentRequest404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response RejectEnrollmentRequest404ApplicationProblemPlusJSONResponse) VisitRejectEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectEnrollmentRequest409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response RejectEnrollmentRequest409ApplicationProblemPlusJSONResponse) VisitRejectEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectEnrollmentRequest429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response RejectEnrollmentRequest429ApplicationProblemPlusJSONResponse) VisitRejectEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectEnrollmentRequestdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response RejectEnrollmentRequestdefaultApplicationProblemPlusJSONResponse) VisitRejectEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeEnrollmentRequestRequestObject struct {
+	TenantId            TenantId            `json:"tenantId"`
+	EnrollmentRequestId EnrollmentRequestId `json:"enrollmentRequestId"`
+}
+
+type RevokeEnrollmentRequestResponseObject interface {
+	VisitRevokeEnrollmentRequestResponse(w http.ResponseWriter) error
+}
+
+type RevokeEnrollmentRequest200JSONResponse EnrollmentRequest
+
+func (response RevokeEnrollmentRequest200JSONResponse) VisitRevokeEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeEnrollmentRequest401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response RevokeEnrollmentRequest401ApplicationProblemPlusJSONResponse) VisitRevokeEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeEnrollmentRequest403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response RevokeEnrollmentRequest403ApplicationProblemPlusJSONResponse) VisitRevokeEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeEnrollmentRequest404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response RevokeEnrollmentRequest404ApplicationProblemPlusJSONResponse) VisitRevokeEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeEnrollmentRequest409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response RevokeEnrollmentRequest409ApplicationProblemPlusJSONResponse) VisitRevokeEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeEnrollmentRequest429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response RevokeEnrollmentRequest429ApplicationProblemPlusJSONResponse) VisitRevokeEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeEnrollmentRequest502ApplicationProblemPlusJSONResponse struct {
+	UpstreamRejectedApplicationProblemPlusJSONResponse
+}
+
+func (response RevokeEnrollmentRequest502ApplicationProblemPlusJSONResponse) VisitRevokeEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(502)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeEnrollmentRequest503ApplicationProblemPlusJSONResponse struct {
+	InstanceUnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response RevokeEnrollmentRequest503ApplicationProblemPlusJSONResponse) VisitRevokeEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeEnrollmentRequestdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response RevokeEnrollmentRequestdefaultApplicationProblemPlusJSONResponse) VisitRevokeEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartEnrollmentRequestRequestObject struct {
+	TenantId            TenantId            `json:"tenantId"`
+	EnrollmentRequestId EnrollmentRequestId `json:"enrollmentRequestId"`
+}
+
+type StartEnrollmentRequestResponseObject interface {
+	VisitStartEnrollmentRequestResponse(w http.ResponseWriter) error
+}
+
+type StartEnrollmentRequest200JSONResponse EnrollmentIssue
+
+func (response StartEnrollmentRequest200JSONResponse) VisitStartEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartEnrollmentRequest401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response StartEnrollmentRequest401ApplicationProblemPlusJSONResponse) VisitStartEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartEnrollmentRequest403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response StartEnrollmentRequest403ApplicationProblemPlusJSONResponse) VisitStartEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartEnrollmentRequest404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response StartEnrollmentRequest404ApplicationProblemPlusJSONResponse) VisitStartEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartEnrollmentRequest409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response StartEnrollmentRequest409ApplicationProblemPlusJSONResponse) VisitStartEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartEnrollmentRequest422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response StartEnrollmentRequest422ApplicationProblemPlusJSONResponse) VisitStartEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartEnrollmentRequest429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response StartEnrollmentRequest429ApplicationProblemPlusJSONResponse) VisitStartEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartEnrollmentRequest502ApplicationProblemPlusJSONResponse struct {
+	UpstreamRejectedApplicationProblemPlusJSONResponse
+}
+
+func (response StartEnrollmentRequest502ApplicationProblemPlusJSONResponse) VisitStartEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(502)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartEnrollmentRequest503ApplicationProblemPlusJSONResponse struct {
+	InstanceUnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response StartEnrollmentRequest503ApplicationProblemPlusJSONResponse) VisitStartEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartEnrollmentRequestdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response StartEnrollmentRequestdefaultApplicationProblemPlusJSONResponse) VisitStartEnrollmentRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ClaimEnrollmentWebAuthRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	Body     *ClaimEnrollmentWebAuthJSONRequestBody
+}
+
+type ClaimEnrollmentWebAuthResponseObject interface {
+	VisitClaimEnrollmentWebAuthResponse(w http.ResponseWriter) error
+}
+
+type ClaimEnrollmentWebAuth200JSONResponse EnrollmentRequest
+
+func (response ClaimEnrollmentWebAuth200JSONResponse) VisitClaimEnrollmentWebAuthResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ClaimEnrollmentWebAuth401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response ClaimEnrollmentWebAuth401ApplicationProblemPlusJSONResponse) VisitClaimEnrollmentWebAuthResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ClaimEnrollmentWebAuth403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response ClaimEnrollmentWebAuth403ApplicationProblemPlusJSONResponse) VisitClaimEnrollmentWebAuthResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ClaimEnrollmentWebAuth404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response ClaimEnrollmentWebAuth404ApplicationProblemPlusJSONResponse) VisitClaimEnrollmentWebAuthResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ClaimEnrollmentWebAuth409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response ClaimEnrollmentWebAuth409ApplicationProblemPlusJSONResponse) VisitClaimEnrollmentWebAuthResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ClaimEnrollmentWebAuth422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response ClaimEnrollmentWebAuth422ApplicationProblemPlusJSONResponse) VisitClaimEnrollmentWebAuthResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ClaimEnrollmentWebAuth429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response ClaimEnrollmentWebAuth429ApplicationProblemPlusJSONResponse) VisitClaimEnrollmentWebAuthResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ClaimEnrollmentWebAuth502ApplicationProblemPlusJSONResponse struct {
+	UpstreamRejectedApplicationProblemPlusJSONResponse
+}
+
+func (response ClaimEnrollmentWebAuth502ApplicationProblemPlusJSONResponse) VisitClaimEnrollmentWebAuthResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(502)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ClaimEnrollmentWebAuth503ApplicationProblemPlusJSONResponse struct {
+	InstanceUnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response ClaimEnrollmentWebAuth503ApplicationProblemPlusJSONResponse) VisitClaimEnrollmentWebAuthResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ClaimEnrollmentWebAuthdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response ClaimEnrollmentWebAuthdefaultApplicationProblemPlusJSONResponse) VisitClaimEnrollmentWebAuthResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListTenantGroupsRequestObject struct {
 	TenantId TenantId `json:"tenantId"`
 	Params   ListTenantGroupsParams
@@ -36950,6 +39587,36 @@ type StrictServerInterface interface {
 	// UpdateTenantDnsSettings Đổi nameserver của tailnet ⇒ 202 + job instance.reconfigure (restart có kiểm soát)
 	// (PUT /tenants/{tenantId}/dns/settings)
 	UpdateTenantDnsSettings(ctx context.Context, request UpdateTenantDnsSettingsRequestObject) (UpdateTenantDnsSettingsResponseObject, error)
+	// GetEnrollmentInstructions Hướng dẫn cài client theo hệ điều hành với đúng `--login-server` của tenant
+	// (GET /tenants/{tenantId}/enrollment/instructions)
+	GetEnrollmentInstructions(ctx context.Context, request GetEnrollmentInstructionsRequestObject) (GetEnrollmentInstructionsResponseObject, error)
+	// CreateEnrollmentKey Pre-auth key đặc quyền (gắn tag, reusable, ephemeral hoặc cho người khác)
+	// (POST /tenants/{tenantId}/enrollment/keys)
+	CreateEnrollmentKey(ctx context.Context, request CreateEnrollmentKeyRequestObject) (CreateEnrollmentKeyResponseObject, error)
+	// ListEnrollmentRequests Yêu cầu enrollment của tenant (End User — của chính mình)
+	// (GET /tenants/{tenantId}/enrollment/requests)
+	ListEnrollmentRequests(ctx context.Context, request ListEnrollmentRequestsRequestObject) (ListEnrollmentRequestsResponseObject, error)
+	// CreateEnrollmentRequest Thêm thiết bị của chính mình (web-auth hoặc pre-auth key một lần)
+	// (POST /tenants/{tenantId}/enrollment/requests)
+	CreateEnrollmentRequest(ctx context.Context, request CreateEnrollmentRequestRequestObject) (CreateEnrollmentRequestResponseObject, error)
+	// GetEnrollmentRequest Một yêu cầu enrollment
+	// (GET /tenants/{tenantId}/enrollment/requests/{enrollmentRequestId})
+	GetEnrollmentRequest(ctx context.Context, request GetEnrollmentRequestRequestObject) (GetEnrollmentRequestResponseObject, error)
+	// ApproveEnrollmentRequest Duyệt yêu cầu đang chờ (trước bước thiết bị)
+	// (POST /tenants/{tenantId}/enrollment/requests/{enrollmentRequestId}/approve)
+	ApproveEnrollmentRequest(ctx context.Context, request ApproveEnrollmentRequestRequestObject) (ApproveEnrollmentRequestResponseObject, error)
+	// RejectEnrollmentRequest Từ chối yêu cầu đang chờ
+	// (POST /tenants/{tenantId}/enrollment/requests/{enrollmentRequestId}/reject)
+	RejectEnrollmentRequest(ctx context.Context, request RejectEnrollmentRequestRequestObject) (RejectEnrollmentRequestResponseObject, error)
+	// RevokeEnrollmentRequest Thu hồi yêu cầu / credential chưa dùng
+	// (POST /tenants/{tenantId}/enrollment/requests/{enrollmentRequestId}/revoke)
+	RevokeEnrollmentRequest(ctx context.Context, request RevokeEnrollmentRequestRequestObject) (RevokeEnrollmentRequestResponseObject, error)
+	// StartEnrollmentRequest Nhận mã enrollment / pre-auth key của yêu cầu đã được duyệt
+	// (POST /tenants/{tenantId}/enrollment/requests/{enrollmentRequestId}/start)
+	StartEnrollmentRequest(ctx context.Context, request StartEnrollmentRequestRequestObject) (StartEnrollmentRequestResponseObject, error)
+	// ClaimEnrollmentWebAuth Xác nhận đăng ký web-auth bằng Auth ID (luồng A, §7.4 bước 6–8)
+	// (POST /tenants/{tenantId}/enrollment/web-auth/claim)
+	ClaimEnrollmentWebAuth(ctx context.Context, request ClaimEnrollmentWebAuthRequestObject) (ClaimEnrollmentWebAuthResponseObject, error)
 	// ListTenantGroups Group người dùng của tenant
 	// (GET /tenants/{tenantId}/groups)
 	ListTenantGroups(ctx context.Context, request ListTenantGroupsRequestObject) (ListTenantGroupsResponseObject, error)
@@ -39579,6 +42246,296 @@ func (sh *strictHandler) UpdateTenantDnsSettings(w http.ResponseWriter, r *http.
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UpdateTenantDnsSettingsResponseObject); ok {
 		if err := validResponse.VisitUpdateTenantDnsSettingsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetEnrollmentInstructions operation middleware
+func (sh *strictHandler) GetEnrollmentInstructions(w http.ResponseWriter, r *http.Request, tenantId TenantId, params GetEnrollmentInstructionsParams) {
+	var request GetEnrollmentInstructionsRequestObject
+
+	request.TenantId = tenantId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetEnrollmentInstructions(ctx, request.(GetEnrollmentInstructionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetEnrollmentInstructions")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetEnrollmentInstructionsResponseObject); ok {
+		if err := validResponse.VisitGetEnrollmentInstructionsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateEnrollmentKey operation middleware
+func (sh *strictHandler) CreateEnrollmentKey(w http.ResponseWriter, r *http.Request, tenantId TenantId, params CreateEnrollmentKeyParams) {
+	var request CreateEnrollmentKeyRequestObject
+
+	request.TenantId = tenantId
+	request.Params = params
+
+	var body CreateEnrollmentKeyJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateEnrollmentKey(ctx, request.(CreateEnrollmentKeyRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateEnrollmentKey")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateEnrollmentKeyResponseObject); ok {
+		if err := validResponse.VisitCreateEnrollmentKeyResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListEnrollmentRequests operation middleware
+func (sh *strictHandler) ListEnrollmentRequests(w http.ResponseWriter, r *http.Request, tenantId TenantId, params ListEnrollmentRequestsParams) {
+	var request ListEnrollmentRequestsRequestObject
+
+	request.TenantId = tenantId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListEnrollmentRequests(ctx, request.(ListEnrollmentRequestsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListEnrollmentRequests")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListEnrollmentRequestsResponseObject); ok {
+		if err := validResponse.VisitListEnrollmentRequestsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateEnrollmentRequest operation middleware
+func (sh *strictHandler) CreateEnrollmentRequest(w http.ResponseWriter, r *http.Request, tenantId TenantId, params CreateEnrollmentRequestParams) {
+	var request CreateEnrollmentRequestRequestObject
+
+	request.TenantId = tenantId
+	request.Params = params
+
+	var body CreateEnrollmentRequestJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateEnrollmentRequest(ctx, request.(CreateEnrollmentRequestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateEnrollmentRequest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateEnrollmentRequestResponseObject); ok {
+		if err := validResponse.VisitCreateEnrollmentRequestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetEnrollmentRequest operation middleware
+func (sh *strictHandler) GetEnrollmentRequest(w http.ResponseWriter, r *http.Request, tenantId TenantId, enrollmentRequestId EnrollmentRequestId) {
+	var request GetEnrollmentRequestRequestObject
+
+	request.TenantId = tenantId
+	request.EnrollmentRequestId = enrollmentRequestId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetEnrollmentRequest(ctx, request.(GetEnrollmentRequestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetEnrollmentRequest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetEnrollmentRequestResponseObject); ok {
+		if err := validResponse.VisitGetEnrollmentRequestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ApproveEnrollmentRequest operation middleware
+func (sh *strictHandler) ApproveEnrollmentRequest(w http.ResponseWriter, r *http.Request, tenantId TenantId, enrollmentRequestId EnrollmentRequestId) {
+	var request ApproveEnrollmentRequestRequestObject
+
+	request.TenantId = tenantId
+	request.EnrollmentRequestId = enrollmentRequestId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ApproveEnrollmentRequest(ctx, request.(ApproveEnrollmentRequestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ApproveEnrollmentRequest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ApproveEnrollmentRequestResponseObject); ok {
+		if err := validResponse.VisitApproveEnrollmentRequestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RejectEnrollmentRequest operation middleware
+func (sh *strictHandler) RejectEnrollmentRequest(w http.ResponseWriter, r *http.Request, tenantId TenantId, enrollmentRequestId EnrollmentRequestId) {
+	var request RejectEnrollmentRequestRequestObject
+
+	request.TenantId = tenantId
+	request.EnrollmentRequestId = enrollmentRequestId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RejectEnrollmentRequest(ctx, request.(RejectEnrollmentRequestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RejectEnrollmentRequest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RejectEnrollmentRequestResponseObject); ok {
+		if err := validResponse.VisitRejectEnrollmentRequestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RevokeEnrollmentRequest operation middleware
+func (sh *strictHandler) RevokeEnrollmentRequest(w http.ResponseWriter, r *http.Request, tenantId TenantId, enrollmentRequestId EnrollmentRequestId) {
+	var request RevokeEnrollmentRequestRequestObject
+
+	request.TenantId = tenantId
+	request.EnrollmentRequestId = enrollmentRequestId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RevokeEnrollmentRequest(ctx, request.(RevokeEnrollmentRequestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RevokeEnrollmentRequest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RevokeEnrollmentRequestResponseObject); ok {
+		if err := validResponse.VisitRevokeEnrollmentRequestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// StartEnrollmentRequest operation middleware
+func (sh *strictHandler) StartEnrollmentRequest(w http.ResponseWriter, r *http.Request, tenantId TenantId, enrollmentRequestId EnrollmentRequestId) {
+	var request StartEnrollmentRequestRequestObject
+
+	request.TenantId = tenantId
+	request.EnrollmentRequestId = enrollmentRequestId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.StartEnrollmentRequest(ctx, request.(StartEnrollmentRequestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "StartEnrollmentRequest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(StartEnrollmentRequestResponseObject); ok {
+		if err := validResponse.VisitStartEnrollmentRequestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ClaimEnrollmentWebAuth operation middleware
+func (sh *strictHandler) ClaimEnrollmentWebAuth(w http.ResponseWriter, r *http.Request, tenantId TenantId) {
+	var request ClaimEnrollmentWebAuthRequestObject
+
+	request.TenantId = tenantId
+
+	var body ClaimEnrollmentWebAuthJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ClaimEnrollmentWebAuth(ctx, request.(ClaimEnrollmentWebAuthRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ClaimEnrollmentWebAuth")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ClaimEnrollmentWebAuthResponseObject); ok {
+		if err := validResponse.VisitClaimEnrollmentWebAuthResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

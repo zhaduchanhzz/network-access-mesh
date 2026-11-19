@@ -8,6 +8,7 @@ package authzmatrix_test
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/gen"
 )
@@ -290,6 +291,21 @@ var recipes = map[string]recipe{
 	"updateTenantResource": {body: `{"description":"matrix"}`,
 		ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
 	"deleteTenantResource": {ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
+	// enrollment (P4-T06, enrollmentapi — mounted; the matrix's tenants allow self-enrolment, so the End User's
+	// conditional grant passes and the handler enforces the condition): a web-auth request is issued without Headscale
+	// (201); a privileged key reaches Headscale behind the unreachable edge (503); a claim without a request pending in
+	// the caller's session answers 409; the writes on the requests race on the same objects (approve, reject, start —
+	// 409 for every caller but the requester —, revoke) — any answer that is not a refusal
+	"listEnrollmentRequests":    {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
+	"getEnrollmentRequest":      {ok: answer{status: http.StatusOK}},
+	"createEnrollmentRequest":   {idempotent: true, body: `{"method":"web_auth"}`, ok: answer{status: http.StatusCreated}},
+	"createEnrollmentKey":       {idempotent: true, body: `{"tags":["tag:server"]}`},
+	"approveEnrollmentRequest":  {},
+	"rejectEnrollmentRequest":   {},
+	"startEnrollmentRequest":    {},
+	"revokeEnrollmentRequest":   {},
+	"claimEnrollmentWebAuth":    {body: `{"auth_id":"hskey-authreq-` + strings.Repeat("matrix", 4) + `"}`, ok: answer{http.StatusConflict, gen.ProblemCodeConflict}},
+	"getEnrollmentInstructions": {query: func(*call) string { return "os=linux" }, ok: answer{status: http.StatusOK}},
 }
 
 // objectKind is what a path parameter (other than the {tenantId} context of a tenant route) designates.
@@ -319,6 +335,8 @@ const (
 	// P4-T12: /tenants/{t}/dns/records/{recordId}, /tenants/{t}/resources/{resourceId}
 	objDNSRecord objectKind = "dns-record"
 	objResource  objectKind = "resource"
+	// P4-T06: /tenants/{t}/enrollment/requests/{enrollmentRequestId} — End User: own on read/revoke
+	objEnrollment objectKind = "enrollment"
 )
 
 // paramObjects maps path parameters to object kinds; a new parameter must be added (TestEveryOperationHasAnExpectation).
@@ -326,6 +344,6 @@ var paramObjects = map[string]objectKind{
 	"deviceId": objDevice, "membershipId": objMembership, "jobId": objJob, "instanceId": objInstance,
 	"tenantId": objTenant, "sessionId": objSession, "idpId": objIdP, "approvalId": objApproval, "invitationId": objInvitation,
 	"hostId": objHost, "tagId": objTag, "notificationId": objNotification, "groupId": objGroup,
-	"platformUserId": objPlatformUser, "settingKey": objSetting, "planId": objPlan,
+	"platformUserId": objPlatformUser, "settingKey": objSetting, "planId": objPlan, "enrollmentRequestId": objEnrollment,
 	"versionId": objPolicy, "grantId": objGrant, "recordId": objDNSRecord, "resourceId": objResource,
 }
