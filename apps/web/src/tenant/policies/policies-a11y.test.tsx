@@ -1,7 +1,7 @@
 // a11y + i18n của Policies/Tags (P4-T11): axe-core (WCAG 2.0/2.1 A + AA + best-practice; color-contrast ở P4-T14) trên
 // danh sách, chi tiết version có báo cáo lỗi, chế độ HuJSON, hộp duyệt và danh mục tag — vi và en; khóa i18n động (enum
 // của API mà màn hình dịch) có trong cả hai catalog.
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import axe from "axe-core";
 import { describe, expect, it } from "vitest";
@@ -10,7 +10,7 @@ import { i18n } from "../../i18n";
 import en from "../../i18n/locales/en.json";
 import vi from "../../i18n/locales/vi.json";
 import { json, mockApi, renderApp, TENANT_A } from "../../test/helpers";
-import { base, common, current, V2, version } from "../../test/policies";
+import { base, common, current, RESOURCES, TEMPLATES, V2, version } from "../../test/policies";
 import { ACK_RULES, POSITION_TYPES, PRINCIPAL_TYPES, VERSION_STATES } from "./model";
 
 async function violations(): Promise<string[]> {
@@ -26,8 +26,11 @@ const report: components["schemas"]["PolicyValidationReport"] = {
   result: "failed",
   errors: [{ rule: "L4", severity: "error", code: "wildcard_destination_ack_required", path: "grants[0].dst[0]", message: "m", requires_ack: true, owner_only: true }],
   warnings: [{ rule: "L10", severity: "warning", code: "ssh_accept", path: "ssh[0].action", message: "m", requires_ack: true, acknowledged: true }],
-  info: [],
-  tests: [],
+  info: [{ rule: "tests", severity: "info", code: "self_not_asserted", path: "grants[0]", message: "m" }],
+  tests: [
+    { grant: 0, src: "group:eng", proto: "tcp", accept: ["tag:web:443"], deny: ["tag:web:65535"] },
+    { grant: 1, skipped: "via_not_assertable" },
+  ],
   check: "skipped",
   revision: 1,
 };
@@ -48,6 +51,7 @@ const api = {
     report_blocking: true,
   }),
   [`POST ${base}/policies/export`]: json(200, { hujson: '{\n  "grants": []\n}\n', warnings: [], principals: [] }),
+  [`GET ${base}/resources`]: json(200, RESOURCES),
 };
 
 describe.each(["vi", "en"] as const)("axe Policies (%s)", (lng) => {
@@ -66,12 +70,24 @@ describe.each(["vi", "en"] as const)("axe Policies (%s)", (lng) => {
     renderApp({ path: `/t/${TENANT_A}/policies/${V2}` });
     await screen.findByTestId("policy-report");
     await screen.findByTestId("grants-added");
+    await screen.findByTestId("generated-tests");
     expect(await violations()).toEqual([]);
     await userEvent.click(screen.getByRole("radio", { name: "HuJSON" }));
     await screen.findByTestId("hujson-panel");
     expect(await violations()).toEqual([]);
     await userEvent.click(screen.getByRole("button", { name: lng === "vi" ? "Xác nhận và duyệt" : "Confirm and approve" }));
     await screen.findByRole("alertdialog");
+    expect(await violations()).toEqual([]);
+  });
+
+  it("template least-privilege (P5-T01): danh mục, tham số, ghi chú V-24", async () => {
+    await i18n.changeLanguage(lng);
+    mockApi(api);
+    renderApp({ path: `/t/${TENANT_A}/policies/${V2}` });
+    const panel = await screen.findByTestId("policy-templates");
+    await userEvent.selectOptions(await within(panel).findByLabelText("Template"), "subnet-router");
+    await within(panel).findByTestId("template-notes");
+    await within(panel).findByRole("option", { name: "db (10.20.0.5)" });
     expect(await violations()).toEqual([]);
   });
 
@@ -112,6 +128,24 @@ describe("khóa động của Policies/Tags", () => {
       ...(["passed", "failed", "skipped"] as const).map((r) => `policies.report.checks.${r}`),
       ...(["router", "exit", "server", "custom"] as const satisfies readonly components["schemas"]["TagPurpose"][]).map((p) => `tags.purposes.${p}`),
       ...(["accept", "check"] as const).map((a) => `policies.editor.sshActions.${a}`),
+      // P5-T01: template (id, tham số, ghi chú) và lý do bỏ ca tests của spec
+      ...TEMPLATES.items.flatMap((x) => [`policies.templates.items.${x.id}.name`, `policies.templates.items.${x.id}.description`]),
+      ...TEMPLATES.items.flatMap((x) => x.notes.map((n) => `policies.templates.notes.${n}`)),
+      ...(["group_id", "tag_id", "resource_id", "ports"] as const satisfies readonly components["schemas"]["PolicyTemplateParam"]["name"][]).map(
+        (n) => `policies.templates.params.${n}`,
+      ),
+      ...(
+        [
+          "via_not_assertable",
+          "self_not_assertable",
+          "app_only",
+          "no_testable_port",
+          "no_source_device",
+          "no_destination",
+          "capped",
+        ] as const satisfies readonly NonNullable<components["schemas"]["PolicyTestCase"]["skipped"]>[]
+      ).map((r) => `policies.testsGen.skipped.${r}`),
+      ...(["via_not_asserted", "self_not_asserted", "tests_failed"] as const).map((c) => `policies.finding.${c}`),
     ];
     const missing = keys.filter((k) => !has(vi as Tree, k) || !has(en as Tree, k));
     expect(missing).toEqual([]);

@@ -75,6 +75,7 @@ func TestHandlerGroupsFollowSpec(t *testing.T) {
 		"P4-T06":  reflect.TypeFor[EnrollmentHandlers](),
 		"P4-T10":  reflect.TypeFor[PolicyHandlers](),
 		"P4-T11":  reflect.TypeFor[PolicyHuJSONHandlers](),
+		"P5-T01":  reflect.TypeFor[PolicyTemplateHandlers](),
 		"P4-T13":  reflect.TypeFor[SupportHandlers](),
 	}
 	tasks := specTasks(t)

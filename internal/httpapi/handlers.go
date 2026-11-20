@@ -284,6 +284,13 @@ type PolicyHuJSONHandlers interface {
 	ExportTenantPolicy(ctx context.Context, request gen.ExportTenantPolicyRequestObject) (gen.ExportTenantPolicyResponseObject, error)
 }
 
+// PolicyTemplateHandlers — P5-T01 (`policies` templates): the catalog of least-privilege policy templates and the
+// deterministic render of one into a PolicySource fragment for the editor (nothing stored, nothing sent to Headscale).
+type PolicyTemplateHandlers interface {
+	ListTenantPolicyTemplates(ctx context.Context, request gen.ListTenantPolicyTemplatesRequestObject) (gen.ListTenantPolicyTemplatesResponseObject, error)
+	RenderTenantPolicyTemplate(ctx context.Context, request gen.RenderTenantPolicyTemplateRequestObject) (gen.RenderTenantPolicyTemplateResponseObject, error)
+}
+
 // Handlers is the extension point of the API: one handler set per building task. A nil set answers every operation
 // of its interface with 501 not_implemented. A set may also implement only part of its interface by embedding
 // NotImplemented. Handlers return a *problem.Error for an expected failure (not_found, conflict…); any other error
@@ -384,6 +391,7 @@ type Handlers struct {
 	Network       NetworkHandlers              // P4-T12
 	Policies      PolicyHandlers               // P4-T10
 	PolicyHuJSON  PolicyHuJSONHandlers         // P4-T11
+	PolicyTmpl    PolicyTemplateHandlers       // P5-T01
 	InstanceView  PlatformInstanceViewHandlers // P4-T03
 	Support       SupportHandlers              // P4-T13
 	Enrollment    EnrollmentHandlers           // P4-T06
@@ -394,7 +402,7 @@ func (h Handlers) mounted() bool {
 		h.Notifications != nil || h.Approvals != nil || h.Invitations != nil || h.Hosts != nil || h.IdPConsole != nil ||
 		h.Provisioning != nil || h.Lifecycle != nil || h.Relay != nil || h.Reconfigure != nil || h.Backups != nil ||
 		h.InstanceOps != nil || h.Quarantine != nil || h.Deprovision != nil || h.Tags != nil || h.Members != nil ||
-		h.Portal != nil || h.Admin != nil || h.TenantView != nil || h.Network != nil || h.Policies != nil || h.PolicyHuJSON != nil ||
+		h.Portal != nil || h.Admin != nil || h.TenantView != nil || h.Network != nil || h.Policies != nil || h.PolicyHuJSON != nil || h.PolicyTmpl != nil ||
 		h.InstanceView != nil || h.Support != nil || h.Enrollment != nil
 }
 
@@ -427,6 +435,7 @@ type dispatcher struct {
 	NetworkHandlers
 	PolicyHandlers
 	PolicyHuJSONHandlers
+	PolicyTemplateHandlers
 	PlatformInstanceViewHandlers
 	SupportHandlers
 	EnrollmentHandlers
@@ -438,7 +447,7 @@ func newDispatcher(h Handlers) dispatcher {
 	d := dispatcher{h.Auth, h.Tenants, h.Devices, h.Audit, h.Jobs, h.Monitoring, h.Notifications, h.Approvals, h.Invitations,
 		h.Hosts, h.IdPConsole, h.Provisioning, h.Lifecycle, h.Relay, h.Reconfigure, h.Backups, h.InstanceOps,
 		h.Quarantine, h.Deprovision, h.Tags, h.Members, h.Portal, h.Admin, h.TenantView, h.Network, h.Policies, h.PolicyHuJSON,
-		h.InstanceView, h.Support, h.Enrollment}
+		h.PolicyTmpl, h.InstanceView, h.Support, h.Enrollment}
 	if d.EnrollmentHandlers == nil {
 		d.EnrollmentHandlers = NotImplemented{}
 	}
@@ -456,6 +465,9 @@ func newDispatcher(h Handlers) dispatcher {
 	}
 	if d.PolicyHuJSONHandlers == nil {
 		d.PolicyHuJSONHandlers = NotImplemented{}
+	}
+	if d.PolicyTemplateHandlers == nil {
+		d.PolicyTemplateHandlers = NotImplemented{}
 	}
 	if d.TagHandlers == nil {
 		d.TagHandlers = NotImplemented{}
@@ -1152,4 +1164,12 @@ func (NotImplemented) ImportTenantPolicy(context.Context, gen.ImportTenantPolicy
 
 func (NotImplemented) ExportTenantPolicy(context.Context, gen.ExportTenantPolicyRequestObject) (gen.ExportTenantPolicyResponseObject, error) {
 	return nil, problem.NotImplemented("ExportTenantPolicy")
+}
+
+func (NotImplemented) ListTenantPolicyTemplates(context.Context, gen.ListTenantPolicyTemplatesRequestObject) (gen.ListTenantPolicyTemplatesResponseObject, error) {
+	return nil, problem.NotImplemented("ListTenantPolicyTemplates")
+}
+
+func (NotImplemented) RenderTenantPolicyTemplate(context.Context, gen.RenderTenantPolicyTemplateRequestObject) (gen.RenderTenantPolicyTemplateResponseObject, error) {
+	return nil, problem.NotImplemented("RenderTenantPolicyTemplate")
 }

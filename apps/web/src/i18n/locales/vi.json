@@ -1490,7 +1490,7 @@
       "warnings": "Cảnh báo",
       "info": "Thông tin",
       "clean": "Không có phát hiện nào.",
-      "testsNote": "tests/sshTests chưa được sinh (PL-04); kiểm tác động dựa vào CheckPolicy và diff — không phải mô phỏng quyền hiệu lực."
+      "testsNote": "tests được sinh tự động khi kiểm tra/áp dụng (xem bên dưới); kiểm tác động còn dựa vào CheckPolicy và diff — không phải mô phỏng quyền hiệu lực."
     },
     "finding": {
       "wildcard_destination": "* hoặc route mặc định làm đích — bị chặn trừ khi Tenant Owner xác nhận kèm lý do (L4).",
@@ -1534,7 +1534,10 @@
       "unknown_autogroup": "Autogroup không tồn tại.",
       "invalid_cidr": "Prefix còn bit host.",
       "invalid_prefix": "Route phải là prefix IP chuẩn.",
-      "empty_principal": "Principal rỗng."
+      "empty_principal": "Principal rỗng.",
+      "via_not_asserted": "tests sinh tự động không khẳng định được quyền đi qua via của luật này (V-24).",
+      "self_not_asserted": "tests sinh tự động không khẳng định được quyền tới autogroup:self của luật này (V-24).",
+      "tests_failed": "Headscale từ chối tests sinh tự động: một khẳng định sai, hoặc một thiết bị được nhắc tới đã không còn (PL-04)."
     },
     "hujson": {
       "label": "Văn bản HuJSON",
@@ -1682,6 +1685,80 @@
       "usersRequired": "cần ít nhất một tài khoản.",
       "badSshUser": "tài khoản SSH không hợp lệ.",
       "ackReason": "lý do cần 5–500 ký tự."
+    },
+    "templates": {
+      "title": "Template least-privilege",
+      "intro": "Template là dữ liệu của nền tảng (có version): server render tất định thành luật có kiểu theo id rồi thêm vào bản nháp — chưa lưu, chưa áp dụng. Lưu, kiểm tra và duyệt như mọi lần sửa.",
+      "choose": "Template",
+      "versionN": "v{{version}}",
+      "loading": "Đang tải danh mục template…",
+      "apply": "Thêm vào bản nháp",
+      "replace": "Thay bản nháp",
+      "applied": "Đã thêm {{count}} luật từ “{{name}}” ({{version}}) vào bản nháp — lưu để giữ.",
+      "replaced": "Bản nháp đã được thay bằng “{{name}}” ({{version}}) — lưu để giữ.",
+      "reportTitle": "Kết quả kiểm tra riêng đoạn template",
+      "params": {
+        "group_id": "Group được cấp quyền",
+        "tag_id": "Tag của router / exit node (via)",
+        "resource_id": "Tài nguyên mạng",
+        "ports": "Giao thức/cổng",
+        "portsHint": "Cách nhau bởi dấu phẩy, ví dụ tcp:22, tcp:443. Không nhận * (least-privilege).",
+        "portsInvalid": "Giao thức/cổng không hợp lệ hoặc là * (mọi cổng): {{value}}",
+        "noResources": "Không đọc được danh mục tài nguyên mạng (role không có quyền đọc hoặc chưa có tài nguyên nào).",
+        "required": "Chọn {{name}}."
+      },
+      "items": {
+        "deny-all": {
+          "name": "Baseline deny-all",
+          "description": "Bỏ mọi luật: grants: [] — chặn mọi kết nối (như policy baseline lúc cấp tenant)."
+        },
+        "own-devices": {
+          "name": "Chỉ thiết bị của chính mình",
+          "description": "Mỗi thành viên kết nối tới các thiết bị của chính mình (autogroup:member → autogroup:self) trên các cổng đã chọn."
+        },
+        "group-to-resource": {
+          "name": "Group → tài nguyên theo cổng",
+          "description": "Một group truy cập một tài nguyên mạng, chỉ trên các cổng đã chọn."
+        },
+        "admins-to-devices": {
+          "name": "Admin → mọi thiết bị qua cổng quản trị",
+          "description": "Một group quản trị tới mọi thiết bị (của thành viên và có tag) chỉ trên cổng quản trị (mặc định tcp:22)."
+        },
+        "exit-node": {
+          "name": "Exit node qua via tag",
+          "description": "Một group dùng Internet qua exit node mang tag đã chọn (autogroup:internet với via)."
+        },
+        "subnet-router": {
+          "name": "Subnet router theo tài nguyên",
+          "description": "Một group truy cập một tài nguyên (subnet) qua router mang tag đã chọn (via), trên các cổng đã chọn."
+        }
+      },
+      "notes": {
+        "tests_self_not_asserted": "tests sinh tự động KHÔNG khẳng định được quyền tới autogroup:self: Headscale chạy tests trên bộ lọc toàn cục, không thấy luật self (V-24). Kiểm bằng kết nối thật.",
+        "tests_via_not_asserted": "tests sinh tự động KHÔNG khẳng định được quyền đi qua via: Headscale chạy tests trên bộ lọc toàn cục, không thấy luật via (V-24). Kiểm bằng kết nối thật.",
+        "routes_need_approval": "Route của router/exit node vẫn phải được duyệt riêng ở trang Routes.",
+        "self_large_tenant": "autogroup:self tốn chi phí ở tenant lớn (L8).",
+        "replaces_draft": "Thay toàn bộ luật của bản nháp."
+      }
+    },
+    "testsGen": {
+      "title": "tests sinh tự động",
+      "intro": "Mỗi lần kiểm tra/áp dụng, server sinh tests từ grants và thiết bị hiện có; Headscale chạy chúng ở CheckPolicy/SetPolicy và từ chối policy nếu một khẳng định sai. tests chỉ thấy bộ lọc toàn cục: KHÔNG khẳng định được quyền từ via hay autogroup:self (V-24) — không phải mô phỏng quyền hiệu lực.",
+      "generated": "{{count}} ca được sinh",
+      "skippedCount": "{{count}} luật không có ca",
+      "rule": "Luật {{n}}",
+      "accept": "phải được phép",
+      "deny": "phải bị chặn",
+      "proto": "giao thức",
+      "skipped": {
+        "via_not_assertable": "có via — tests không thấy (V-24)",
+        "self_not_assertable": "đích chỉ là autogroup:self — tests không thấy (V-24)",
+        "app_only": "chỉ có capability ứng dụng, không có cổng",
+        "no_testable_port": "không có cổng kiểm được (chỉ * hoặc giao thức tests không nhận)",
+        "no_source_device": "chưa nguồn nào có thiết bị (PL-04)",
+        "no_destination": "chưa đích nào phân giải ra địa chỉ (PL-04)",
+        "capped": "vượt giới hạn số ca"
+      }
     }
   },
   "tags": {

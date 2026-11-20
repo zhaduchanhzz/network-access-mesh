@@ -54,6 +54,76 @@ export const SOURCE: S["PolicySource"] = {
   ssh: [],
 };
 
+/** Danh mục template (P5-T01) — giống internal/policies/templates.go. */
+export const TEMPLATES: S["PolicyTemplateList"] = {
+  items: [
+    { id: "deny-all", version: 1, mode: "replace", params: [], notes: ["replaces_draft"] },
+    { id: "own-devices", version: 1, mode: "append", params: [{ name: "ports", kind: "ports", required: true, default: ["tcp:22"] }], notes: ["tests_self_not_asserted", "self_large_tenant"] },
+    {
+      id: "group-to-resource",
+      version: 1,
+      mode: "append",
+      params: [
+        { name: "group_id", kind: "group", required: true },
+        { name: "resource_id", kind: "resource", required: true },
+        { name: "ports", kind: "ports", required: true, default: ["tcp:443"] },
+      ],
+      notes: [],
+    },
+    {
+      id: "admins-to-devices",
+      version: 1,
+      mode: "append",
+      params: [
+        { name: "group_id", kind: "group", required: true },
+        { name: "ports", kind: "ports", required: true, default: ["tcp:22"] },
+      ],
+      notes: [],
+    },
+    {
+      id: "exit-node",
+      version: 1,
+      mode: "append",
+      params: [
+        { name: "group_id", kind: "group", required: true },
+        { name: "tag_id", kind: "tag", required: true },
+      ],
+      notes: ["tests_via_not_asserted", "routes_need_approval"],
+    },
+    {
+      id: "subnet-router",
+      version: 1,
+      mode: "append",
+      params: [
+        { name: "group_id", kind: "group", required: true },
+        { name: "resource_id", kind: "resource", required: true },
+        { name: "tag_id", kind: "tag", required: true },
+        { name: "ports", kind: "ports", required: true, default: ["tcp:443"] },
+      ],
+      notes: ["tests_via_not_asserted", "routes_need_approval"],
+    },
+  ],
+};
+
+export const RESOURCES: S["NetworkResourceList"] = {
+  items: [
+    {
+      id: R_DB,
+      name: "db",
+      kind: "host",
+      address: "10.20.0.5",
+      ports: ["5432"],
+      protocol: "tcp",
+      tags: [],
+      version: 1,
+      etag: '"1"',
+      created_at: AT,
+      updated_at: AT,
+    },
+  ],
+  next_cursor: null,
+};
+
 export function version(id: string, over: Partial<S["PolicyVersion"]> = {}): S["PolicyVersion"] {
   const revision = over.revision ?? 1;
   return {
@@ -127,6 +197,7 @@ export function common(role: string, identity: string = ME_IDENTITY, cur: S["Pol
     [`GET ${base}/groups`]: json(200, GROUPS),
     [`GET ${base}/tags`]: json(200, TAGS),
     [`GET ${base}/policies/current`]: json(200, cur),
+    [`GET ${base}/policies/templates`]: json(200, TEMPLATES),
     [`GET ${base}/policies`]: json(200, { items: [version(V2), cur.desired ?? version(V1)], next_cursor: null }),
   };
 }

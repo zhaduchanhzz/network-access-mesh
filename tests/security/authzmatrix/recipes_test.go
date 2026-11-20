@@ -270,6 +270,10 @@ var recipes = map[string]recipe{
 	// stored — a granted import or export answers 200 (the import of an empty grants list passes).
 	"importTenantPolicy": {body: `{"hujson":"{\"grants\": []}"}`, ok: answer{status: http.StatusOK}},
 	"exportTenantPolicy": {body: `{"source":{"grants":[]}}`, ok: answer{status: http.StatusOK}},
+	// Template catalog and render of the editor (P5-T01, policiesapi — mounted): pure functions, nothing stored — a
+	// granted render of deny-all (no parameter) answers 200.
+	"listTenantPolicyTemplates":  {ok: answer{status: http.StatusOK}},
+	"renderTenantPolicyTemplate": {body: `{"template_id":"deny-all","params":{}}`, ok: answer{status: http.StatusOK}},
 	// support access grants (P4-T13, supportapi — mounted). The objects are pending grants whose requester/grantee is a
 	// Super Admin that is no actor of the matrix (world_test.go): a granted decision answers 200 for the first caller
 	// and 409 grant_closed after (the order of parallel callers decides), so the answer is left open; the requests

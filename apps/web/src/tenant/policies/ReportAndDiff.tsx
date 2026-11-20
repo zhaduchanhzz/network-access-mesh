@@ -8,7 +8,7 @@ import { StatusBadge } from "../../ui/Status";
 import { Timestamp } from "../../ui/time";
 import { usePolicyDiff } from "./api";
 import { FindingList } from "./FindingList";
-import { shortSha, type PolicyVersion } from "./model";
+import { shortSha, type PolicyReport, type PolicyVersion } from "./model";
 import { useTenant } from "../TenantScope";
 
 export function ReportPanel({ version }: { version: PolicyVersion }) {
@@ -70,8 +70,63 @@ export function ReportPanel({ version }: { version: PolicyVersion }) {
           <FindingList findings={r.info} label={t("policies.report.info")} />
           {r.errors.length + r.warnings.length + r.info.length === 0 ? <p className="text-sm">{t("policies.report.clean")}</p> : null}
           <p className="hint">{t("policies.report.testsNote")}</p>
+          <GeneratedTests tests={r.tests} />
         </>
       )}
+    </section>
+  );
+}
+
+type TestCase = PolicyReport["tests"][number];
+
+/** tests sinh tự động của lần kiểm tra (P5-T01): các ca (nguồn, phải được phép / phải bị chặn) và luật không có ca. */
+export function GeneratedTests({ tests }: { tests: readonly TestCase[] }) {
+  const { t } = useTranslation();
+  const id = useId();
+  const made = tests.filter((c) => !c.skipped);
+  const skipped = tests.filter((c) => c.skipped);
+  return (
+    <section aria-labelledby={`${id}-tests`} className="space-y-2" data-testid="generated-tests" data-count={made.length}>
+      <h3 id={`${id}-tests`} className="label">
+        {t("policies.testsGen.title")}
+      </h3>
+      <p className="hint">{t("policies.testsGen.intro")}</p>
+      <p className="text-sm">
+        {t("policies.testsGen.generated", { count: made.length })}
+        {skipped.length > 0 ? ` · ${t("policies.testsGen.skippedCount", { count: skipped.length })}` : ""}
+      </p>
+      {made.length > 0 ? (
+        <ul className="space-y-1 text-sm" aria-label={t("policies.testsGen.generated", { count: made.length })}>
+          {made.map((c) => (
+            <li key={`g${String(c.grant)}`} className="rounded-md border border-line p-2" data-grant={c.grant}>
+              <span className="font-semibold">{t("policies.testsGen.rule", { n: c.grant + 1 })}</span>{" "}
+              <code className="text-xs">{c.src}</code>
+              {c.proto ? <span className="text-xs text-muted">{` · ${t("policies.testsGen.proto")} ${c.proto}`}</span> : null}
+              {(c.accept ?? []).map((a) => (
+                <span key={`a${a}`} className="block text-xs">
+                  {`${t("policies.testsGen.accept")}: `}
+                  <code>{a}</code>
+                </span>
+              ))}
+              {(c.deny ?? []).map((d) => (
+                <span key={`d${d}`} className="block text-xs">
+                  {`${t("policies.testsGen.deny")}: `}
+                  <code>{d}</code>
+                </span>
+              ))}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {skipped.length > 0 ? (
+        <ul className="space-y-1 text-sm" aria-label={t("policies.testsGen.skippedCount", { count: skipped.length })}>
+          {skipped.map((c) => (
+            <li key={`s${String(c.grant)}`} data-grant={c.grant} data-skipped={c.skipped}>
+              {`${t("policies.testsGen.rule", { n: c.grant + 1 })}: ${t(`policies.testsGen.skipped.${c.skipped ?? "capped"}`)}`}
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </section>
   );
 }

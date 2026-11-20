@@ -28,6 +28,7 @@ type fakeService struct {
 	against    *uuid.UUID
 	err        error
 	v          policies.Version
+	tmpl       policies.TemplateRequest
 }
 
 func (f *fakeService) List(_ context.Context, t uuid.UUID, _ int, _ string) (policies.VersionPage, error) {
@@ -91,6 +92,74 @@ func (f *fakeService) Import(_ context.Context, t uuid.UUID, text string) (polic
 func (f *fakeService) Export(_ context.Context, t uuid.UUID, src json.RawMessage) (policies.ExportResult, error) {
 	f.tenant, f.source = t, src
 	return policies.ExportResult{HuJSON: "{\"grants\": []}\n", Warnings: []policies.Finding{}, Principals: []policies.PrincipalName{}}, f.err
+}
+
+func (f *fakeService) RenderTemplate(_ context.Context, t uuid.UUID, req policies.TemplateRequest) (policies.TemplateResult, error) {
+	f.tenant, f.tmpl = t, req
+	if f.err != nil {
+		return policies.TemplateResult{}, f.err
+	}
+	_, src, err := policies.BuildTemplate(req)
+	if err != nil {
+		return policies.TemplateResult{}, err
+	}
+	return policies.TemplateResult{TemplateID: req.TemplateID, Version: 1, Mode: policies.TemplateAppend, Source: src,
+		Report: policies.Report{Engine: "p4-t10", Result: policies.ResultPassed, Errors: []policies.Finding{},
+			Warnings: []policies.Finding{}, Info: []policies.Finding{}, Tests: []policies.TestCase{{Grant: 0, Skipped: policies.TestSkipNoSource}}}}, nil
+}
+
+// TestTemplateHandlers (P5-T01) — the catalog lists every template of the package with its parameters and notes; a
+// render passes the request through (ids as strings, version kept) and answers the fragment with its report; a
+// missing body, an unknown template or a parameter error of the service map to 422; the service's failures map like
+// the lifecycle's.
+func TestTemplateHandlers(t *testing.T) {
+	f := &fakeService{}
+	h := New(f)
+	ctx := context.Background()
+	tenant := uuid.MustParse("00000000-0000-7000-8000-000000000001")
+	list, err := h.ListTenantPolicyTemplates(ctx, gen.ListTenantPolicyTemplatesRequestObject{TenantId: tenant})
+	l, ok := list.(gen.ListTenantPolicyTemplates200JSONResponse)
+	if err != nil || !ok || len(l.Items) != len(policies.Templates()) {
+		t.Fatalf("list: %+v %v", list, err)
+	}
+	for i, tm := range policies.Templates() {
+		got := l.Items[i]
+		if string(got.Id) != tm.ID || got.Version != tm.Version || string(got.Mode) != tm.Mode || len(got.Params) != len(tm.Params) ||
+			len(got.Notes) != len(tm.Notes) {
+			t.Errorf("item %d: %+v, want %+v", i, got, tm)
+		}
+	}
+	group := uuid.MustParse("00000000-0000-7000-8000-000000000003")
+	resource := uuid.MustParse("00000000-0000-7000-8000-000000000002")
+	v := 1
+	ports := []string{"tcp:443"}
+	body := gen.PolicyTemplateRenderRequest{TemplateId: policies.TemplateGroupToResource, Version: &v,
+		Params: gen.PolicyTemplateParams{GroupId: &group, ResourceId: &resource, Ports: &ports}}
+	out, err := h.RenderTenantPolicyTemplate(ctx, gen.RenderTenantPolicyTemplateRequestObject{TenantId: tenant, Body: &body})
+	r, ok := out.(gen.RenderTenantPolicyTemplate200JSONResponse)
+	if err != nil || !ok || f.tenant != tenant || f.tmpl.Params.GroupID != group.String() || f.tmpl.Params.ResourceID != resource.String() ||
+		f.tmpl.Version == nil || *f.tmpl.Version != 1 || len(r.Source.Grants) != 1 || len(r.Report.Tests) != 1 {
+		t.Fatalf("render: %+v %v (request %+v)", out, err, f.tmpl)
+	}
+	if g := r.Source.Grants[0]; string(g.Src[0].Type) != policies.PrincipalGroup || g.Src[0].Ref != group.String() ||
+		string(g.Dst[0].Type) != policies.PrincipalResource || g.Ip == nil || (*g.Ip)[0] != "tcp:443" {
+		t.Errorf("fragment: %+v", g)
+	}
+	var p *problem.Error
+	if _, err := h.RenderTenantPolicyTemplate(ctx, gen.RenderTenantPolicyTemplateRequestObject{TenantId: tenant}); !errors.As(err, &p) ||
+		p.Code != gen.ProblemCodeValidationFailed {
+		t.Errorf("no body: %v", err)
+	}
+	bad := gen.PolicyTemplateRenderRequest{TemplateId: "nope", Params: gen.PolicyTemplateParams{}}
+	if _, err := h.RenderTenantPolicyTemplate(ctx, gen.RenderTenantPolicyTemplateRequestObject{TenantId: tenant, Body: &bad}); !errors.As(err, &p) ||
+		p.Code != gen.ProblemCodeValidationFailed || len(p.Fields) == 0 || p.Fields[0].Field != "template_id" {
+		t.Errorf("unknown template: %v", err)
+	}
+	f.err = &policies.PolicyError{Kind: policies.ErrPolicyInvalid, Reason: "not_found", Field: "params.group_id"}
+	if _, err := h.RenderTenantPolicyTemplate(ctx, gen.RenderTenantPolicyTemplateRequestObject{TenantId: tenant, Body: &body}); !errors.As(err, &p) ||
+		p.Code != gen.ProblemCodeValidationFailed || p.Fields[0].Field != "params.group_id" {
+		t.Errorf("reference of another tenant: %v", err)
+	}
 }
 
 // TestHuJSONHandlers (P4-T11) — import passes the text through and answers the translation (line of a finding kept);

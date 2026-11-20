@@ -212,6 +212,7 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 			Tags:          tagsapi.New(tags, devicesapi.New(dev)),
 			Policies:      policiesH,
 			PolicyHuJSON:  policiesH, // P4-T11
+			PolicyTmpl:    policiesH, // P5-T01
 			Audit:         auditapi.New(audit.NewReader(d.st)),
 			Jobs:          jobsH,
 			Monitoring:    monitoringapi.New(mon),

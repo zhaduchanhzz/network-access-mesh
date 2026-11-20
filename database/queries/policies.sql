@@ -133,6 +133,14 @@ SELECT id, name, address::text AS address FROM network_resources
 WHERE tenant_id = sqlc.arg(tenant_id)
 ORDER BY name;
 
+-- name: ListPolicyNodes :many
+-- Thiết bị đang có trên instance mà bộ sinh `tests` của policy đọc (P5-T01, PL-04): chưa removed, có địa chỉ, không
+-- đang/đã bị xóa khỏi Headscale; chủ sở hữu + tag như lần đồng bộ thiết bị gần nhất (P2-T13).
+SELECT owner_membership_id, tags FROM device_inventory_cache
+WHERE tenant_id = sqlc.arg(tenant_id) AND removed_at IS NULL AND cardinality(ip_addresses) > 0
+  AND NOT (COALESCE(revocation_kind, '') = 'delete' AND revocation_state IN ('pending', 'applied'))
+ORDER BY headscale_node_id;
+
 -- name: GetTenantPolicySettings :one
 -- TenantSettings (§13.3) mà vòng đời policy đọc: identity_mode (L13), policy.four_eyes (duyệt peer + step-up khi apply)
 -- — chỉ đọc; đường ghi là PUT /settings/security (P4-T03a) — và số thiết bị chưa removed (L8).

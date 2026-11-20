@@ -840,6 +840,40 @@ func (q *Queries) ListPolicyMemberships(ctx context.Context, tenantID uuid.UUID)
 	return items, nil
 }
 
+const listPolicyNodes = `-- name: ListPolicyNodes :many
+SELECT owner_membership_id, tags FROM device_inventory_cache
+WHERE tenant_id = $1 AND removed_at IS NULL AND cardinality(ip_addresses) > 0
+  AND NOT (COALESCE(revocation_kind, '') = 'delete' AND revocation_state IN ('pending', 'applied'))
+ORDER BY headscale_node_id
+`
+
+type ListPolicyNodesRow struct {
+	OwnerMembershipID *uuid.UUID
+	Tags              []string
+}
+
+// Thiết bị đang có trên instance mà bộ sinh `tests` của policy đọc (P5-T01, PL-04): chưa removed, có địa chỉ, không
+// đang/đã bị xóa khỏi Headscale; chủ sở hữu + tag như lần đồng bộ thiết bị gần nhất (P2-T13).
+func (q *Queries) ListPolicyNodes(ctx context.Context, tenantID uuid.UUID) ([]ListPolicyNodesRow, error) {
+	rows, err := q.db.Query(ctx, listPolicyNodes, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPolicyNodesRow{}
+	for rows.Next() {
+		var i ListPolicyNodesRow
+		if err := rows.Scan(&i.OwnerMembershipID, &i.Tags); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPolicyResources = `-- name: ListPolicyResources :many
 SELECT id, name, address::text AS address FROM network_resources
 WHERE tenant_id = $1
