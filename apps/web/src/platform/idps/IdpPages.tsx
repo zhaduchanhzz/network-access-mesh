@@ -26,6 +26,7 @@ import { invalidatePlatform } from "../api";
 import { useIdentityProvider, useIdentityProviders, type IdentityProvider } from "../opsApi";
 import { usePlatformRole } from "../PlatformScope";
 import { formOf, idpUpdate, MAPPED_FIELDS, type IdpForm } from "./idpForm";
+import { TenantRef } from "../Refs";
 
 export function IdpListPage() {
   const { t } = useTranslation();
@@ -83,9 +84,7 @@ export function IdpListPage() {
                         <td>
                           {t(`platform.idps.scopes.${i.scope}`)}
                           {i.tenant_id ? (
-                            <Link to={`/platform/tenants/${i.tenant_id}`} className="link hint block font-mono">
-                              {i.tenant_id}
-                            </Link>
+                            <TenantRef id={i.tenant_id} slug={i.tenant_slug} name={i.tenant_name} block />
                           ) : null}
                         </td>
                         <td>{t(`platform.tenantCreate.drivers.${i.driver}`)}</td>
@@ -172,9 +171,7 @@ function IdpDetail({ idpId }: { idpId: string }) {
             <Field label={t("platform.idps.col.scope")}>
               {t(`platform.idps.scopes.${idp.scope}`)}
               {idp.tenant_id ? (
-                <Link to={`/platform/tenants/${idp.tenant_id}`} className="link hint block font-mono">
-                  {idp.tenant_id}
-                </Link>
+                <TenantRef id={idp.tenant_id} slug={idp.tenant_slug} name={idp.tenant_name} block />
               ) : null}
             </Field>
             <Field label={t("platform.idps.col.status")}>

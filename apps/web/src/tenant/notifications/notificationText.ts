@@ -58,10 +58,32 @@ export function i18nKeyOf(kind: string, payload: Record<string, unknown>): strin
   return SUPPORT_DECIDED.has(kind) && payload.by_support === true ? `${key}_support` : key;
 }
 
+/** Mô tả tiếng Anh mà nền tảng ghi cho actor hệ thống của IdP (internal/idp/auditsync) — thông báo cũ chưa có `actor_kind`. */
+const LEGACY_ACTORS: Readonly<Record<string, string>> = {
+  "IdP driver (service account of the realm)": "idp_driver",
+  "IdP provisioning identity (platform)": "idp_provisioner",
+  "Keycloak administrator (master realm)": "idp_admin",
+  "user of the realm": "realm_user",
+};
+
+/** Mã actor hệ thống của một thông báo (G4b-E13): `actor_kind` của payload, hoặc suy từ mô tả cũ; null ⇒ actor là người. */
+export function systemActorKind(payload: Record<string, unknown>): string | null {
+  const k = payload.actor_kind;
+  if (typeof k === "string" && /^[a-z][a-z0-9_]{0,63}$/.test(k)) return k;
+  const a = payload.actor;
+  if (typeof a !== "string") return null;
+  const legacy = Object.hasOwn(LEGACY_ACTORS, a) ? LEGACY_ACTORS[a] : undefined;
+  if (legacy) return legacy;
+  return a.startsWith("Keycloak master: ") ? "idp_admin" : null;
+}
+
 /** Câu của thông báo theo ngôn ngữ hiện tại. */
 export function notificationText(t: TFunction, lng: string, kind: string, payload: Record<string, unknown>): string {
   const values: Record<string, string> = { kind };
   for (const [k, v] of Object.entries(payload)) values[k] = text(v, lng);
+  // actor hệ thống ⇒ nhãn đã dịch theo mã (cùng nhãn với Audit log), không câu tiếng Anh của nền tảng (G4b-E13)
+  const actorKind = systemActorKind(payload);
+  if (actorKind) values.actor = t(`audit.actorKinds.${actorKind}`, { defaultValue: t("audit.actorKinds.system") });
   values.tenant = text(payload.tenant_name ?? payload.tenant_slug, lng);
   for (const f of ["device_name", "expires_at", "version", "trigger", "staff", "approver", "action", "actor", "role",
     "backup_created_at", "keys_destroy_after", "device_label", "prefixes"]) {

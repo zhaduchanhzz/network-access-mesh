@@ -239,14 +239,21 @@ describe("editor dạng form", () => {
     expect(l4).not.toBeNull();
     expect(l4).toHaveTextContent("grants[0].dst[0]");
     expect(l4).toHaveTextContent("Tenant Owner xác nhận");
+    // câu chính là mô tả; mã luật/mã phát hiện chỉ ở dòng chi tiết kỹ thuật (G4b-E11)
+    expect(l4!.querySelector('[data-testid="finding-technical"]')).toHaveTextContent("L4 · wildcard_destination_ack_required");
+    expect(l4!.firstElementChild).not.toHaveTextContent("L4");
     expect(within(screen.getByTestId("grant-0")).getByText("grants[0].dst[0]")).toBeInTheDocument();
     const validate = find(requests, "POST", "/validate")[0]!;
     expect(validate.headers.get("If-Match")).toBe('"1"');
     // xác nhận L4
     const acks = screen.getByTestId("acks");
     expect(within(acks).getAllByText("báo cáo yêu cầu")).toHaveLength(1);
-    await userEvent.click(within(acks).getByRole("checkbox", { name: /Xác nhận L4/ }));
-    await userEvent.type(within(acks).getByLabelText("Lý do xác nhận L4"), "đã thống nhất với khách");
+    // tên luật đã dịch, mã luật chỉ ở tooltip (G4b-E11)
+    const ackL4 = within(acks).getByRole("checkbox", { name: /Xác nhận: đích \* hoặc route mặc định/ });
+    expect(acks.querySelector('[data-rule="L4"]')).toHaveAttribute("title", "Mã luật: L4");
+    expect(acks).not.toHaveTextContent(/\bL4\b/);
+    await userEvent.click(ackL4);
+    await userEvent.type(within(acks).getByLabelText("Lý do xác nhận (đích * hoặc route mặc định)"), "đã thống nhất với khách");
     await userEvent.click(screen.getByRole("button", { name: "Lưu bản nháp" }));
     await waitFor(() => expect(find(requests, "PATCH", `/policies/${V2}`)).toHaveLength(1));
     const patch = find(requests, "PATCH", `/policies/${V2}`)[0]!;
@@ -451,7 +458,8 @@ describe("áp dụng / rollback", () => {
     expect(await within(dialog).findByTestId("stale-base-dialog")).toBeInTheDocument();
     await userEvent.click(within(dialog).getByRole("button", { name: "Hủy" }));
     expect(await screen.findByTestId("stale-base")).toHaveTextContent("409 stale_base");
-    await userEvent.click(screen.getByRole("button", { name: "Tạo bản nháp mới từ nội dung này" }));
+    // version đã duyệt chỉ đọc: soạn lại qua "Tạo bản nháp từ version này" (G4b-E15)
+    await userEvent.click(within(screen.getByTestId("policy-sealed")).getByRole("button", { name: "Tạo bản nháp từ version này" }));
     await screen.findByRole("heading", { name: "Version 3", level: 1 });
     expect((await bodyOf(find(requests, "POST", "/policies")[0]!)).source).toEqual(SOURCE);
   });
@@ -495,6 +503,36 @@ describe("áp dụng / rollback", () => {
     expect(router.state.location.search).toBe(`?job=${JOB}`);
     expect(await screen.findByTestId("apply-done")).toBeInTheDocument();
     expect(find(requests, "POST", "/rollback")[0]!.headers.get("Idempotency-Key")).toMatch(UUID4);
+  });
+
+  it("version đã duyệt: Biểu mẫu chỉ đọc (không Thêm/Gỡ luật, không Lưu), tạo bản nháp từ version này (G4b-E15)", async () => {
+    const { requests } = mockApi({
+      ...common("tenant_admin"),
+      [`GET ${vpath(V2)}`]: etagged(approved),
+      [`GET ${vpath(V2)}/diff`]: diff,
+      [`POST ${base}/policies`]: json(201, version(V3), { ETag: '"1"' }),
+      [`GET ${vpath(V3)}`]: etagged(version(V3)),
+      [`GET ${vpath(V3)}/diff`]: diff,
+    });
+    const { router } = renderApp({ path: `/t/${TENANT_A}/policies/${V2}` });
+    const sealed = await screen.findByTestId("policy-sealed");
+    expect(sealed).toHaveTextContent("Đã duyệt");
+    for (const name of [/^Thêm luật/, /^Gỡ luật/, "Lưu bản nháp", "Kiểm tra", "Tạo bản nháp mới từ nội dung này"]) {
+      expect(screen.queryByRole("button", { name })).toBeNull();
+    }
+    // áp dụng vẫn còn (quyền áp dụng của version đã duyệt)
+    expect(screen.getByRole("button", { name: "Áp dụng" })).toBeEnabled();
+    await userEvent.click(within(sealed).getByRole("button", { name: "Tạo bản nháp từ version này" }));
+    await screen.findByRole("heading", { name: "Version 3", level: 1 });
+    expect(router.state.location.pathname).toBe(`/t/${TENANT_A}/policies/${V3}`);
+    const post = find(requests, "POST", "/policies")[0]!;
+    expect(post.headers.get("Idempotency-Key")).toMatch(UUID4);
+    expect(await bodyOf(post)).toEqual({ source: SOURCE });
+    // không PATCH nào lên version đã duyệt
+    expect(requests.filter((r) => r.method === "PATCH")).toHaveLength(0);
+    // bản nháp mới: Biểu mẫu sửa được
+    expect(await screen.findByRole("button", { name: "Lưu bản nháp" })).toBeInTheDocument();
+    expect(screen.queryByTestId("policy-sealed")).toBeNull();
   });
 
   it("Viewer: không có nút soạn/duyệt/áp dụng; tenant tạm ngưng ⇒ chỉ đọc", async () => {

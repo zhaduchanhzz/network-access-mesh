@@ -3179,7 +3179,7 @@ export interface components {
             name: string;
             status: components["schemas"]["TenantStatus"];
             deployment_region: string;
-            /** @description Khóa gói (`subscription_plans.key`) */
+            /** @description Khóa gói (`subscription_plans.key`) của subscription còn hiệu lực — có cả ở danh sách `GET /platform/tenants` (G4b-E12); chuỗi rỗng khi tenant không có subscription còn hiệu lực */
             plan: string;
             limits: components["schemas"]["PlanLimits"];
             /**
@@ -3344,6 +3344,11 @@ export interface components {
         DeviceList: {
             items: components["schemas"]["Device"][];
             next_cursor: string | null;
+            /**
+             * Format: date-time
+             * @description Lần sync gần nhất đã áp của instance live của tenant (cả khi trang rỗng — End User chưa có thiết bị); vắng hoặc `null` ⇒ chưa sync lần nào / không có instance live (G4b-E9). Mỗi hàng vẫn mang `synced_at` của chính nó
+             */
+            synced_at?: string | null;
         };
         /** @description Thành viên của tenant (`tenant_memberships` + `identities`) */
         Membership: {
@@ -3461,8 +3466,12 @@ export interface components {
             type: "identity" | "system" | "support";
             /** Format: uuid */
             identity_id?: string;
-            /** @description Ảnh chụp tên hiển thị lúc ghi */
+            /** @description Mã ổn định của actor để giao diện dịch nhãn (G4b-E13): `user` (danh tính), `support` (nhân viên nền tảng qua Support Access Grant); actor hệ thống — `idp_driver`, `idp_provisioner`, `idp_admin`, `realm_user` (sự kiện của IdP do nền tảng host), `job` (job nền — `display_name` là kind của job), `admin_command` (lệnh quản trị `meshguard …` — `display_name` là lệnh), `system` (khác). Tập giá trị chỉ được bổ sung (cộng thêm) */
+            kind?: string;
+            /** @description Danh tính: tên hiển thị hiện tại của danh tính khi đọc được trong phạm vi của view (G4b-E13), nếu không thì ảnh chụp lúc ghi; actor hệ thống: ảnh chụp lúc ghi (mã job, lệnh, mô tả tiếng Anh — giao diện hiển thị nhãn theo `kind`, ảnh chụp ở tooltip) */
             display_name?: string;
+            /** @description E-mail hiện tại của danh tính, khi đọc được trong phạm vi của view (G4b-E13) */
+            email?: string;
             /** Format: uuid */
             support_grant_id?: string;
         };
@@ -3525,6 +3534,10 @@ export interface components {
             kind: components["schemas"]["JobKind"];
             /** Format: uuid */
             tenant_id?: string;
+            /** @description Slug của tenant (chỉ ở các view của Platform Console — G4b-E12; vắng khi không tra được) */
+            tenant_slug?: string;
+            /** @description Tên hiển thị của tenant (chỉ ở các view của Platform Console — G4b-E12; vắng khi không tra được) */
+            tenant_name?: string;
             status: components["schemas"]["JobStatus"];
             current_step: string | null;
             resource?: components["schemas"]["ResourceRef"];
@@ -3576,6 +3589,10 @@ export interface components {
             kind: components["schemas"]["JobKind"];
             /** Format: uuid */
             tenant_id?: string;
+            /** @description Slug của tenant (chỉ ở các view của Platform Console — G4b-E12; vắng khi không tra được) */
+            tenant_slug?: string;
+            /** @description Tên hiển thị của tenant (chỉ ở các view của Platform Console — G4b-E12; vắng khi không tra được) */
+            tenant_name?: string;
             status: components["schemas"]["JobStatus"];
             current_step: string | null;
             resource?: components["schemas"]["ResourceRef"];
@@ -3604,6 +3621,12 @@ export interface components {
             tenant_id: string;
             /** Format: uuid */
             host_id: string;
+            /** @description Slug của tenant (chỉ ở các view của Platform Console — G4b-E12; vắng khi không tra được) */
+            tenant_slug?: string;
+            /** @description Tên hiển thị của tenant (chỉ ở các view của Platform Console — G4b-E12; vắng khi không tra được) */
+            tenant_name?: string;
+            /** @description Tên host (nhãn DNS — G4b-E12; vắng khi không tra được) */
+            host_name?: string;
             status: components["schemas"]["InstanceStatus"];
             /** @example v0.29.7 */
             headscale_version: string;
@@ -3988,8 +4011,14 @@ export interface components {
              * @description Tenant sở hữu region (`embedded`, `standalone`); `null` với region `shared`
              */
             tenant_id: string | null;
+            /** @description Slug của tenant (chỉ ở các view của Platform Console — G4b-E12; vắng khi không tra được) */
+            tenant_slug?: string;
+            /** @description Tên hiển thị của tenant (chỉ ở các view của Platform Console — G4b-E12; vắng khi không tra được) */
+            tenant_name?: string;
             /** Format: uuid */
             host_id?: string;
+            /** @description Tên host (nhãn DNS — G4b-E12; vắng khi không tra được) */
+            host_name?: string;
             assignments: components["schemas"]["PlatformRelayAssignment"][];
             health: components["schemas"]["RelayHealth"];
             /** Format: date-time */
@@ -4964,6 +4993,10 @@ export interface components {
              * @description Tenant của hàng `scope=tenant`
              */
             tenant_id?: string;
+            /** @description Slug của tenant (chỉ ở các view của Platform Console — G4b-E12; vắng khi không tra được) */
+            tenant_slug?: string;
+            /** @description Tên hiển thị của tenant (chỉ ở các view của Platform Console — G4b-E12; vắng khi không tra được) */
+            tenant_name?: string;
             issuer: string;
             client_id: string;
             /** @enum {string} */
@@ -5605,6 +5638,8 @@ export interface operations {
                 return_to?: string;
                 /** @description `true` ⇒ xác thực lại tường minh (step-up, §8.3 bước 7): IdP được yêu cầu `prompt=login` và `max_age=0`, kể cả khi request chưa mang session nào. Vắng hoặc `false` ⇒ step-up chỉ khi request đã mang session hợp lệ của chính origin này (suy ra, P2-T06). */
                 reauth?: boolean;
+                /** @description Ngôn ngữ giao diện của SPA (G4b-E14) — chuyển cho IdP thành tham số OIDC `ui_locales` để trang đăng nhập hiện cùng ngôn ngữ (realm bật i18n vi/en). Vắng ⇒ IdP dùng ngôn ngữ mặc định của nó */
+                ui_locales?: "vi" | "en";
             };
             header?: never;
             path?: never;

@@ -72,6 +72,32 @@ describe.each([
     expect(await violations()).toEqual([]);
   });
 
+  it("End User, tenant tắt tự đăng ký: menu không còn Thêm thiết bị, trang (gõ thẳng URL) giải thích (G4b-E3)", async () => {
+    await i18n.changeLanguage(lng);
+    setSystemDark(dark);
+    mockApi({
+      ...apiFor("end_user"),
+      [`GET ${base}/enrollment/instructions`]: (r: Request) =>
+        json(200, instructions((new URL(r.url).searchParams.get("os") ?? "linux") as "linux", { self_enroll: false })),
+    });
+    renderApp({ path: `/t/${TENANT_A}/enroll` });
+    await screen.findByTestId("self-enroll-off");
+    const nav = screen.getByRole("navigation", { name: t("shell.navigation") });
+    await within(nav).findByRole("link", { name: t("nav.tenant.devices") });
+    expect(within(nav).queryByRole("link", { name: t("nav.tenant.enroll") })).toBeNull();
+    expect(await violations()).toEqual([]);
+  });
+
+  it("End User, tenant cho tự đăng ký: menu có Thêm thiết bị (G4b-E3)", async () => {
+    await i18n.changeLanguage(lng);
+    setSystemDark(dark);
+    mockApi(apiFor("end_user"));
+    renderApp({ path: `/t/${TENANT_A}/enroll` });
+    await within(await screen.findByTestId("enroll-wizard")).findByTestId("login-server");
+    const nav = screen.getByRole("navigation", { name: t("shell.navigation") });
+    expect(within(nav).getByRole("link", { name: t("nav.tenant.enroll") })).toBeInTheDocument();
+  });
+
   it("hộp key một lần", async () => {
     await i18n.changeLanguage(lng);
     setSystemDark(dark);

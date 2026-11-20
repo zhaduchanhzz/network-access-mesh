@@ -1,6 +1,7 @@
-// Một danh sách phát hiện (lint L1–L13, decoder guard, CheckPolicy, lỗi dịch HuJSON — P4-T11): luật, mức, đường dẫn,
-// dòng, thông điệp đã dịch theo `code` (không có bản dịch ⇒ thông điệp của server), cờ cần xác nhận / chỉ Owner / đã
-// xác nhận. Màu chỉ là phụ — chữ luôn nói mức (WCAG 1.4.1).
+// Một danh sách phát hiện (lint L1–L13, decoder guard, CheckPolicy, lỗi dịch HuJSON — P4-T11): mức, đường dẫn, dòng,
+// thông điệp đã dịch theo `code` (không có bản dịch ⇒ thông điệp của server) là câu chính; mã luật + mã phát hiện chỉ ở
+// dòng "chi tiết kỹ thuật" nhỏ (G4b-E11 — người vận hành vẫn đối chiếu được); cờ cần xác nhận / chỉ Owner / đã xác nhận.
+// Màu chỉ là phụ — chữ luôn nói mức (WCAG 1.4.1).
 import { useTranslation } from "react-i18next";
 import { StatusBadge } from "../../ui/Status";
 import { baseCode, type PolicyFinding } from "./model";
@@ -25,14 +26,15 @@ export function FindingList({ findings, label }: { findings: readonly PolicyFind
               <StatusBadge tone={f.severity === "error" ? "danger" : f.severity === "warning" ? "warn" : "info"}>
                 {t(`policies.severity.${f.severity}`)}
               </StatusBadge>
-              <span className="font-mono font-semibold">{f.rule}</span>
               {f.path ? <code className="text-xs">{f.path}</code> : null}
               {f.line ? <span className="text-xs text-muted">{t("policies.report.line", { line: f.line })}</span> : null}
               {f.requires_ack ? <span className="badge badge-warn">{t(f.acknowledged ? "policies.report.acknowledged" : "policies.report.needsAck")}</span> : null}
               {f.owner_only ? <span className="badge">{t("policies.ack.ownerOnly")}</span> : null}
             </span>
             <span className="mt-1 block">{text}</span>
-            <code className="block text-xs text-muted">{f.code}</code>
+            <span className="block font-mono text-xs text-muted" data-testid="finding-technical">
+              {t("policies.report.technical", { rule: f.rule, code: f.code })}
+            </span>
           </li>
         );
       })}

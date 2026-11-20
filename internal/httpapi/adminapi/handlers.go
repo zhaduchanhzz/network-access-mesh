@@ -60,6 +60,8 @@ type Platform interface {
 	CreatePlan(ctx context.Context, a platform.Actor, in platform.PlanCreate, idem *platform.Idempotency) (platform.Plan, error)
 	UpdatePlan(ctx context.Context, id uuid.UUID, p platform.PlanPatch, ifMatch string) (platform.Plan, error)
 	UpdateTenant(ctx context.Context, id uuid.UUID, p platform.TenantPatch, ifMatch string) error
+	// Labels names the tenants of a page (G4b-E12: slug and name instead of a UUID in the Platform Console).
+	Labels(ctx context.Context, tenantIDs, hostIDs []uuid.UUID) (platform.Labels, error)
 }
 
 // Tenants is the part of *tenants.Service the handlers use.

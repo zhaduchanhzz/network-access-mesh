@@ -260,7 +260,7 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 	if err != nil {
 		t.Fatal(err)
 	}
-	registry, jobsH, relayH := tenantsapi.New(dir, platform.New(w.Store)), jobsapi.New(jobs.NewService(w.Store)), relayapi.New(relays)
+	registry, jobsH, relayH := tenantsapi.New(dir, platform.New(w.Store)), jobsapi.New(jobs.NewService(w.Store)).WithLabels(platform.New(w.Store)), relayapi.New(relays).WithLabels(platform.New(w.Store))
 	inbox := notificationsapi.New(notifications.NewReader(w.Store))
 	// P4-T06 (A6): the enrollment module reaches its tenants' fake Headscale through the production Locator and adapter
 	enrLoc, err := locator.New(dir, m.sec, locator.Options{AdminURL: m.newEnrollmentEdge(t, w), EdgeTokenFile: tokenFile,

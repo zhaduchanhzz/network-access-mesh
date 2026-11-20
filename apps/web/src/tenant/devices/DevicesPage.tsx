@@ -54,7 +54,13 @@ export function DevicesPage() {
     setParams(paramsFromFilters({ ...filters, ...f }), { replace: true });
   };
   const items = list.data?.items ?? [];
-  const syncedAt = items.reduce<string | null>((max, d) => (max === null || d.synced_at > max ? d.synced_at : max), null);
+  // G4b-E9: mốc của tenant (`synced_at` của trang — lần sync gần nhất của instance, có cả khi trang rỗng); server cũ
+  // không trả ⇒ mốc mới nhất của các hàng
+  const tenantSynced = list.data?.synced_at;
+  const syncedAt =
+    tenantSynced !== undefined
+      ? tenantSynced
+      : items.reduce<string | null>((max, d) => (max === null || d.synced_at > max ? d.synced_at : max), null);
 
   return (
     <Page title={filters.review ? t("devices.review.title") : t("nav.tenant.devices")} actions={can(role, "tenant.device:sync") ? <SyncControl /> : null}>
@@ -70,9 +76,11 @@ export function DevicesPage() {
       ) : null}
       <Filters filters={filters} canMine={membershipId !== null} onChange={update} />
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        {/* mốc đồng bộ lấy từ các hàng: trang rỗng không cho biết lần đồng bộ của tenant (API danh sách không có
-            `synced_at` riêng) ⇒ không hiện câu nào thay vì "chưa từng" sai (G4b-E9) */}
-        <div>{list.isSuccess && items.length > 0 ? <ObservedAt labelKey="ui.syncedAt" iso={syncedAt} /> : null}</div>
+        {/* "Đồng bộ từ Headscale lúc …" theo mốc của tenant — đúng cả khi danh sách rỗng; chưa sync lần nào ⇒ câu riêng
+            (G4b-E9). Server cũ không có mốc của tenant và trang rỗng ⇒ không hiện câu nào thay vì "chưa từng" sai */}
+        <div data-testid="devices-synced">
+          {list.isSuccess && (tenantSynced !== undefined || items.length > 0) ? <ObservedAt labelKey="ui.syncedAt" iso={syncedAt} /> : null}
+        </div>
         <button type="button" className="btn-secondary" disabled={fresh.isPending} onClick={() => fresh.mutate()}>
           {t("devices.fresh")}
         </button>

@@ -187,6 +187,36 @@ func (q *Queries) InsertSystemSettingIfAbsent(ctx context.Context, arg InsertSys
 	return i, err
 }
 
+const listHostNames = `-- name: ListHostNames :many
+SELECT id, name FROM hosts WHERE id = ANY($1::uuid[])
+`
+
+type ListHostNamesRow struct {
+	ID   uuid.UUID
+	Name string
+}
+
+// Tên host (nhãn DNS, bất biến) của các host được nhắc tới trên một trang của Platform Console (G4b-E12).
+func (q *Queries) ListHostNames(ctx context.Context, ids []uuid.UUID) ([]ListHostNamesRow, error) {
+	rows, err := q.db.Query(ctx, listHostNames, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListHostNamesRow{}
+	for rows.Next() {
+		var i ListHostNamesRow
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listIdentityProvidersPage = `-- name: ListIdentityProvidersPage :many
 
 SELECT id, scope, tenant_id, issuer, client_id, client_secret_ref, required_claims, require_email_verified, allowed_email_domains, claim_mapping, driver, driver_ref, status, created_at, updated_at, version FROM identity_providers
@@ -402,6 +432,52 @@ func (q *Queries) ListServedSystemSettings(ctx context.Context, keys []string) (
 			&i.UpdatedBy,
 			&i.UpdatedAt,
 			&i.Version,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listTenantLabels = `-- name: ListTenantLabels :many
+
+SELECT t.id, t.slug::text AS slug, t.name,
+       COALESCE((SELECT p.key FROM subscriptions s JOIN subscription_plans p ON p.id = s.plan_id
+                 WHERE s.tenant_id = t.id AND s.status IN ('trialing', 'active', 'past_due')
+                 ORDER BY s.created_at DESC LIMIT 1), '')::text AS plan_key
+FROM tenants t
+WHERE t.id = ANY($1::uuid[])
+`
+
+type ListTenantLabelsRow struct {
+	ID      uuid.UUID
+	Slug    string
+	Name    string
+	PlanKey string
+}
+
+// ---------------------------------------------------------------- nhãn của Platform Console (G4b-E12)
+// Slug, tên và gói (subscription còn hiệu lực — trialing/active/past_due, tối đa một: partial UNIQUE của 0012) của các
+// tenant được nhắc tới trên một trang của Platform Console (instance, job, relay region, IdP, danh sách tenant) — tra
+// theo lô thay cho UUID. Tenant không có subscription còn hiệu lực ⇒ plan_key rỗng.
+func (q *Queries) ListTenantLabels(ctx context.Context, ids []uuid.UUID) ([]ListTenantLabelsRow, error) {
+	rows, err := q.db.Query(ctx, listTenantLabels, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListTenantLabelsRow{}
+	for rows.Next() {
+		var i ListTenantLabelsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Slug,
+			&i.Name,
+			&i.PlanKey,
 		); err != nil {
 			return nil, err
 		}

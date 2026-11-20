@@ -30,9 +30,15 @@ type LoginRequest struct {
 	// FetchSite is RequestInfo.FetchSite (Sec-Fetch-Site of the request): a login start is refused unless it is
 	// same-origin (the Portal's own page), none (typed address, bookmark) or absent (G2 F1, see BeginLogin).
 	FetchSite string
+	// UILocales is the language of the Portal (ui_locales of GET /auth/login — G4b-E14): passed to the IdP as the OIDC
+	// ui_locales parameter so that its pages speak the same language; only the languages of the Portal, "" = none.
+	UILocales string
 	ClientIP  string
 	RequestID string
 }
+
+// uiLocales are the ui_locales values a login start passes on (the languages of the Portal and of the realms' i18n).
+var uiLocales = map[string]bool{"vi": true, "en": true}
 
 // LoginRedirect is the answer of BeginLogin: a 302 to Location setting Cookie (the browser binding).
 type LoginRedirect struct {
@@ -115,6 +121,9 @@ func (s *Service) beginLogin(ctx context.Context, in LoginRequest, ev *AuditEven
 	if !ok {
 		return nil, invalid("return_to", "pattern")
 	}
+	if in.UILocales != "" && !uiLocales[in.UILocales] {
+		return nil, invalid("ui_locales", "enum")
+	}
 	p, err := s.loginIdP(ctx, in.Scope, in.TenantSlug)
 	if err != nil {
 		return nil, err
@@ -158,6 +167,9 @@ func (s *Service) beginLogin(ctx context.Context, in LoginRequest, ev *AuditEven
 		opts = append(opts, oauth2.SetAuthURLParam("prompt", "login"))
 	}
 	opts = append(opts, oauth2.SetAuthURLParam("max_age", strconv.Itoa(maxAge)))
+	if in.UILocales != "" { // OIDC Core 3.1.2.1: the IdP's pages in the Portal's language (G4b-E14)
+		opts = append(opts, oauth2.SetAuthURLParam("ui_locales", in.UILocales))
+	}
 	location := s.oauthConfig(p, e, "", oauth2.AuthStyleInParams).AuthCodeURL(encodeSecret(state), opts...)
 	return &LoginRedirect{
 		Location: location, Cookie: AuthRequestCookie(encodeSecret(binding), ttl), IdPID: p.ID, StepUp: stepUp,

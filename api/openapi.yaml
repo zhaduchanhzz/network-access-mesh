@@ -145,6 +145,15 @@ paths:
           schema:
             type: boolean
             default: false
+        - name: ui_locales
+          in: query
+          required: false
+          description: >-
+            Ngôn ngữ giao diện của SPA (G4b-E14) — chuyển cho IdP thành tham số OIDC `ui_locales` để trang đăng nhập
+            hiện cùng ngôn ngữ (realm bật i18n vi/en). Vắng ⇒ IdP dùng ngôn ngữ mặc định của nó
+          schema:
+            type: string
+            enum: [vi, en]
       responses:
         '302':
           description: >-
@@ -7718,7 +7727,9 @@ components:
           type: string
         plan:
           type: string
-          description: Khóa gói (`subscription_plans.key`)
+          description: >-
+            Khóa gói (`subscription_plans.key`) của subscription còn hiệu lực — có cả ở danh sách `GET /platform/tenants`
+            (G4b-E12); chuỗi rỗng khi tenant không có subscription còn hiệu lực
         limits:
           $ref: '#/components/schemas/PlanLimits'
         control_url:
@@ -8007,6 +8018,12 @@ components:
             $ref: '#/components/schemas/Device'
         next_cursor:
           type: [string, 'null']
+        synced_at:
+          type: [string, 'null']
+          format: date-time
+          description: >-
+            Lần sync gần nhất đã áp của instance live của tenant (cả khi trang rỗng — End User chưa có thiết bị); vắng
+            hoặc `null` ⇒ chưa sync lần nào / không có instance live (G4b-E9). Mỗi hàng vẫn mang `synced_at` của chính nó
     # ------------------------------------------------------------ users (§6.3 tenant_memberships)
     Membership:
       type: object
@@ -8218,9 +8235,23 @@ components:
         identity_id:
           type: string
           format: uuid
+        kind:
+          type: string
+          pattern: '^[a-z][a-z0-9_]{0,63}$'
+          description: >-
+            Mã ổn định của actor để giao diện dịch nhãn (G4b-E13): `user` (danh tính), `support` (nhân viên nền tảng qua
+            Support Access Grant); actor hệ thống — `idp_driver`, `idp_provisioner`, `idp_admin`, `realm_user` (sự kiện
+            của IdP do nền tảng host), `job` (job nền — `display_name` là kind của job), `admin_command` (lệnh quản trị
+            `meshguard …` — `display_name` là lệnh), `system` (khác). Tập giá trị chỉ được bổ sung (cộng thêm)
         display_name:
           type: string
-          description: Ảnh chụp tên hiển thị lúc ghi
+          description: >-
+            Danh tính: tên hiển thị hiện tại của danh tính khi đọc được trong phạm vi của view (G4b-E13), nếu không thì
+            ảnh chụp lúc ghi; actor hệ thống: ảnh chụp lúc ghi (mã job, lệnh, mô tả tiếng Anh — giao diện hiển thị nhãn
+            theo `kind`, ảnh chụp ở tooltip)
+        email:
+          type: string
+          description: E-mail hiện tại của danh tính, khi đọc được trong phạm vi của view (G4b-E13)
         support_grant_id:
           type: string
           format: uuid
@@ -8316,6 +8347,12 @@ components:
         tenant_id:
           type: string
           format: uuid
+        tenant_slug:
+          type: string
+          description: Slug của tenant (chỉ ở các view của Platform Console — G4b-E12; vắng khi không tra được)
+        tenant_name:
+          type: string
+          description: Tên hiển thị của tenant (chỉ ở các view của Platform Console — G4b-E12; vắng khi không tra được)
         status:
           $ref: '#/components/schemas/JobStatus'
         current_step:
@@ -8409,6 +8446,12 @@ components:
         tenant_id:
           type: string
           format: uuid
+        tenant_slug:
+          type: string
+          description: Slug của tenant (chỉ ở các view của Platform Console — G4b-E12; vắng khi không tra được)
+        tenant_name:
+          type: string
+          description: Tên hiển thị của tenant (chỉ ở các view của Platform Console — G4b-E12; vắng khi không tra được)
         status:
           $ref: '#/components/schemas/JobStatus'
         current_step:
@@ -8458,6 +8501,15 @@ components:
         host_id:
           type: string
           format: uuid
+        tenant_slug:
+          type: string
+          description: Slug của tenant (chỉ ở các view của Platform Console — G4b-E12; vắng khi không tra được)
+        tenant_name:
+          type: string
+          description: Tên hiển thị của tenant (chỉ ở các view của Platform Console — G4b-E12; vắng khi không tra được)
+        host_name:
+          type: string
+          description: Tên host (nhãn DNS — G4b-E12; vắng khi không tra được)
         status:
           $ref: '#/components/schemas/InstanceStatus'
         headscale_version:
@@ -9183,9 +9235,18 @@ components:
           type: [string, 'null']
           format: uuid
           description: Tenant sở hữu region (`embedded`, `standalone`); `null` với region `shared`
+        tenant_slug:
+          type: string
+          description: Slug của tenant (chỉ ở các view của Platform Console — G4b-E12; vắng khi không tra được)
+        tenant_name:
+          type: string
+          description: Tên hiển thị của tenant (chỉ ở các view của Platform Console — G4b-E12; vắng khi không tra được)
         host_id:
           type: string
           format: uuid
+        host_name:
+          type: string
+          description: Tên host (nhãn DNS — G4b-E12; vắng khi không tra được)
         assignments:
           type: array
           items:
@@ -11022,6 +11083,12 @@ components:
           type: string
           format: uuid
           description: Tenant của hàng `scope=tenant`
+        tenant_slug:
+          type: string
+          description: Slug của tenant (chỉ ở các view của Platform Console — G4b-E12; vắng khi không tra được)
+        tenant_name:
+          type: string
+          description: Tên hiển thị của tenant (chỉ ở các view của Platform Console — G4b-E12; vắng khi không tra được)
         issuer:
           type: string
         client_id:

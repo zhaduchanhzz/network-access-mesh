@@ -356,7 +356,9 @@ function Acknowledgements({ source, onChange, needed }: { source: PolicySource; 
                 }}
               />
               <span>
-                <span className="font-medium">{t("policies.ack.rule", { rule })}</span>
+                <span className="font-medium" title={t("policies.ack.ruleCode", { rule })} data-rule={rule}>
+                  {t("policies.ack.rule", { name: t(`policies.ack.name.${rule}`) })}
+                </span>
                 {" — "}
                 {t(`policies.ack.desc.${rule}`)}
                 {OWNER_ACK_RULES.includes(rule) ? <span className="ms-1 badge badge-warn">{t("policies.ack.ownerOnly")}</span> : null}
@@ -366,7 +368,7 @@ function Acknowledgements({ source, onChange, needed }: { source: PolicySource; 
             {on ? (
               <div className="mt-2 ms-6">
                 <label htmlFor={`${id}-${rule}`} className="label">
-                  {t("policies.ack.reason", { rule })}
+                  {t("policies.ack.reason", { name: t(`policies.ack.name.${rule}`) })}
                 </label>
                 <textarea
                   id={`${id}-${rule}`}

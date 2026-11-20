@@ -51,7 +51,11 @@ export function SyncControl() {
         {jobId !== null && status ? (
           <span data-testid="sync-status">
             <StatusBadge tone={status === "succeeded" ? "ok" : done ? "danger" : "warn"}>{t(`jobs.status.${status}`)}</StatusBadge>
-            {job.data?.error ? <code className="ms-2">{job.data.error.code}</code> : null}
+            {job.data?.error ? (
+              <span className="ms-2 text-xs text-muted" data-code={job.data.error.code}>
+                {t("ui.jobErrorCode", { code: job.data.error.code })}
+              </span>
+            ) : null}
           </span>
         ) : null}
       </div>

@@ -94,7 +94,11 @@ export function JobProgress({
         <span className="text-muted">{t("common.loading")}</span>
       )}
       <span className="ms-2">{succeeded ? doneText : settled ? t("network.job.failed") : t("network.job.inProgress")}</span>
-      {job.data?.error ? <code className="ms-2">{job.data.error.code}</code> : null}
+      {job.data?.error ? (
+        <span className="ms-2 text-xs text-muted" data-code={job.data.error.code}>
+          {t("ui.jobErrorCode", { code: job.data.error.code })}
+        </span>
+      ) : null}
     </div>
   );
 }

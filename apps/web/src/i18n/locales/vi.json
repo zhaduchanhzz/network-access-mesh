@@ -883,7 +883,8 @@
       "override": "Thay toàn bộ override hạn mức",
       "overrideHint": "API chỉ trả hạn mức hiệu lực (gói + override): giá trị gửi đi thay toàn bộ override hiện có; để trống mọi ô ⇒ gỡ hết override.",
       "save": "Lưu"
-    }
+    },
+    "idTooltip": "ID: {{id}}"
   },
   "ui": {
     "cancel": "Hủy",
@@ -903,7 +904,8 @@
     "copyFailed": "Không sao chép được — hãy chọn và sao chép thủ công.",
     "syncedNever": "Chưa đồng bộ từ Headscale lần nào.",
     "checkedNever": "Chưa kiểm tra lần nào.",
-    "observedNever": "Chưa có lần quan sát nào."
+    "observedNever": "Chưa có lần quan sát nào.",
+    "jobErrorCode": "Mã lỗi: {{code}}"
   },
   "notif": {
     "filterLabel": "Lọc thông báo",
@@ -1139,7 +1141,7 @@
     "addresses": "Địa chỉ công khai",
     "verifyMode": "Xác thực client",
     "verify": {
-      "in_process": "Trong tiến trình (verify_clients)",
+      "in_process": "Trong tiến trình (DERP nhúng kiểm client)",
       "verify_url": "Qua verify URL (fail-closed)"
     },
     "adminStatus": "Trạng thái quản trị",
@@ -1377,7 +1379,7 @@
     }
   },
   "policies": {
-    "intro": "Policy được soạn trên mô hình có kiểu (thành viên, group, tag, tài nguyên chọn theo id), kiểm bằng lint L1–L13 và CheckPolicy trên instance, duyệt rồi mới áp dụng. Groups, hosts và tagOwners được render từ bảng của tenant lúc áp dụng.",
+    "intro": "Policy được soạn trên mô hình có kiểu (thành viên, group, tag, tài nguyên chọn theo id), kiểm bằng bộ kiểm tra luật và CheckPolicy trên instance, duyệt rồi mới áp dụng. Groups, hosts và tagOwners được render từ bảng của tenant lúc áp dụng.",
     "newVersion": "Soạn version mới",
     "history": "Lịch sử version",
     "noVersions": "Tenant chưa có version policy nào.",
@@ -1442,7 +1444,7 @@
       "denyAll": "Không có luật nào: policy này chặn mọi kết nối (deny-all).",
       "ssh": "Luật SSH",
       "addSsh": "Thêm luật SSH",
-      "sshHint": "Mặc định không có. accept luôn cho phép port forwarding và không ghi phiên (L10 — cần xác nhận); check bị chặn.",
+      "sshHint": "Mặc định không có. accept luôn cho phép port forwarding và không ghi phiên (cần xác nhận); check bị chặn.",
       "grantN": "Luật {{n}}",
       "removeGrant": "Gỡ luật {{n}}",
       "remove": "Gỡ",
@@ -1457,7 +1459,7 @@
       "removeSsh": "Gỡ luật SSH {{n}}",
       "sshAction": "Hành động",
       "sshActions": {
-        "accept": "accept (cần xác nhận L10)",
+        "accept": "accept (cần xác nhận)",
         "check": "check (bị chặn — sau MVP)"
       },
       "sshSrcN": "Nguồn của luật SSH {{n}}",
@@ -1465,7 +1467,7 @@
       "sshUsersN": "Tài khoản đăng nhập của luật SSH {{n}}",
       "sshUsersHint": "Ví dụ root, autogroup:nonroot, ubuntu.",
       "autoApprovers": "Tự duyệt route (autoApprovers)",
-      "autoApproversHint": "Mặc định không có. Chỉ tag router/exit của nền tảng không cần xác nhận (L7); autoApprovers chạy lại ở mọi lần áp dụng.",
+      "autoApproversHint": "Mặc định không có. Chỉ tag router/exit của nền tảng không cần xác nhận; autoApprovers chạy lại ở mọi lần áp dụng.",
       "routeApprovers": "Người tự duyệt route {{prefix}}",
       "removeRoute": "Gỡ route {{prefix}}",
       "routePrefix": "Route (prefix)",
@@ -1476,7 +1478,7 @@
     "ack": {
       "title": "Xác nhận luật",
       "hint": "Luật cần xác nhận chỉ qua kiểm tra khi có xác nhận kèm lý do (≥ 5 ký tự). Xác nhận không nằm trong văn bản HuJSON.",
-      "rule": "Xác nhận {{rule}}",
+      "rule": "Xác nhận: {{name}}",
       "desc": {
         "L4": "* hoặc route mặc định làm đích (gồm subnet route và exit node).",
         "L7": "autogroup:internet không kèm via, hoặc autoApprovers ngoài tag nền tảng.",
@@ -1486,8 +1488,16 @@
       },
       "ownerOnly": "chỉ Tenant Owner duyệt",
       "needed": "báo cáo yêu cầu",
-      "reason": "Lý do xác nhận {{rule}}",
-      "reasonHint": "5–500 ký tự; được ghi vào nội dung version và người duyệt thấy."
+      "reason": "Lý do xác nhận ({{name}})",
+      "reasonHint": "5–500 ký tự; được ghi vào nội dung version và người duyệt thấy.",
+      "name": {
+        "L4": "đích * hoặc route mặc định",
+        "L7": "internet không qua exit node / autoApprovers ngoài nền tảng",
+        "L10": "luật SSH accept",
+        "L12": "tagOwners có owner",
+        "L13": "autogroup:member ở headscale_oidc"
+      },
+      "ruleCode": "Mã luật: {{rule}}"
     },
     "report": {
       "findings": "Phát hiện",
@@ -1514,38 +1524,39 @@
       "warnings": "Cảnh báo",
       "info": "Thông tin",
       "clean": "Không có phát hiện nào.",
-      "testsNote": "tests được sinh tự động khi kiểm tra/áp dụng (xem bên dưới); kiểm tác động còn dựa vào CheckPolicy và diff — không phải mô phỏng quyền hiệu lực."
+      "testsNote": "tests được sinh tự động khi kiểm tra/áp dụng (xem bên dưới); kiểm tác động còn dựa vào CheckPolicy và diff — không phải mô phỏng quyền hiệu lực.",
+      "technical": "Chi tiết kỹ thuật: {{rule}} · {{code}}"
     },
     "finding": {
-      "wildcard_destination": "* hoặc route mặc định làm đích — bị chặn trừ khi Tenant Owner xác nhận kèm lý do (L4).",
-      "danger_all_source": "autogroup:danger-all làm nguồn — luôn bị chặn (L5).",
-      "undeclared_group": "Group được tham chiếu không tồn tại trong tenant (L6).",
-      "undeclared_tag": "Tag không có trong danh mục tag của tenant (L6).",
-      "undeclared_user": "Thành viên không tồn tại, đã offboard, hoặc e-mail không thuộc thành viên nào (L6).",
-      "undeclared_resource": "Không có tài nguyên mạng nào mang tên (alias) này (L6).",
+      "wildcard_destination": "* hoặc route mặc định làm đích — bị chặn trừ khi Tenant Owner xác nhận kèm lý do.",
+      "danger_all_source": "autogroup:danger-all làm nguồn — luôn bị chặn.",
+      "undeclared_group": "Group được tham chiếu không tồn tại trong tenant.",
+      "undeclared_tag": "Tag không có trong danh mục tag của tenant.",
+      "undeclared_user": "Thành viên không tồn tại, đã offboard, hoặc e-mail không thuộc thành viên nào.",
+      "undeclared_resource": "Không có tài nguyên mạng nào mang tên (alias) này.",
       "unresolved_reference": "Tham chiếu không còn tồn tại trong tenant — sửa trước khi lưu.",
       "ambiguous_user": "Nhiều thành viên có e-mail này — viết thành viên dạng mg-<membership>@.",
       "ambiguous_resource": "Nhiều tài nguyên mạng có tên này.",
-      "internet_without_via": "autogroup:internet không kèm via tag (exit node) — cần xác nhận L7.",
-      "auto_approver_not_platform": "autoApprovers ngoài tag router/exit của nền tảng — cần xác nhận L7.",
+      "internet_without_via": "autogroup:internet không kèm via tag (exit node) — cần xác nhận.",
+      "auto_approver_not_platform": "autoApprovers ngoài tag router/exit của nền tảng — cần xác nhận.",
       "ssh_check": "SSH check bị chặn (sau MVP).",
-      "ssh_accept": "SSH accept luôn cho phép port forwarding và không ghi phiên — cần xác nhận L10.",
-      "self_large_tenant": "autogroup:self ở tenant lớn tốn chi phí ở mọi thay đổi (L8).",
-      "member_oidc": "autogroup:member ở chế độ headscale_oidc gồm mọi user của IdP — cần xác nhận L13.",
-      "tag_owners": "tagOwners có owner (L12).",
-      "user_token": "Token user của đầu ra không đúng dạng mg-<membership>@ (L11).",
-      "acls_legacy": "Có phần acls (legacy — L9).",
+      "ssh_accept": "SSH accept luôn cho phép port forwarding và không ghi phiên — cần xác nhận.",
+      "self_large_tenant": "autogroup:self ở tenant lớn tốn chi phí ở mọi thay đổi.",
+      "member_oidc": "autogroup:member ở chế độ headscale_oidc gồm mọi user của IdP — cần xác nhận.",
+      "tag_owners": "tagOwners có owner.",
+      "user_token": "Token user của đầu ra không đúng dạng mg-<membership>@.",
+      "acls_legacy": "Có phần acls (legacy).",
       "check_rejected": "Headscale từ chối chuỗi đã render (CheckPolicy).",
-      "missing_grants": "Thiếu khóa grants — Headscale sẽ cho phép mọi kết nối (L1). Dùng \"grants\": [] cho deny-all.",
-      "null_grants": "\"grants\": null nghĩa là cho phép tất cả (L1) — dùng mảng tường minh.",
-      "grants_not_array": "grants phải là mảng (L1).",
-      "empty": "Văn bản policy rỗng — Headscale sẽ lưu và cho phép mọi kết nối ở lần khởi động sau (L2). Không gửi.",
-      "managed_key": "Khóa này được render từ bảng của tenant (groups, tài nguyên, danh mục tag) — gỡ khỏi văn bản và quản lý ở trang tương ứng (L3).",
-      "acls_unsupported": "acls là định dạng cũ — viết luật bằng grants (L3).",
-      "node_attrs": "nodeAttrs bị từ chối ở MVP (L3).",
-      "tests_generated": "tests/sshTests được sinh lúc áp dụng, không viết tay (L3).",
-      "unsupported_key": "Khóa này không thuộc policy của tenant (L3).",
-      "unknown_key": "Khóa không hợp lệ ở vị trí này (L3).",
+      "missing_grants": "Thiếu khóa grants — Headscale sẽ cho phép mọi kết nối. Dùng \"grants\": [] cho deny-all.",
+      "null_grants": "\"grants\": null nghĩa là cho phép tất cả — dùng mảng tường minh.",
+      "grants_not_array": "grants phải là mảng.",
+      "empty": "Văn bản policy rỗng — Headscale sẽ lưu và cho phép mọi kết nối ở lần khởi động sau. Không gửi.",
+      "managed_key": "Khóa này được render từ bảng của tenant (groups, tài nguyên, danh mục tag) — gỡ khỏi văn bản và quản lý ở trang tương ứng.",
+      "acls_unsupported": "acls là định dạng cũ — viết luật bằng grants.",
+      "node_attrs": "nodeAttrs bị từ chối ở MVP.",
+      "tests_generated": "tests/sshTests được sinh lúc áp dụng, không viết tay.",
+      "unsupported_key": "Khóa này không thuộc policy của tenant.",
+      "unknown_key": "Khóa không hợp lệ ở vị trí này.",
       "misspelled_key": "Tên khóa sai hoa/thường — Headscale so khớp không phân biệt hoa thường nên khóa này bị từ chối.",
       "comment_key": "Khóa bắt đầu bằng # bị Headscale lặng lẽ bỏ qua — bị từ chối.",
       "duplicate_key": "Khóa lặp lại (so sánh không phân biệt hoa thường).",
@@ -1624,7 +1635,7 @@
       "stepUp": "Áp dụng/rollback cần đăng nhập lại trong 15 phút"
     },
     "job": {
-      "title": "Job policy.apply",
+      "title": "Job áp dụng policy",
       "final": "trạng thái cuối",
       "polling": "đang tự cập nhật",
       "steps": "Các bước của job",
@@ -1651,7 +1662,7 @@
       "title": "Vòng đời",
       "saveFirst": "Có thay đổi chưa lưu — lưu trước khi kiểm tra hoặc duyệt.",
       "fourEyesSelf": "4-eyes đang bật: bạn là người soạn hoặc người gửi nên không duyệt được — cần một Owner/Admin khác duyệt.",
-      "ownerOnly": "Version có xác nhận chỉ Tenant Owner được chấp nhận (L4/L12) — cần Tenant Owner duyệt.",
+      "ownerOnly": "Version có xác nhận mà chỉ Tenant Owner được chấp nhận — cần Tenant Owner duyệt.",
       "validate": "Kiểm tra",
       "submit": "Gửi duyệt",
       "approve": "Duyệt",
@@ -1664,7 +1675,7 @@
     },
     "staleBase": {
       "title": "Base đã cũ (409 stale_base)",
-      "body": "Version này được soạn trên một version mong muốn cũ; version mong muốn đã đổi từ đó. Tạo bản nháp mới từ nội dung này (dựa trên version mong muốn hiện tại), kiểm tra và duyệt lại."
+      "body": "Version này được soạn trên một version mong muốn cũ; version mong muốn đã đổi từ đó. “Tạo bản nháp từ version này” (dựa trên version mong muốn hiện tại), kiểm tra và duyệt lại."
     },
     "content": {
       "title": "Nội dung",
@@ -1676,7 +1687,9 @@
       "discard": "Bỏ thay đổi",
       "unsaved": "Chưa lưu",
       "localProblems_other": "{{count}} vấn đề cần sửa trước khi lưu",
-      "backToDraft": "Lưu sẽ đưa version về bản nháp và xóa phê duyệt cùng kết quả kiểm tra."
+      "backToDraft": "Lưu sẽ đưa version về bản nháp và xóa phê duyệt cùng kết quả kiểm tra.",
+      "sealed": "Version này ở trạng thái “{{state}}” nên chỉ đọc. Muốn thay đổi, tạo bản nháp mới từ nội dung của nó — version này giữ nguyên.",
+      "newDraftFrom": "Tạo bản nháp từ version này"
     },
     "approve": {
       "title": "Duyệt version {{n}}?",
@@ -1696,7 +1709,7 @@
     },
     "apply": {
       "title": "Áp dụng version {{n}}?",
-      "description": "Version thành mong muốn và job policy.apply render với bảng hiện tại → lint → CheckPolicy → SetPolicy → đọc lại sha256.",
+      "description": "Version thành mong muốn và job áp dụng render nó với bảng hiện tại → kiểm tra luật → CheckPolicy → SetPolicy → đọc lại sha256.",
       "stepUp": "Thao tác cần đăng nhập lại trong 15 phút (step-up) — nếu được yêu cầu, xác thực lại rồi thử lại.",
       "converged": "\"Đã áp dụng lên Headscale\" không có nghĩa mọi client đã nhận policy mới."
     },
@@ -1761,7 +1774,7 @@
         "tests_self_not_asserted": "tests sinh tự động KHÔNG khẳng định được quyền tới autogroup:self: Headscale chạy tests trên bộ lọc toàn cục, không thấy luật self. Kiểm bằng kết nối thật.",
         "tests_via_not_asserted": "tests sinh tự động KHÔNG khẳng định được quyền đi qua via: Headscale chạy tests trên bộ lọc toàn cục, không thấy luật via. Kiểm bằng kết nối thật.",
         "routes_need_approval": "Route của router/exit node vẫn phải được duyệt riêng ở trang Routes.",
-        "self_large_tenant": "autogroup:self tốn chi phí ở tenant lớn (L8).",
+        "self_large_tenant": "autogroup:self tốn chi phí ở tenant lớn.",
         "replaces_draft": "Thay toàn bộ luật của bản nháp."
       }
     },
@@ -1859,7 +1872,21 @@
       "denied": "Bị từ chối",
       "failure": "Thất bại"
     },
-    "actionPlaceholder": "device.rename"
+    "actionPlaceholder": "device.rename",
+    "actorKinds": {
+      "user": "Người dùng",
+      "support": "Nhân viên hỗ trợ của nền tảng",
+      "idp_driver": "Tự động hóa IdP của nền tảng (tài khoản dịch vụ của realm)",
+      "idp_provisioner": "Danh tính cấp phát IdP của nền tảng",
+      "idp_admin": "Quản trị viên Keycloak (realm master)",
+      "realm_user": "Người dùng của realm",
+      "job": "Tác vụ nền của nền tảng",
+      "admin_command": "Lệnh quản trị của nền tảng",
+      "system": "Hệ thống"
+    },
+    "unknownUser": "Người dùng (chưa rõ tên)",
+    "actorRaw": "Ghi nhận: {{raw}}",
+    "actorIdTooltip": "ID danh tính: {{id}}"
   },
   "support": {
     "tenantIntro": "Nhân sự nền tảng chỉ vào được tenant qua một grant có thời hạn (tối đa 8 giờ) do bạn duyệt ở đây. Mọi hành động của họ đều nằm trong nhật ký audit. Bạn thu hồi grant được bất cứ lúc nào — có hiệu lực ở request kế tiếp của họ.",

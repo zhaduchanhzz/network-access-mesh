@@ -200,8 +200,9 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 		Audit: auditLog, Logger: log})
 	// P4-T02: the tenant detail of the Platform Console reuses these three sets (httpapi.PlatformTenantView)
 	tenantsH := tenantsapi.New(d.tenants, platform.New(d.st))
-	jobsH := jobsapi.New(jobs.NewService(d.st))
-	relayH := relayapi.New(relays)
+	// G4b-E12: the platform views of jobs and relay regions name the tenant (slug, name) and the host, not only UUIDs
+	jobsH := jobsapi.New(jobs.NewService(d.st)).WithLabels(platform.New(d.st))
+	relayH := relayapi.New(relays).WithLabels(platform.New(d.st))
 	inbox := notificationsapi.New(notifications.NewReader(d.st)) // P3-T05b list + P4-T04 read state
 	policiesH := policiesapi.New(versions)                       // P4-T10 lifecycle + P4-T11 HuJSON translator
 	public, err := httpapi.New(httpapi.Options{

@@ -154,14 +154,18 @@ func (s *Service) List(ctx context.Context, tenantID uuid.UUID, a Access, q List
 		}
 	}
 	var rows []sqlcdb.ListDevicesPageRow
+	var syncedAt *time.Time
 	if err := s.st.WithTenantTx(ctx, tenantID, func(qq *sqlcdb.Queries) error {
 		var err error
-		rows, err = qq.ListDevicesPage(ctx, p)
+		if rows, err = qq.ListDevicesPage(ctx, p); err != nil {
+			return err
+		}
+		syncedAt, err = lastSync(ctx, qq, tenantID)
 		return err
 	}); err != nil {
 		return Page{}, fmt.Errorf("devices: list: %w", err)
 	}
-	page := Page{Items: make([]Device, 0, min(len(rows), q.Limit))}
+	page := Page{Items: make([]Device, 0, min(len(rows), q.Limit)), SyncedAt: syncedAt}
 	for i, r := range rows {
 		if i == q.Limit {
 			last := rows[i-1].DeviceInventoryCache
@@ -358,22 +362,31 @@ func (s *Service) Summary(ctx context.Context, tenantID uuid.UUID) (Summary, err
 			return err
 		}
 		out.Total, out.Online, out.Expired = int(c.Total), int(c.Online), int(c.Expired)
-		inst, err := q.GetLiveInstanceForTenant(ctx, tenantID)
-		if errors.Is(err, store.ErrNoRows) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		st, err := q.GetDeviceSyncState(ctx, sqlcdb.GetDeviceSyncStateParams{TenantID: tenantID, InstanceID: inst.ID})
-		if errors.Is(err, store.ErrNoRows) {
-			return nil
-		}
-		out.SyncedAt = st.SyncedAt
+		out.SyncedAt, err = lastSync(ctx, q, tenantID)
 		return err
 	})
 	if err != nil {
 		return Summary{}, fmt.Errorf("devices: summary: %w", err)
 	}
 	return out, nil
+}
+
+// lastSync is the last applied sync of the tenant's live instance: nil when there is no live instance or it was never
+// synced.
+func lastSync(ctx context.Context, q *sqlcdb.Queries, tenantID uuid.UUID) (*time.Time, error) {
+	inst, err := q.GetLiveInstanceForTenant(ctx, tenantID)
+	if errors.Is(err, store.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	st, err := q.GetDeviceSyncState(ctx, sqlcdb.GetDeviceSyncStateParams{TenantID: tenantID, InstanceID: inst.ID})
+	if errors.Is(err, store.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return st.SyncedAt, nil
 }

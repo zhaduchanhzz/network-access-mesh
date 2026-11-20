@@ -10,6 +10,7 @@ import { StatusBadge } from "../../ui/Status";
 import { Page } from "../../components/Page";
 import { INSTANCE_STATUSES, isOneOf, useInstanceList, type Instance, type InstanceStatus } from "../opsApi";
 import { HealthCell } from "./InstanceBits";
+import { HostRef, TenantRef } from "../Refs";
 
 export function InstanceListPage() {
   const { t } = useTranslation();
@@ -109,15 +110,11 @@ export function InstanceTable({ items, caption, showHost = true }: { items: read
                 <code>{i.headscale_version}</code>
               </td>
               <td>
-                <Link to={`/platform/tenants/${i.tenant_id}`} className="link font-mono text-xs">
-                  {i.tenant_id}
-                </Link>
+                <TenantRef id={i.tenant_id} slug={i.tenant_slug} name={i.tenant_name} />
               </td>
               {showHost ? (
                 <td>
-                  <Link to={`/platform/hosts/${i.host_id}`} className="link font-mono text-xs">
-                    {i.host_id}
-                  </Link>
+                  <HostRef id={i.host_id} name={i.host_name} />
                 </td>
               ) : null}
             </tr>

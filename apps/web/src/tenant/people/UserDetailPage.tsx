@@ -439,7 +439,11 @@ function OffboardPanel({ member }: { member: Membership }) {
             <StatusBadge status={job.data.status} testId="offboard-job-status">
               {text("status.job", job.data.status)}
             </StatusBadge>
-            {job.data.error ? <code className="ms-1">{`(${job.data.error.code})`}</code> : null}
+            {job.data.error ? (
+              <span className="ms-1 text-xs text-muted" data-code={job.data.error.code}>
+                {t("ui.jobErrorCode", { code: job.data.error.code })}
+              </span>
+            ) : null}
           </>
         ) : null}
       </p>

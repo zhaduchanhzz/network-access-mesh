@@ -154,6 +154,9 @@ type ListQuery struct {
 type Page struct {
 	Items      []Device
 	NextCursor string // "" on the last page
+	// SyncedAt is the last applied sync of the tenant's live instance (nil: never synced, or no live instance) — the
+	// moment the whole register was read, so an empty page still says when it was last true (G4b-E9).
+	SyncedAt *time.Time
 }
 
 // Pagination bounds (§13.1).

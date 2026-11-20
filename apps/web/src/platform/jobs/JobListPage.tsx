@@ -10,6 +10,7 @@ import { StatusBadge } from "../../ui/Status";
 import { Timestamp } from "../../ui/time";
 import { Page } from "../../components/Page";
 import { useJobList } from "../api";
+import { TenantRef } from "../Refs";
 
 const KIND_RE = /^[a-z][a-z_]*(\.[a-z][a-z_]*)+$/;
 
@@ -43,9 +44,7 @@ export function JobTable({ jobs, showTenant, caption }: { jobs: readonly Job[]; 
               {showTenant ? (
                 <td>
                   {j.tenant_id ? (
-                    <Link to={`/platform/tenants/${j.tenant_id}`} className="link font-mono text-xs">
-                      {j.tenant_id}
-                    </Link>
+                    <TenantRef id={j.tenant_id} slug={j.tenant_slug} name={j.tenant_name} />
                   ) : (
                     <span className="text-muted">{t("platform.jobs.platformJob")}</span>
                   )}

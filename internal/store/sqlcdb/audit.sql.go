@@ -210,6 +210,46 @@ func (q *Queries) InsertSecurityEvent(ctx context.Context, arg InsertSecurityEve
 	return i, err
 }
 
+const listAuditActorIdentities = `-- name: ListAuditActorIdentities :many
+SELECT id, COALESCE(display_name, '')::text AS display_name, COALESCE(email::text, '')::text AS email
+FROM identities
+WHERE id = ANY($1::uuid[]) AND tenant_id IS NOT DISTINCT FROM $2::uuid
+`
+
+type ListAuditActorIdentitiesParams struct {
+	Ids      []uuid.UUID
+	TenantID *uuid.UUID
+}
+
+type ListAuditActorIdentitiesRow struct {
+	ID          uuid.UUID
+	DisplayName string
+	Email       string
+}
+
+// G4b-E13: tên hiển thị và e-mail HIỆN TẠI của các danh tính là actor trên một trang audit — chỉ danh tính thuộc phạm
+// vi của list (tenant_id của tenant; NULL = nhân sự nền tảng ở GET /platform/audit). Điều kiện tường minh + RLS của pool
+// (danh tính nền tảng trong audit của tenant — support — không đọc được ở pool tenant: giữ ảnh chụp lúc ghi).
+func (q *Queries) ListAuditActorIdentities(ctx context.Context, arg ListAuditActorIdentitiesParams) ([]ListAuditActorIdentitiesRow, error) {
+	rows, err := q.db.Query(ctx, listAuditActorIdentities, arg.Ids, arg.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAuditActorIdentitiesRow{}
+	for rows.Next() {
+		var i ListAuditActorIdentitiesRow
+		if err := rows.Scan(&i.ID, &i.DisplayName, &i.Email); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOpenOperations = `-- name: ListOpenOperations :many
 SELECT id, occurred_at, tenant_id, actor_type, actor_identity_id, support_grant_id, actor_ip, action, resource_type, resource_id, request_id, operation_id, target_tenant_id, actor_display, outcome, details, prev_hash, hash FROM audit_events r
 WHERE r.tenant_id IS NOT DISTINCT FROM $1::uuid

@@ -114,7 +114,7 @@ var specs = map[Kind]spec{
 	KindApprovalRequested: {fields: map[string]fieldType{"approval_id": fUUID, "action": fString,
 		"requested_by": fString, "expires_at": fTime}, required: []string{"approval_id", "action"}},
 	KindIdPAdminChange: {fields: map[string]fieldType{"event_id": fString, "action": fString, "actor": fString,
-		"user": fString, "occurred_at": fTime}, required: []string{"event_id", "action", "actor", "occurred_at"}},
+		"actor_kind": fString, "user": fString, "occurred_at": fTime}, required: []string{"event_id", "action", "actor", "occurred_at"}},
 	KindIdPConsoleLogin: {fields: map[string]fieldType{"event_id": fString, "username": fString, "client": fString,
 		"ip": fString, "occurred_at": fTime, "count": fInt, "sources": fString, "first_at": fTime, "window_minutes": fInt},
 		required: []string{"event_id", "client", "occurred_at"}, platform: true},

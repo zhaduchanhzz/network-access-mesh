@@ -9,6 +9,7 @@ import { StatusBadge, UnavailableBox, useCodeText } from "../../ui/Status";
 import { Page } from "../../components/Page";
 import { HealthCell } from "../instances/InstanceBits";
 import { usePlatformRelayRegions } from "../opsApi";
+import { TenantRef } from "../Refs";
 
 export function RelayRegionListPage() {
   const { t } = useTranslation();
@@ -57,9 +58,7 @@ export function RelayRegionListPage() {
                         </td>
                         <td>
                           {r.tenant_id ? (
-                            <Link to={`/platform/tenants/${r.tenant_id}`} className="link font-mono text-xs">
-                              {r.tenant_id}
-                            </Link>
+                            <TenantRef id={r.tenant_id} slug={r.tenant_slug} name={r.tenant_name} />
                           ) : (
                             t("platform.relayRegions.shared")
                           )}

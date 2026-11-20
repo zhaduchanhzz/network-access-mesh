@@ -12,6 +12,14 @@ describe("loginUrl / return_to", () => {
     expect(() => loginUrl({ console: "tenant", tenantSlug: "Tenant A" })).toThrow();
   });
 
+  it("ui_locales theo ngôn ngữ của SPA (G4b-E14); giá trị lạ bị bỏ", () => {
+    expect(loginUrl({ console: "tenant", tenantSlug: "tenant-a", uiLocale: "en" })).toBe(
+      "/api/v1/auth/login?scope=tenant&tenant=tenant-a&ui_locales=en",
+    );
+    expect(loginUrl({ console: "platform", reauth: true, uiLocale: "vi" })).toBe("/api/v1/auth/login?scope=platform&reauth=true&ui_locales=vi");
+    expect(loginUrl({ console: "platform", uiLocale: "fr" as never })).toBe("/api/v1/auth/login?scope=platform");
+  });
+
   it("chỉ nhận đường dẫn tương đối cùng origin (pattern của spec)", () => {
     for (const ok of ["/", "/t/x/devices", "/tenants?x=1"]) expect(safeReturnTo(ok)).toBe(ok);
     for (const bad of ["//evil.example", "/\\evil", "https://evil.example/", "javascript:alert(1)", "/a b", "", null, "/login", "/" + "a".repeat(600)]) {

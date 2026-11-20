@@ -56,14 +56,19 @@ type Entry struct {
 	ActorType       string
 	ActorIdentityID *uuid.UUID
 	ActorDisplay    string
-	SupportGrantID  *uuid.UUID
-	Action          string
-	ResourceType    string
-	ResourceID      string
-	Outcome         string
-	RequestID       string
-	OperationID     *uuid.UUID
-	Details         map[string]any
+	// ActorName and ActorEmail are the current display name and e-mail of the actor's identity when the list's scope
+	// can read it (G4b-E13: one name per person whatever the event recorded — none for a login, the e-mail for an
+	// invitation accepted before the profile was known); "" otherwise.
+	ActorName      string
+	ActorEmail     string
+	SupportGrantID *uuid.UUID
+	Action         string
+	ResourceType   string
+	ResourceID     string
+	Outcome        string
+	RequestID      string
+	OperationID    *uuid.UUID
+	Details        map[string]any
 }
 
 // Page is one page; NextCursor is "" on the last one.
@@ -88,7 +93,10 @@ func (r *Reader) ListTenant(ctx context.Context, tenantID uuid.UUID, q Query) (P
 	if err != nil {
 		return Page{}, err
 	}
-	var rows []sqlcdb.AuditEvent
+	var (
+		rows  []sqlcdb.AuditEvent
+		names map[uuid.UUID]sqlcdb.ListAuditActorIdentitiesRow
+	)
 	err = r.st.WithTenantTx(ctx, tenantID, func(qs *sqlcdb.Queries) error {
 		var err error
 		rows, err = qs.ListTenantAuditEvents(ctx, sqlcdb.ListTenantAuditEventsParams{
@@ -96,12 +104,16 @@ func (r *Reader) ListTenant(ctx context.Context, tenantID uuid.UUID, q Query) (P
 			ActorType: optional(q.ActorType),
 			Action:    optional(q.Action), Outcome: optional(q.Outcome), RowLimit: c.limit + 1,
 		})
+		if err != nil {
+			return err
+		}
+		names, err = actorIdentities(ctx, qs, &tenantID, rows)
 		return err
 	})
 	if err != nil {
 		return Page{}, fmt.Errorf("audit: list tenant events: %w", err)
 	}
-	return c.page(rows), nil
+	return c.page(rows, names), nil
 }
 
 // ListPlatform returns a page of the platform events (GET /platform/audit): tenant_id NULL only — actions of platform
@@ -111,19 +123,51 @@ func (r *Reader) ListPlatform(ctx context.Context, q Query) (Page, error) {
 	if err != nil {
 		return Page{}, err
 	}
-	var rows []sqlcdb.AuditEvent
+	var (
+		rows  []sqlcdb.AuditEvent
+		names map[uuid.UUID]sqlcdb.ListAuditActorIdentitiesRow
+	)
 	err = r.st.WithPlatformTx(ctx, func(qs *sqlcdb.Queries) error {
 		var err error
 		rows, err = qs.ListPlatformAuditEvents(ctx, sqlcdb.ListPlatformAuditEventsParams{
 			FromAt: c.from, ToAt: c.to, BeforeAt: c.beforeAt, BeforeID: c.beforeID, Actor: q.Actor,
 			ActorType: optional(q.ActorType), Action: optional(q.Action), Outcome: optional(q.Outcome), RowLimit: c.limit + 1,
 		})
+		if err != nil {
+			return err
+		}
+		names, err = actorIdentities(ctx, qs, nil, rows)
 		return err
 	})
 	if err != nil {
 		return Page{}, fmt.Errorf("audit: list platform events: %w", err)
 	}
-	return c.page(rows), nil
+	return c.page(rows, names), nil
+}
+
+// actorIdentities reads the current name and e-mail of the identities acting in rows, within the list's scope (tenant:
+// that tenant's identities; nil: platform staff) — G4b-E13.
+func actorIdentities(ctx context.Context, qs *sqlcdb.Queries, tenant *uuid.UUID, rows []sqlcdb.AuditEvent) (map[uuid.UUID]sqlcdb.ListAuditActorIdentitiesRow, error) {
+	ids := make([]uuid.UUID, 0, len(rows))
+	seen := make(map[uuid.UUID]bool, len(rows))
+	for _, e := range rows {
+		if e.ActorIdentityID != nil && !seen[*e.ActorIdentityID] {
+			seen[*e.ActorIdentityID] = true
+			ids = append(ids, *e.ActorIdentityID)
+		}
+	}
+	out := make(map[uuid.UUID]sqlcdb.ListAuditActorIdentitiesRow, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	got, err := qs.ListAuditActorIdentities(ctx, sqlcdb.ListAuditActorIdentitiesParams{Ids: ids, TenantID: tenant})
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range got {
+		out[r.ID] = r
+	}
+	return out, nil
 }
 
 // Bounds used when the query sets none: always passing a range keeps one plan with partition pruning and the index
@@ -181,7 +225,7 @@ func (q Query) compile(scope string, tenant uuid.UUID) (compiled, error) {
 }
 
 // page turns limit+1 rows into a page.
-func (c compiled) page(rows []sqlcdb.AuditEvent) Page {
+func (c compiled) page(rows []sqlcdb.AuditEvent, names map[uuid.UUID]sqlcdb.ListAuditActorIdentitiesRow) Page {
 	p := Page{Items: make([]Entry, 0, min(len(rows), int(c.limit)))}
 	for i, e := range rows {
 		if i == int(c.limit) {
@@ -189,7 +233,13 @@ func (c compiled) page(rows []sqlcdb.AuditEvent) Page {
 			p.NextCursor = encodeCursor(last.OccurredAt, last.ID, c.binding)
 			break
 		}
-		p.Items = append(p.Items, entryOf(e))
+		en := entryOf(e)
+		if e.ActorIdentityID != nil {
+			if n, ok := names[*e.ActorIdentityID]; ok {
+				en.ActorName, en.ActorEmail = n.DisplayName, n.Email
+			}
+		}
+		p.Items = append(p.Items, en)
 	}
 	return p
 }

@@ -169,7 +169,8 @@ describe.skipIf(!SA1 || !SA2 || !TENANT_A || !TARGET_SUB)("Platform Console P4-T
       const { router, unmount } = renderApp({ path: "/platform/identity-providers", console: "platform" });
       await userEvent.selectOptions(await screen.findByLabelText("Phạm vi", {}, T), "tenant");
       const row = await waitFor(() => {
-        const r = screen.getAllByTestId("idp-row").find((x) => within(x).queryByRole("link", { name: TENANT_A }));
+        // tenant hiện theo tên (G4b-E12) — tìm hàng theo đích của link, không theo UUID
+        const r = screen.getAllByTestId("idp-row").find((x) => x.querySelector(`a[href="/platform/tenants/${TENANT_A}"]`));
         expect(r).toBeDefined();
         return r!;
       }, T);

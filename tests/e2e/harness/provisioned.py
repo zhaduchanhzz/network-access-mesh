@@ -45,7 +45,10 @@ from stack import ALNUM, ROOT, Stack, StackError, log
 
 WORKER_UID, WORKER_GID = 65532, 20003
 LINK_RE = re.compile(r"https://auth\.[^\s\"'<>]+/login-actions/action-token\?[^\s\"'<>]+")
-PROCEED_RE = re.compile(r'href="([^"]*/login-actions/[^"]*)"')
+# the 'proceed' link of an action-token page — not the language switcher of a realm with i18n (G4b-E14: same path with
+# kc_locale=…, which only shows the same page in another language)
+PROCEED_RE = re.compile(r'href="((?![^"]*kc_locale=)[^"]*/login-actions/[^"]*)"')
+LANG_RE = re.compile(r'<html[^>]*\blang="([^"]+)"')
 
 
 def params(st: Stack) -> dict:
@@ -208,11 +211,12 @@ def action_link(st: Stack, to: str, seen: set[str], timeout: float = 180) -> tup
 
 
 def keycloak_pages(st: Stack, b: Browser, url: str, user: dict, otp: TOTP, portal_host: str,
-                   next_link=None) -> tuple[str, list[str]]:
+                   next_link=None, langs: list[str] | None = None) -> tuple[str, list[str]]:
     """Drive Keycloak from url — an action-token link or an authorization URL — through every page an invited person
     meets: the 'proceed' page of the action token, e-mail verification (next_link() = the link of the verification
     e-mail Keycloak sent), profile, new password, TOTP enrolment, password + OTP; returns the
-    redirect to the Portal ("" when the flow ended on Keycloak's own 'account updated' page) and the steps."""
+    redirect to the Portal ("" when the flow ended on Keycloak's own 'account updated' page) and the steps. langs
+    collects the language (html lang) of every page shown (G4b-E14)."""
     steps: list[str] = []
     r = b.get(url)
     for _ in range(16):
@@ -225,6 +229,9 @@ def keycloak_pages(st: Stack, b: Browser, url: str, user: dict, otp: TOTP, porta
         page = r.body.decode("utf-8", "replace")
         if r.status != 200:
             raise StackError(f"Keycloak HTTP {r.status} after {steps}")
+        if langs is not None:
+            m = LANG_RE.search(page)
+            langs.append(m.group(1) if m else "")
         if "alert-error" in page or "kc-error-message" in page:
             raise StackError(f"Keycloak error page after {steps}")
         fs = forms(page)
@@ -275,12 +282,14 @@ def keycloak_pages(st: Stack, b: Browser, url: str, user: dict, otp: TOTP, porta
     raise StackError(f"too many Keycloak steps: {steps}")
 
 
-def tenant_login(st: Stack, slug: str, user: dict, otp: TOTP) -> tuple[Browser, dict, list[str]]:
+def tenant_login(st: Stack, slug: str, user: dict, otp: TOTP, ui_locales: str = "",
+                 langs: list[str] | None = None) -> tuple[Browser, dict, list[str]]:
     b, host = Browser(st), f"app.{st.domain}"
-    start = b.get(f"https://{host}/api/v1/auth/login?scope=tenant&tenant={slug}")
+    q = f"scope=tenant&tenant={slug}" + (f"&ui_locales={ui_locales}" if ui_locales else "")
+    start = b.get(f"https://{host}/api/v1/auth/login?{q}")
     if start.status != 302:
         raise StackError(f"GET /auth/login {slug}: HTTP {start.status}")
-    cb, steps = keycloak_pages(st, b, start.header("Location"), user, otp, host)
+    cb, steps = keycloak_pages(st, b, start.header("Location"), user, otp, host, langs=langs)
     if not cb:
         raise StackError(f"Keycloak did not return to the Portal: {steps}")
     r = b.get(cb)
@@ -301,17 +310,22 @@ def wait_idp_invite(st: Stack, inv_id: str, timeout: float = 180) -> str:
         st, f"SELECT status FROM provisioning_jobs WHERE dedupe_key = 'invitation:{inv_id}:idp_invite'") or "no job"
 
 
-def onboard(st: Stack, slug: str, tid: str, inv_id: str, addr: str, seen: set[str]) -> dict:
-    """member.idp_invite of the invitation ⇒ Keycloak's e-mail ⇒ the person sets the account up ⇒ signs in."""
+def onboard(st: Stack, slug: str, tid: str, inv_id: str, addr: str, seen: set[str], ui_locales: str) -> dict:
+    """member.idp_invite of the invitation ⇒ Keycloak's e-mail ⇒ the person sets the account up ⇒ signs in from the
+    Portal in language ui_locales (G4b-E14: the language of the setup pages — the realm's default, no ui_locales on an
+    e-mailed link — and of the sign-in pages are recorded)."""
     out = {"job": wait_idp_invite(st, inv_id)}
     user = {"username": addr, "password": secrets.token_urlsafe(18) + "Aa1!"}
     st.secret_values.add(user["password"])
     otp = TOTP()
     link, row = action_link(st, addr, seen)
     out["mail_from"] = row.get("header_from", "")
+    setup_langs: list[str] = []
+    login_langs: list[str] = []
     _, out["setup"] = keycloak_pages(st, Browser(st), link, user, otp, f"app.{st.domain}",
-                                     next_link=lambda: action_link(st, addr, seen)[0])
-    b, sess, out["login"] = tenant_login(st, slug, user, otp)
+                                     next_link=lambda: action_link(st, addr, seen)[0], langs=setup_langs)
+    b, sess, out["login"] = tenant_login(st, slug, user, otp, ui_locales, login_langs)
+    out["setup_lang"], out["login_lang"] = sorted(set(setup_langs)), sorted(set(login_langs))
     out["roles"] = sorted(m.get("role", "") for m in sess.get("memberships", []) if m.get("tenant_id") == tid)
     out["browser"], out["session"] = b, sess
     return out
@@ -354,31 +368,37 @@ def check_provisioned_invite(r, st: Stack) -> None:
             st, f"SELECT id FROM identity_providers WHERE tenant_id = '{tid}'")
         owner_inv = psql_one(st, f"SELECT id FROM tenant_invitations WHERE tenant_id = '{tid}' AND email = '{owner}'")
         seen: set[str] = set()
-        o = onboard(st, slug, tid, owner_inv, owner, seen)
+        o = onboard(st, slug, tid, owner_inv, owner, seen, "en")
         ob, osess = o.pop("browser"), o.pop("session")
         e: dict = {}
         if o["roles"] == ["tenant_owner"]:
             user_addr = f"user-{secrets.token_hex(3)}@{slug}.example.test"
             res = invite(st, ob, osess, tid, user_addr, "end_user")
             if res.status == 201:
-                e = onboard(st, slug, tid, res.json().get("id", ""), user_addr, seen)
+                e = onboard(st, slug, tid, res.json().get("id", ""), user_addr, seen, "vi")
                 e.pop("browser")
                 e.pop("session")
             else:
                 e = {"invite": f"HTTP {res.status} {res.json().get('code')}"}
+        i18n = (realm.get("internationalizationEnabled"), sorted(realm.get("supportedLocales") or []),
+                realm.get("defaultLocale"))
         ok = (smtp.get("host") == "mailrelay" and smtp.get("port") == "587" and smtp.get("starttls") == "true"
               and smtp.get("auth", "false") == "false" and driver_made
+              and i18n == (True, ["en", "vi"], "vi") and o.get("setup_lang") == ["vi"] and o.get("login_lang") == ["en"]
+              and e.get("login_lang") == ["vi"]
               and o["job"] == "succeeded/" and "update_password" in o["setup"] and "configure_totp" in o["setup"]
               and o["roles"] == ["tenant_owner"]
               and e.get("job") == "succeeded/" and "update_password" in e.get("setup", []) and e.get("roles") == ["end_user"])
         r.add("E2E-124", "G4b-E1: tenant vừa provision qua orchestrator (realm do idp.ensure tạo) ⇒ realm có smtpServer = relay "
               "của worker (mailrelay:587 STARTTLS); lời mời Owner bước 16 chạy member.idp_invite ⇒ thư Keycloak qua mailrelay "
               "tới Worker giả ⇒ Owner đặt mật khẩu + TOTP từ link, đăng nhập app. = tenant_owner; Owner mời End User qua API "
-              "⇒ cùng đường ⇒ End User đăng nhập = end_user", ok,
+              "⇒ cùng đường ⇒ End User đăng nhập = end_user; G4b-E14: realm bật i18n (vi, en; mặc định vi) ⇒ trang thiết lập "
+              "từ link thư tiếng Việt, trang đăng nhập theo ui_locales của Portal (Owner en, End User vi)", ok,
               f"provision {end.get('status')} ({time.time() - t0:.0f} s); realm smtp {smtp.get('host')}:{smtp.get('port')} "
-              f"starttls={smtp.get('starttls')} driver_realm={driver_made}; Owner: job {o['job']}, from {o['mail_from']}, "
-              f"setup {o['setup']}, login {o['login']}, roles {o['roles']}; End User: job {e.get('job')}, setup "
-              f"{e.get('setup')}, roles {e.get('roles')} {e.get('invite', '')}", limit=900)
+              f"starttls={smtp.get('starttls')} driver_realm={driver_made} i18n={i18n}; Owner: job {o['job']}, from "
+              f"{o['mail_from']}, setup {o['setup']} lang {o.get('setup_lang')}, login {o['login']} lang "
+              f"{o.get('login_lang')}, roles {o['roles']}; End User: job {e.get('job')}, setup {e.get('setup')}, login lang "
+              f"{e.get('login_lang')}, roles {e.get('roles')} {e.get('invite', '')}", limit=1100)
     finally:
         left = stop_orchestrator(st, p, slug)
         if left:

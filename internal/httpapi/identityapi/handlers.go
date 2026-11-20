@@ -72,6 +72,9 @@ func (h *Handlers) AuthLogin(ctx context.Context, req gen.AuthLoginRequestObject
 		in.ReturnTo = *req.Params.ReturnTo
 	}
 	in.Reauth = req.Params.Reauth != nil && *req.Params.Reauth
+	if req.Params.UiLocales != nil {
+		in.UILocales = string(*req.Params.UiLocales)
+	}
 	in.Current, _ = identity.SessionFromContext(ctx)
 	out, err := h.svc.BeginLogin(ctx, in)
 	if err != nil {

@@ -59,7 +59,7 @@ describe.each(["vi", "en"] as const)("đăng nhập: lỗi slug được thông 
     expect(input).toHaveAccessibleDescription(i18n.t("login.tenantHint"));
     await userEvent.type(input, "tenant-a");
     await userEvent.click(submit);
-    expect(assign).toHaveBeenCalledWith("/api/v1/auth/login?scope=tenant&tenant=tenant-a");
+    expect(assign).toHaveBeenCalledWith(`/api/v1/auth/login?scope=tenant&tenant=tenant-a&ui_locales=${lng}`);
   });
 });
 
@@ -89,7 +89,7 @@ describe.each(["vi", "en"] as const)("đăng nhập: lỗi bắt đầu đăng n
     expect(input).toHaveAttribute("aria-invalid", "false");
     await userEvent.type(input, "tenant-a");
     await userEvent.click(screen.getByRole("button", { name: i18n.t("login.submit") }));
-    expect(assign).toHaveBeenCalledWith("/api/v1/auth/login?scope=tenant&tenant=tenant-a");
+    expect(assign).toHaveBeenCalledWith(`/api/v1/auth/login?scope=tenant&tenant=tenant-a&ui_locales=${lng}`);
   });
 
   it("mã lạ ⇒ câu chung, không in mã; thử lại cùng slug ⇒ lỗi biến mất và đi tiếp", async () => {
@@ -103,6 +103,6 @@ describe.each(["vi", "en"] as const)("đăng nhập: lỗi bắt đầu đăng n
     expect(document.body).not.toHaveTextContent("weird_code");
     await userEvent.click(screen.getByRole("button", { name: i18n.t("login.submit") }));
     expect(alert).toBeEmptyDOMElement();
-    expect(assign).toHaveBeenCalledWith("/api/v1/auth/login?scope=tenant&tenant=tenant-a");
+    expect(assign).toHaveBeenCalledWith(`/api/v1/auth/login?scope=tenant&tenant=tenant-a&ui_locales=${lng}`);
   });
 });

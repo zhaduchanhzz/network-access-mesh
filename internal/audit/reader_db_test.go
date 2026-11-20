@@ -294,3 +294,75 @@ func TestPaginationStable(t *testing.T) {
 		t.Errorf("default page: %v, %d items (want all 26 ≤ %d)", err, len(page.Items), DefaultLimit)
 	}
 }
+
+// TestReaderActorIdentities — G4b-E13: the lists carry the current name and e-mail of the acting identities that the
+// list's scope may read — a member of the tenant in its tenant list, platform staff in the platform list — and nothing
+// for staff acting in a tenant (support) or an identity of another tenant: their snapshot stays the only name.
+func TestReaderActorIdentities(t *testing.T) {
+	f := newFixture(t, Config{})
+	ctx := t.Context()
+	tidp, pidp, bidp := newID(t), newID(t), newID(t)
+	f.exec(t, `INSERT INTO identity_providers (id, scope, tenant_id, issuer, client_id, driver, status) VALUES
+		($1, 'tenant', $2, 'https://idp.invalid/realms/a', 'mg-portal', 'keycloak', 'active'),
+		($3, 'platform', NULL, 'https://idp.invalid/realms/platform', 'mg-portal', 'keycloak', 'active'),
+		($4, 'tenant', $5, 'https://idp.invalid/realms/b', 'mg-portal', 'keycloak', 'active')`, tidp, f.a, pidp, bidp, f.b)
+	alice, staff, bob := newID(t), newID(t), newID(t)
+	f.exec(t, `INSERT INTO identities (id, idp_id, tenant_id, scope, subject, display_name, email) VALUES
+		($1, $2, $3, 'tenant', 'sub-alice', 'Alice', 'alice@a.test'),
+		($4, $5, NULL, 'platform', 'sub-staff', 'Staff One', 'staff@p.test'),
+		($6, $7, $8, 'tenant', 'sub-bob', 'Bob', 'bob@b.test')`, alice, tidp, f.a, staff, pidp, bob, bidp, f.b)
+	grant := newID(t)
+	for _, ev := range []Event{
+		{TenantID: &f.a, ActorIdentityID: &alice, Action: "auth.login", ResourceType: "session"},
+		{TenantID: &f.a, ActorIdentityID: &alice, ActorDisplay: "alice@a.test", Action: "invitation.accept", ResourceType: "invitation"},
+		{TenantID: &f.a, ActorType: ActorSupport, ActorIdentityID: &staff, SupportGrantID: &grant, ActorDisplay: "Staff One (snapshot)",
+			Action: "device.list", ResourceType: "device"},
+		{TenantID: &f.a, ActorIdentityID: &bob, ActorDisplay: "Bob (snapshot)", Action: "device.list", ResourceType: "device"},
+		{ActorIdentityID: &staff, Action: "platform.tenant.read", ResourceType: "tenant"},
+	} {
+		write := func(q *sqlcdb.Queries) error { return Record(ctx, q, ev) }
+		var err error
+		if ev.TenantID != nil {
+			err = f.st.WithTenantTx(ctx, *ev.TenantID, write)
+		} else {
+			err = f.st.WithPlatformTx(ctx, write)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := NewReader(f.st)
+	type who struct{ display, name, email string }
+	got := func(p Page, err error) map[string][]who {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := map[string][]who{}
+		for _, e := range p.Items {
+			out[e.Action] = append(out[e.Action], who{e.ActorDisplay, e.ActorName, e.ActorEmail})
+		}
+		return out
+	}
+	ta := got(r.ListTenant(ctx, f.a, Query{}))
+	want := map[string][]who{
+		"auth.login":        {{"", "Alice", "alice@a.test"}},
+		"invitation.accept": {{"alice@a.test", "Alice", "alice@a.test"}},
+	}
+	for action, w := range want {
+		if !slices.Equal(ta[action], w) {
+			t.Errorf("tenant A %s: %+v, want %+v", action, ta[action], w)
+		}
+	}
+	for _, x := range ta["device.list"] { // staff under a grant, B's identity: never read in A's scope
+		if x.name != "" || x.email != "" {
+			t.Errorf("tenant A device.list read an identity outside its scope: %+v", x)
+		}
+	}
+	if len(ta["device.list"]) != 2 {
+		t.Errorf("tenant A device.list: %d events, want 2", len(ta["device.list"]))
+	}
+	if pl := got(r.ListPlatform(ctx, Query{})); !slices.Equal(pl["platform.tenant.read"], []who{{"", "Staff One", "staff@p.test"}}) {
+		t.Errorf("platform list: %+v, want the staff's current name", pl["platform.tenant.read"])
+	}
+}

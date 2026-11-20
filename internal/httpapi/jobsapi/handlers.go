@@ -33,6 +33,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/gen"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/problem"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/jobs"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/platform"
 )
 
 // Service is the part of *jobs.Service the handlers need.
@@ -48,7 +49,41 @@ var _ Service = (*jobs.Service)(nil)
 
 // Handlers implements httpapi.JobHandlers.
 type Handlers struct {
-	svc Service
+	svc    Service
+	labels Labeler
+}
+
+// Labeler names the tenants of a page of the Platform Console (G4b-E12) — *platform.Service.
+type Labeler interface {
+	Labels(ctx context.Context, tenantIDs, hostIDs []uuid.UUID) (platform.Labels, error)
+}
+
+var _ Labeler = (*platform.Service)(nil)
+
+// WithLabels adds the tenant's slug and name to the jobs of the platform views (GET /platform/jobs[/{jobId}]); without
+// it they carry the tenant id only.
+func (h *Handlers) WithLabels(l Labeler) *Handlers {
+	h.labels = l
+	return h
+}
+
+// tenantLabels reads the labels of the tenants of jobs. They only name what the job already identifies by UUID: no
+// labeler or a failed lookup leaves them out (the Console then shows the UUID) rather than failing the read.
+func (h *Handlers) tenantLabels(ctx context.Context, ids ...*uuid.UUID) platform.Labels {
+	if h.labels == nil {
+		return platform.Labels{}
+	}
+	tids := make([]uuid.UUID, 0, len(ids))
+	for _, id := range ids {
+		if id != nil {
+			tids = append(tids, *id)
+		}
+	}
+	l, err := h.labels.Labels(ctx, tids, nil)
+	if err != nil {
+		return platform.Labels{}
+	}
+	return l
 }
 
 var _ httpapi.JobHandlers = (*Handlers)(nil)
@@ -121,7 +156,18 @@ func (h *Handlers) ListPlatformJobs(ctx context.Context, req gen.ListPlatformJob
 	if err != nil {
 		return nil, serviceError(err, p.Cursor != nil)
 	}
-	return gen.ListPlatformJobs200JSONResponse(jobList(list)), nil
+	out := jobList(list)
+	ids := make([]*uuid.UUID, 0, len(list.Items))
+	for _, j := range list.Items {
+		ids = append(ids, j.TenantID)
+	}
+	l := h.tenantLabels(ctx, ids...)
+	for i := range out.Items {
+		if t, ok := l.Tenant(out.Items[i].TenantId); ok {
+			out.Items[i].TenantSlug, out.Items[i].TenantName = &t.Slug, &t.Name
+		}
+	}
+	return gen.ListPlatformJobs200JSONResponse(out), nil
 }
 
 // ListPlatformTenantJobs implements GET /platform/tenants/{tenantId}/jobs (P4-T02 — the recent jobs of the tenant
@@ -161,7 +207,11 @@ func (h *Handlers) GetPlatformJob(ctx context.Context, req gen.GetPlatformJobReq
 	if j.ID != req.JobId {
 		return nil, problem.Internal(errOtherJob)
 	}
-	return gen.GetPlatformJob200JSONResponse(platformJob(j)), nil
+	out := platformJob(j)
+	if t, ok := h.tenantLabels(ctx, j.TenantID).Tenant(j.TenantID); ok {
+		out.TenantSlug, out.TenantName = &t.Slug, &t.Name
+	}
+	return gen.GetPlatformJob200JSONResponse(out), nil
 }
 
 // tenantDecision checks the decision of a tenant route: about this tenant, a grant on every resource of it.
