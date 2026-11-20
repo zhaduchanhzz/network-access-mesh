@@ -223,7 +223,7 @@ function MembersSection({
           <EmptyState>{t("people.groups.noMembers")}</EmptyState>
         </div>
       ) : (
-        <div className="mt-3 overflow-x-auto">
+        <div className="mt-3 relative overflow-x-auto">
           <table className="data-table" data-testid="group-members-table">
             <caption className="sr-only">{t("people.groups.membersTitle")}</caption>
             <thead>

@@ -81,7 +81,7 @@ export function SupportAccessPage() {
             <EmptyState>{t("support.empty")}</EmptyState>
           ) : (
             <>
-              <div className="overflow-x-auto rounded-lg border border-line bg-surface">
+              <div className="relative overflow-x-auto rounded-lg border border-line bg-surface">
                 <table className="data-table">
                   <caption className="sr-only">{t("support.caption")}</caption>
                   <thead>

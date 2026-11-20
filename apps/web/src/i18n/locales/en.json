@@ -46,7 +46,11 @@
     "tenantInvalid": "Invalid tenant ID: 3–32 characters, starting with a letter, lowercase letters, digits and hyphens only.",
     "platformHint": "For platform staff. Signing in always requires a password and a second factor.",
     "submit": "Continue to sign-in page",
-    "expired": "Your session has expired or was revoked. Please sign in again."
+    "expired": "Your session has expired or was revoked. Please sign in again.",
+    "errors": {
+      "tenantNotFound": "Tenant not found, or the tenant does not allow sign-in — check the tenant name.",
+      "startFailed": "Sign-in could not be started — try again in a few minutes."
+    }
   },
   "tenantSelect": {
     "title": "Choose a tenant",
@@ -126,8 +130,8 @@
   },
   "unavailable": {
     "title": "Not available yet",
-    "planned": "This screen has not been built yet (task {{task}}). No placeholder figures are shown.",
-    "postMvp": "Post-MVP feature (task {{task}}) — there is no data source yet, so no figures are shown."
+    "planned": "This screen has not been built yet. No placeholder figures are shown.",
+    "postMvp": "Post-MVP feature — there is no data source yet, so no figures are shown."
   },
   "notFound": {
     "title": "Not found",
@@ -305,9 +309,9 @@
       "slugHint": "Immutable DNS label: 3–32 characters, lowercase letters, digits, hyphens; starts with a letter, no '--'.",
       "name": "Display name",
       "ownerEmail": "Tenant Owner email",
-      "ownerEmailHint": "Receives the invitation at the tenant configuration step (step 16).",
+      "ownerEmailHint": "Receives the invitation at the tenant configuration step.",
       "plan": "Plan (plan_key)",
-      "planHint": "Key of an open plan (default: standard). The plan list is on the Plans screen (P4-T03).",
+      "planHint": "Key of an open plan (default: standard). The plan list is on the Plans screen.",
       "region": "Deployment region",
       "regionHint": "Empty ⇒ the platform's default region.",
       "regionDefault": "Platform default",
@@ -804,7 +808,7 @@
       "back": "← Identity providers",
       "edit": "Edit claim constraints…",
       "identity": "Identity (read-only)",
-      "immutable": "Issuer, client ID, driver and scope cannot change (§8.2) — switching IdP is a separate migration.",
+      "immutable": "Issuer, client ID, driver and scope cannot change — switching IdP is a separate migration.",
       "clientId": "Client ID",
       "secret": "Client secret",
       "secretSet": "Set (never shown)",
@@ -901,7 +905,10 @@
     "nextPage": "Next page",
     "copy": "Copy",
     "copied": "Copied.",
-    "copyFailed": "Could not copy — select the text and copy it manually."
+    "copyFailed": "Could not copy — select the text and copy it manually.",
+    "syncedNever": "Never synced from Headscale.",
+    "checkedNever": "Never checked.",
+    "observedNever": "Never observed."
   },
   "notif": {
     "filterLabel": "Filter notifications",
@@ -999,7 +1006,7 @@
     "noTags": "No tags",
     "fresh": "Refresh from Headscale",
     "empty": "No device matches the filters.",
-    "noOsNote": "Operating system, client version and endpoints are not shown: the Headscale API does not provide them (HS-14).",
+    "noOsNote": "Operating system, client version and endpoints are not shown: the Headscale API does not provide them.",
     "filters": "Filter devices",
     "search": "Device name",
     "tagFilter": "Tag",
@@ -1024,7 +1031,7 @@
     },
     "review": {
       "title": "Review of tagged nodes that never expire",
-      "description": "Tagged nodes never expire and have no owner (HS-19, PL-09) — review them periodically (quarterly) and revoke the ones no longer used (§7.4, ADR-23).",
+      "description": "Tagged nodes never expire and have no owner — review them periodically (quarterly) and revoke the ones no longer used.",
       "open": "Open the review report",
       "exit": "Leave the review",
       "empty": "No tagged node that never expires."
@@ -1059,7 +1066,7 @@
     "detail": {
       "info": "Details",
       "hostname": "Hostname (reported by the client)",
-      "tagsLater": "Changing tags: not available yet (P4-T10).",
+      "tagsLater": "Changing tags: not available yet.",
       "registerMethod": "Registration method",
       "routesAdvertised": "Advertised routes",
       "routesApproved": "Approved routes",
@@ -1186,7 +1193,7 @@
       "headscaleUser": "Headscale user",
       "profileSource": "Profile",
       "profileFromIdp": "Name and email come from the IdP at every sign-in — not edited here.",
-      "ruleNoActions": "You cannot act on this member: only roles strictly below yours (rule 3a — a Tenant Admin does not lock, offboard or change the role of an Owner or another Admin).",
+      "ruleNoActions": "You cannot act on this member: only roles strictly below yours (a Tenant Admin does not lock, offboard or change the role of an Owner or another Admin).",
       "selfNoActions": "This is your own account: you do not lock, offboard or change your own role here."
     },
     "access": {
@@ -1205,7 +1212,7 @@
     },
     "role": {
       "title": "Role",
-      "description": "Only the roles you may give under rule 3a are listed. The Owner role is only given by an ownership transfer.",
+      "description": "Only the roles you may give are listed (below your own). The Owner role is only given by an ownership transfer.",
       "newRole": "New role",
       "submit": "Change role",
       "confirmTitle": "Change the role of {{name}}?",
@@ -1260,7 +1267,7 @@
       "description": "The invited person signs in for the first time through the tenant's IdP with this exact (verified) email and gets the chosen role.",
       "email": "Email",
       "emailInvalid": "The email is not valid.",
-      "roleHint": "Only the roles you may invite are listed (below your own — rule 3a).",
+      "roleHint": "Only the roles you may invite are listed (below your own).",
       "hours": "Invitation lifetime (hours, 1–720)",
       "hoursInvalid": "The lifetime is a whole number from 1 to 720.",
       "summary": "Invite",
@@ -1268,8 +1275,7 @@
       "noRoles": "Your role cannot invite anyone."
     },
     "invitations": {
-      "intro": "Invitations of people who never signed in. With a platform-hosted IdP, the job member.idp_invite creates (or finds) the account and emails its setup.",
-      "watching": "Invitation sent — its IdP status (job member.idp_invite) updates in the table.",
+      "intro": "Invitations of people who never signed in. With a platform-hosted IdP, the platform creates (or finds) the IdP account and e-mails its setup — see the IdP column.",
       "empty": "No invitations.",
       "expires": "Expires",
       "invitedBy": "Invited by",
@@ -1280,10 +1286,27 @@
       "resendTitle": "Resend the invitation of {{email}}?",
       "resendDesc": "The invitation gets a new link and lifetime (7 days); the old link stops working.",
       "revokeTitle": "Revoke the invitation of {{email}}?",
-      "revokeDesc": "The link in the invitation email no longer works."
+      "revokeDesc": "The link in the invitation email no longer works.",
+      "banner": {
+        "created": "Invitation created.",
+        "resent": "Invitation re-sent (new link and lifetime).",
+        "processing": "The IdP account and its setup e-mail are being processed — the IdP column updates by itself.",
+        "done": "The IdP step is done — see the IdP column.",
+        "background": "The IdP account and its setup e-mail are processed in the background.",
+        "failed": "But the IdP step failed — the invited person cannot sign in yet."
+      },
+      "idpError": {
+        "idp_email_failed": "The IdP account was created but its setup e-mail could not be sent — contact the platform administrators; once fixed, use “Resend”.",
+        "idp_user_disabled": "This address belongs to a disabled IdP account (an offboarded member) — the account must be reactivated explicitly.",
+        "idp_invite_failed": "The IdP account could not be created — try “Resend” in a few minutes; if it still fails, contact the platform administrators.",
+        "not_configured": "The tenant's IdP is not ready to create accounts — contact the platform administrators.",
+        "invalid_input": "The IdP account request was not valid — contact the platform administrators.",
+        "other": "The IdP step failed — contact the platform administrators."
+      },
+      "byPlatform": "Created at provisioning (platform)"
     },
     "groups": {
-      "intro": "Groups are compiled into the policy as group:<name>. A member change applies the policy again (job policy.apply).",
+      "intro": "Groups are compiled into the policy as group:<name>. A member change applies the policy again.",
       "create": "Create group",
       "createTitle": "Create a group",
       "createSubmit": "Create",
@@ -1417,7 +1440,7 @@
       "principalType": "Principal type — {{list}}",
       "principalValue": "Value — {{list}}",
       "cidrHint": "* or an IP address / prefix (e.g. 10.0.0.0/24).",
-      "noResources": "The network resource catalog has no read API yet (P4-T12): only resources already referenced can be chosen; use the HuJSON mode with the alias name.",
+      "noResources": "The tenant has no network resources yet — add them on the Network resources page.",
       "noChoices": "Nothing to choose from.",
       "choose": "— choose —",
       "addTo": "Add to {{list}}",
@@ -1455,7 +1478,8 @@
       "removeRoute": "Remove route {{prefix}}",
       "routePrefix": "Route (prefix)",
       "addRoute": "Add route",
-      "exitApprovers": "Exit node auto-approvers"
+      "exitApprovers": "Exit node auto-approvers",
+      "resourcesUnreadable": "The network resource catalog could not be read (your role cannot read it, or loading failed) — only resources already referenced can be chosen."
     },
     "ack": {
       "title": "Rule acknowledgements",
@@ -1512,7 +1536,7 @@
       "ambiguous_resource": "Several network resources have this name.",
       "internet_without_via": "autogroup:internet without a via tag (exit node) — needs an L7 acknowledgement.",
       "auto_approver_not_platform": "autoApprovers other than the platform's router/exit tags — needs an L7 acknowledgement.",
-      "ssh_check": "SSH check is refused (V-26 — post-MVP).",
+      "ssh_check": "SSH check is refused (post-MVP).",
       "ssh_accept": "SSH accept always allows port forwarding and is not recorded — needs an L10 acknowledgement.",
       "self_large_tenant": "autogroup:self in a large tenant costs on every change (L8).",
       "member_oidc": "autogroup:member in headscale_oidc mode includes every user of the IdP — needs an L13 acknowledgement.",
@@ -1526,7 +1550,7 @@
       "empty": "The policy text is empty — Headscale would store it and allow all traffic at its next start (L2). Not sent.",
       "managed_key": "This key is rendered from the tenant's tables (groups, resources, tag catalog) — remove it from the text and manage it on its page (L3).",
       "acls_unsupported": "acls is the legacy format — write the rules as grants (L3).",
-      "node_attrs": "nodeAttrs is refused in the MVP (L3, HS-22).",
+      "node_attrs": "nodeAttrs is refused in the MVP (L3).",
       "tests_generated": "tests/sshTests are generated at apply time, not written by hand (L3).",
       "unsupported_key": "This key is not part of a tenant policy (L3).",
       "unknown_key": "Unknown key at this position (L3).",
@@ -1543,9 +1567,9 @@
       "invalid_cidr": "The prefix has host bits set.",
       "invalid_prefix": "A route must be a masked IP prefix.",
       "empty_principal": "Empty principal.",
-      "via_not_asserted": "Generated tests cannot assert the access through via of this rule (V-24).",
-      "self_not_asserted": "Generated tests cannot assert the access to autogroup:self of this rule (V-24).",
-      "tests_failed": "Headscale refused the generated tests: an assertion is wrong, or a device they name is gone (PL-04)."
+      "via_not_asserted": "Generated tests cannot assert the access through via of this rule.",
+      "self_not_asserted": "Generated tests cannot assert the access to autogroup:self of this rule.",
+      "tests_failed": "Headscale refused the generated tests: an assertion is wrong, or a device they name is gone."
     },
     "hujson": {
       "label": "HuJSON text",
@@ -1604,7 +1628,7 @@
       "notApplied": "No application yet",
       "latest": "Latest application",
       "converged": "Clients converged",
-      "convergedUnknown": "Not observable from Headscale — each client receives the new policy at its next update (T-18).",
+      "convergedUnknown": "Not observable from Headscale — each client receives the new policy at its next update.",
       "review": "Review",
       "fourEyesOn": "4-eyes: on",
       "fourEyesOff": "4-eyes: off (self-review)",
@@ -1680,7 +1704,7 @@
     },
     "rollback": {
       "title": "Roll back to the content of version {{n}}?",
-      "description": "Creates a new version with this content (its approval is inherited — the content was approved before), makes it desired and applies it at once (policy.apply job)."
+      "description": "Creates a new version with this content (its approval is inherited — the content was approved before), makes it desired and applies it at once."
     },
     "apply": {
       "title": "Apply version {{n}}?",
@@ -1746,8 +1770,8 @@
         }
       },
       "notes": {
-        "tests_self_not_asserted": "Generated tests CANNOT assert access to autogroup:self: Headscale runs tests on its global filter, which leaves self rules out (V-24). Check with real connections.",
-        "tests_via_not_asserted": "Generated tests CANNOT assert access through via: Headscale runs tests on its global filter, which leaves via rules out (V-24). Check with real connections.",
+        "tests_self_not_asserted": "Generated tests CANNOT assert access to autogroup:self: Headscale runs tests on its global filter, which leaves self rules out. Check with real connections.",
+        "tests_via_not_asserted": "Generated tests CANNOT assert access through via: Headscale runs tests on its global filter, which leaves via rules out. Check with real connections.",
         "routes_need_approval": "The routes of the router/exit node still have to be approved on the Routes page.",
         "self_large_tenant": "autogroup:self is costly in a large tenant (L8).",
         "replaces_draft": "Replaces every rule of the draft."
@@ -1755,7 +1779,7 @@
     },
     "testsGen": {
       "title": "Generated tests",
-      "intro": "At every validation/application the server generates tests from the grants and the devices of the moment; Headscale runs them on CheckPolicy/SetPolicy and refuses the policy when an assertion is wrong. Tests only see the global filter: they CANNOT assert access from via or autogroup:self (V-24) — this is not a simulation of effective access.",
+      "intro": "At every validation/application the server generates tests from the grants and the devices of the moment; Headscale runs them on CheckPolicy/SetPolicy and refuses the policy when an assertion is wrong. Tests only see the global filter: they CANNOT assert access from via or autogroup:self — this is not a simulation of effective access.",
       "generated": "{{count}} test(s) generated",
       "skippedCount": "{{count}} rule(s) without a test",
       "rule": "Rule {{n}}",
@@ -1763,12 +1787,12 @@
       "deny": "must be denied",
       "proto": "protocol",
       "skipped": {
-        "via_not_assertable": "has via — tests cannot see it (V-24)",
-        "self_not_assertable": "destination is only autogroup:self — tests cannot see it (V-24)",
+        "via_not_assertable": "has via — tests cannot see it",
+        "self_not_assertable": "destination is only autogroup:self — tests cannot see it",
         "app_only": "application capabilities only, no port",
         "no_testable_port": "no port tests can check (only * or a protocol tests do not take)",
-        "no_source_device": "no source has a device yet (PL-04)",
-        "no_destination": "no destination resolves to an address yet (PL-04)",
+        "no_source_device": "no source has a device yet",
+        "no_destination": "no destination resolves to an address yet",
         "capped": "over the test limit"
       }
     }
@@ -1909,7 +1933,9 @@
       "breakglassDesc": "You are the second Super Admin approving access of {{staff}} to tenant {{tenant}} without the tenant's decision. A high-severity security event is raised and every Tenant Owner is notified."
     },
     "grantEnded": "Your Support Access Grant for this tenant may have expired or been revoked — the action was not performed.",
-    "grantEndedLink": "Open Support access"
+    "grantEndedLink": "Open Support access",
+    "tenantSearchHint": "Only active or suspended tenants are listed; type a slug or name to search.",
+    "tenantSearchMore": "There are more tenants than listed — type a slug or name to search."
   },
   "approvals": {
     "intro": "Changes inside the tenant that need a second person (turning off 4-eyes, removing a sensitive group, members of a sensitive group…). The requester cannot approve their own request.",
@@ -2081,7 +2107,7 @@
       },
       "warnings": {
         "overlap": "{{prefix}} overlaps {{otherPrefix}} of device {{other}}.",
-        "untagged_router": "The device is a user's node (not a tagged node): the route would depend on a personal device (T-08).",
+        "untagged_router": "The device is a user's node (not a tagged node): the route would depend on a personal device.",
         "exit_node": "The device is an exit node: clients' Internet traffic goes through it."
       },
       "approve": "Approve routes",
@@ -2160,7 +2186,7 @@
       "add": "Add record"
     },
     "resources": {
-      "intro": "The network resource catalog: each resource is an alias (hosts key) the policy can refer to. Every change re-renders and re-applies the policy (policy.apply job).",
+      "intro": "The network resource catalog: each resource is an alias (hosts key) the policy can refer to. Every change re-renders and re-applies the policy.",
       "empty": "No resources yet.",
       "add": "Add resource",
       "addTitle": "Add a resource",
@@ -2186,7 +2212,7 @@
       "addressHintHost": "One IP address (host, service).",
       "addressHintSubnet": "A prefix without host bits, e.g. 10.0.0.0/24.",
       "portsHint": "Ports or ranges separated by commas: 443, 8000-8100. Empty = all ports (a service needs ports; icmp has none).",
-      "policyNote": "After saving, the policy is applied again in the background (policy.apply job).",
+      "policyNote": "After saving, the policy is applied again in the background.",
       "col": {
         "name": "Name",
         "kind": "Kind",
@@ -2453,6 +2479,10 @@
       "not_approved": "The request is not approved yet.",
       "not_requester": "Only the member who made the request can get its command/key.",
       "other": "The request changed — reload the list."
+    },
+    "selfEnrollOff": {
+      "title": "This tenant does not let you add devices yourself",
+      "body": "The tenant's administrators turned off adding devices yourself. Contact them to have your device added or the option turned back on."
     }
   },
   "diagnostics": {
@@ -2662,6 +2692,7 @@
           "expect": "A LISTEN line for the port; none ⇒ the service is not running (the control plane cannot see this)."
         }
       }
-    }
+    },
+    "readNever": "Never read."
   }
 }

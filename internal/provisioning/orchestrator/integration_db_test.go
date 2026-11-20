@@ -35,6 +35,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/headscale/headscaletest"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/headscale/locator"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/jobs"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/members"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/platform"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/secrets"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/store"
@@ -168,7 +169,7 @@ func newDBRig(t *testing.T) *dbRig {
 		}
 		return DNSResult{Addresses: []netip.Addr{want}, OK: true}, nil
 	})
-	p, err := New(Config{Store: NewDBStore(g.wrk, nil), Agent: g.agent, Placer: placer, Secrets: wrkSec,
+	p, err := New(Config{Store: NewDBStore(g.wrk, nil).WithOwnerInvite(members.IdPInviteNotifier{}), Agent: g.agent, Placer: placer, Secrets: wrkSec,
 		IdP: fakeDrivers{DriverKeycloak: g.kc}, Headscale: reg, DNS: dns, Prober: g.prober,
 		Logger:          slog.New(slog.NewTextHandler(io.Discard, nil)),
 		HeadscaleDigest: "sha256:" + strings.Repeat("d", 64), HeadscaleVersion: "v0.29.7",
@@ -358,6 +359,13 @@ func TestProvisionEndToEndDB(t *testing.T) {
 	}
 	if got := dbScalar[string](t, g, `SELECT string_agg(kind, ',' ORDER BY created_at) FROM notification_outbox WHERE tenant_id = $1`, tid); got != "tenant.invitation,tenant.activated" {
 		t.Fatalf("outbox %s", got)
+	}
+	// G4b-E1: the Owner invitation also enqueued member.idp_invite (the Owner's account at the platform-hosted IdP),
+	// once, for that invitation.
+	if got := dbScalar[string](t, g, `SELECT string_agg(j.kind||'/'||j.dedupe_key, ',') FROM provisioning_jobs j
+		JOIN tenant_invitations i ON j.dedupe_key = 'invitation:'||i.id||':idp_invite' WHERE j.tenant_id = $1`, tid); got !=
+		"member.idp_invite/invitation:"+dbScalar[string](t, g, `SELECT id::text FROM tenant_invitations WHERE tenant_id = $1`, tid)+":idp_invite" {
+		t.Fatalf("Owner IdP invitation job: %q", got)
 	}
 	// The policy step read the baseline through the real adapter path, authenticated with the bootstrapped key.
 	var sawPolicy bool

@@ -10,6 +10,9 @@
 //                     test can verify the HMAC with its own copy of the key) — never the body
 //     sent.jsonl      one line per EmailMessage: from, to, size, sha256 and the From/To/Subject/Message-ID headers —
 //                     never the body (a Keycloak action e-mail holds a link with a token)
+//   DEVSERVER_BODIES      optional directory (dev/CI stack only — G4b-E1, E2E-124): the raw message of each send as
+//                         <id>.eml, mode 0600, so a test can follow the required-actions link of an invitation like the
+//                         invited person would. Unset = no body is ever written (the default; E2E-82/83 need none).
 import "./register.mjs";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -23,6 +26,8 @@ const port = Number(process.env.DEVSERVER_PORT || 8787);
 fs.mkdirSync(out, { recursive: true });
 const append = (file, obj) => fs.appendFileSync(path.join(out, file), `${JSON.stringify(obj)}\n`);
 const sha = (b) => createHash("sha256").update(b).digest("hex");
+const bodies = process.env.DEVSERVER_BODIES || "";
+if (bodies) fs.mkdirSync(bodies, { recursive: true, mode: 0o700 });
 
 function header(raw, name) {
   const head = raw.split("\r\n\r\n", 1)[0];
@@ -36,6 +41,7 @@ const EMAIL = {
     append("sent.jsonl", { id, from: m.from, to: m.to, bytes: m.raw.length, sha256: sha(m.raw),
       header_from: header(m.raw, "From"), header_to: header(m.raw, "To"), subject: header(m.raw, "Subject"),
       message_id: header(m.raw, "Message-ID") });
+    if (bodies) fs.writeFileSync(path.join(bodies, `${id}.eml`), m.raw, { mode: 0o600 });
     return { messageId: id };
   },
 };

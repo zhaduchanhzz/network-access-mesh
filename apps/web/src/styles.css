@@ -152,6 +152,8 @@
   .card {
     @apply rounded-lg border border-line bg-surface p-4;
   }
+  /* bảng luôn nằm trong wrapper `relative overflow-x-auto`: `relative` giữ phần tử absolute (span sr-only của tiêu đề
+     cột) trong vùng cuộn — thiếu nó trang cuộn ngang ở 390 px (G4b-E5) */
   .data-table {
     @apply w-full border-collapse text-sm;
   }

@@ -157,3 +157,43 @@ func TestProblemsMatchTheAPICatalog(t *testing.T) {
 		}
 	}
 }
+
+// TestLoginFailureForANavigation (G4b-E2): a browser navigating to GET /auth/login for a tenant it cannot log in to is
+// sent back to the SPA's login page with one code (whatever the reason) and the slug; an API client (no
+// Sec-Fetch-Mode: navigate), the platform scope and any other refusal still get the problem.
+func TestLoginFailureForANavigation(t *testing.T) {
+	nav := identity.RequestInfo{Origin: identity.OriginApp, RequestID: "r-1", Path: "/api/v1/auth/login", FetchMode: "navigate"}
+	in := identity.LoginRequest{Scope: identity.ScopeTenant, TenantSlug: "acme-2", ReturnTo: "/devices?x=1"}
+	for _, reason := range []string{"idp_not_found", "tenant_not_loginable"} {
+		err := &identity.Error{Kind: identity.KindNotFound, Reason: reason}
+		rec := httptest.NewRecorder()
+		if err := loginFailure(err, nav, in).VisitAuthLoginResponse(rec); err != nil {
+			t.Fatal(err)
+		}
+		if rec.Code != http.StatusFound ||
+			rec.Header().Get("Location") != "/login?error=tenant_not_found&return_to=%2Fdevices%3Fx%3D1&tenant=acme-2" ||
+			len(rec.Header().Values("Set-Cookie")) != 0 || rec.Header().Get("Cache-Control") != "no-store" {
+			t.Fatalf("%s: HTTP %d %v", reason, rec.Code, rec.Header())
+		}
+	}
+	api := nav
+	api.FetchMode = "cors"
+	platform := in
+	platform.Scope, platform.TenantSlug = identity.ScopePlatform, ""
+	for name, c := range map[string]struct {
+		err  error
+		info identity.RequestInfo
+		in   identity.LoginRequest
+		want int
+	}{
+		"fetch":     {&identity.Error{Kind: identity.KindNotFound, Reason: "idp_not_found"}, api, in, 404},
+		"no header": {&identity.Error{Kind: identity.KindNotFound, Reason: "idp_not_found"}, identity.RequestInfo{Origin: identity.OriginApp}, in, 404},
+		"platform":  {&identity.Error{Kind: identity.KindNotFound, Reason: "idp_not_found"}, nav, platform, 404},
+		"forbidden": {&identity.Error{Kind: identity.KindForbidden, Reason: "sec_fetch_site_cross_origin"}, nav, in, 403},
+	} {
+		p, ok := loginFailure(c.err, c.info, c.in).(problemResponse)
+		if !ok || p.problem.Status != c.want {
+			t.Errorf("%s: %#v, want problem %d", name, p, c.want)
+		}
+	}
+}

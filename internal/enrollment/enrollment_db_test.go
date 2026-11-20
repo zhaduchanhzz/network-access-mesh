@@ -1325,6 +1325,13 @@ func TestEnrollment(t *testing.T) {
 		if in, err := f.api.Instructions(t.Context(), a.id, "ios"); err != nil || in.WebAuthCommand != nil {
 			t.Fatalf("mobile: %+v %v", in, err)
 		}
+		// G4b-E3: the instructions carry enrollment.self_enroll (the Portal shows an End User why it cannot add a device)
+		for _, v := range []string{"false", "true"} {
+			f.setting(t, a, "enrollment,self_enroll", v)
+			if in, err := f.api.Instructions(t.Context(), a.id, "linux"); err != nil || in.SelfEnroll != (v == "true") {
+				t.Fatalf("self_enroll %s: %+v %v", v, in.SelfEnroll, err)
+			}
+		}
 	})
 
 	t.Run("ReconcileJobAndSchedule", func(t *testing.T) {

@@ -46,7 +46,8 @@ describe("dashboard", () => {
     const unavailable = screen.getAllByTestId("unavailable-section").map((e) => e.textContent);
     expect(unavailable).toHaveLength(2);
     expect(unavailable[0]).toContain("Nền tảng chưa có nguồn dữ liệu");
-    expect(unavailable[0]).toContain("no_source");
+    expect(unavailable[0]).not.toContain("no_source"); // G4b-E11: mã lý do chỉ ở tooltip/data-code
+    expect(screen.getAllByTestId("unavailable-section")[0]!.querySelector('[data-code="no_source"]')).not.toBeNull();
     expect(await screen.findByTestId("dash-review-count")).toHaveTextContent("1");
     const review = requests.find((r) => r.url.includes("/devices"));
     expect(new URL(review!.url).searchParams.get("tagged")).toBe("true");
@@ -68,7 +69,10 @@ describe("dashboard", () => {
     const box = await screen.findByTestId("dash-devices");
     await waitFor(() => expect(within(box).getByTestId("unavailable-section")).toHaveTextContent("chưa từng được đồng bộ"));
     expect(screen.queryByTestId("dash-total")).toBeNull();
-    expect(screen.getByTestId("dash-instance")).toHaveTextContent("chưa từng");
+    expect(screen.getByTestId("dash-instance")).toHaveTextContent("Chưa từng được kiểm.");
+    // G4b-E9: không ghép "Kiểm lúc" + "chưa từng" — một câu riêng
+    expect(screen.getByTestId("dash-instance")).toHaveTextContent("Chưa kiểm tra lần nào.");
+    expect(screen.getByTestId("dash-instance")).not.toHaveTextContent("Kiểm lúc");
   });
 
   it("API mâu thuẫn (synced_at null nhưng không có mục devices trong unavailable) ⇒ vẫn không hiện số đếm", async () => {
@@ -84,7 +88,7 @@ describe("dashboard", () => {
     );
     renderApp({ path: `/t/${TENANT_A}/overview` });
     const box = await screen.findByTestId("dash-devices");
-    expect(within(box).getByTestId("unavailable-section")).toHaveTextContent("never_synced");
+    expect(within(box).getByTestId("unavailable-section").querySelector('[data-code="never_synced"]')).not.toBeNull();
     expect(screen.queryByTestId("dash-total")).toBeNull();
   });
 });

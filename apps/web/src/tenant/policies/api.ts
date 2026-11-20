@@ -1,5 +1,6 @@
 // Truy vấn của trang Policies + Tags (P4-T11) — mọi query key bắt đầu bằng tenantId (§12.4). Version đọc kèm ETag
-// (= `"<revision>"`) để gửi lại trong If-Match; tên principal đọc từ các danh mục của tenant (users, groups, tags) —
+// (= `"<revision>"`) để gửi lại trong If-Match; tên principal đọc từ các danh mục của tenant (users, groups, tags, tài
+// nguyên mạng) —
 // chỉ để hiển thị, tham chiếu luôn là id.
 import { useQuery } from "@tanstack/react-query";
 import { api, call } from "../../api/client";
@@ -78,6 +79,8 @@ export interface Catalog {
   users: { id: string; identityId: string; label: string; status: string }[];
   groups: { id: string; name: string }[];
   tags: { id: string; name: string; purpose: string; platformManaged: boolean }[];
+  /** danh mục tài nguyên mạng (GET /resources — P4-T12); `null` ⇒ role không đọc được hoặc đọc lỗi */
+  resources: { id: string; name: string; address: string }[] | null;
   /** identity id → tên hiển thị (người soạn/gửi/duyệt) */
   identities: ReadonlyMap<string, string>;
 }
@@ -89,7 +92,7 @@ export function usePolicyNames(tenantId: string, role: string) {
     staleTime: 30_000,
     queryFn: async (): Promise<Catalog> => {
       const path = { tenantId };
-      const [users, groups, tags] = await Promise.all([
+      const [users, groups, tags, resources] = await Promise.all([
         can(role, "tenant.user:read")
           ? allPages((cursor) => call(api.GET("/tenants/{tenantId}/users", { params: { path, query: { limit: 200, ...(cursor ? { cursor } : {}) } } })))
           : Promise.resolve([]),
@@ -99,6 +102,12 @@ export function usePolicyNames(tenantId: string, role: string) {
         can(role, "tenant.tag:read")
           ? allPages((cursor) => call(api.GET("/tenants/{tenantId}/tags", { params: { path, query: { limit: 200, ...(cursor ? { cursor } : {}) } } })))
           : Promise.resolve([]),
+        // tài nguyên mạng (G4b-E4): đọc lỗi không làm hỏng cả danh mục — bộ chọn báo "không đọc được"
+        can(role, "tenant.resource:read")
+          ? allPages((cursor) => call(api.GET("/tenants/{tenantId}/resources", { params: { path, query: { limit: 200, ...(cursor ? { cursor } : {}) } } }), { notify: false })).catch(
+              () => null,
+            )
+          : Promise.resolve(null),
       ]);
       const userLabel = (u: (typeof users)[number]) => (u.email ? `${u.display_name} <${u.email}>` : u.display_name);
       return {
@@ -106,11 +115,12 @@ export function usePolicyNames(tenantId: string, role: string) {
           users: new Map(users.map((u) => [u.id, u.email ?? u.display_name])),
           groups: new Map(groups.map((g) => [g.id, g.name])),
           tags: new Map(tags.map((t) => [t.id, t.name])),
-          resources: new Map(),
+          resources: new Map((resources ?? []).map((r) => [r.id, r.name])),
         },
         users: users.filter((u) => u.status !== "offboarded").map((u) => ({ id: u.id, identityId: u.identity_id, label: userLabel(u), status: u.status })),
         groups: groups.map((g) => ({ id: g.id, name: g.name })),
         tags: tags.map((t) => ({ id: t.id, name: t.name, purpose: t.purpose, platformManaged: t.platform_managed })),
+        resources: resources?.map((r) => ({ id: r.id, name: r.name, address: r.address })) ?? null,
         identities: new Map(users.map((u) => [u.identity_id, u.display_name])),
       };
     },

@@ -16,7 +16,10 @@ export interface paths {
          * @description §8.3 bước 1–2. IdP được chọn từ DB theo tenant (`identity_providers` đang `active`) — **không** nhận từ client.
          *     Backend ghi một hàng `auth_requests` (hash của `state`, `idp_id`, `nonce`, PKCE verifier đã mã hóa, origin, hạn
          *     ≤ 10 phút), đặt cookie `__Host-mg_authreq` ràng buộc trình duyệt rồi chuyển hướng (Authorization Code + PKCE
-         *     S256). `scope=platform` chỉ được phục vụ trên origin quản trị.
+         *     S256). `scope=platform` chỉ được phục vụ trên origin quản trị. Điều hướng của trình duyệt (`Sec-Fetch-Mode:
+         *     navigate`) với `scope=tenant` mà tenant không đăng nhập được (slug không tồn tại, tenant đã xóa/không hoạt động,
+         *     không có IdP `active`) ⇒ `302` về trang đăng nhập của SPA `/login?error=tenant_not_found&tenant=<slug>`
+         *     (`return_to` giữ lại) — một mã cho mọi trường hợp, như `404` (G4b-E2); client khác vẫn nhận `404`.
          */
         get: operations["authLogin"];
         put?: never;
@@ -4294,6 +4297,8 @@ export interface components {
             managed_env: {
                 [key: string]: string;
             };
+            /** @description `enrollment.self_enroll` của tenant — `false` ⇒ End User không tạo được yêu cầu (`403`, điều kiện `self_enroll` của §8.6); Portal hiện lời giải thích thay cho wizard (G4b-E3) */
+            self_enroll: boolean;
         };
         /**
          * @description Mục đích của tag (`tenant_tags.purpose`, bất biến): `server`, `custom` do tenant khai báo; `router`, `exit` là tag do nền tảng kiểm soát (§7.2 — chỉ chúng được `autoApprovers` nêu)
@@ -5607,7 +5612,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Chuyển hướng tới authorization endpoint của IdP; đặt cookie `__Host-mg_authreq` */
+            /** @description Chuyển hướng tới authorization endpoint của IdP; đặt cookie `__Host-mg_authreq`. Điều hướng của trình duyệt tới tenant không đăng nhập được: chuyển hướng về `/login?error=tenant_not_found` của SPA, không cookie */
             302: {
                 headers: {
                     Location: components["headers"]["RedirectLocation"];

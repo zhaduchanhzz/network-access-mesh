@@ -5,7 +5,8 @@ The relay of the stack is the real one: service `mail-bridge` (SMTP host `mailre
 rendered by tools/render_app.py, files by infrastructure/host/mail-secrets.sh (internal CA, HMAC key), Keycloak's realms
 rendered by tools/render_idp.py with MG_IDP_MAIL_SINK=mailrelay. Only the Worker is a stand-in: `fakeworker` runs the
 real infrastructure/mail/cf-worker/src/index.js under node (test/devserver.mjs) with a fake EMAIL binding that records
-what Email Service would send (headers, sizes, digests — never a body) and every request (status, code, the signed
+what Email Service would send (headers, sizes, digests; the raw message only under <work>/fakeworker/bodies, read by
+E2E-124 alone — DEVSERVER_BODIES) and every request (status, code, the signed
 headers and the body digest), so this module checks the HMAC itself with its own copy of the key.
 
   E2E-82  the SMTP listener answers on the `mail` network only (not on mg-egress), offers STARTTLS and refuses MAIL before

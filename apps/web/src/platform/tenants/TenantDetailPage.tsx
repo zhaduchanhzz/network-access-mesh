@@ -10,7 +10,7 @@ import { isUuid } from "../../api/queryClient";
 import { useCursorPager } from "../../api/pagination";
 import { can } from "../../auth/permissions";
 import { EmptyState, Field, Pager, QueryBlock } from "../../ui/Data";
-import { StatusBadge } from "../../ui/Status";
+import { StatusBadge, useCodeText } from "../../ui/Status";
 import { Timestamp } from "../../ui/time";
 import { Loading, Page } from "../../components/Page";
 import { ProblemAlert } from "../../components/ProblemAlert";
@@ -191,6 +191,7 @@ function InstanceSection({ tenantId, enabled }: { tenantId: string; enabled: boo
 
 function RelaySection({ tenantId, enabled }: { tenantId: string; enabled: boolean }) {
   const { t } = useTranslation();
+  const code = useCodeText();
   const q = useTenantRelay(tenantId, enabled);
   return (
     <Section id="tenant-relay" title={t("platform.tenantDetail.relay")}>
@@ -203,7 +204,7 @@ function RelaySection({ tenantId, enabled }: { tenantId: string; enabled: boolea
               {data.items.length === 0 ? (
                 <EmptyState>{t("platform.tenantDetail.noRelay")}</EmptyState>
               ) : (
-                <div className="overflow-x-auto">
+                <div className="relative overflow-x-auto">
                   <table className="data-table">
                     <caption className="sr-only">{t("platform.tenantDetail.relay")}</caption>
                     <thead>
@@ -248,10 +249,11 @@ function RelaySection({ tenantId, enabled }: { tenantId: string; enabled: boolea
                   <h3 className="text-sm font-semibold">{t("platform.tenantDetail.unmeasured")}</h3>
                   <ul className="mt-1 list-disc ps-5 text-sm text-muted">
                     {data.unavailable.map((u) => (
-                      <li key={u.metric}>
-                        <code>{u.metric}</code>
+                      <li key={u.metric} title={`${u.metric} (${u.reason})`}>
+                        {/* cùng nhãn đã dịch với trang Relay Region (G4b-E12) — khóa thô chỉ ở tooltip */}
+                        {code("relay.metrics", u.metric)}
                         {": "}
-                        {t("platform.tenantDetail.unavailableReason", { reason: u.reason })}
+                        {t("platform.tenantDetail.unavailableReason", { reason: code("relay.reasons", u.reason) })}
                       </li>
                     ))}
                   </ul>

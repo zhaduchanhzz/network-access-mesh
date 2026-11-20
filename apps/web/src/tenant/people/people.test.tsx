@@ -6,6 +6,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { queryKeys } from "../../api/queryClient";
+import { i18n } from "../../i18n";
 import { CSRF, json, mockApi, problem, renderApp, TENANT_A, tenantBody, tenantSession, type Handler } from "../../test/helpers";
 import {
   ADMIN_2,
@@ -65,7 +66,7 @@ describe("Users — danh sách", () => {
     expect(rows[3]).toHaveTextContent("Đã khóa");
     expect(screen.getByRole("button", { name: "Mời thành viên" })).toBeEnabled();
 
-    await userEvent.click(screen.getByRole("button", { name: "Tiếp" }));
+    await userEvent.click(screen.getByRole("button", { name: "Trang sau" }));
     await waitFor(() => expect(screen.getAllByTestId("user-row")).toHaveLength(1));
     await userEvent.selectOptions(screen.getByLabelText("Role"), "tenant_operator");
     await userEvent.selectOptions(screen.getByLabelText("Trạng thái"), "locked");
@@ -103,7 +104,7 @@ describe("Users — chi tiết: quy tắc 3a ở UI, server vẫn quyết địn
     );
     const { router } = renderApp({ path: `/t/${TENANT_A}/users/${ADMIN_2}` });
     await screen.findByRole("heading", { name: "Người 2", level: 1 });
-    expect(screen.getByTestId("no-actions")).toHaveTextContent("quy tắc 3a");
+    expect(screen.getByTestId("no-actions")).toHaveTextContent("chỉ tác động lên role thấp hơn hẳn role của bạn");
     for (const name of ["Khóa", "Thu hồi session", "Đổi role", "Offboard…", "Chuyển quyền sở hữu…"]) {
       expect(screen.queryByRole("button", { name })).toBeNull();
     }
@@ -370,8 +371,13 @@ describe("Invitations", () => {
     expect(sent[1]!.headers.get("Idempotency-Key")).toBe(sent[0]!.headers.get("Idempotency-Key"));
     expect(sent[1]!.headers.get("X-CSRF-Token")).toBe(CSRF);
     expect(await sent[1]!.json()).toEqual({ email: "new@example.test", role: "tenant_viewer", expires_in_hours: 168 });
-    expect(await screen.findByTestId("invitation-created")).toBeInTheDocument();
+    // G4b-E17: trang Lời mời nhận focus ở h1; G4b-E1: thông báo hai pha — lời mời đã tạo, bước IdP đang xử lý ⇒ xong
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Lời mời", level: 1 })).toHaveFocus());
+    const banner = await screen.findByTestId("invitation-created");
+    expect(banner).toHaveTextContent("Đã tạo lời mời.");
+    expect(banner).not.toHaveTextContent("Đã gửi lời mời");
     await waitFor(() => expect(within(screen.getByTestId("invitation-idp")).getByText("Thành công")).toHaveAttribute("data-status", "succeeded"), { timeout: 8000 });
+    expect(banner).toHaveAttribute("data-idp", "done");
     const kinds = requests.filter((r) => r.url.includes("/jobs")).map((r) => new URL(r.url).searchParams.get("kind"));
     expect(new Set(kinds)).toEqual(new Set(["member.idp_invite"]));
   }, 15_000);
@@ -391,6 +397,68 @@ describe("Invitations", () => {
     await userEvent.type(within(d).getByLabelText("Email"), "x@example.test");
     await userEvent.click(within(d).getByRole("button", { name: "Gửi lời mời" }));
     expect(await within(d).findByRole("alert")).toHaveTextContent("An invitation is pending.");
+  });
+
+  it("job IdP thất bại ⇒ câu hướng dẫn đã dịch theo mã (mã thô chỉ ở tooltip), thông báo sau khi gửi lại là cảnh báo; lời mời do provision tạo (G4b-E1, E16)", async () => {
+    const failed = (code: string, id: string, resource: string) => ({ ...job(id, "member.idp_invite", "failed", { type: "invitation", id: resource }), error: { code } });
+    const INV_2 = INV_1.replace(/.$/, "9");
+    const INV_3 = INV_1.replace(/.$/, "8");
+    let resent = false;
+    mockApi(
+      routes("tenant_owner", {
+        [`GET ${base}/invitations`]: list([
+          invitation(INV_1, "end_user"),
+          invitation(INV_2, "tenant_owner", { invited_by: undefined, email: "owner@example.test" }),
+          invitation(INV_3, "end_user"),
+        ]),
+        [`GET ${base}/jobs`]: () =>
+          list([
+            failed("idp_email_failed", INVITE_JOB, INV_1),
+            failed("idp_user_disabled", INVITE_JOB.replace(/.$/, "9"), INV_2),
+            failed(resent ? "idp_email_failed" : "wat_new_code", INVITE_JOB.replace(/.$/, "8"), INV_3),
+          ]),
+        [`POST ${base}/invitations/${INV_3}/resend`]: () => {
+          resent = true;
+          return json(200, invitation(INV_3, "end_user"));
+        },
+      }),
+    );
+    renderApp({ path: `/t/${TENANT_A}/invitations` });
+    await screen.findAllByTestId("invitation-row");
+    const row = (id: string) => screen.getAllByTestId("invitation-row").find((r) => r.getAttribute("data-invitation") === id)!;
+    const idp = (id: string) => within(row(id)).getByTestId("invitation-idp");
+    await waitFor(() => expect(idp(INV_1)).toHaveTextContent("thư thiết lập chưa gửi được — liên hệ quản trị nền tảng"));
+    expect(idp(INV_1)).toHaveTextContent("Gửi lại");
+    expect(idp(INV_1)).not.toHaveTextContent("idp_email_failed");
+    expect(within(idp(INV_1)).getByTestId("idp-error")).toHaveAttribute("title", "idp_email_failed");
+    expect(idp(INV_2)).toHaveTextContent("kích hoạt lại");
+    expect(idp(INV_3)).toHaveTextContent("Bước IdP thất bại — liên hệ quản trị nền tảng.");
+    expect(idp(INV_3)).not.toHaveTextContent("wat_new_code");
+    // E16: lời mời Owner do provision tạo (không có người mời)
+    expect(row(INV_2)).toHaveTextContent("Tạo khi provision (nền tảng)");
+    // gửi lại ⇒ job vẫn thất bại ⇒ thông báo là cảnh báo, không khẳng định đã gửi thư
+    await userEvent.click(within(row(INV_3)).getByRole("button", { name: "Gửi lại" }));
+    await userEvent.click(within(dialog()).getByRole("button", { name: "Gửi lại" }));
+    const banner = await screen.findByTestId("invitation-created");
+    await waitFor(() => expect(banner).toHaveAttribute("data-idp", "failed"));
+    expect(banner).toHaveAttribute("role", "alert");
+    expect(banner).toHaveTextContent("Đã gửi lại lời mời");
+    expect(banner).toHaveTextContent("bước IdP thất bại");
+    expect(banner).toHaveTextContent("thư thiết lập chưa gửi được");
+  });
+
+  it("en: mã lỗi IdP dịch sang tiếng Anh", async () => {
+    await i18n.changeLanguage("en");
+    mockApi(
+      routes("tenant_owner", {
+        [`GET ${base}/invitations`]: list([invitation(INV_1, "end_user", { invited_by: undefined })]),
+        [`GET ${base}/jobs`]: list([{ ...job(INVITE_JOB, "member.idp_invite", "failed", { type: "invitation", id: INV_1 }), error: { code: "idp_email_failed" } }]),
+      }),
+    );
+    renderApp({ path: `/t/${TENANT_A}/invitations` });
+    const cell = await screen.findByTestId("invitation-idp");
+    await waitFor(() => expect(cell).toHaveTextContent("its setup e-mail could not be sent"));
+    expect(screen.getByTestId("invitation-row")).toHaveTextContent("Created at provisioning (platform)");
   });
 
   it("gửi lại / thu hồi chỉ với lời mời role thấp hơn (3a): Tenant Admin không thấy nút trên lời mời Admin", async () => {
@@ -447,7 +515,8 @@ describe("Groups", () => {
     const post = writes(requests)[0]!;
     expect(post.headers.get("Idempotency-Key")).toMatch(/^[0-9a-f-]{36}$/);
     expect(await post.json()).toEqual({ name: "ops-team" });
-    await screen.findByRole("heading", { name: "ops-team", level: 1 });
+    // G4b-E17: hộp đóng + route đổi ⇒ focus vào h1 của trang mới (không rơi về <body>)
+    await waitFor(() => expect(screen.getByRole("heading", { name: "ops-team", level: 1 })).toHaveFocus());
   });
 
   it("đặt thành viên: thêm từ kết quả tìm (chỉ active), bỏ người cũ ⇒ PUT If-Match, tập đã sắp xếp ⇒ 200 cập nhật", async () => {

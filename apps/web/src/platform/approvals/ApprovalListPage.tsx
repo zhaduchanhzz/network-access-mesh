@@ -85,7 +85,7 @@ export function ApprovalListPage() {
             <EmptyState>{status === "pending" && !action ? t("platform.approvals.emptyPending") : t("platform.approvals.empty")}</EmptyState>
           ) : (
             <>
-              <div className="overflow-x-auto rounded-lg border border-line bg-surface">
+              <div className="relative overflow-x-auto rounded-lg border border-line bg-surface">
                 <table className="data-table">
                   <caption className="sr-only">{t("platform.approvals.caption")}</caption>
                   <thead>

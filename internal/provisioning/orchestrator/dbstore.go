@@ -27,6 +27,7 @@ import (
 type DBStore struct {
 	st       *store.Store
 	notify   notifications.Enqueuer
+	invites  tenants.InvitationNotifier // step 16: the Owner's account at a platform-hosted IdP (G4b-E1); nil ⇒ none
 	now      func() time.Time
 	lockWait time.Duration
 }
@@ -39,6 +40,16 @@ func NewDBStore(st *store.Store, notify notifications.Enqueuer) *DBStore {
 		notify = notifications.Default
 	}
 	return &DBStore{st: st, notify: notify, now: time.Now, lockWait: 2 * time.Minute}
+}
+
+// WithOwnerInvite makes step 16 deliver the Owner invitation through n as well, in the same transaction as the
+// invitation (G4b-E1): the worker passes members.IdPInviteNotifier{} — the job member.idp_invite that creates the
+// Owner's account at the platform-hosted IdP and has the IdP e-mail its required actions, exactly as for an invitation
+// sent from the Portal (the platform e-mail of the invitation stays notify's). Without it the Owner of a tenant whose
+// IdP the platform hosts has no account to sign in with.
+func (d *DBStore) WithOwnerInvite(n tenants.InvitationNotifier) *DBStore {
+	d.invites = n
+	return d
 }
 
 func notFound(err error) error {
@@ -353,7 +364,8 @@ func (d *DBStore) RecordBaselinePolicy(ctx context.Context, tenantID, instanceID
 }
 
 // Configure implements Store: settings and the IdP in a platform transaction, then the Owner invitation, its audit
-// event and its notification in one transaction of the tenant.
+// event, its notification and (WithOwnerInvite) the job that creates the Owner's IdP account in one transaction of the
+// tenant.
 func (d *DBStore) Configure(ctx context.Context, r ConfigureRequest) (uuid.UUID, error) {
 	if err := d.st.WithPlatformTx(ctx, func(q *sqlcdb.Queries) error {
 		if len(r.Settings) > 0 {
@@ -425,9 +437,17 @@ func (d *DBStore) Configure(ctx context.Context, r ConfigureRequest) (uuid.UUID,
 				"idp_id": r.IdPID, "expires_at": row.ExpiresAt, "source": JobKind}}); err != nil {
 			return err
 		}
-		_, err = d.notify.Enqueue(ctx, tx, notifications.Invitation(r.TenantID, row.ID, row.Email, RoleTenantOwner,
-			row.ExpiresAt, ""))
-		return err
+		if _, err := d.notify.Enqueue(ctx, tx, notifications.Invitation(r.TenantID, row.ID, row.Email, RoleTenantOwner,
+			row.ExpiresAt, "")); err != nil {
+			return err
+		}
+		if d.invites == nil {
+			return nil
+		}
+		// G4b-E1: the Owner's IdP account (member.idp_invite; deduplicated per invitation — a re-run that finds the
+		// invitation above returns before this point, and the job of a committed invitation already exists)
+		return d.invites.InvitationIssued(ctx, tx, tenants.InvitationNotice{TenantID: r.TenantID, InvitationID: row.ID,
+			Email: row.Email, Role: RoleTenantOwner, ExpiresAt: row.ExpiresAt})
 	})
 	return invitation, err
 }

@@ -43,6 +43,7 @@ type realmParams struct {
 	Scope       idp.Scope
 	IdPID       uuid.UUID
 	RedirectURI string
+	SMTP        *SMTPServer // nil: no smtpServer (the template has none)
 }
 
 // decodeJSON decodes JSON keeping numbers exact (json.Number).
@@ -98,6 +99,9 @@ func realmRep(p realmParams) (map[string]any, error) {
 		return nil, errors.New("keycloak: realm template without Portal client attributes")
 	}
 	attrs["post.logout.redirect.uris"] = plr
+	if p.SMTP != nil {
+		rep["smtpServer"] = p.SMTP.rep()
+	}
 	b, err := json.Marshal(rep)
 	if err != nil {
 		return nil, err

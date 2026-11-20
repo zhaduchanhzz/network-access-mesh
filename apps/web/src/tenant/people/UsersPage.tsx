@@ -7,7 +7,7 @@ import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { useCursorPager } from "../../api/pagination";
 import { can } from "../../auth/permissions";
-import { Page } from "../../components/Page";
+import { FOCUS_HEADING, Page } from "../../components/Page";
 import { EmptyState, Pager, QueryBlock } from "../../ui/Data";
 import { useTenant } from "../TenantScope";
 import { useUsers } from "./api";
@@ -54,7 +54,7 @@ export function UsersPage() {
           page.items.length === 0 ? (
             <EmptyState>{f.q || f.role || f.status ? t("people.users.emptyFiltered") : t("people.users.empty")}</EmptyState>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="relative overflow-x-auto">
               <table className="data-table" data-testid="users-table">
                 <caption className="sr-only">{t("nav.tenant.users")}</caption>
                 <thead>
@@ -95,7 +95,7 @@ export function UsersPage() {
           onOpenChange={setInviting}
           onCreated={(inv) => {
             setInviting(false);
-            void navigate(`/t/${tenantId}/invitations`, { state: { created: inv.id } });
+            void navigate(`/t/${tenantId}/invitations`, { state: { ...FOCUS_HEADING, created: inv.id } });
           }}
         />
       ) : null}

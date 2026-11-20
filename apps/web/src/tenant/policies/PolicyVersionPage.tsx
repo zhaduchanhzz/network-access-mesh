@@ -82,7 +82,8 @@ function VersionView({ versionId }: { versionId: string }) {
   const exporter = useExport();
 
   const v = q.data?.data;
-  // tên của tài nguyên mạng (chưa có API danh mục — P4-T12): lấy qua export của chính nội dung này
+  // tên của tài nguyên mạng được tham chiếu mà danh mục (GET /resources) không có/không đọc được: lấy qua export của
+  // chính nội dung này
   const resourceNames = useQuery({
     queryKey: policyKeys.version(tenantId, `${versionId}:names:${String(v?.revision ?? 0)}`),
     queryFn: () =>
@@ -189,6 +190,11 @@ function VersionView({ versionId }: { versionId: string }) {
   const extraNames = namesFrom(resourceNames.data?.principals, new Map(extra));
   const identities = names.data?.identities;
   const who = (id: string | undefined) => (id ? (identities?.get(id) ?? id.slice(0, 8)) : t("common.none"));
+  // version khác theo số (trang đầu của danh sách — G4b-E15); không có trong trang đó ⇒ tiền tố id
+  const versionName = (id: string) => {
+    const n = list.data?.items.find((x) => x.id === id)?.version;
+    return n === undefined ? id.slice(0, 8) : t("policies.versionN", { n });
+  };
   const busy = save.isPending || transition.isPending || accept.isPending;
   const lifecycleBlocked = dirty || busy;
   const acceptError = accept.error;
@@ -297,7 +303,7 @@ function VersionView({ versionId }: { versionId: string }) {
               <dt className="text-muted">{t("policies.meta.parent")}</dt>
               <dd>
                 <Link className="link" to={`/t/${tenantId}/policies/${v.parent_version_id}`}>
-                  {v.parent_version_id.slice(0, 8)}
+                  {versionName(v.parent_version_id)}
                 </Link>
                 {staleBase ? <span className="ms-2 badge badge-warn">{t("policies.meta.staleBase")}</span> : null}
               </dd>
@@ -308,7 +314,7 @@ function VersionView({ versionId }: { versionId: string }) {
               <dt className="text-muted">{t("policies.meta.rollbackOf")}</dt>
               <dd>
                 <Link className="link" to={`/t/${tenantId}/policies/${v.rollback_of}`}>
-                  {v.rollback_of.slice(0, 8)}
+                  {versionName(v.rollback_of)}
                 </Link>
               </dd>
             </>

@@ -532,8 +532,20 @@ class Stack:
         ids = self.docker("ps", "-aq", "--filter", f"label=com.docker.compose.project={self.prefix}", check=False).stdout.split()
         for extra in ("probe", "caller", "direct", "enroll", "obs-", "wa-", "pw"):   # wa-: clients of webauth.py (P4-T07); pw*: Playwright + bộ chuyển tiếp (P4-T14)
             ids += self.docker("ps", "-aq", "--filter", f"name=^{self.name(extra)}", check=False).stdout.split()
-        if ids:
+        names = self.docker("ps", "-a", "--format", "{{.Names}}", check=False).stdout.split()
+        ids += [n for n in names if n == self.name("agent") or n.startswith((f"mg-hs-{self.prefix}-", f"mg-helper-{self.prefix}-"))]
+        if ids:                                       # ↑ E2E-124: the Host Agent and the instances it created
             self.docker("rm", "-f", *ids, check=False)
+        nets = [n for n in self.docker("network", "ls", "--format", "{{.Name}}", check=False).stdout.split()
+                if n.startswith(f"mg-t-{self.prefix}-")]
+        for n in nets:
+            self.docker("network", "disconnect", "-f", n, self.name("edge"), check=False)
+        if nets:
+            self.docker("network", "rm", *nets, check=False)
+        self.docker("image", "rm", "-f", f"{self.prefix}-agent:e2e", check=False)
+        if "alpine" in self.images:
+            self.docker("run", "--rm", "--network", "none", "-v", "/tmp:/hosttmp", self.images["alpine"], "sh", "-c",
+                        f"rm -rf /hosttmp/{self.prefix}-agentroot", check=False)
         for n in (*self.networks, "pw"):                 # pw: mạng riêng của trình duyệt Playwright (P4-T14)
             self.docker("network", "rm", self.name(n), check=False)
         for v in ("edge-data", "idp-db-data", "prometheus-data", "alertmanager-data"):

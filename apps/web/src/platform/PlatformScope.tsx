@@ -1,6 +1,5 @@
 // Platform Console (§12.1, §12.2): CHỈ trên origin admin.<domain> và chỉ cho principal phạm vi platform. Trên app. ⇒
 // 404 thống nhất (console không tồn tại ở origin này). Quyền thật do server quyết định (§8.8).
-import { useTranslation } from "react-i18next";
 import { Navigate, Outlet } from "react-router";
 import { useConsole } from "../app/console";
 import { can } from "../auth/permissions";
@@ -15,7 +14,6 @@ export function usePlatformRole(): string | null {
 }
 
 export function PlatformScope() {
-  const { t } = useTranslation();
   const kind = useConsole();
   const role = usePlatformRole();
   if (kind !== "platform") {
@@ -26,7 +24,8 @@ export function PlatformScope() {
     );
   }
   return (
-    <AppShell base="/platform" nav={visibleItems(PLATFORM_NAV, role)} context={t("shell.platformConsole")}>
+    // nhãn "Platform Console" đã ở badge của header ⇒ không lặp lại làm ngữ cảnh (G4b-E18)
+    <AppShell base="/platform" nav={visibleItems(PLATFORM_NAV, role)} context="">
       {role === null ? <ForbiddenPage /> : <Outlet />}
     </AppShell>
   );

@@ -50,7 +50,7 @@ export function HostListPage() {
             <EmptyState>{status ? t("platform.hosts.emptyFiltered") : t("platform.hosts.empty")}</EmptyState>
           ) : (
             <>
-              <div className="overflow-x-auto rounded-lg border border-line bg-surface">
+              <div className="relative overflow-x-auto rounded-lg border border-line bg-surface">
                 <table className="data-table">
                   <caption className="sr-only">{t("platform.hosts.caption")}</caption>
                   <thead>

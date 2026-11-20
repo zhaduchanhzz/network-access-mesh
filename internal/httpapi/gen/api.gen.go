@@ -2782,9 +2782,12 @@ type EnrollmentInstructions struct {
 	Os         EnrollmentOS      `json:"os"`
 
 	// PreauthKeyCommand Mẫu lệnh luồng B (key qua biến môi trường `TS_AUTHKEY`)
-	PreauthKeyCommand *string  `json:"preauth_key_command,omitempty"`
-	PrivacyNotice     string   `json:"privacy_notice"`
-	Steps             []string `json:"steps"`
+	PreauthKeyCommand *string `json:"preauth_key_command,omitempty"`
+	PrivacyNotice     string  `json:"privacy_notice"`
+
+	// SelfEnroll `enrollment.self_enroll` của tenant — `false` ⇒ End User không tạo được yêu cầu (`403`, điều kiện `self_enroll` của §8.6); Portal hiện lời giải thích thay cho wizard (G4b-E3)
+	SelfEnroll bool     `json:"self_enroll"`
+	Steps      []string `json:"steps"`
 
 	// WebAuthCommand Mẫu lệnh luồng A (`<mã>` thay bằng mã của yêu cầu); `null` khi tenant tắt web-auth hoặc nền tảng không đặt được hostname
 	WebAuthCommand *string `json:"web_auth_command,omitempty"`

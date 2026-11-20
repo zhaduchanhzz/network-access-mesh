@@ -70,7 +70,9 @@ export function DevicesPage() {
       ) : null}
       <Filters filters={filters} canMine={membershipId !== null} onChange={update} />
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div>{list.isSuccess ? <ObservedAt labelKey="ui.syncedAt" iso={syncedAt} /> : null}</div>
+        {/* mốc đồng bộ lấy từ các hàng: trang rỗng không cho biết lần đồng bộ của tenant (API danh sách không có
+            `synced_at` riêng) ⇒ không hiện câu nào thay vì "chưa từng" sai (G4b-E9) */}
+        <div>{list.isSuccess && items.length > 0 ? <ObservedAt labelKey="ui.syncedAt" iso={syncedAt} /> : null}</div>
         <button type="button" className="btn-secondary" disabled={fresh.isPending} onClick={() => fresh.mutate()}>
           {t("devices.fresh")}
         </button>
@@ -88,7 +90,7 @@ export function DevicesPage() {
         </p>
       ) : null}
       {items.length > 0 ? (
-        <div className="overflow-x-auto">
+        <div className="relative overflow-x-auto">
           <table className="data-table" data-testid="devices-table">
             <caption className="sr-only">{t("nav.tenant.devices")}</caption>
             <thead>

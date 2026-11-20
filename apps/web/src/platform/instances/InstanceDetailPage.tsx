@@ -142,7 +142,7 @@ function ConfigVersions({ instanceId }: { instanceId: string }) {
                   ? t("platform.instance.currentConfig", { version: current.version })
                   : t("platform.instance.noCurrentConfig")}
               </p>
-              <div className="overflow-x-auto">
+              <div className="relative overflow-x-auto">
                 <table className="data-table">
                   <caption className="sr-only">{t("platform.instance.config")}</caption>
                   <thead>
@@ -214,7 +214,7 @@ function Backups({ instanceId }: { instanceId: string }) {
         data.items.length === 0 ? (
           <EmptyState>{t("platform.instance.noBackups")}</EmptyState>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="relative overflow-x-auto">
             <table className="data-table">
               <caption className="sr-only">{t("platform.instance.backups")}</caption>
               <thead>

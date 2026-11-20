@@ -20,7 +20,7 @@ function isJobStatus(v: string): v is JobStatus {
 export function JobTable({ jobs, showTenant, caption }: { jobs: readonly Job[]; showTenant: boolean; caption: string }) {
   const { t } = useTranslation();
   return (
-    <div className="overflow-x-auto rounded-lg border border-line bg-surface">
+    <div className="relative overflow-x-auto rounded-lg border border-line bg-surface">
       <table className="data-table">
         <caption className="sr-only">{caption}</caption>
         <thead>

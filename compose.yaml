@@ -241,7 +241,8 @@ services:
     container_name: ${MGE_PREFIX}-alertsink
 
   # Worker Cloudflare GIẢ của relay thư (P3-T05b-mail, ca E2E-82/83): mã thật infrastructure/mail/cf-worker/src/index.js
-  # chạy bằng test/devserver.mjs (node:http + binding EMAIL giả ghi lại thư sẽ gửi — không thân thư) trong image node của
+  # chạy bằng test/devserver.mjs (node:http + binding EMAIL giả ghi lại thư sẽ gửi; thân thư chỉ vào /out/bodies cho
+  # E2E-124 — thư mục work của lượt chạy, xóa khi down) trong image node của
   # versions.lock; chỉ trên mg-egress (mailrelay gọi http://fakeworker:8787/v1/send — http chỉ được phép ở dev/ci). Khóa
   # HMAC: bản của consumer này (UID 1000), cùng giá trị với của mailrelay. Không publish cổng, không ra Internet.
   fakeworker:
@@ -257,6 +258,7 @@ services:
       RELAY_ALLOWED_FROM: ${MGE_MAIL_FROM:?}
       DEVSERVER_PORT: "8787"
       DEVSERVER_OUT: /out
+      DEVSERVER_BODIES: /out/bodies   # thô từng thư (0600) — E2E-124 theo link thiết lập tài khoản như người được mời
     secrets: [{source: fakeworker_hmac_key, target: relay_hmac_key}]
     volumes:
       - {<<: *hs-bind, source: ./infrastructure/mail/cf-worker, target: /worker}

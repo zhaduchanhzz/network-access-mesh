@@ -59,7 +59,7 @@ export function IdpListPage() {
             <EmptyState>{t("platform.idps.empty")}</EmptyState>
           ) : (
             <>
-              <div className="overflow-x-auto rounded-lg border border-line bg-surface">
+              <div className="relative overflow-x-auto rounded-lg border border-line bg-surface">
                 <table className="data-table">
                   <caption className="sr-only">{t("nav.platform.identityProviders")}</caption>
                   <thead>

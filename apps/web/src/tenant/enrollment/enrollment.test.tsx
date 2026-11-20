@@ -30,6 +30,7 @@ import {
 } from "../../test/enrollment";
 import { extractAuthId, guessOS, isRevocable, problemReason } from "./model";
 import { ApiError } from "../../api/problem";
+import { i18n } from "../../i18n";
 
 const base = `/tenants/${TENANT_A}`;
 type Routes = Record<string, Response | ((r: Request) => Response | Promise<Response>)>;
@@ -279,8 +280,7 @@ describe("Thêm thiết bị — wizard theo OS", () => {
   });
 
   it.each([
-    ["403 forbidden (tenant chưa cho tự thêm thiết bị)", problem(403, "forbidden"), ["Bạn không có quyền", "chưa cho phép người dùng tự thêm thiết bị"]],
-    ["403 quota_exceeded", problem(403, "quota_exceeded", { detail: "quota devices exceeded (limit 5)" }), ["Đã vượt hạn mức", "limit 5"]],
+    ["403 quota_exceeded", problem(403, "quota_exceeded", { detail: "quota devices exceeded (limit 5)" }), ["Đã vượt hạn mức"]],
     ["429 rate_limited", problem(429, "rate_limited", {}, { "Retry-After": "7" }), ["Quá nhiều yêu cầu", "7 giây"]],
     ["422 nhãn sai", invalid("device_label", "pattern"), ["Dữ liệu không hợp lệ", "device_label"]],
     ["409 no_instance", conflict("no_instance"), ["Xung đột"]],
@@ -293,6 +293,101 @@ describe("Thêm thiết bị — wizard theo OS", () => {
     const err = await within(wizard).findByTestId("wizard-error");
     for (const text of texts) expect(err).toHaveTextContent(text);
     expect(screen.queryByTestId("issued-web")).toBeNull();
+  });
+
+  it("403 của giao diện vi không in `detail` tiếng Anh của server; giao diện en thì có (G4b-E3)", async () => {
+    const quota = () => problem(403, "quota_exceeded", { detail: "quota devices exceeded (limit 5)" });
+    mockApi(apiFor("end_user", { [`POST ${base}/enrollment/requests`]: quota }));
+    const { unmount } = renderApp({ path: `/t/${TENANT_A}/enroll` });
+    let wizard = await screen.findByTestId("enroll-wizard");
+    await within(wizard).findByTestId("login-server");
+    await userEvent.click(within(wizard).getByRole("button", { name: "Tạo lệnh đăng ký" }));
+    expect(await within(wizard).findByTestId("wizard-error")).not.toHaveTextContent("limit 5");
+    unmount();
+    await i18n.changeLanguage("en");
+    mockApi(apiFor("end_user", { [`POST ${base}/enrollment/requests`]: quota }));
+    renderApp({ path: `/t/${TENANT_A}/enroll` });
+    wizard = await screen.findByTestId("enroll-wizard");
+    await within(wizard).findByTestId("login-server");
+    await userEvent.click(within(wizard).getByRole("button", { name: i18n.t("enroll.wizard.submitWeb") }));
+    expect(await within(wizard).findByTestId("wizard-error")).toHaveTextContent("limit 5");
+  });
+
+  it.each(["vi", "en"] as const)(
+    "End User, tenant tắt self_enroll: 403 ⇒ wizard thay bằng thông báo đã dịch, không detail tiếng Anh, không tạo lệnh tiếp (G4b-E3, %s)",
+    async (lng) => {
+      await i18n.changeLanguage(lng);
+      const { requests } = mockApi(
+        apiFor("end_user", {
+          [`POST ${base}/enrollment/requests`]: problem(403, "forbidden", { detail: "This tenant does not let members add devices themselves." }),
+        }),
+      );
+      renderApp({ path: `/t/${TENANT_A}/enroll` });
+      const wizard = await screen.findByTestId("enroll-wizard");
+      await within(wizard).findByTestId("login-server");
+      expect(screen.getByTestId("paste-claim")).toBeInTheDocument();
+      await userEvent.click(within(wizard).getByRole("button", { name: i18n.t("enroll.wizard.submitWeb") }));
+      const off = await screen.findByTestId("self-enroll-off");
+      expect(off).toHaveAttribute("role", "alert");
+      expect(off).toHaveTextContent(i18n.t("enroll.selfEnrollOff.title"));
+      expect(off).toHaveTextContent(i18n.t("enroll.selfEnrollOff.body"));
+      expect(document.body).not.toHaveTextContent("does not let members");
+      // không còn nút tạo lệnh, ô dán link (claim cũng cần self_enroll)
+      expect(screen.queryByRole("button", { name: i18n.t("enroll.wizard.submitWeb") })).toBeNull();
+      expect(screen.queryByRole("button", { name: i18n.t("enroll.wizard.submitKey") })).toBeNull();
+      expect(screen.queryByTestId("paste-claim")).toBeNull();
+      expect(posts(requests, "/enrollment/requests")).toHaveLength(1);
+      // danh sách "Yêu cầu của bạn" vẫn còn
+      expect(screen.getByRole("heading", { name: i18n.t("enroll.mine.title") })).toBeInTheDocument();
+    },
+  );
+
+  it.each(["vi", "en"] as const)(
+    "End User, instructions báo self_enroll=false ⇒ thông báo ngay khi tải, không wizard / ô dán link, không POST (G4b-E3, %s)",
+    async (lng) => {
+      await i18n.changeLanguage(lng);
+      const { requests } = mockApi(
+        apiFor("end_user", {
+          [`GET ${base}/enrollment/instructions`]: (r) =>
+            json(200, instructions((new URL(r.url).searchParams.get("os") ?? "linux") as "linux", { self_enroll: false })),
+        }),
+      );
+      renderApp({ path: `/t/${TENANT_A}/enroll` });
+      const off = await screen.findByTestId("self-enroll-off");
+      expect(off).toHaveTextContent(i18n.t("enroll.selfEnrollOff.title"));
+      expect(off).toHaveTextContent(i18n.t("enroll.selfEnrollOff.body"));
+      expect(screen.getByTestId("enroll-wizard")).toContainElement(off);
+      expect(screen.queryByRole("button", { name: i18n.t("enroll.wizard.submitWeb") })).toBeNull();
+      expect(screen.queryByRole("button", { name: i18n.t("enroll.wizard.submitKey") })).toBeNull();
+      expect(screen.queryByTestId("paste-claim")).toBeNull();
+      expect(screen.getByRole("heading", { name: i18n.t("enroll.mine.title") })).toBeInTheDocument();
+      expect(posts(requests)).toHaveLength(0);
+    },
+  );
+
+  it("self_enroll=false không áp cho role khác (Tenant Owner vẫn có wizard)", async () => {
+    mockApi(
+      apiFor("tenant_owner", {
+        [`GET ${base}/enrollment/instructions`]: (r) =>
+          json(200, instructions((new URL(r.url).searchParams.get("os") ?? "linux") as "linux", { self_enroll: false })),
+      }),
+    );
+    renderApp({ path: `/t/${TENANT_A}/enroll` });
+    const wizard = await screen.findByTestId("enroll-wizard");
+    await within(wizard).findByTestId("login-server");
+    expect(within(wizard).getByRole("button", { name: "Tạo lệnh đăng ký" })).toBeEnabled();
+    expect(screen.queryByTestId("self-enroll-off")).toBeNull();
+    expect(screen.getByTestId("paste-claim")).toBeInTheDocument();
+  });
+
+  it("403 forbidden với role không bị điều kiện self_enroll (Tenant Owner) ⇒ wizard vẫn còn, lỗi chung", async () => {
+    mockApi(apiFor("tenant_owner", { [`POST ${base}/enrollment/requests`]: problem(403, "forbidden") }));
+    renderApp({ path: `/t/${TENANT_A}/enroll` });
+    const wizard = await screen.findByTestId("enroll-wizard");
+    await within(wizard).findByTestId("login-server");
+    await userEvent.click(within(wizard).getByRole("button", { name: "Tạo lệnh đăng ký" }));
+    expect(await within(wizard).findByTestId("wizard-error")).toHaveTextContent("Bạn không có quyền");
+    expect(screen.queryByTestId("self-enroll-off")).toBeNull();
   });
 
   it("nhãn sai định dạng chặn ở client; tenant chưa có instance ⇒ 404 instructions ⇒ báo rõ", async () => {

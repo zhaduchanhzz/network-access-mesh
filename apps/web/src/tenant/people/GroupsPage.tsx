@@ -11,7 +11,7 @@ import type { Versioned } from "../../api/etag";
 import { useIdempotentMutation } from "../../api/idempotency";
 import { useCursorPager } from "../../api/pagination";
 import { can } from "../../auth/permissions";
-import { Page } from "../../components/Page";
+import { FOCUS_HEADING, Page } from "../../components/Page";
 import { EmptyState, Pager, QueryBlock } from "../../ui/Data";
 import { ModalDialog } from "../../ui/Dialog";
 import { StatusBadge } from "../../ui/Status";
@@ -49,7 +49,7 @@ export function GroupsPage() {
           page.items.length === 0 ? (
             <EmptyState>{q ? t("people.groups.emptyFiltered") : t("people.groups.empty")}</EmptyState>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="relative overflow-x-auto">
               <table className="data-table" data-testid="groups-table">
                 <caption className="sr-only">{t("nav.tenant.groups")}</caption>
                 <thead>
@@ -207,7 +207,7 @@ function CreateGroupForm({ onCancel }: { onCancel: () => void }) {
     onSuccess: async (r) => {
       queryClient.setQueryData<Versioned<Group>>(peopleKeys.group(tenantId, r.data.id), { data: r.data, etag: r.response.headers.get("ETag") });
       await invalidatePeople(queryClient, tenantId, "groups");
-      void navigate(`/t/${tenantId}/groups/${r.data.id}`);
+      void navigate(`/t/${tenantId}/groups/${r.data.id}`, { state: FOCUS_HEADING });
     },
   });
   const ok = GROUP_NAME_RE.test(name);

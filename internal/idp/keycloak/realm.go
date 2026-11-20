@@ -16,15 +16,17 @@ import (
 // builtinClients are created by Keycloak in every realm; anything else outside the template is reported as unmanaged.
 var builtinClients = []string{"account", "account-console", "admin-cli", "broker", "realm-management", "security-admin-console"}
 
-// realmSkip: template keys reconciled through their own endpoints (or identity: realm). authenticatorConfig (the amr
+// realmSkip: template keys reconciled through their own endpoints (or identity: realm); smtpServer is compared on
+// its own (Keycloak answers string values and masks a password — smtpNorm). authenticatorConfig (the amr
 // references of the browser flow — G2 round 2, A-6) is created with the realm and not reconciled: a missing one
 // shows as a platform login refused for lack of MFA evidence; infrastructure/idp/realm-update.sh repairs it.
 var realmSkip = map[string]bool{"realm": true, "clients": true, "users": true, "authenticationFlows": true,
 	"requiredActions": true, "clientScopeMappings": true, "scopeMappings": true, "attributes": true,
-	"authenticatorConfig": true}
+	"authenticatorConfig": true, "smtpServer": true}
 
 func (d *Driver) params(reg idp.Registration, realm, display string) realmParams {
-	return realmParams{Realm: realm, DisplayName: display, Scope: reg.Scope, IdPID: reg.IdPID, RedirectURI: d.redirectURI(reg)}
+	return realmParams{Realm: realm, DisplayName: display, Scope: reg.Scope, IdPID: reg.IdPID, RedirectURI: d.redirectURI(reg),
+		SMTP: d.smtp}
 }
 
 // EnsureIssuer creates the realm from the template when it does not exist — with a fresh mg-idp-driver secret, stored
@@ -158,6 +160,10 @@ func (d *Driver) reconcileRealm(ctx context.Context, op string, ts tokenSource, 
 	for _, k := range diffKeys(rep, live, realmSkip) {
 		upd[k] = rep[k]
 		changes = append(changes, joinChange("realm", k))
+	}
+	if smtpDiffers(rep["smtpServer"], live["smtpServer"]) { // G4b-E1: a realm without SMTP cannot e-mail invitations
+		upd["smtpServer"] = rep["smtpServer"]
+		changes = append(changes, joinChange("realm", "smtpServer"))
 	}
 	if merged, ch := mergeAttributes(asMap(rep["attributes"]), la); len(ch) > 0 {
 		upd["attributes"] = merged

@@ -58,7 +58,7 @@ describe("Tenants — danh sách", () => {
     const row = screen.getByRole("link", { name: "acme" }).closest("tr")!;
     expect(within(row).getByText("Hoạt động")).toHaveAttribute("data-status", "active");
 
-    await userEvent.click(screen.getByRole("button", { name: "Tiếp" }));
+    await userEvent.click(screen.getByRole("button", { name: "Trang sau" }));
     expect(await screen.findByRole("link", { name: "beta" })).toBeInTheDocument();
     expect(screen.getByText("Trang 2")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Trang trước" }));
@@ -236,8 +236,11 @@ describe("Chi tiết tenant", () => {
     expect(within(inst).getByText("Khỏe")).toHaveAttribute("data-status", "healthy");
     expect(await screen.findByText("mg-acme")).toBeInTheDocument();
     expect(screen.getByText("never_checked")).toBeInTheDocument();
-    expect(screen.getByTestId("relay-unavailable")).toHaveTextContent("traffic_bytes");
-    expect(screen.getByTestId("relay-unavailable")).toHaveTextContent("không khả dụng — unsupported");
+    // G4b-E12: cùng nhãn đã dịch với trang Relay Region; khóa thô chỉ ở tooltip
+    expect(screen.getByTestId("relay-unavailable")).toHaveTextContent("Lưu lượng (byte)");
+    expect(screen.getByTestId("relay-unavailable")).toHaveTextContent("không khả dụng — Thành phần không cung cấp số đo này");
+    expect(screen.getByTestId("relay-unavailable")).not.toHaveTextContent("traffic_bytes");
+    expect(screen.getByTitle("traffic_bytes (unsupported)")).toBeInTheDocument();
     expect(await screen.findByRole("link", { name: "tenant.provision" })).toHaveAttribute("href", `/platform/jobs/${JOB2}`);
     expect(screen.getByRole("button", { name: "Tạm ngưng" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Xóa tenant…" })).toBeInTheDocument();

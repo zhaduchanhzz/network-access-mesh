@@ -182,13 +182,13 @@ describe("tests sinh tự động trong báo cáo", () => {
     const tests = await screen.findByTestId("generated-tests");
     expect(tests).toHaveAttribute("data-count", "1");
     expect(tests).toHaveTextContent("1 ca được sinh · 2 luật không có ca");
-    expect(tests).toHaveTextContent("KHÔNG khẳng định được quyền từ via hay autogroup:self (V-24)");
+    expect(tests).toHaveTextContent("KHÔNG khẳng định được quyền từ via hay autogroup:self — không phải mô phỏng");
     const made = within(tests).getByText("group:eng").closest("li")!;
     expect(made).toHaveTextContent("phải được phép: tag:web:443");
     expect(made).toHaveTextContent("phải bị chặn: tag:web:65535");
-    expect(tests.querySelector('[data-skipped="via_not_assertable"]')).toHaveTextContent("Luật 2: có via — tests không thấy (V-24)");
-    expect(tests.querySelector('[data-skipped="no_source_device"]')).toHaveTextContent("Luật 3: chưa nguồn nào có thiết bị (PL-04)");
+    expect(tests.querySelector('[data-skipped="via_not_assertable"]')).toHaveTextContent("Luật 2: có via — tests không thấy");
+    expect(tests.querySelector('[data-skipped="no_source_device"]')).toHaveTextContent("Luật 3: chưa nguồn nào có thiết bị");
     // phát hiện Info V-24 có bản dịch
-    expect(screen.getAllByText("tests sinh tự động không khẳng định được quyền đi qua via của luật này (V-24).").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("tests sinh tự động không khẳng định được quyền đi qua via của luật này.").length).toBeGreaterThan(0);
   });
 });

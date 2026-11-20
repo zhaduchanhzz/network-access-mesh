@@ -73,7 +73,8 @@ export function StatusBadge({ tone, status, children, testId }: { tone?: Tone; s
   );
 }
 
-/** Ô "không khả dụng": tiêu đề + lý do đã dịch (+ mã lý do ổn định của API để đối chiếu). */
+/** Ô "không khả dụng": tiêu đề + lý do đã dịch; mã lý do ổn định của API chỉ ở tooltip + data-code để đối chiếu (G4b-E11:
+ * không hiện mã thô như `(no_source)` cho khách hàng). */
 export function UnavailableBox({ title, reason, code }: { title: string; reason: string; code?: string }) {
   const { t } = useTranslation();
   return (
@@ -83,9 +84,8 @@ export function UnavailableBox({ title, reason, code }: { title: string; reason:
         {": "}
         <span className="text-muted">{t("ui.unavailable")}</span>
       </p>
-      <p className="mt-1 text-sm text-muted">
+      <p className="mt-1 text-sm text-muted" title={code} data-code={code}>
         {reason}
-        {code ? <code className="ms-1">{`(${code})`}</code> : null}
       </p>
     </div>
   );
