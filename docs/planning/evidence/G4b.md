@@ -1,11 +1,14 @@
 # G4b — báo cáo gate (Phase 4, P4-T14)
 
-> **Trạng thái: CHỜ CHỦ DỰ ÁN.** Vòng khám phá trên staging (mục 5, 2026-11-20) tìm ra **1 phát hiện mức Cao —
-> G4b-E1**: trên tenant mới provision, mời thành viên (IdP do nền tảng host) không hoàn tất — realm Keycloak của tenant
-> mới không có SMTP nên thư thiết lập tài khoản không gửi được (`idp_email_failed`), và lời mời Owner ở bước 16 không tạo
-> tài khoản IdP ⇒ người được mời không đăng nhập được nếu người vận hành không can thiệp trên host. Theo quy tắc "Ký G4a
-> ngay, G4b tự động" (Go chỉ khi xanh và 0 phát hiện Cao/Nghiêm trọng), G4b quay về chờ chủ dự án quyết định. Phần
-> Playwright + checklist UX bảo mật bên dưới vẫn xanh (0 phát hiện Cao).
+> **Trạng thái: Go (2026-11-20)** — theo quyết định của chủ dự án "Go sau khi sửa xong", kiểm tự động theo lựa chọn
+> "Chỉ kiểm tự động". Điều kiện đã đạt: bản sửa G4b-E1…E18 (mục 6) chạy trên staging từ đợt nâng 4 (api/worker/web
+> `a703ce8`), và phép kiểm trên staging (mục 7, tenant thử `g4bv-d54e`) xanh ở cả bốn mục bắt buộc — realm mới có SMTP
+> (`mailrelay:587`, STARTTLS) + i18n vi/en; lời mời Owner qua IdP `succeeded`, thư qua relay; Owner đăng nhập và mời End
+> User ⇒ job IdP `succeeded`; trang Keycloak theo `ui_locales` (`lang="vi"`/`"en"`) — cùng E3/E12; **0 phát hiện Cao mới**.
+>
+> Lịch sử: vòng khám phá trên staging (mục 5) từng tìm ra **1 phát hiện mức Cao — G4b-E1** (realm Keycloak của tenant mới
+> không có SMTP ⇒ `idp_email_failed`; lời mời Owner ở bước 16 không tạo tài khoản IdP) ⇒ G4b chuyển về chờ chủ dự án
+> theo quy tắc "Ký G4a ngay, G4b tự động". Phần Playwright + checklist UX bảo mật bên dưới vẫn xanh (0 phát hiện Cao).
 
 ## Tiêu chí G4b (master §19, Go/No-Go G4)
 
@@ -127,8 +130,8 @@ tenant thử và của các lần đăng nhập `kcadm` (`create-user.sh` ×2 �
 
 ## 6. Sửa sau vòng khám phá
 
-Nhánh `g4b-fix` (từ `3a84b44`), commit `aad868a` (mã, test, mã sinh, E2E-124); tài liệu ở commit kế tiếp `[skip ci]`. **Chưa lên staging** — trạng thái gate ở đầu file giữ nguyên; người
-điều phối kiểm lại trên staging (bước ở mục 6.3) rồi mới đổi. Không migration, không đổi image idp/edge, `staging.env`.
+Nhánh `g4b-fix` (từ `3a84b44`), commit `aad868a` (mã, test, mã sinh, E2E-124); tài liệu ở commit kế tiếp `[skip ci]`. Lên
+staging ở đợt nâng 4 (2026-11-20, mục 6.3) và kiểm lại ở mục 7. Không migration, không đổi image idp/edge, `staging.env`.
 **Lô 2** (chủ dự án yêu cầu sửa nốt các mục còn dở — E3 menu, E9, E11–E15): nhánh `g4b-fix2` (từ `83c16d1`), kiểm chứng
 ở mục 6.5; cũng không migration, không đổi image idp/edge, `staging.env`. Bảng 6.1 ghi trạng thái sau cả hai lô.
 
@@ -235,9 +238,59 @@ của Keycloak kiểm trực tiếp trên image `quay.io/keycloak/keycloak@sha25
 | Live UI (`platformui.py`, `policyui.py` — Vitest trên stack thật `g4bfix2ui`; `src/live/*` cập nhật theo nhãn mới) | **5/5** (E2E-89, 90, 108–110) và **3/3** (E2E-114–116) PASS, 0 secret trong log vitest |
 | Dọn | VM 111: 0 container, 0 network, 0 volume mang tiền tố `g4bfix2*` (gỡ cả 8 volume cache Go), image base Keycloak kéo để kiểm bản dịch đã gỡ, `~/g4bfix2` và `/tmp/g4bfix2*` đã xóa |
 
+## 7. Kiểm trên staging sau đợt 4 (2026-11-20)
+
+Staging đã nâng đợt 4 lúc 08:28–08:38 UTC ([deploy-backend mục q](../../operations/deploy-backend.md)): api/worker/web
+của `a703ce8` (`api@sha256:cf0ac84c…`, `worker@sha256:90e2030b…`, `web@sha256:1a4e6ba0…` — kiểm bằng `docker inspect` lúc
+08:41), `meshguard admin idp-realm-smtp` + `idp-realm-i18n` đã chạy, `realm-update.sh` bật i18n cho
+`platform`/`tenant-a`/`tenant-b`; log worker từ lúc khởi động: 0 dòng "realms the driver creates get no SMTP",
+"tenant orchestrator configured". Phép kiểm theo lựa chọn **"Chỉ kiểm tự động"** của chủ dự án: mọi e-mail là
+`owner@<slug>.example.invalid` / `user@<slug>.example.invalid` — relay nhận và chuyển tới Worker Cloudflare, thư không tới
+hộp thư nào; phần "theo link thư ⇒ đặt mật khẩu ⇒ đăng nhập" đã chứng minh bằng E2E-124 (mục 6.2, 6.5). Tenant thử
+**`g4bv-d54e`**, 08:45–08:48 UTC, script [G4b/g4bv.py](G4b/g4bv.py) (dùng lại harness `tests/g3` — `Platform`, 2P,
+step-up — và `backend.portal_login`; Keycloak admin API bằng `kcadm` trong container idp với admin khởi tạo đọc từ secret
+đã mount, như `infrastructure/idp/user-id.sh`/`create-user.sh`).
+
+| # | Mục | Kết quả | Bằng chứng |
+|---|---|---|---|
+| 1 | SA provision tenant thử qua API Console (IdP do nền tảng host) | **Đạt** | SA1 `POST /platform/tenants` (`identity_provider.driver = keycloak`, Owner `owner@<slug>.example.invalid`) ⇒ 202; `tenant.provision` **succeeded** 9,5 s, 19/19 bước; `mg-hs-g4bv-d54e` healthy |
+| 1a | Realm mới có SMTP | **Đạt** | `kcadm get realms/g4bv-d54e`: `smtpServer` = host `mailrelay`, port `587`, `starttls=true`, `ssl=false`, `auth=false` (không trường mật khẩu), from `no-reply@<domain>`, tên hiển thị `MeshGuard` — có ngay khi `idp.ensure` tạo realm (log worker "keycloak: realm created") |
+| 1b | Realm mới có i18n | **Đạt** | `internationalizationEnabled=true`, `supportedLocales` = {vi, en}, `defaultLocale=vi` |
+| 2 | Lời mời Owner (bước 16) qua IdP | **Đạt** | 1 lời mời (`pending`, không người mời = do provision tạo); job `member.idp_invite` (resource = lời mời Owner) **succeeded** 1,73 s, output `{"idp":"invited","created":true,"email_sent":true}` |
+| 2a | User Owner trong realm | **Đạt** | username = e-mail, `enabled=true`, `emailVerified=false`, required actions `VERIFY_EMAIL`, `UPDATE_PASSWORD`, `CONFIGURE_TOTP` |
+| 2b | Log Keycloak | **Đạt** | từ 08:45 tới cuối lượt: 0 `KC-SERVICES0088`, 0 dòng `Failed to send`/`EmailException`/`MessagingException`, 0 `ERROR`, 0 `WARN` nhắc tới realm thử |
+| 2c | Log mail-bridge | **Đạt** | ngay sau provision 3 dòng "mailrelay: message relayed" `result=delivered code=sent status=200 rcpt=1 sent=1 failed=0` (1,2–1,7 s): thư thiết lập của Keycloak (execute-actions) + 2 thư nền tảng (`tenant.invitation`, `tenant.activated`); cả lượt: **11/11 delivered**, 0 WARN/ERROR — 2 thư Keycloak (~4,5 KB) + 9 thư `notification_outbox` (đều `sent`, người nhận đều thuộc `*.example.invalid`). Không in địa chỉ (relay chỉ log `from` đã che) hay nội dung |
+| 3 | Owner đăng nhập được | **Đạt** | Mật khẩu đặt cho **chính user Owner do lời mời tạo** qua admin API (không qua thư): `kcadm update users/<id>/reset-password` (32 ký tự sinh tại chỗ, `temporary=false`, chỉ qua stdin ssh → `docker exec` → pipe), rồi `kcadm update users/<id>` đặt tên + `emailVerified=true` + `requiredActions=[CONFIGURE_TOTP]` (bỏ `VERIFY_EMAIL`/`UPDATE_PASSWORD` — hai bước mà link thư sẽ làm). Owner đăng nhập `app.` (`password` ⇒ `configure_totp`) ⇒ membership **`tenant_owner`**, lời mời Owner `accepted` |
+| 3a | Owner mời End User qua API Portal | **Đạt** | `POST /tenants/{id}/invitations` `{user@<slug>.example.invalid, end_user}` ⇒ 201 `pending`; job `member.idp_invite` **succeeded** 1,14 s (`email_sent=true`); user mới trong realm (cùng required actions); mail-bridge thêm 2 thư delivered, Keycloak 0 lỗi |
+| 3b | Cột IdP của lời mời | **Đạt** | `GET /invitations` + `GET /jobs?kind=member.idp_invite` ghép theo `resource.id` (đúng cách `InvitationsPage`): (end_user, `pending`, job **succeeded**), (tenant_owner, `accepted`, job **succeeded**) — 0 mã lỗi ⇒ UI hiện trạng thái thành công, không cảnh báo |
+| 4 | Trang đăng nhập Keycloak theo ngôn ngữ | **Đạt** | `GET https://app.<domain>/api/v1/auth/login?scope=tenant&tenant=g4bv-d54e&ui_locales=vi` ⇒ authorization request mang `ui_locales=vi` ⇒ trang Keycloak HTTP 200 `<html lang="vi">`; `ui_locales=en` ⇒ `<html lang="en">`; không tham số ⇒ `lang="vi"` (mặc định realm) |
+| 5 | E3 — End User khi tắt tự đăng ký | **Đạt** | End User (mật khẩu đặt như mục 3) đăng nhập ⇒ `end_user` (lời mời gắn); `GET /enrollment/instructions?os=linux` ⇒ 200 `self_enroll=false` (vỏ tenant ẩn "Thêm thiết bị"); `POST /enrollment/requests` ⇒ 403 `forbidden` |
+| 5a | E12 — Console | **Đạt** | `GET /platform/tenants`: tenant thử có `name` + `plan=standard` (cũng `cuonghq`; `tenant-a`/`tenant-b` không có subscription — seed tĩnh — nên `plan` rỗng, đúng dữ liệu); `GET /platform/instances`: `tenant_slug`/`tenant_name`/`host_name` có; job `tenant.provision` có `tenant_slug` |
+| 6 | Dọn | **Đạt** | Deprovision 2P: SA1 `DELETE` ⇒ 202, SA1 tự duyệt ⇒ **403** (`approval.self_decision` medium), SA2 duyệt ⇒ 200; `tenant.deprovision` succeeded 15 bước; tenant **`deleted`**; host: 0 container, 0 network, 0 volume mang slug, 0 thư mục instance, 0 secret; network của edge chỉ còn của nền tảng + `mg-t-cuonghq`/`mg-t-tenant-a`/`mg-t-tenant-b`; `mg-hs-*` còn 3; realm `g4bv-d54e` `enabled=false` (`idp.disable`) |
+
+Tổng: 23 kiểm PASS (results.json của lượt). Lượt đầu của bước đọc realm báo 2 FAIL giả do script (stderr "Logging into …" của `kcadm` dính sau
+JSON; `--fields smtpServer` không lấy trường con) — sửa script (`smtpServer(*)`, `raw_decode`) và đọc lại ⇒ PASS; không
+liên quan sản phẩm. Log trong cả lượt: api/worker/mail-bridge 0 `ERROR`; WARN chỉ là security event mong đợi (dưới đây).
+
+**Phát hiện mới: không có** (0 Cao, 0 Trung bình). Ghi nhận (không phải lỗi): mỗi lần `kcadm` đăng nhập realm master ⇒
+security event `idp.console_login` (High, 6 lần) và mỗi `reset-password` ⇒ `idp.credential_reset` (High, 2 lần, realm
+thử) — đúng thiết kế auditsync; các thay đổi admin của user ⇒ 4 thông báo `idp.admin_change` gửi tới Owner (`.invalid`).
+
+**Dấu vết còn trên staging:** tenant `g4bv-d54e` `deleted` (slug giữ chỗ; backup cuối + DEK tự hủy sau grace như G4a);
+realm `g4bv-d54e` bị vô hiệu cùng 2 user thử (mật khẩu/TOTP không còn ở đâu); audit, security event nêu trên, 9 hàng
+`notification_outbox` `sent`, 2 job `member.idp_invite` succeeded. Máy vận hành: `~/.meshguard/g4bv-*` (state, credential,
+bộ đếm TOTP, log đã che) **đã xóa**; SA thử `g3-sa1/g3-sa2` giữ nguyên. Không đổi DNS, cổng, OPNsense, VPS, Proxmox,
+Tailscale của máy vận hành, `staging.env`, image/compose, edge (không reload), migration; `tenant-a`/`tenant-b`/`cuonghq`
+chỉ đọc (danh sách tenant).
+
+```bash
+for s in provision invite owner locale e3e12 cleanup; do python -B docs/planning/evidence/G4b/g4bv.py $s; done
+```
+
 ## Chủ dự án duyệt
 
 | Vai trò | Quyết định | Ngày |
 |---|---|---|
 | Chủ dự án | **Go** theo quy tắc ký trước ngày 2026-11-20 ("Ký G4a ngay, G4b tự động" — xanh, 0 phát hiện Cao) | 2026-11-20 |
 | Chủ dự án | **Chờ quyết định** — vòng khám phá trên staging (mục 5) có phát hiện Cao G4b-E1 ⇒ quy tắc tự động không còn áp dụng | — |
+| Chủ dự án | **"Go sau khi sửa xong"**, kiểm "Chỉ kiểm tự động" ⇒ điều kiện đạt (bản sửa mục 6 trên staging từ đợt 4; mục 7 xanh, 0 phát hiện Cao mới) ⇒ **Go** | 2026-11-20 |
