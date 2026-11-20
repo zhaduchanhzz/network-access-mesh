@@ -6,7 +6,8 @@
 // the path (own, other, missing) × the object of the path (own, another member's, another tenant's, missing) is sent
 // through the composed API of the api process with sessions minted by tests/security/sessionfixture — no browser.
 // The handler sets are the production ones that exist (handlerSets in world_test.go): an operation without a handler
-// answers 501 after authorization (layer 1 only); a mounted one is checked at layer 2 too (own object accepted,
+// answers 501 after authorization (layer 1 only); a mounted one is checked at layer 2 too (own object answered
+// exactly as its recipe says — one answer, or the exact answers of a race of parallel callers with at most one winner;
 // anything else 404).
 //
 // The expected outcome of every request is derived from the matrices of §8.5/§8.6, encoded by hand in master_test.go

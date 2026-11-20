@@ -18,8 +18,8 @@ secret-scan: ## Quét secret trong repo (cần gitleaks; cấu hình .gitleaks.t
 	@command -v gitleaks >/dev/null || { echo "gitleaks chưa cài — xem README"; exit 1; }
 	gitleaks git --config .gitleaks.toml --redact --no-banner .
 
-render-test: ## Test tham số môi trường (mgenv) + golden test của tool render (instance Headscale, edge, IdP, backup, mg-app, mg-agent, relay thư, mg-obs) + migrate.sh
-	$(PYTHON) tools/test_mgenv.py && $(PYTHON) tools/test_render_instance.py && $(PYTHON) tools/test_render_edge.py && $(PYTHON) tools/test_render_idp.py && $(PYTHON) tools/test_render_backup.py && $(PYTHON) tools/test_render_app.py && $(PYTHON) tools/test_render_agent.py && $(PYTHON) tools/test_render_mail.py && $(PYTHON) tools/test_render_monitoring.py && $(PYTHON) tools/test_host_migrate.py
+render-test: ## Test tham số môi trường (mgenv) + golden test của tool render (instance Headscale, edge, IdP, backup, mg-app, mg-agent, relay thư, mg-obs) + migrate.sh + image pin theo digest (T-13)
+	$(PYTHON) tools/test_mgenv.py && $(PYTHON) tools/test_render_instance.py && $(PYTHON) tools/test_render_edge.py && $(PYTHON) tools/test_render_idp.py && $(PYTHON) tools/test_render_backup.py && $(PYTHON) tools/test_render_app.py && $(PYTHON) tools/test_render_agent.py && $(PYTHON) tools/test_render_mail.py && $(PYTHON) tools/test_render_monitoring.py && $(PYTHON) tools/test_host_migrate.py && $(PYTHON) tools/test_compose_pins.py
 
 PROMETHEUS_IMAGE ?= docker.io/prom/prometheus@sha256:fa3302279710be2f21a8301ec17a8b4f2301fd829bd113839b3b6b02b6f191a2
 DOCKER ?= docker

@@ -1289,6 +1289,43 @@ func TestEnrollment(t *testing.T) {
 		f.noKeyMaterial(t)
 	})
 
+	// T-06 (§18.1, P5-T09): a tenant that switches web-auth off refuses a new web-auth request and the claim of a code
+	// issued before the switch — before Headscale is called; a pre-auth key is still issued.
+	t.Run("WebAuthDisabled", func(t *testing.T) {
+		f.setting(t, a, "enrollment,self_enroll", "true") // the End User enrolls its own device (also when run alone)
+		sess := uuid.New()
+		user := a.actor("user", sess)
+		label := "laptop-off"
+		out, err := f.api.Create(ctxOf(user, a.id, ActionRequest), a.id, user,
+			NewRequest{Method: MethodWebAuth, DeviceLabel: &label}, idem("k-woff-1", "woff-1"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		code := out.Credential.EnrollCode.Reveal()
+		f.setting(t, a, "enrollment,web_auth_enabled", "false")
+		defer f.setting(t, a, "enrollment,web_auth_enabled", "true")
+		if _, err := f.api.Create(ctxOf(user, a.id, ActionRequest), a.id, user,
+			NewRequest{Method: MethodWebAuth, DeviceLabel: &label}, idem("k-woff-2", "woff-2")); reasonOf(err) != "web_auth_disabled" {
+			t.Fatalf("web-auth request while disabled: %v", err)
+		}
+		authID := "hskey-authreq-" + strings.Repeat("D", 23) + "1"
+		a.hs.PutPending(authID, devicestest.Node{MachineKey: "mkey:woff", Hostname: "mg-" + code})
+		a.hs.ResetCalls()
+		if _, err := f.api.Claim(ctxOf(user, a.id, ActionClaim), a.id, user, Claim{AuthID: authID}); reasonOf(err) != "web_auth_disabled" {
+			t.Fatalf("claim while disabled: %v", err)
+		}
+		if n := a.hs.Calls(devicestest.OpAuthRegister); n != 0 {
+			t.Fatalf("AuthRegister called %d times while web-auth is disabled", n)
+		}
+		if k := f.count(t, `SELECT count(*) FROM enrollment_requests WHERE id = $1 AND status = 'claimed'`, out.Request.ID); k != 0 {
+			t.Fatal("the request was claimed while web-auth is disabled")
+		}
+		if _, err := f.api.Create(ctxOf(user, a.id, ActionRequest), a.id, user,
+			NewRequest{Method: MethodPreauthKey, DeviceLabel: &label}, idem("k-woff-3", "woff-3")); err != nil {
+			t.Fatalf("pre-auth key while web-auth is disabled: %v", err)
+		}
+	})
+
 	t.Run("ListAndInstructions", func(t *testing.T) {
 		eu := a.actor("user", uuid.New())
 		page, err := f.api.List(t.Context(), a.id, eu, 2, "", "")

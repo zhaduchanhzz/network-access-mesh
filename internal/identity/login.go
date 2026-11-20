@@ -217,7 +217,9 @@ func authRequestAAD(stateHash []byte, idpID uuid.UUID, o Origin) []byte {
 }
 
 // cleanReturnTo accepts only a same-origin relative path (no scheme, host, "//" or "/\" prefix, whitespace or
-// control character) — the open-redirect rule of the return_to parameter.
+// control character, no dot segment — plain or %2e-encoded) — the open-redirect rule of the return_to parameter. A dot
+// segment is refused because a browser removes it when it resolves the Location: "/.//evil.example" becomes the path
+// "//evil.example" of the Portal origin, which any later use of the path as a URL would read as another host (P5-T09).
 func cleanReturnTo(s string) (string, bool) {
 	if s == "" {
 		return "/", true
@@ -234,6 +236,11 @@ func cleanReturnTo(s string) (string, bool) {
 	if err != nil || u.Scheme != "" || u.Host != "" || u.User != nil || !strings.HasPrefix(u.Path, "/") ||
 		strings.HasPrefix(u.Path, "//") {
 		return "", false
+	}
+	for _, seg := range strings.Split(u.Path, "/") {
+		if seg == "." || seg == ".." {
+			return "", false
+		}
 	}
 	return s, true
 }

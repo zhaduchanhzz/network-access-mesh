@@ -145,14 +145,17 @@ func TestLogoutHintSealing(t *testing.T) {
 }
 
 func TestCleanReturnTo(t *testing.T) {
-	ok := map[string]string{"": "/", "/": "/", "/devices": "/devices", "/a/b?c=d#e": "/a/b?c=d#e", "/x%2F%2Fy": "/x%2F%2Fy"}
+	ok := map[string]string{"": "/", "/": "/", "/devices": "/devices", "/a/b?c=d#e": "/a/b?c=d#e", "/x%2F%2Fy": "/x%2F%2Fy",
+		"/a.b/.c/..d": "/a.b/.c/..d"}
 	for in, want := range ok {
 		if got, valid := cleanReturnTo(in); !valid || got != want {
 			t.Errorf("cleanReturnTo(%q) = %q, %v", in, got, valid)
 		}
 	}
 	for _, in := range []string{"//evil.example", "/\\evil.example", "https://evil.example", "javascript:alert(1)", "devices",
-		"/a b", "/a\tb", "/\t/evil.example", "/a\nb", "/ok\x00", "/ok\x7f", "\\\\evil", "/" + strings.Repeat("a", 512)} {
+		"/a b", "/a\tb", "/\t/evil.example", "/a\nb", "/ok\x00", "/ok\x7f", "\\\\evil", "/" + strings.Repeat("a", 512),
+		// P5-T09: dot segments — a browser resolves them away ("/.//evil.example" ⇒ path "//evil.example")
+		"/.//evil.example", "/./", "/.", "/a/../..//evil.example", "/%2e//evil.example", "/%2E%2E//evil.example", "/a/.."} {
 		if got, valid := cleanReturnTo(in); valid {
 			t.Errorf("cleanReturnTo(%q) accepted as %q", in, got)
 		}
