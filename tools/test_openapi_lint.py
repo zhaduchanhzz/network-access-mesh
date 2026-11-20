@@ -431,8 +431,11 @@ check(ol.entry_path("tenant", ()) == "/tenants/{tenantId}" and ol.entry_path("te
 
 # second direction of §13.1: every row has an operation once all its tasks are done
 row_errs, row_notes = ol.row_coverage(spec, master)
-check(not row_errs and any("tenant.diagnostics:read" in n and "P5-T08 pending" in n for n in row_notes),
+check(not row_errs and any("tenant.usage:read" in n and "P6-T11 pending" in n for n in row_notes),
       "row coverage on the real spec: no error, pending rows reported", str(row_errs))
+# P5-T08 is done (2026-11-20): the diagnostics rows have operations — neither a note nor an error
+check(not any("tenant.diagnostics:" in n for n in row_notes),
+      "row coverage on the real spec: the diagnostics rows (P5-T08) are covered by operations", str(row_notes))
 # P4-T10 is done (2026-11-19): the rows of the policy lifecycle have operations — neither a note nor an error
 check("P4-T10" in master.done and not any("tenant.policy:" in n for n in row_notes),
       "row coverage on the real spec: the rows of P4-T10 (done) are covered by operations", str(row_notes))
@@ -448,12 +451,12 @@ check("P4-T15" in master.done and not any("tenant.tag:" in n or "tenant.device:t
 TAGS_TRACE = "| tags (danh mục tag) | 4 | P4-T15 |\n"
 _master_text = ol.MASTER.read_text(encoding="utf-8")
 check(_master_text.count(TAGS_TRACE) == 1, "§13.2: the tag catalog group is in the traceability table")
-# a row WITHOUT an operation whose only traceability group is taken out: diagnostics (P5-T08, not done — the earlier
-# examples, enrollment and dns, have operations since P4-T06 and P4-T12)
-DIAG_TRACE = "| diagnostics | 5 | P5-T08 |\n"
-check(_master_text.count(DIAG_TRACE) == 1, "§13.2: the diagnostics group is in the traceability table")
-_errs, _notes = ol.row_coverage(spec, ol.Master(_master_text.replace(DIAG_TRACE, "")))
-check(not _errs and any("tenant.diagnostics:read" in n and "task unknown" in n for n in _notes),
+# a row WITHOUT an operation whose only traceability group is taken out: security events (P6-T02a, not done — the
+# earlier examples, enrollment and dns, then diagnostics, have operations since P4-T06, P4-T12 and P5-T08)
+SEC_TRACE = "| `platform/security-events` | 6 | P6-T02a |\n"
+check(_master_text.count(SEC_TRACE) == 1, "§13.2: the security events group is in the traceability table")
+_errs, _notes = ol.row_coverage(spec, ol.Master(_master_text.replace(SEC_TRACE, "")))
+check(not _errs and any("platform.security_event:read" in n and "task unknown" in n for n in _notes),
       "row coverage: a row no traceability group covers is reported as task unknown, not as an error", str(_errs))
 
 

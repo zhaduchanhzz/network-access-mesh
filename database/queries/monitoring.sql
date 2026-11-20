@@ -32,6 +32,17 @@ SELECT id, status, last_health, last_health_at, statement_timestamp()::timestamp
 FROM tenant_instances
 WHERE tenant_id = sqlc.arg(tenant_id) AND status <> 'removed';
 
+-- name: GetTenantDiagnosticsInstance :one
+-- Pool tenant (Connectivity Diagnostics — P5-T08): trạng thái tenant, instance chưa removed (MVP: tối đa một; vắng ⇒
+-- cột instance NULL) với health gần nhất và hạn API key (chỉ thời điểm — không secret, không prefix), kèm đồng hồ DB.
+SELECT t.status AS tenant_status, ti.id AS instance_id, ti.status AS instance_status, ti.last_health,
+       ti.last_health_at, ti.api_key_expires_at, statement_timestamp()::timestamptz AS now
+FROM tenants t
+LEFT JOIN tenant_instances ti ON ti.tenant_id = t.id AND ti.status <> 'removed'
+WHERE t.id = sqlc.arg(tenant_id)
+ORDER BY ti.created_at DESC NULLS LAST
+LIMIT 1;
+
 -- name: MonitoringNow :one
 -- Đồng hồ DB của một lần tổng hợp (checked_at của Platform Health).
 SELECT statement_timestamp()::timestamptz AS now;

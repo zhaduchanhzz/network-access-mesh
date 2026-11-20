@@ -51,6 +51,9 @@ var operations = []struct {
 	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/notifications/" + itemID + "/read", "", "MarkNotificationRead", nil}, // P4-T04
 	// relay (P3-T05c)
 	{http.MethodGet, "/api/v1/tenants/" + tenantID + "/relay", "", "GetTenantRelay", nil},
+	// diagnostics (P5-T08)
+	{http.MethodGet, "/api/v1/tenants/" + tenantID + "/diagnostics/instance", "", "GetTenantDiagnosticsInstance", nil},
+	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/diagnostics/connectivity", `{"source_device_id":"` + itemID + `","target_device_id":"` + tenantID + `","port":443}`, "RunTenantConnectivityDiagnosis", nil},
 	{http.MethodGet, "/api/v1/platform/relay-regions?limit=10", "", "ListPlatformRelayRegions", nil},
 	{http.MethodGet, "/api/v1/platform/tenants?status=active", "", "ListPlatformTenants", nil},
 	{http.MethodPost, "/api/v1/platform/instances/" + itemID + "/backup", "", "BackupPlatformInstance", []func(*http.Request){idempotency}},

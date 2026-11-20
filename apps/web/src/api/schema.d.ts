@@ -640,6 +640,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tenants/{tenantId}/diagnostics/instance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Trạng thái control plane của tenant — mỗi phần kèm thời điểm quan sát
+         * @description Connectivity Diagnostics (§12.3, §13.2): health của instance (`health.probe`, `checked_at` là lúc probe bắt đầu), edge tới được hay không trên hostname của tenant (suy ra từ phép kiểm DERP của `relay.probe` — cùng listener công khai và hostname với kết nối control của client; Noise `/ts2021` không có probe riêng ⇒ `unavailable`), relay kèm kết quả DERP/STUN gần nhất, policy đang áp lên Headscale (version, sha256 đã read-back, thời điểm áp, lần áp gần nhất nếu thất bại), số thiết bị online/offline/hết hạn kèm `synced_at`, hạn API key của instance (chỉ thời điểm — không secret, không prefix). `checked_at` gốc là đồng hồ DB lúc đọc. Thiếu dữ liệu ⇒ trạng thái `unknown` hoặc mục trong `unavailable` kèm lý do — không số giả; đường đi giữa hai thiết bị (direct/relay) luôn nằm trong `unavailable` (`p2p_path`, `not_observable`). Đọc được khi tenant `suspended`. Tenant chỉ lấy từ path.
+         */
+        get: operations["getTenantDiagnosticsInstance"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/diagnostics/connectivity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Kết luận kết nối từ dữ liệu control plane + checklist lệnh chạy trên thiết bị
+         * @description Server **không** đo đường P2P (§13.2): kết luận `verdict` chỉ từ dữ liệu control plane — hai thiết bị (hoặc
+         *     thiết bị và tài nguyên của Network Resource Catalog) thuộc tenant của path, online theo lần sync gần nhất, chưa
+         *     hết hạn, chưa bị thu hồi; policy đang áp (bản đã read-back của lần áp hiện hành) có grant cho TCP từ nguồn tới
+         *     đích ở `port` (vắng ⇒ cổng bất kỳ) hay không — `internal/policies` đánh giá chính văn bản đã áp; đích là
+         *     subnet ⇒ cần route đã duyệt của một router online (`via` của grant xét theo tag của router). `blocked` khi một
+         *     phép kiểm `fail`; `unknown` khi chưa có policy áp hoặc policy có principal không hiểu được; còn lại `allowed`
+         *     (control plane cho phép — firewall trên máy đích, trạng thái client hay mạng giữa đường vẫn có thể chặn).
+         *     `commands` là checklist theo OS cho người dùng chạy trên thiết bị (`tailscale status`, `tailscale ping`,
+         *     `tailscale netcheck`, `tailscale debug derp <region>`, kết nối TCP thật bằng `nc`/`Test-NetConnection`, `curl`
+         *     cho cổng web) — `tailscale ping` không kiểm policy (HS-25, CL-09). `path_observable` luôn `false`.
+         *     Đúng một trong `target_device_id`, `target_resource_id` (sai ⇒ `422`); thiết bị/tài nguyên không thuộc tenant
+         *     ⇒ `404`. End User (ô ○): nguồn và đích phải là thiết bị (không gắn tag) của chính mình — thiết bị khác hay
+         *     tài nguyên ⇒ `404`. Là POST vì nhận câu hỏi; không đổi gì. Tenant `suspended` từ chối như mọi thao tác không
+         *     an toàn (§8.4 bất biến 5 — `403 tenant_suspended`). Hạn mức riêng `diagnostics` (chặt hơn mặc định).
+         */
+        post: operations["runTenantConnectivityDiagnosis"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/platform/relay-regions": {
         parameters: {
             query?: never;
@@ -3154,9 +3207,9 @@ export interface components {
         };
         /** @description Mục của dashboard chưa có số liệu thật — báo "không khả dụng" kèm lý do thay vì số giả (§12.3, §16.4) */
         UnavailableSection: {
-            /** @description Mục của dashboard — `devices`, `policies`, `routes`, `relay`, `security_events` (chỉ bổ sung) */
+            /** @description Mục của dashboard — `devices`, `policies`, `routes`, `relay`, `security_events`; của diagnostics (P5-T08) thêm `noise`, `p2p_path` (chỉ bổ sung) */
             section: string;
-            /** @description `never_synced` (sổ thiết bị chưa từng sync — các số đếm của `devices` không phải số liệu), `no_source` (nền tảng chưa có nguồn cho mục này), `not_served` (có nguồn nhưng dashboard chưa phục vụ số liệu này) */
+            /** @description `never_synced` (sổ thiết bị chưa từng sync — các số đếm của `devices` không phải số liệu), `no_source` (nền tảng chưa có nguồn cho mục này), `not_served` (có nguồn nhưng dashboard chưa phục vụ số liệu này); diagnostics: `no_probe` (không có probe riêng), `not_observable` (server không quan sát được), `never_applied` (chưa có policy nào được ghi nhận đã áp), `no_relay` (tenant chưa có relay) */
             reason: string;
             /** @description Câu giải thích ngắn (tiếng Anh) cho người đọc; phần ổn định là `reason` */
             detail?: string;
@@ -4971,6 +5024,186 @@ export interface components {
             limits?: components["schemas"]["PlanLimits"];
             is_active?: boolean;
         };
+        /** @description Hạn API key Headscale của instance (`tenant_instances.api_key_expires_at`) — chỉ thời điểm, không secret, không prefix. `expiring` khi còn ≤ 14 ngày (§13.5, §16.3); `unknown` khi chưa ghi nhận hạn */
+        DiagnosticsAPIKey: {
+            /** @enum {string} */
+            status: "valid" | "expiring" | "expired" | "unknown";
+            /** Format: date-time */
+            expires_at: string | null;
+        };
+        /** @description Instance chưa `removed` của tenant; `status` vắng khi tenant chưa có instance (`health.reason = no_instance`) */
+        DiagnosticsInstance: {
+            status?: components["schemas"]["InstanceStatus"];
+            health: components["schemas"]["InstanceHealth"];
+            api_key: components["schemas"]["DiagnosticsAPIKey"];
+        };
+        /** @description Edge tới được trên hostname của tenant — suy ra từ phép kiểm DERP của lần `relay.probe` gần nhất của relay `active` đầu tiên (`GET /derp/probe` qua listener công khai, cùng đường với kết nối control của client); không có kết luận ⇒ `unknown` kèm `reason` */
+        DiagnosticsEdge: {
+            /** @enum {string} */
+            status: "reachable" | "unreachable" | "unknown";
+            /** @description Mã lỗi của prober khi `unreachable`; lý do không kết luận khi `unknown` (`no_relay`, `never_checked`, `stale`…) */
+            reason?: string;
+            /** Format: date-time */
+            checked_at: string | null;
+        };
+        /** @description Relay của tenant (region_code là mã `tailscale status`/`ping` in — `relay "<code>"`, `via DERP(<code>)`) */
+        DiagnosticsRelay: {
+            code: string;
+            name: string;
+            hostname: string;
+            status: components["schemas"]["RelayAdminStatus"];
+            health: components["schemas"]["HealthStatus"];
+            reason?: string;
+            /** Format: date-time */
+            checked_at: string | null;
+            /** @description Phép kiểm DERP của lần probe ở `checked_at`; vắng khi không có */
+            derp_ok?: boolean;
+            /** @description Phép kiểm STUN của lần probe ở `checked_at`; vắng khi không có */
+            stun_ok?: boolean;
+        };
+        /** @description Câu trả lời của policy đang áp (văn bản đã read-back) cho nguồn → đích ở TCP `port` — `grants` là chỉ số các grant phủ cặp nguồn/đích (bất kể cổng), `allowed` là các mục `ip` của chúng; `unresolved` là principal không hiểu được (khi đó từ chối được báo `unknown`, không phải `denied`) */
+        DiagnosticsAccess: {
+            /** @enum {string} */
+            decision: "allowed" | "denied" | "unknown";
+            /** @description `no_matching_grant`, `port_not_allowed`, `no_tcp_allowed`, `unreadable_policy`, `unsupported_policy`, `unresolved_principals`, `no_applied_policy` (chỉ bổ sung) */
+            reason?: string;
+            grants: number[];
+            allowed: string[];
+            unresolved: string[];
+        };
+        /** @description Policy của tenant theo hồ sơ của nền tảng: lần áp hiện hành của instance (đã áp lên Headscale và read-back — không phải "client đã hội tụ", T-18), lần áp gần nhất bất kể trạng thái, version mong muốn */
+        DiagnosticsPolicy: {
+            applied: boolean;
+            /** Format: uuid */
+            version_id?: string;
+            version?: number;
+            applied_sha256?: string;
+            /** Format: date-time */
+            applied_at?: string;
+            trigger?: string;
+            /** @description Trạng thái lần áp gần nhất (`pending`, `applied`, `failed`…) */
+            latest_state?: string;
+            latest_error_code?: string;
+            /** Format: date-time */
+            latest_at?: string;
+            desired_version?: number;
+            access?: components["schemas"]["DiagnosticsAccess"];
+        };
+        /** @description Số thiết bị của sổ thiết bị (`offline` = `total − online`; `expired` theo đồng hồ DB); số chỉ có nghĩa khi `synced_at` khác `null` */
+        DiagnosticsDeviceCounts: {
+            total: number;
+            online: number;
+            offline: number;
+            expired: number;
+            /** Format: date-time */
+            synced_at: string | null;
+        };
+        /** @description Trạng thái control plane của tenant (P5-T08) — mọi phần kèm thời điểm quan sát; phần không có nguồn ở `unavailable` */
+        TenantDiagnostics: {
+            /** Format: date-time */
+            checked_at: string;
+            tenant_status: components["schemas"]["TenantStatus"];
+            instance: components["schemas"]["DiagnosticsInstance"];
+            edge: components["schemas"]["DiagnosticsEdge"];
+            relays: components["schemas"]["DiagnosticsRelay"][];
+            policy: components["schemas"]["DiagnosticsPolicy"];
+            devices: components["schemas"]["DiagnosticsDeviceCounts"];
+            unavailable: components["schemas"]["UnavailableSection"][];
+        };
+        /** @description Đúng một trong `target_device_id`, `target_resource_id`; `port` vắng ⇒ cổng TCP bất kỳ */
+        ConnectivityDiagnosisRequest: {
+            /** Format: uuid */
+            source_device_id: string;
+            /** Format: uuid */
+            target_device_id?: string;
+            /** Format: uuid */
+            target_resource_id?: string;
+            port?: number;
+        };
+        /** @description Thiết bị trong sổ thiết bị (cache của `inventory.sync`, kèm `synced_at`) — `online` là góc nhìn của control plane */
+        DiagnosticsDevice: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            given_name: string;
+            ip_addresses: string[];
+            /**
+             * Format: uuid
+             * @description Chủ của thiết bị không gắn tag; vắng khi gắn tag hoặc không rõ
+             */
+            owner_membership_id?: string;
+            tags: string[];
+            online: boolean;
+            /** Format: date-time */
+            last_seen: string | null;
+            /** Format: date-time */
+            expiry: string | null;
+            /** @enum {string} */
+            revocation_state: "none" | "pending" | "applied" | "failed";
+            /** Format: date-time */
+            synced_at: string;
+        };
+        DiagnosticsResource: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** @description Địa chỉ đơn (không độ dài prefix) hoặc prefix của subnet */
+            address: string;
+            ports: string[];
+            protocol: string;
+        };
+        /** @description Router có route đã duyệt phủ địa chỉ của tài nguyên (route exit node không tính) */
+        DiagnosticsRouter: {
+            /** Format: uuid */
+            device_id: string;
+            name: string;
+            ip_addresses: string[];
+            tags: string[];
+            online: boolean;
+            approved_routes: string[];
+        };
+        DiagnosticsTarget: {
+            /** @enum {string} */
+            kind: "device" | "resource";
+            device?: components["schemas"]["DiagnosticsDevice"];
+            resource?: components["schemas"]["DiagnosticsResource"];
+            routers: components["schemas"]["DiagnosticsRouter"][];
+        };
+        /** @description Một phép kiểm trên dữ liệu control plane (thứ tự cố định) */
+        DiagnosticsCheck: {
+            /** @enum {string} */
+            id: "tenant_active" | "instance_healthy" | "inventory_fresh" | "source_online" | "source_not_expired" | "source_not_revoked" | "target_online" | "target_not_expired" | "target_not_revoked" | "route_approved" | "policy_applied" | "policy_grant" | "relay_healthy";
+            /** @enum {string} */
+            status: "pass" | "fail" | "warn" | "unknown" | "not_applicable";
+            reason?: string;
+        };
+        /** @description Một lệnh của checklist — chạy trên thiết bị (`run_on`), không phải trên server. `<host>` trong `command` là chỗ người dùng điền một địa chỉ trong subnet của tài nguyên */
+        DiagnosticsCommand: {
+            /** @enum {string} */
+            id: "status" | "ping" | "netcheck" | "debug_derp" | "accept_routes" | "tcp_connect" | "http_probe" | "listen_check";
+            /** @enum {string} */
+            os: "linux" | "macos" | "windows";
+            /** @enum {string} */
+            run_on: "source" | "target";
+            command: string;
+        };
+        /** @description Kết luận của control plane (không phải phép đo đường đi — `path_observable` luôn `false`) + checklist lệnh */
+        ConnectivityDiagnosis: {
+            /** Format: date-time */
+            checked_at: string;
+            /** @description Luôn `false` — server không quan sát được đường đi giữa hai thiết bị */
+            path_observable: boolean;
+            /** @enum {string} */
+            verdict: "allowed" | "blocked" | "unknown";
+            source: components["schemas"]["DiagnosticsDevice"];
+            target: components["schemas"]["DiagnosticsTarget"];
+            port?: number;
+            checks: components["schemas"]["DiagnosticsCheck"][];
+            policy: components["schemas"]["DiagnosticsPolicy"];
+            /** @description region_code của relay `active` (vắng khi không có) */
+            relay_code?: string;
+            commands: components["schemas"]["DiagnosticsCommand"][];
+        };
     };
     responses: {
         /** @description Chưa xác thực — `unauthenticated` (thiếu, hết hạn hoặc đã thu hồi session) hoặc `reauth_required` (cần step-up, §8.3 bước 7) */
@@ -6477,6 +6710,67 @@ export interface operations {
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    getTenantDiagnosticsInstance: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Trạng thái control plane của tenant */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantDiagnostics"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    runTenantConnectivityDiagnosis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectivityDiagnosisRequest"];
+            };
+        };
+        responses: {
+            /** @description Kết luận từ control plane + checklist */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectivityDiagnosis"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationFailed"];
             429: components["responses"]["RateLimited"];
             default: components["responses"]["Unexpected"];
         };

@@ -2364,5 +2364,213 @@
       "not_requester": "Chỉ người tạo yêu cầu mới nhận được lệnh/key.",
       "other": "Trạng thái yêu cầu đã đổi — tải lại danh sách."
     }
+  },
+  "diagnostics": {
+    "intro": "Trạng thái control plane của tenant và kiểm kết nối giữa hai thiết bị theo dữ liệu control plane, kèm lệnh để chạy trên thiết bị.",
+    "notObservable": "Server không thể quan sát đường đi thật giữa hai thiết bị (trực tiếp hay qua relay): kết luận dưới đây chỉ dựa trên dữ liệu control plane — hãy chạy các lệnh trên thiết bị để xác nhận.",
+    "readAt": "Đọc lúc",
+    "unavailableTitle": "Không khả dụng",
+    "instance": {
+      "title": "Trạng thái control plane",
+      "tenantStatus": "Trạng thái tenant:",
+      "instance": "Instance Headscale",
+      "apiKey": "API key của nền tảng:",
+      "apiKeyExpires": "Hết hạn",
+      "edge": "Edge (hostname của tenant)",
+      "edgeHint": "Suy ra từ phép kiểm DERP của probe relay — cùng listener công khai và hostname với kết nối control của client.",
+      "policy": "Policy đang áp",
+      "devices": "Thiết bị",
+      "relays": "Relay của tenant"
+    },
+    "apiKey": {
+      "valid": "Còn hạn",
+      "expiring": "Sắp hết hạn",
+      "expired": "Đã hết hạn",
+      "unknown": "Chưa rõ hạn"
+    },
+    "edge": {
+      "reachable": "Tới được",
+      "unreachable": "Không tới được",
+      "unknown": "Chưa rõ"
+    },
+    "policy": {
+      "version": "Phiên bản",
+      "sha": "SHA-256 đã read-back",
+      "appliedAt": "Áp lên Headscale lúc",
+      "desired": "Phiên bản mong muốn",
+      "none": "Chưa có policy nào được ghi nhận đã áp.",
+      "latestFailed": "Lần áp gần nhất thất bại — Headscale vẫn giữ policy ở trên."
+    },
+    "devices": {
+      "total": "Tổng",
+      "online": "Trực tuyến",
+      "offline": "Ngoại tuyến",
+      "expired": "Đã hết hạn"
+    },
+    "relay": {
+      "derpOk": "DERP đạt",
+      "derpFailed": "DERP lỗi",
+      "stunOk": "STUN đạt",
+      "stunFailed": "STUN lỗi"
+    },
+    "sections": {
+      "noise": "Kết nối control (Noise)",
+      "p2p_path": "Đường đi giữa hai thiết bị",
+      "devices": "Thiết bị",
+      "policies": "Policy",
+      "relay": "Relay"
+    },
+    "reasons": {
+      "no_probe": "Không có probe riêng — trạng thái edge lấy từ probe relay trên cùng hostname.",
+      "not_observable": "Server không quan sát được — chạy checklist trên thiết bị.",
+      "never_synced": "Sổ thiết bị chưa từng được đồng bộ.",
+      "never_applied": "Chưa có policy nào được ghi nhận đã áp.",
+      "no_relay": "Tenant chưa có relay.",
+      "never_checked": "Chưa từng được kiểm.",
+      "stale": "Kết quả kiểm đã cũ.",
+      "relay_not_active": "Relay không ở trạng thái hoạt động.",
+      "instance_not_running": "Instance không chạy.",
+      "derp_probe_failed": "Phép kiểm DERP thất bại."
+    },
+    "connectivity": {
+      "title": "Kiểm kết nối",
+      "intro": "Chọn thiết bị nguồn và đích (thiết bị hoặc tài nguyên), có thể kèm cổng TCP. Kết quả dựa trên dữ liệu control plane; checklist bên dưới là các lệnh để chạy trên thiết bị."
+    },
+    "form": {
+      "source": "Thiết bị nguồn",
+      "targetKind": "Loại đích",
+      "kinds": {
+        "device": "Thiết bị",
+        "resource": "Tài nguyên mạng"
+      },
+      "targetDevice": "Thiết bị đích",
+      "targetResource": "Tài nguyên đích",
+      "port": "Cổng TCP (tùy chọn)",
+      "portHint": "Để trống ⇒ cổng bất kỳ.",
+      "portInvalid": "Cổng phải là số từ 1 đến 65535.",
+      "required": "Bắt buộc.",
+      "choose": "— Chọn —",
+      "run": "Kiểm kết nối",
+      "noDevices": "Không có thiết bị nào bạn được xem."
+    },
+    "verdict": {
+      "allowed": "Control plane cho phép",
+      "blocked": "Bị chặn theo control plane",
+      "unknown": "Chưa xác định"
+    },
+    "verdictExplain": {
+      "allowed": "Hai thiết bị online, chưa hết hạn và policy đang áp có grant phù hợp. Firewall trên máy đích, trạng thái client hay mạng giữa đường vẫn có thể chặn — xác nhận bằng kết nối TCP thật.",
+      "blocked": "Ít nhất một phép kiểm không đạt (xem bên dưới) — sửa điều đó trước khi thử trên thiết bị.",
+      "unknown": "Control plane chưa đủ dữ liệu để kết luận (chưa có policy áp, hoặc policy có principal không đánh giá được)."
+    },
+    "result": {
+      "title": "{{source}} → {{target}} : {{port}}",
+      "anyPort": "cổng bất kỳ",
+      "checks": "Các phép kiểm trên control plane",
+      "grants_other": "{{count}} grant phủ cặp nguồn/đích.",
+      "allowedEntries": "Cổng/giao thức được phép:",
+      "unresolved": "Principal không đánh giá được:",
+      "routers": "Router có route đã duyệt:",
+      "offline": "ngoại tuyến"
+    },
+    "checkStatus": {
+      "pass": "Đạt",
+      "fail": "Không đạt",
+      "warn": "Cảnh báo",
+      "unknown": "Chưa rõ",
+      "not_applicable": "Không áp dụng"
+    },
+    "checks": {
+      "tenant_active": "Tenant đang hoạt động",
+      "instance_healthy": "Instance Headscale khỏe",
+      "inventory_fresh": "Sổ thiết bị mới đồng bộ",
+      "source_online": "Thiết bị nguồn online",
+      "source_not_expired": "Thiết bị nguồn chưa hết hạn",
+      "source_not_revoked": "Thiết bị nguồn chưa bị thu hồi",
+      "target_online": "Thiết bị đích online",
+      "target_not_expired": "Thiết bị đích chưa hết hạn",
+      "target_not_revoked": "Thiết bị đích chưa bị thu hồi",
+      "route_approved": "Route tới đích đã được duyệt",
+      "policy_applied": "Có policy đang áp",
+      "policy_grant": "Policy có grant cho phép",
+      "relay_healthy": "Relay của tenant khỏe"
+    },
+    "checkReasons": {
+      "offline": "đang ngoại tuyến theo lần sync gần nhất",
+      "expired": "đã hết hạn",
+      "revocation_pending": "đang được thu hồi",
+      "revocation_applied": "đã bị thu hồi",
+      "tenant_suspended": "tenant đang bị tạm ngưng",
+      "tenant_deprovisioning": "tenant đang bị gỡ",
+      "no_approved_route": "không có route đã duyệt phủ địa chỉ này",
+      "router_offline": "router có route đang ngoại tuyến",
+      "tailnet_address": "địa chỉ trong tailnet — không cần route",
+      "stale_inventory": "sổ thiết bị đã cũ — bấm đồng bộ ở trang Thiết bị",
+      "latest_application_failed": "lần áp gần nhất thất bại",
+      "relay_unhealthy": "relay lỗi — đường trực tiếp vẫn có thể hoạt động",
+      "relay_unknown": "chưa có kết quả probe relay",
+      "instance_unknown": "chưa có kết quả kiểm instance",
+      "instance_unhealthy": "instance lỗi — kết nối đã có có thể vẫn chạy",
+      "never_applied": "chưa có policy nào được ghi nhận đã áp",
+      "no_applied_policy": "chưa có policy nào được ghi nhận đã áp",
+      "no_matching_grant": "không có grant nào cho cặp nguồn/đích",
+      "port_not_allowed": "có grant nhưng không cho cổng này",
+      "no_tcp_allowed": "có grant nhưng không cho TCP",
+      "unreadable_policy": "không đọc được policy đang áp",
+      "unsupported_policy": "policy không ở dạng grants",
+      "unresolved_principals": "có principal không đánh giá được"
+    },
+    "os": {
+      "linux": "Linux",
+      "macos": "macOS",
+      "windows": "Windows (PowerShell)"
+    },
+    "commands": {
+      "title": "Checklist chạy trên thiết bị",
+      "intro": "Chạy lần lượt trên thiết bị nguồn (trừ khi ghi khác). Kết quả của các lệnh này mới cho biết đường đi thật.",
+      "os": "Hệ điều hành",
+      "copy": "Sao chép lệnh: {{command}}",
+      "runOn": {
+        "source": "trên thiết bị nguồn",
+        "target": "trên thiết bị đích"
+      },
+      "macosNote": "macOS: bản App Store dùng /Applications/Tailscale.app/Contents/MacOS/Tailscale thay cho \"tailscale\".",
+      "mobileNote": "iOS/Android không có CLI: mở ứng dụng Tailscale, xem thiết bị đích có trong danh sách và trạng thái kết nối, rồi thử mở dịch vụ.",
+      "pingNote": "\"tailscale ping\" không kiểm policy — chỉ kết nối TCP thật mới cho biết policy có cho phép hay không.",
+      "items": {
+        "status": {
+          "title": "Danh sách peer",
+          "expect": "Đích (hoặc router của nó) có trong danh sách và không \"offline\". Cột cuối: \"direct <ip:port>\" = đường trực tiếp; \"relay \\\"{{code}}\\\"\" = đi qua relay của tenant; \"-\"/idle = chưa có lưu lượng trong 2 phút gần nhất (không phải lỗi)."
+        },
+        "ping": {
+          "title": "Ping qua tailnet",
+          "expect": "\"pong … via <ip>:<port>\" = trực tiếp; \"via DERP({{code}})\" = qua relay. Chỉ cho biết peer tới được — không kiểm policy."
+        },
+        "netcheck": {
+          "title": "Kiểm NAT/UDP",
+          "expect": "\"UDP: true\", IP công khai đúng; DERP gần nhất là region của tenant ({{code}})."
+        },
+        "debug_derp": {
+          "title": "Kiểm relay DERP của tenant",
+          "expect": "JSON có \"Info\" ghi kết nối DERP thành công và STUN trả IP:port công khai; \"Errors\" rỗng (lỗi IPv6 là bình thường — MVP chỉ IPv4)."
+        },
+        "accept_routes": {
+          "title": "Nhận subnet route (Linux)",
+          "expect": "Linux không nhận subnet route mặc định — chạy một lần rồi thử lại kết nối."
+        },
+        "tcp_connect": {
+          "title": "Kết nối TCP thật tới cổng",
+          "expect": "\"succeeded\"/\"open\" (hoặc TcpTestSucceeded : True) = cổng thông; bị chặn hoặc hết thời gian = policy, firewall hoặc dịch vụ chưa nghe."
+        },
+        "http_probe": {
+          "title": "Gọi HTTP tới cổng web",
+          "expect": "In ra mã HTTP (200, 301, 401…) = tới được dịch vụ; lỗi kết nối = bị chặn."
+        },
+        "listen_check": {
+          "title": "Dịch vụ có đang nghe cổng trên máy đích?",
+          "expect": "Có dòng LISTEN cho cổng này; không có ⇒ dịch vụ chưa chạy (control plane không thấy được điều này)."
+        }
+      }
+    }
   }
 }

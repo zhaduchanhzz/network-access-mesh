@@ -75,11 +75,12 @@ func (f ProberFunc) ProbeInstance(ctx context.Context, tenantID uuid.UUID) Insta
 	return f(ctx, tenantID)
 }
 
-// DeviceCounts are the device figures of a tenant dashboard and the time of the sync they come from (nil: never
-// synced — the counts then hold no figure).
+// DeviceCounts are the device figures of a tenant dashboard (and of the instance diagnostics — Expired, P5-T08) and
+// the time of the sync they come from (nil: never synced — the counts then hold no figure).
 type DeviceCounts struct {
 	Total    int
 	Online   int
+	Expired  int
 	SyncedAt *time.Time
 }
 
@@ -108,6 +109,8 @@ type Config struct {
 	Devices DeviceCounter
 	// Prober is required to run health.probe (Register, worker process).
 	Prober Prober
+	// Diagnostics is required by the Connectivity Diagnostics (api process — P5-T08): the other modules' records.
+	Diagnostics DiagnosticsSource
 	// StaleAfter: a recorded probe older than this gives no verdict (unknown, reason stale); default DefaultStaleAfter.
 	// Keep it a few periods of the worker's SchedulerConfig.Interval.
 	StaleAfter time.Duration
@@ -122,11 +125,13 @@ type Config struct {
 }
 
 // Service is the HealthService of §4.2 and the read models of the dashboards: Probe and the health.probe handler
-// (Register), the schedule of health.probe (NewScheduler), TenantDashboard and PlatformHealth.
+// (Register), the schedule of health.probe (NewScheduler), TenantDashboard and PlatformHealth, and the Connectivity
+// Diagnostics (InstanceDiagnostics, Connectivity — P5-T08).
 type Service struct {
 	st         *store.Store
 	devices    DeviceCounter
 	prober     Prober
+	diag       DiagnosticsSource
 	staleAfter time.Duration
 	heartbeat  time.Duration
 	probeLimit time.Duration
@@ -139,7 +144,7 @@ func New(st *store.Store, cfg Config) (*Service, error) {
 	if st == nil || cfg.Devices == nil {
 		return nil, errors.New("monitoring: a store and a device counter are required")
 	}
-	s := &Service{st: st, devices: cfg.Devices, prober: cfg.Prober, staleAfter: cfg.StaleAfter, heartbeat: cfg.HeartbeatMaxAge,
+	s := &Service{st: st, devices: cfg.Devices, prober: cfg.Prober, diag: cfg.Diagnostics, staleAfter: cfg.StaleAfter, heartbeat: cfg.HeartbeatMaxAge,
 		probeLimit: cfg.ProbeTimeout, log: cfg.Logger, m: newMetrics(cfg.Registerer)}
 	if s.staleAfter <= 0 {
 		s.staleAfter = DefaultStaleAfter

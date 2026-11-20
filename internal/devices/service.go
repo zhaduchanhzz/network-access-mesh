@@ -339,11 +339,13 @@ func (s *Service) closeFailed(ctx context.Context, tenantID uuid.UUID, op *audit
 	}
 }
 
-// Summary is the device part of the tenant dashboard (P2-T13a): counts of the register and the last applied sync of
-// the live instance (nil: never synced) — no number without its synced_at (§12.3).
+// Summary is the device part of the tenant dashboard (P2-T13a) and of the instance diagnostics (P5-T08): counts of
+// the register — Expired by the database clock — and the last applied sync of the live instance (nil: never synced) —
+// no number without its synced_at (§12.3).
 type Summary struct {
 	Total    int
 	Online   int
+	Expired  int
 	SyncedAt *time.Time
 }
 
@@ -355,7 +357,7 @@ func (s *Service) Summary(ctx context.Context, tenantID uuid.UUID) (Summary, err
 		if err != nil {
 			return err
 		}
-		out.Total, out.Online = int(c.Total), int(c.Online)
+		out.Total, out.Online, out.Expired = int(c.Total), int(c.Online), int(c.Expired)
 		inst, err := q.GetLiveInstanceForTenant(ctx, tenantID)
 		if errors.Is(err, store.ErrNoRows) {
 			return nil

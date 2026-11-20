@@ -14,21 +14,24 @@ import (
 )
 
 const countDevices = `-- name: CountDevices :one
-SELECT count(*)::bigint AS total, count(*) FILTER (WHERE online)::bigint AS online
+SELECT count(*)::bigint AS total, count(*) FILTER (WHERE online)::bigint AS online,
+       count(*) FILTER (WHERE expiry IS NOT NULL AND expiry <= statement_timestamp())::bigint AS expired
 FROM device_inventory_cache
 WHERE tenant_id = $1 AND removed_at IS NULL
 `
 
 type CountDevicesRow struct {
-	Total  int64
-	Online int64
+	Total   int64
+	Online  int64
+	Expired int64
 }
 
-// Tổng số thiết bị còn sống và số đang online theo góc nhìn của control plane (dashboard — P2-T13a).
+// Tổng số thiết bị còn sống, số đang online theo góc nhìn của control plane (dashboard — P2-T13a) và số đã hết hạn
+// theo đồng hồ DB (Connectivity Diagnostics — P5-T08).
 func (q *Queries) CountDevices(ctx context.Context, tenantID uuid.UUID) (CountDevicesRow, error) {
 	row := q.db.QueryRow(ctx, countDevices, tenantID)
 	var i CountDevicesRow
-	err := row.Scan(&i.Total, &i.Online)
+	err := row.Scan(&i.Total, &i.Online, &i.Expired)
 	return i, err
 }
 

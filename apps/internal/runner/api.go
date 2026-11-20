@@ -21,6 +21,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/backupapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/deprovisionapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/devicesapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/diagnosticsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/enrollmentapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/hostsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/identityapi"
@@ -95,7 +96,8 @@ import (
 //	                 Quarantine (quarantineapi over quarantine.Requester + approvals — quarantine at once, release 2P,
 //	                 P3-T18), Tags (tagsapi over policies.TagService — the tag catalog, P4-T15; the same catalog checks
 //	                 PUT /devices/{id}/tags in devices), Portal (the same notificationsapi handlers — the read state of
-//	                 the caller's own Portal notifications, P4-T04)
+//	                 the caller's own Portal notifications, P4-T04), Diagnostics (diagnosticsapi over monitoring with
+//	                 diagnosticsapi.Source — control-plane state and connectivity diagnosis, P5-T08)
 //	maintenance      the gate of P3-T17 (MG_MAINTENANCE OR system_settings maintenance, polled): 503 maintenance to
 //	                 everything but the platform sign-in on admin.<domain> (httpapi.Options.Maintenance)
 //	readiness        postgres, secretstore, edge_admin (§16.2)
@@ -147,10 +149,6 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 	if err != nil {
 		return nil, err
 	}
-	mon, err := monitoring.New(d.st, monitoring.Config{Devices: deviceCounter(dev), Logger: log, Registerer: reg})
-	if err != nil {
-		return nil, err
-	}
 	backups := backup.New(d.st, backup.Config{Logger: log})                                                // P3-T11: the api enqueues; the worker runs the jobs
 	deprov := deprovision.NewRequester(d.st)                                                               // P3-T09: the api checks and enqueues; the worker deprovisions
 	mem, err := members.New(d.st, members.Config{Tenants: d.tenants, Guard: MembershipGuard, Logger: log}) // P4-T09
@@ -177,6 +175,13 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 		return nil, err
 	}
 	relays, err := relay.New(d.st, relay.Config{Logger: log, Registerer: reg}) // reads only — the worker probes
+	if err != nil {
+		return nil, err
+	}
+	// P2-T13a dashboard + P5-T08 Connectivity Diagnostics (devices, routes/resources, relays, applied policy through
+	// diagnosticsapi.Source — monitoring imports none of them, §13.6)
+	mon, err := monitoring.New(d.st, monitoring.Config{Devices: deviceCounter(dev), Logger: log, Registerer: reg,
+		Diagnostics: diagnosticsapi.NewSource(dev, netw, relays, versions)})
 	if err != nil {
 		return nil, err
 	}
@@ -236,6 +241,7 @@ func buildAPI(ctx context.Context, cfg config.Config, log *slog.Logger, reg prom
 			Support:       supportapi.New(d.tenants),           // P4-T13
 			Network:       networkapi.New(netw, appr),          // P4-T12
 			Enrollment:    enrollmentapi.New(enr, authorizer),  // P4-T06
+			Diagnostics:   diagnosticsapi.New(mon),             // P5-T08
 		},
 	})
 	if err != nil {

@@ -2377,5 +2377,214 @@
       "not_requester": "Only the member who made the request can get its command/key.",
       "other": "The request changed — reload the list."
     }
+  },
+  "diagnostics": {
+    "intro": "The tenant's control-plane state and a connectivity check between two devices from control-plane data, with the commands to run on the devices.",
+    "notObservable": "The server cannot observe the real path between two devices (direct or relayed): the conclusion below comes from control-plane data only — run the commands on the devices to confirm.",
+    "readAt": "Read at",
+    "unavailableTitle": "Unavailable",
+    "instance": {
+      "title": "Control-plane state",
+      "tenantStatus": "Tenant status:",
+      "instance": "Headscale instance",
+      "apiKey": "Platform API key:",
+      "apiKeyExpires": "Expires",
+      "edge": "Edge (tenant hostname)",
+      "edgeHint": "Derived from the relay probe's DERP check — the same public listener and hostname as the clients' control connection.",
+      "policy": "Applied policy",
+      "devices": "Devices",
+      "relays": "Tenant relays"
+    },
+    "apiKey": {
+      "valid": "Valid",
+      "expiring": "Expiring soon",
+      "expired": "Expired",
+      "unknown": "Expiry unknown"
+    },
+    "edge": {
+      "reachable": "Reachable",
+      "unreachable": "Unreachable",
+      "unknown": "Unknown"
+    },
+    "policy": {
+      "version": "Version",
+      "sha": "Read-back SHA-256",
+      "appliedAt": "Applied to Headscale at",
+      "desired": "Desired version",
+      "none": "No policy is recorded as applied.",
+      "latestFailed": "The latest application failed — Headscale still holds the policy above."
+    },
+    "devices": {
+      "total": "Total",
+      "online": "Online",
+      "offline": "Offline",
+      "expired": "Expired"
+    },
+    "relay": {
+      "derpOk": "DERP ok",
+      "derpFailed": "DERP failed",
+      "stunOk": "STUN ok",
+      "stunFailed": "STUN failed"
+    },
+    "sections": {
+      "noise": "Control connection (Noise)",
+      "p2p_path": "Path between two devices",
+      "devices": "Devices",
+      "policies": "Policy",
+      "relay": "Relay"
+    },
+    "reasons": {
+      "no_probe": "No dedicated probe — the edge state comes from the relay probe on the same hostname.",
+      "not_observable": "The server cannot observe it — run the checklist on the devices.",
+      "never_synced": "The device register has never been synced.",
+      "never_applied": "No policy is recorded as applied.",
+      "no_relay": "The tenant has no relay.",
+      "never_checked": "Never checked.",
+      "stale": "The last check result is stale.",
+      "relay_not_active": "The relay is not active.",
+      "instance_not_running": "The instance is not running.",
+      "derp_probe_failed": "The DERP check failed."
+    },
+    "connectivity": {
+      "title": "Connectivity check",
+      "intro": "Choose a source device and a target (device or resource), optionally a TCP port. The result comes from control-plane data; the checklist below lists the commands to run on the devices."
+    },
+    "form": {
+      "source": "Source device",
+      "targetKind": "Target type",
+      "kinds": {
+        "device": "Device",
+        "resource": "Network resource"
+      },
+      "targetDevice": "Target device",
+      "targetResource": "Target resource",
+      "port": "TCP port (optional)",
+      "portHint": "Empty ⇒ any port.",
+      "portInvalid": "The port must be a number from 1 to 65535.",
+      "required": "Required.",
+      "choose": "— Choose —",
+      "run": "Check connectivity",
+      "noDevices": "There is no device you can see."
+    },
+    "verdict": {
+      "allowed": "Allowed by the control plane",
+      "blocked": "Blocked by the control plane",
+      "unknown": "Undetermined"
+    },
+    "verdictExplain": {
+      "allowed": "Both devices are online, not expired, and the applied policy has a matching grant. A firewall on the target, the client's state or a network on the way can still block it — confirm with a real TCP connection.",
+      "blocked": "At least one check failed (see below) — fix it before trying on the devices.",
+      "unknown": "The control plane has not enough data to conclude (no applied policy, or principals the evaluator cannot resolve)."
+    },
+    "result": {
+      "title": "{{source}} → {{target}} : {{port}}",
+      "anyPort": "any port",
+      "checks": "Control-plane checks",
+      "grants_one": "{{count}} grant covers the source/target pair.",
+      "grants_other": "{{count}} grants cover the source/target pair.",
+      "allowedEntries": "Allowed ports/protocols:",
+      "unresolved": "Principals that could not be evaluated:",
+      "routers": "Routers with approved routes:",
+      "offline": "offline"
+    },
+    "checkStatus": {
+      "pass": "Pass",
+      "fail": "Fail",
+      "warn": "Warning",
+      "unknown": "Unknown",
+      "not_applicable": "Not applicable"
+    },
+    "checks": {
+      "tenant_active": "Tenant is active",
+      "instance_healthy": "Headscale instance is healthy",
+      "inventory_fresh": "Device register recently synced",
+      "source_online": "Source device online",
+      "source_not_expired": "Source device not expired",
+      "source_not_revoked": "Source device not revoked",
+      "target_online": "Target device online",
+      "target_not_expired": "Target device not expired",
+      "target_not_revoked": "Target device not revoked",
+      "route_approved": "Route to the target approved",
+      "policy_applied": "A policy is applied",
+      "policy_grant": "The policy has an allowing grant",
+      "relay_healthy": "Tenant relay healthy"
+    },
+    "checkReasons": {
+      "offline": "offline at the last sync",
+      "expired": "expired",
+      "revocation_pending": "being revoked",
+      "revocation_applied": "revoked",
+      "tenant_suspended": "the tenant is suspended",
+      "tenant_deprovisioning": "the tenant is being removed",
+      "no_approved_route": "no approved route covers this address",
+      "router_offline": "the router with the route is offline",
+      "tailnet_address": "a tailnet address — no route needed",
+      "stale_inventory": "the register is stale — sync it on the Devices page",
+      "latest_application_failed": "the latest application failed",
+      "relay_unhealthy": "the relay is failing — a direct path may still work",
+      "relay_unknown": "no relay probe result yet",
+      "instance_unknown": "no instance check result yet",
+      "instance_unhealthy": "the instance is failing — existing connections may keep working",
+      "never_applied": "no policy is recorded as applied",
+      "no_applied_policy": "no policy is recorded as applied",
+      "no_matching_grant": "no grant for this source/target pair",
+      "port_not_allowed": "grants exist, but not for this port",
+      "no_tcp_allowed": "grants exist, but not for TCP",
+      "unreadable_policy": "the applied policy could not be read",
+      "unsupported_policy": "the policy is not in grants form",
+      "unresolved_principals": "some principals could not be evaluated"
+    },
+    "os": {
+      "linux": "Linux",
+      "macos": "macOS",
+      "windows": "Windows (PowerShell)"
+    },
+    "commands": {
+      "title": "Checklist to run on the devices",
+      "intro": "Run them in order on the source device (unless stated otherwise). Only their results show the real path.",
+      "os": "Operating system",
+      "copy": "Copy command: {{command}}",
+      "runOn": {
+        "source": "on the source device",
+        "target": "on the target device"
+      },
+      "macosNote": "macOS: the App Store build uses /Applications/Tailscale.app/Contents/MacOS/Tailscale instead of \"tailscale\".",
+      "mobileNote": "iOS/Android have no CLI: open the Tailscale app, check the target is listed and its connection status, then try the service.",
+      "pingNote": "\"tailscale ping\" does not test the policy — only a real TCP connection shows whether the policy allows it.",
+      "items": {
+        "status": {
+          "title": "Peer list",
+          "expect": "The target (or its router) is listed and not \"offline\". Last column: \"direct <ip:port>\" = direct path; \"relay \\\"{{code}}\\\"\" = through the tenant's relay; \"-\"/idle = no traffic in the last 2 minutes (not a failure)."
+        },
+        "ping": {
+          "title": "Ping over the tailnet",
+          "expect": "\"pong … via <ip>:<port>\" = direct; \"via DERP({{code}})\" = relayed. It only shows the peer is reachable — it does not test the policy."
+        },
+        "netcheck": {
+          "title": "NAT/UDP check",
+          "expect": "\"UDP: true\", the right public IP; the nearest DERP is the tenant's region ({{code}})."
+        },
+        "debug_derp": {
+          "title": "Check the tenant's DERP relay",
+          "expect": "JSON whose \"Info\" shows a successful DERP connection and a STUN reply with the public IP:port; \"Errors\" empty (IPv6 errors are expected — the MVP is IPv4 only)."
+        },
+        "accept_routes": {
+          "title": "Accept subnet routes (Linux)",
+          "expect": "Linux does not accept subnet routes by default — run it once, then retry the connection."
+        },
+        "tcp_connect": {
+          "title": "Real TCP connection to the port",
+          "expect": "\"succeeded\"/\"open\" (or TcpTestSucceeded : True) = the port is reachable; refused or timed out = policy, firewall or no listening service."
+        },
+        "http_probe": {
+          "title": "HTTP request to the web port",
+          "expect": "Prints an HTTP code (200, 301, 401…) = the service answers; a connection error = blocked."
+        },
+        "listen_check": {
+          "title": "Is the service listening on the target?",
+          "expect": "A LISTEN line for the port; none ⇒ the service is not running (the control plane cannot see this)."
+        }
+      }
+    }
   }
 }

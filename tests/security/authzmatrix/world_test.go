@@ -38,6 +38,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/backupapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/deprovisionapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/devicesapi"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/diagnosticsapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/enrollmentapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/gen"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/hostsapi"
@@ -253,6 +254,12 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Diagnostics (P5-T08): the api's monitoring service with the diagnostics source over the services above
+	diag, err := monitoring.New(w.Store, monitoring.Config{Devices: counts, Logger: log, Registerer: prometheus.NewRegistry(),
+		Diagnostics: diagnosticsapi.NewSource(dev, netw, relays, versions)})
+	if err != nil {
+		t.Fatal(err)
+	}
 	registry, jobsH, relayH := tenantsapi.New(dir, platform.New(w.Store)), jobsapi.New(jobs.NewService(w.Store)), relayapi.New(relays)
 	inbox := notificationsapi.New(notifications.NewReader(w.Store))
 	// P4-T06 (A6): the enrollment module reaches its tenants' fake Headscale through the production Locator and adapter
@@ -320,6 +327,8 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 		// Network (P4-T12): routes over the register (Headscale unreachable — every write is refused 428 first), DNS,
 		// the resource catalog with the catalog check of P4-T15 (no worker: jobs stay queued)
 		Network: networkapi.New(netw, appr),
+		// Diagnostics (P5-T08): control-plane state and connectivity diagnosis, reads only
+		Diagnostics: diagnosticsapi.New(diag),
 	}
 }
 

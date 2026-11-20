@@ -161,6 +161,13 @@ type InstanceOpsHandlers interface {
 	UpgradePlatformInstance(ctx context.Context, request gen.UpgradePlatformInstanceRequestObject) (gen.UpgradePlatformInstanceResponseObject, error)
 }
 
+// DiagnosticsHandlers — P5-T08 (`diagnostics`): the control-plane state of the tenant and the connectivity diagnosis
+// from control-plane records with the checklist of commands to run on the devices (§9.5, §12.3, §13.2).
+type DiagnosticsHandlers interface {
+	GetTenantDiagnosticsInstance(ctx context.Context, request gen.GetTenantDiagnosticsInstanceRequestObject) (gen.GetTenantDiagnosticsInstanceResponseObject, error)
+	RunTenantConnectivityDiagnosis(ctx context.Context, request gen.RunTenantConnectivityDiagnosisRequestObject) (gen.RunTenantConnectivityDiagnosisResponseObject, error)
+}
+
 // TagHandlers — P4-T15 (`policies` tags): the tenant's tag catalog (§6.3 tenant_tags, §7.2 tagOwners) and the tags of a
 // device, which only come from that catalog (PUT /devices/{id}/tags — served by devicesapi, delegated by tagsapi).
 type TagHandlers interface {
@@ -387,6 +394,7 @@ type Handlers struct {
 	InstanceView  PlatformInstanceViewHandlers // P4-T03
 	Support       SupportHandlers              // P4-T13
 	Enrollment    EnrollmentHandlers           // P4-T06
+	Diagnostics   DiagnosticsHandlers          // P5-T08
 }
 
 func (h Handlers) mounted() bool {
@@ -395,7 +403,7 @@ func (h Handlers) mounted() bool {
 		h.Provisioning != nil || h.Lifecycle != nil || h.Relay != nil || h.Reconfigure != nil || h.Backups != nil ||
 		h.InstanceOps != nil || h.Quarantine != nil || h.Deprovision != nil || h.Tags != nil || h.Members != nil ||
 		h.Portal != nil || h.Admin != nil || h.TenantView != nil || h.Network != nil || h.Policies != nil || h.PolicyHuJSON != nil ||
-		h.InstanceView != nil || h.Support != nil || h.Enrollment != nil
+		h.InstanceView != nil || h.Support != nil || h.Enrollment != nil || h.Diagnostics != nil
 }
 
 // dispatcher implements gen.StrictServerInterface by promotion from the disjoint interfaces.
@@ -430,6 +438,7 @@ type dispatcher struct {
 	PlatformInstanceViewHandlers
 	SupportHandlers
 	EnrollmentHandlers
+	DiagnosticsHandlers
 }
 
 var _ gen.StrictServerInterface = dispatcher{}
@@ -438,7 +447,10 @@ func newDispatcher(h Handlers) dispatcher {
 	d := dispatcher{h.Auth, h.Tenants, h.Devices, h.Audit, h.Jobs, h.Monitoring, h.Notifications, h.Approvals, h.Invitations,
 		h.Hosts, h.IdPConsole, h.Provisioning, h.Lifecycle, h.Relay, h.Reconfigure, h.Backups, h.InstanceOps,
 		h.Quarantine, h.Deprovision, h.Tags, h.Members, h.Portal, h.Admin, h.TenantView, h.Network, h.Policies, h.PolicyHuJSON,
-		h.InstanceView, h.Support, h.Enrollment}
+		h.InstanceView, h.Support, h.Enrollment, h.Diagnostics}
+	if d.DiagnosticsHandlers == nil {
+		d.DiagnosticsHandlers = NotImplemented{}
+	}
 	if d.EnrollmentHandlers == nil {
 		d.EnrollmentHandlers = NotImplemented{}
 	}
@@ -608,6 +620,14 @@ func (NotImplemented) GetDevice(context.Context, gen.GetDeviceRequestObject) (ge
 
 func (NotImplemented) RenameDevice(context.Context, gen.RenameDeviceRequestObject) (gen.RenameDeviceResponseObject, error) {
 	return nil, problem.NotImplemented("RenameDevice")
+}
+
+func (NotImplemented) GetTenantDiagnosticsInstance(context.Context, gen.GetTenantDiagnosticsInstanceRequestObject) (gen.GetTenantDiagnosticsInstanceResponseObject, error) {
+	return nil, problem.NotImplemented("GetTenantDiagnosticsInstance")
+}
+
+func (NotImplemented) RunTenantConnectivityDiagnosis(context.Context, gen.RunTenantConnectivityDiagnosisRequestObject) (gen.RunTenantConnectivityDiagnosisResponseObject, error) {
+	return nil, problem.NotImplemented("RunTenantConnectivityDiagnosis")
 }
 
 func (NotImplemented) SetDeviceTags(context.Context, gen.SetDeviceTagsRequestObject) (gen.SetDeviceTagsResponseObject, error) {

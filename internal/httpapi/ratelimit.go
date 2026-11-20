@@ -25,10 +25,13 @@ const (
 	ClassAuth       Class = "auth"       // /api/v1/auth/*
 	ClassEnrollment Class = "enrollment" // /api/v1/tenants/{t}/enrollment/* (Phase 4)
 	ClassSync       Class = "sync"       // POST …/devices/sync and GET …/devices?fresh=true (a bounded sync, §13.1)
+	// ClassDiagnostics: POST …/diagnostics/connectivity (P5-T08) — each call reads the register, routes, relays and
+	// evaluates the applied policy; a person runs a few, a script must not run it in a loop.
+	ClassDiagnostics Class = "diagnostics"
 )
 
 // Classes lists every class.
-var Classes = []Class{ClassDefault, ClassAuth, ClassEnrollment, ClassSync}
+var Classes = []Class{ClassDefault, ClassAuth, ClassEnrollment, ClassSync, ClassDiagnostics}
 
 // ClassLimits are the two buckets of a class: per client IP (always) and per identity (when the session hook has
 // called SetIdentity). A request must pass both.
@@ -59,6 +62,10 @@ func DefaultRateLimits() RateLimits {
 		ClassSync: {
 			PerIP:       ratelimit.Limit{Every: 2 * time.Second, Burst: 10},
 			PerIdentity: ratelimit.Limit{Every: 10 * time.Second, Burst: 3},
+		},
+		ClassDiagnostics: {
+			PerIP:       ratelimit.Limit{Every: time.Second, Burst: 30},     // 60/min
+			PerIdentity: ratelimit.Limit{Every: 3 * time.Second, Burst: 10}, // 20/min
 		},
 	}
 }
@@ -107,6 +114,8 @@ func classify(r *http.Request) Class {
 		return ClassSync
 	case seg[2] == "devices" && len(seg) == 3 && freshRequested(r):
 		return ClassSync
+	case seg[2] == "diagnostics" && len(seg) == 4 && seg[3] == "connectivity":
+		return ClassDiagnostics
 	}
 	return ClassDefault
 }
