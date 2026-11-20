@@ -125,6 +125,84 @@ logout` ⇒ `NeedsLogin`, không profile, `tailscale0` không IPv4; file credent
 `staging.env`, image/compose, edge, migration; tenant-a/b không bị thay đổi. Dấu vết còn lại: audit/security event của
 tenant thử và của các lần đăng nhập `kcadm` (`create-user.sh` ×2 ⇒ `idp.console_login`), 1 job `member.idp_invite` failed.
 
+## 6. Sửa sau vòng khám phá
+
+Nhánh `g4b-fix` (từ `3a84b44`), commit `aad868a` (mã, test, mã sinh, E2E-124); tài liệu ở commit kế tiếp `[skip ci]`. **Chưa lên staging** — trạng thái gate ở đầu file giữ nguyên; người
+điều phối kiểm lại trên staging (bước ở mục 6.3) rồi mới đổi. Không migration, không đổi image idp/edge, `staging.env`.
+
+### 6.1 Từng phát hiện
+
+| # | Xử lý | Test |
+|---|---|---|
+| **G4b-E1** (a) realm mới thiếu SMTP | **Đã sửa.** `keycloak.Config.SMTP` (`internal/idp/keycloak/smtp.go`): worker suy ra từ relay thư của chính nó (`MG_SMTP_ADDR`/`MG_SMTP_TLS`/`MG_SMTP_FROM` — staging `mailrelay:587`, STARTTLS, người gửi mặc định; relay có AUTH ⇒ không SMTP cho realm, cảnh báo log — realm không bao giờ giữ mật khẩu) ⇒ `smtpServer` giống hệt `smtp_relay` của `render_idp.py`. `EnsureIssuer` đặt nó khi **tạo** realm và đặt lại khi realm lệch (so sánh chuẩn hóa như `smtp_norm` của `realm-update.sh`; driver không có relay ⇒ không đụng `smtpServer` sẵn có). Realm đã tồn tại: `meshguard-worker admin idp-realm-smtp [--dry-run]` (`apps/worker/realmsmtp.go`) — mọi IdP keycloak có `driver_ref` JSON (realm do driver tạo), bỏ qua realm render tĩnh (`platform`/`tenant-a`/`tenant-b` — của `realm-update.sh`) và IdP `disabled`; idempotent (`EnsureSMTP`: chỉ PUT khi khác, kiểm `meshguard.idp_id` của realm) | `TestSMTPFromConfig`, `TestRealmRepCarriesSMTP`, `TestEnsureSMTP` (Keycloak giả: lần 1 PUT đúng một lần, lần 2 không ghi; realm render tĩnh ⇒ `unsupported`; realm của IdP khác ⇒ `conflict`; không relay ⇒ từ chối), `TestIdpRealmSMTP` (lọc realm, `--dry-run`, lỗi ⇒ exit 1, thiếu relay ⇒ exit 2); E2E-124 |
+| G4b-E1 (b) lời mời Owner không qua IdP | **Đã sửa.** `DBStore.WithOwnerInvite` (`orchestrator/dbstore.go`): bước 16 gọi `members.IdPInviteNotifier` trong **cùng transaction** với lời mời ⇒ job `member.idp_invite` (`invitation:<id>:idp_invite`, chống trùng; chạy lại bước 16 thấy lời mời cũ thì không tạo thêm) — cùng đường với lời mời gửi từ Portal; IdP do tenant quản lý ⇒ job "không áp dụng". Worker nối ở `runner/provision.go` | `TestProvisionEndToEndDB` (PostgreSQL thật): đúng một job `member.idp_invite` cho lời mời Owner; E2E-124 |
+| G4b-E1 (c) UI mã thô, banner khẳng định | **Đã sửa.** Trang Lời mời: mã của `member.idp_invite` (`idp_email_failed`, `idp_user_disabled`, `idp_invite_failed`, `not_configured`, `invalid_input`, mã lạ) ⇒ câu hướng dẫn vi/en (mã thô chỉ ở tooltip); banner sau Mời/Gửi lại nói đúng hai pha ("Đã tạo lời mời" + tài khoản IdP đang xử lý/đã xong), job IdP thất bại ⇒ cảnh báo `role=alert` | Vitest `people.test.tsx` |
+| G4b-E1 (d) test hồi quy | **E2E-124** (`tests/e2e/harness/provisioned.py`) — mục 6.2 | `e2e.py all` |
+| **G4b-E2** slug sai ⇒ JSON thô | **Đã sửa.** Server: `GET /auth/login` là điều hướng của trình duyệt (`Sec-Fetch-Mode: navigate`, `RequestInfo.FetchMode`) với tenant không đăng nhập được (mọi lý do `not_found`) ⇒ `302 /login?error=tenant_not_found&tenant=<slug>[&return_to=…]` (một mã, không lộ tồn tại; client khác vẫn `404`); OpenAPI mô tả. SPA: `LoginPage` đọc `?error=` ⇒ thông báo vi/en trong vùng alert sẵn có, điền lại slug, focus ô nhập; mã lạ ⇒ câu chung | `TestLoginFailureForANavigation`; Vitest `LoginPage.test.tsx` (+ axe); Playwright `auth.spec.ts` (ca mới) |
+| **G4b-E3** End User khi tắt tự đăng ký | **Đã sửa.** `EnrollmentInstructions` thêm `self_enroll` (giá trị `enrollment.self_enroll` — End User đọc được) ⇒ trang Thêm thiết bị của End User hiện ngay "Tenant chưa cho phép tự thêm thiết bị — liên hệ quản trị viên", ẩn wizard/nút tạo lệnh/ô dán link (đường lùi: 403 ⇒ cùng thông báo); `ProblemAlert` không hiện `detail` tiếng Anh của 403 trên giao diện không phải en. Menu "Thêm thiết bị" vẫn hiện (menu không đọc instructions) — trang giải thích rõ, không cho tạo lệnh | DB test `ListAndInstructions` (`self_enroll` false/true); Vitest `enrollment.test.tsx` |
+| **G4b-E4** policy không chọn được tài nguyên | **Đã sửa.** Danh mục tên của Biểu mẫu policy đọc `GET /resources` (theo trang); bộ chọn hiện "tên (địa chỉ)" + tài nguyên đã tham chiếu; bỏ chuỗi "chưa có API đọc (P4-T12)"; không đọc được ⇒ câu riêng; trang Tài nguyên mạng làm mới danh mục sau khi đổi | Vitest `policies.test.tsx` |
+| G4b-E5 cuộn ngang Audit 390 px | **Đã sửa** — `relative` cho mọi wrapper `overflow-x-auto` của `data-table` (28 chỗ) + test quét mã giữ quy ước | `ui.test.tsx` |
+| G4b-E6 tràn form Support Access | **Đã sửa** — `min-w-0`, select `w-full max-w-full` | — |
+| G4b-E7 bộ chọn tenant chỉ trang đầu | **Đã sửa** — gọi `status=active` và `status=suspended`, gộp; gợi ý "gõ để tìm", báo khi còn trang sau | `support.test.tsx` |
+| G4b-E8 thời gian sai chiều | **Đã sửa** — `freshNow = max(now, Date.now())`, lệch < 10 s ⇒ "bây giờ" | `ui.test.tsx` |
+| G4b-E9 "lúc chưa từng" | **Sửa một phần** — câu riêng "Chưa đồng bộ/kiểm tra/đọc lần nào"; Thiết bị rỗng không hiện dòng đồng bộ. Chưa: `synced_at` của tenant cho danh sách rỗng (cần API) | `ui.test.tsx` |
+| G4b-E10 dịch sai "role bạn được mời" | **Đã sửa** — "role bạn được phép mời/gán" | — |
+| G4b-E11 mã nội bộ trên UI | **Sửa phần gọn** — ~20 chuỗi × 2 ngôn ngữ bỏ HS-/PL-/T-/ADR-/§/P#-T#, "quy tắc 3a", "bước 16", tên job ở phần giới thiệu; mã lý do thô vào tooltip. Còn: mã lint L1–L13 (định danh luật trong báo cáo policy), "Job policy.apply" ở panel job, `verify_clients`, mã thô ở Console — đổi nhiều màn hình, để task UX/i18n | cập nhật test chuỗi |
+| G4b-E12 UUID/khóa thô ở Console | **Sửa một phần** — "Figures without a source" dùng nhãn đã dịch của trang Relay. Chưa: slug/tên thay UUID và cột Gói trống (cần API list trả slug/tên/gói) | — |
+| G4b-E13 actor không nhất quán | **Chưa sửa** — cần quy ước hiển thị actor từ API (tên/e-mail, mã actor hệ thống) | — |
+| G4b-E14 trang Keycloak luôn tiếng Anh | **Chưa sửa** — cần `ui_locales` ở `BeginLogin` + bật i18n realm/theme (đổi template realm ⇒ `realm-update.sh` + bản sao driver) — task riêng | — |
+| G4b-E15 version đã duyệt vẫn sửa được | **Sửa một phần** — "Dựa trên"/"Rollback từ" hiện "Version N". **Không** khóa Biểu mẫu: hợp đồng cho `PATCH` version approved/validated (về draft, xóa phê duyệt — UI đã báo `backToDraft`), đổi là quyết định hành vi. Diff do thứ tự khóa: phía server, chưa sửa | `policies.test.tsx` |
+| G4b-E16 nhãn lời mời Owner | **Đã sửa** — "Tạo khi provision (nền tảng)"; cột IdP theo job thật (E1 b) | `people.test.tsx` |
+| G4b-E17 focus sau điều hướng | **Đã sửa** — `Page` focus `h1` (tabIndex −1) khi điều hướng mang cờ; Mời ⇒ Lời mời, Tạo group ⇒ trang group | `people.test.tsx` |
+| G4b-E18 header lặp, nhãn phân trang | **Đã sửa** — Console không lặp "Platform Console"; `Pager` chung "Trang trước"/"Trang sau" | `app.test.tsx` |
+
+### 6.2 E2E-124 — mời thành viên trên tenant vừa provision qua orchestrator
+
+`tests/e2e/harness/provisioned.py`, chạy **cuối** `e2e.py all` (sau E2E-70/71: cần IdP platform, Super Admin của E2E-24 và
+Keycloak — bản dump giữ chúng; worker có orchestrator trước E2E-71 sẽ provision luôn tenant mà E2E-71 tạo trong khoảng
+mất). Realm của stack thử render tĩnh, user tạo sẵn ⇒ trước đây không ca nào chạm realm do driver tạo — đúng lý do G4b-E1
+lọt.
+
+| Bước | Kết quả (VM 111, `g4bfixe2e`, 05:38–05:39 UTC) |
+|---|---|
+| Orchestrator | Host Agent build từ cây (55 s), chạy như compose `mg-agent` (network none, rootfs chỉ đọc, cap tối thiểu), pool `10.250.216.0/24` (`E2E_AGENT_POOL`, kiểm không chồng), UID 39500–39599, hàng `hosts` vùng riêng; worker tạo lại với `MG_AGENT_*`/`MG_PROVISION_*`/`MG_PROBER_URL` (override compose) ⇒ log "tenant orchestrator configured" |
+| Provision | Super Admin `POST /platform/tenants` (driver keycloak, `deployment_region` = vùng của host thử) ⇒ `tenant.provision` **succeeded** (19 bước, ~14 s) |
+| Realm | realm do driver tạo (`meshguard.idp_id` = IdP của tenant): `smtpServer` = `mailrelay:587`, `starttls=true`, không AUTH |
+| Owner | job `member.idp_invite` của lời mời bước 16 **succeeded** ⇒ thư Keycloak tới Worker giả qua `mailrelay` (From `MeshGuard <no-reply@meshguard-ci.test>`) ⇒ theo link: `proceed → configure_totp → update_password → profile → done` ⇒ đăng nhập `app.` (mật khẩu + OTP) ⇒ membership **`tenant_owner`** của tenant mới (lời mời gắn ở lần đăng nhập đầu) |
+| End User | Owner mời qua API (`end_user`) ⇒ job **succeeded** ⇒ cùng đường thư/link ⇒ đăng nhập ⇒ **`end_user`** |
+| Dọn | realm xóa; container `mg-hs-<prefix>-*`, network `mg-t-<prefix>-*`, agent, thư mục gốc, image agent gỡ; worker tạo lại không orchestrator (hàng DB đi cùng stack); `Stack.teardown` gỡ thêm các đối tượng này nếu ca dừng giữa chừng |
+
+Worker giả (`infrastructure/mail/cf-worker/test/devserver.mjs`) có thêm `DEVSERVER_BODIES` (chỉ compose của stack thử):
+thân thư thô `0600` trong thư mục work của lượt chạy để ca theo link như người được mời; link/khóa action token vào bộ che
+secret (E2E-16 PASS). Không có bản sửa ⇒ ca FAIL ở hai chỗ: `smtpServer` rỗng (job `idp_email_failed`, không thư) và
+lời mời Owner không có job `member.idp_invite`.
+
+### 6.3 Áp lên staging (người điều phối)
+
+[deploy-backend mục q](../../operations/deploy-backend.md): api/worker/web của commit sửa (không migration) ⇒ log worker
+không có cảnh báo "realms the driver creates get no SMTP" ⇒ `docker compose -p mg-app exec -T worker
+/usr/local/bin/meshguard admin idp-realm-smtp --dry-run`, rồi chạy thật, rồi chạy lại (`updated 0`) — staging hiện chỉ có
+realm render tĩnh (bỏ qua) và realm của tenant provision trước bản sửa còn hoạt động (nếu có — `updated`); lời mời có cột
+IdP thất bại ⇒ "Gửi lại". Kiểm lại: provision tenant thử ⇒ Owner nhận thư thiết lập, đăng nhập; Owner mời End User ⇒ End
+User đăng nhập; dọn tenant thử bằng xóa 2P.
+
+### 6.4 Kiểm chứng (VM 111, tiền tố `g4bfix`)
+
+Cây trên VM = `git archive 3a84b44` (md5 kiểm) + file đổi/mới đẩy bằng tar (md5 kiểm), mọi bước trong container pin
+digest (Go `golang@sha256:f18c3d73…`, PostgreSQL `postgres@sha256:2ea8630d…` 18.7, Node `node@sha256:e6bedef2…`).
+
+| Bước | Kết quả |
+|---|---|
+| Mã sinh | `go generate ./internal/httpapi/gen` (đổi `api.gen.go` theo `self_enroll`), `npm run gen:api` (`schema.d.ts`) — chạy lại không đổi; `gen:rbac` không đổi; `sqlc diff` (v1.31.1) khớp |
+| gofmt, go vet | `gofmt -l` 0 file (lượt đầu bắt 2 file — đã sửa), `go vet ./...`, `-tags dockerintegration,mgtestfixture ./...`, `-tags "linux dockerintegration" ./tests/integration/...` đạt |
+| `go test -race -count=1 ./...` | PostgreSQL thật, `MG_TEST_PG_REQUIRED=1`: 82 package ok, 1 FAIL (`TestEnsureSMTP` — tên host TLS của test, đã sửa) ⇒ chạy lại các package đụng tới (`internal/idp/...`, `enrollment`, `httpapi/...`, `identity`, `apps/...`, `orchestrator`, `members`): **mọi package ok** |
+| `-tags mgtestfixture ./tests/security/... ./tests/isolation/...` | **ok** (ma trận authz, isolation, ...) — hai lượt (trước/sau đổi OpenAPI lần 2) |
+| golangci-lint v2.15.0 (sha256 kiểm) | **0 issues** |
+| Web | `lint` 0, `typecheck` 0, Vitest **37 file / 488 test** đạt (15 skip có sẵn), `build` + check-dist, `npm audit --omit=dev` 0 |
+| `python tools/split_plan.py`, `docs_check.py` | OK |
+| `e2e.py all` (`test_stack.py` PASS trước) | **92/92 PASS** (gồm E2E-124, E2E-16), 1 846 s; dọn: 0 container, 0 network mang tiền tố (còn 2 volume cache Go — gỡ sau) |
+| Playwright (stack mới `g4bfixpw`, toàn bộ bộ, 1 lượt) | **PW-1 PASS** — 224 pass / 0 fail / 0 flaky / 0 skip (4 setup + 110 × `vi`/`en`, gồm ca mới `auth.spec.ts` slug không tồn tại ⇒ `/login?error=tenant_not_found`; lời mời, đăng nhập, enrollment), axe 0 vi phạm, 1 232 s; **PW-S PASS** |
+
 ## Chủ dự án duyệt
 
 | Vai trò | Quyết định | Ngày |
