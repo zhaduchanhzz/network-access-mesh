@@ -41,6 +41,7 @@ import {
 } from "./model";
 import { PolicyForm } from "./PolicyForm";
 import { DiffPanel, ReportPanel } from "./ReportAndDiff";
+import { TemplatePanel } from "./TemplatePanel";
 
 export function PolicyVersionPage() {
   const { versionId: raw = "" } = useParams();
@@ -408,14 +409,26 @@ function VersionView({ versionId }: { versionId: string }) {
             </pre>
           </div>
         ) : mode === "form" ? (
-          <PolicyForm
-            source={source}
-            onChange={editable ? (next) => setEdit(next) : undefined}
-            catalog={names.data}
-            extra={extraNames}
-            findings={findings}
-            ackNeeded={ackRulesInReport(report)}
-          />
+          <div className="space-y-4">
+            {editable ? (
+              <TemplatePanel
+                source={source}
+                catalog={names.data}
+                onApply={(next, principals) => {
+                  setEdit(next);
+                  setExtra((m) => namesFrom(principals, new Map(m)));
+                }}
+              />
+            ) : null}
+            <PolicyForm
+              source={source}
+              onChange={editable ? (next) => setEdit(next) : undefined}
+              catalog={names.data}
+              extra={extraNames}
+              findings={findings}
+              ackNeeded={ackRulesInReport(report)}
+            />
+          </div>
         ) : (
           <HuJSONPanel
             text={hujson.text}

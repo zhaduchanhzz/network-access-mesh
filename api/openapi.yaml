@@ -6616,6 +6616,85 @@ paths:
           $ref: '#/components/responses/RateLimited'
         default:
           $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/policies/templates:
+    get:
+      tags: [policies]
+      operationId: listTenantPolicyTemplates
+      summary: Danh mục template policy (least-privilege)
+      description: |-
+        Template là **dữ liệu** của nền tảng (P5-T01, §7.2): `id` + `version` + tham số + ghi chú; editor hiển thị theo
+        `id` (bản dịch phía Portal). `deny-all` (thay toàn bộ bản nháp bằng `grants: []`), `own-devices`
+        (`autogroup:member` → `autogroup:self`), `group-to-resource`, `admins-to-devices` (group → `autogroup:member` +
+        `autogroup:tagged` trên cổng quản trị), `exit-node` (`autogroup:internet` qua `via` tag), `subnet-router` (tài
+        nguyên qua `via` tag). Ghi chú `tests_self_not_asserted`/`tests_via_not_asserted`: `tests` sinh tự động **không**
+        khẳng định được quyền đến từ `autogroup:self`/`via` (V-24). Như nhau cho mọi tenant; không đổi gì.
+      x-permission: tenant.policy:read
+      x-task: P5-T01
+      x-audit-action: policy.template.list
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '200':
+          description: Danh mục template
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyTemplateList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/policies/templates/render:
+    post:
+      tags: [policies]
+      operationId: renderTenantPolicyTemplate
+      summary: Render một template thành đoạn PolicySource (không lưu, không gọi Headscale)
+      description: |-
+        Tất định: cùng `template_id` + `version` + `params` ⇒ cùng đoạn `source` (principal có kiểu theo id). Tham số
+        không thuộc template, thiếu, sai dạng, cổng `*` (least-privilege) hoặc tham chiếu group/tag/tài nguyên không có
+        trong tenant ⇒ `422` (trường `params.<tên>`); `version` khác bản hiện hành ⇒ `422`. `report` là kết quả render +
+        lint L3–L13 của **riêng đoạn đó** trên bảng của tenant, kèm `tests` nó sẽ sinh từ inventory hiện tại. Editor
+        thêm đoạn vào bản nháp (`mode: append`) hoặc thay bản nháp (`mode: replace`) rồi lưu bằng `PATCH
+        /policies/{versionId}` như mọi lần sửa.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.policy:edit
+      x-task: P5-T01
+      x-audit-action: policy.template.render
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PolicyTemplateRenderRequest'
+      responses:
+        '200':
+          description: Đoạn PolicySource + báo cáo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyTemplateRender'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
 components:
   securitySchemes:
     sessionCookie:
@@ -10034,7 +10113,9 @@ components:
           type: boolean
     PolicyValidationReport:
       type: object
-      description: Kết quả lint/render/CheckPolicy (`policy_versions.validation_report`); `tests` luôn rỗng (chưa sinh)
+      description: |-
+        Kết quả lint/render/CheckPolicy (`policy_versions.validation_report`); `tests` = các ca `tests` sinh từ grants +
+        inventory thiết bị lúc render (P5-T01) — được gửi cùng policy và Headscale chạy chúng ở `CheckPolicy`/`SetPolicy`
       required: [engine, result, errors, warnings, info, tests]
       properties:
         engine:
@@ -10056,7 +10137,8 @@ components:
             $ref: '#/components/schemas/PolicyFinding'
         tests:
           type: array
-          items: {}
+          items:
+            $ref: '#/components/schemas/PolicyTestCase'
         rendered_sha256:
           type: string
         check:
@@ -10321,6 +10403,128 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/PolicyPrincipalName'
+    PolicyTemplateParam:
+      type: object
+      required: [name, kind, required]
+      properties:
+        name:
+          type: string
+          enum: [group_id, tag_id, resource_id, ports]
+        kind:
+          type: string
+          enum: [group, tag, resource, ports]
+        required:
+          type: boolean
+        default:
+          type: array
+          description: Gợi ý least-privilege cho `ports`
+          items:
+            type: string
+    PolicyTemplate:
+      type: object
+      required: [id, version, mode, params, notes]
+      properties:
+        id:
+          type: string
+          enum: [deny-all, own-devices, group-to-resource, admins-to-devices, exit-node, subnet-router]
+        version:
+          type: integer
+          minimum: 1
+        mode:
+          type: string
+          enum: [append, replace]
+        params:
+          type: array
+          items:
+            $ref: '#/components/schemas/PolicyTemplateParam'
+        notes:
+          type: array
+          items:
+            type: string
+            enum: [tests_self_not_asserted, tests_via_not_asserted, routes_need_approval, self_large_tenant, replaces_draft]
+    PolicyTemplateList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PolicyTemplate'
+    PolicyTemplateParams:
+      type: object
+      additionalProperties: false
+      properties:
+        group_id:
+          type: string
+          format: uuid
+        tag_id:
+          type: string
+          format: uuid
+        resource_id:
+          type: string
+          format: uuid
+        ports:
+          type: array
+          maxItems: 10
+          items:
+            type: string
+            maxLength: 64
+    PolicyTemplateRenderRequest:
+      type: object
+      additionalProperties: false
+      required: [template_id, params]
+      properties:
+        template_id:
+          type: string
+          maxLength: 64
+        version:
+          type: integer
+          minimum: 1
+        params:
+          $ref: '#/components/schemas/PolicyTemplateParams'
+    PolicyTemplateRender:
+      type: object
+      required: [template_id, version, mode, source, report]
+      properties:
+        template_id:
+          type: string
+        version:
+          type: integer
+        mode:
+          type: string
+          enum: [append, replace]
+        source:
+          $ref: '#/components/schemas/PolicySource'
+        report:
+          $ref: '#/components/schemas/PolicyValidationReport'
+    PolicyTestCase:
+      type: object
+      description: |-
+        Một ca `tests` sinh tự động (P5-T01) từ grant thứ `grant` (chỉ số trong `source.grants`), hoặc lý do grant đó
+        không có ca (`skipped`): `via_not_assertable`/`self_not_assertable` (V-24 — Headscale chạy `tests` trên bộ lọc
+        toàn cục, không thấy grant `via` và `autogroup:self`), `app_only`, `no_testable_port`, `no_source_device`,
+        `no_destination` (chưa có thiết bị — PL-04), `capped`.
+      required: [grant]
+      properties:
+        grant:
+          type: integer
+          minimum: 0
+        src:
+          type: string
+        proto:
+          type: string
+          enum: [tcp, udp, sctp]
+        accept:
+          type: array
+          items:
+            type: string
+        deny:
+          type: array
+          items:
+            type: string
+        skipped:
+          type: string
+          enum: [via_not_assertable, self_not_assertable, app_only, no_testable_port, no_source_device, no_destination, capped]
     PolicyExportRequest:
       type: object
       additionalProperties: false

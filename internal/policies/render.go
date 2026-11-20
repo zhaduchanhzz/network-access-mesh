@@ -21,7 +21,8 @@ import (
 //	tagOwners   the whole tag catalog of the tenant, each with an EMPTY owner list (PL-09 — P4-T15);
 //	grants      always present, an empty array for deny-all (L1);
 //	ssh         always present ([] by default);
-//	autoApprovers only when the source has some.
+//	autoApprovers only when the source has some;
+//	tests       generated from the grants and the device inventory (testgen.go — P5-T01), only when there is one.
 //
 // encoding/json writes struct members in declaration order and map keys sorted, so the same source over the same
 // tables always renders the same bytes — the string sent, stored (applied_hujson) and compared by the drift check.
@@ -35,6 +36,9 @@ type RenderInputs struct {
 	Resources    map[uuid.UUID]RenderResource
 	IdentityMode string // TenantSettings.enrollment.identity_mode (portal | headscale_oidc)
 	Devices      int64  // devices of the tenant not removed (L8)
+	// Nodes are the devices the generated tests may name (ListPolicyNodes — P5-T01): a test is generated only for a
+	// source and a destination that resolve to one of them (PL-04).
+	Nodes []RenderNode
 }
 
 // RenderGroup is a group and its members that are not offboarded.
@@ -111,6 +115,17 @@ func loadRenderInputs(ctx context.Context, q *sqlcdb.Queries, tenantID uuid.UUID
 		return nil, err
 	}
 	in.IdentityMode, in.Devices = st.IdentityMode, st.Devices
+	nodes, err := q.ListPolicyNodes(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	for _, n := range nodes {
+		rn := RenderNode{Tags: n.Tags}
+		if n.OwnerMembershipID != nil {
+			rn.Owner = *n.OwnerMembershipID
+		}
+		in.Nodes = append(in.Nodes, rn)
+	}
 	return in, nil
 }
 
@@ -122,6 +137,7 @@ type renderedPolicy struct {
 	Grants        []renderedGrant     `json:"grants"`
 	SSH           []renderedSSH       `json:"ssh"`
 	AutoApprovers *renderedApprovers  `json:"autoApprovers,omitempty"`
+	Tests         []renderedTest      `json:"tests,omitempty"`
 }
 
 type renderedGrant struct {
@@ -213,6 +229,11 @@ func RenderTyped(src PolicySource, contentSHA256 string, in *RenderInputs) Rende
 			ra.ExitNode = r.approvers("auto_approvers.exit_node", a.ExitNode)
 		}
 		out.AutoApprovers = ra
+	}
+	tests, cases, info := generateTests(src, in)
+	out.Tests, rep.Tests = tests, cases
+	for _, f := range info {
+		rep.add(f)
 	}
 	if r.self && in.Devices >= LargeTenantDevices {
 		rep.add(Finding{Rule: RuleL8, Severity: SeverityWarning, Code: "self_large_tenant",

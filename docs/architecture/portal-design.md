@@ -38,7 +38,7 @@ Super Admin **không** mặc định xem được thiết bị/policy/audit nộ
 | User & Group Management | Users, Groups | `/users…`, `/groups…` | Group được biên dịch vào policy |
 | Device Enrollment | Add device (hướng dẫn theo OS, claim web-auth) | `/enrollment/requests`, `/enrollment/web-auth/claim`, `/enrollment/instructions` | §7.4 |
 | Enrollment Key Management | Enrollment keys (pre-auth: tạo, hạn, thu hồi) | `/enrollment/keys`, `/enrollment/requests…` | Key hiển thị một lần |
-| Access Policies | Policies (editor, lint, diff, lịch sử, duyệt, apply, rollback), Danh mục tag | `/policies…`, `/tags` | §7.3; editor form trên `PolicySource` + chế độ HuJSON qua bộ dịch phía server (`/policies/import`, `/export` — P4-T11) |
+| Access Policies | Policies (editor, lint, diff, lịch sử, duyệt, apply, rollback), Danh mục tag | `/policies…`, `/tags` | §7.3; editor form trên `PolicySource` + chế độ HuJSON qua bộ dịch phía server (`/policies/import`, `/export` — P4-T11); template least-privilege (`/policies/templates` — P5-T01) và các ca `tests` sinh tự động trong báo cáo kiểm tra |
 | DNS/MagicDNS | DNS settings, Records | `/dns…` | Đổi settings ⇒ restart instance có kiểm soát (thông báo trước) |
 | Subnet Routes / Exit Nodes | Routes (quảng bá vs đã duyệt, cảnh báo chồng lấn) | `/routes…` | Double opt-in (PL-10) |
 | Network Resource Catalog | Resources | `/resources…` | Sinh alias `hosts` |

@@ -411,13 +411,19 @@ func (c *InstanceUpgrader) checkPolicy(ctx context.Context, a *opsAttempt, pol P
 			audit.Details{"applied_sha256": pol.SHA256, "kind": "lint"})
 		return "policy_check_failed", fmt.Errorf("the applied policy does not pass the lint: %w", lerr)
 	}
+	// The generated tests of the applied policy are left out (P5-T01): Headscale never runs them at start-up, and they
+	// name the devices of the moment of the apply (PL-04).
+	startup, err := policies.WithoutTests(doc.Applied)
+	if err != nil {
+		return "policy_check_failed", fmt.Errorf("the applied policy is not a JSON object: %w", err)
+	}
 	cctx, cancel := o.call(ctx)
 	defer cancel()
 	hs, err := o.cfg.Headscale.ForTenant(cctx, a.in.TenantID)
 	if err != nil {
 		return "", headscaleErr("ForTenant", err)
 	}
-	if err := hs.CheckPolicy(cctx, doc.Applied); err != nil {
+	if err := hs.CheckPolicy(cctx, startup); err != nil {
 		if he, ok := headscale.AsError(err); ok && (he.Kind == headscale.KindPolicyRejected ||
 			he.Kind == headscale.KindValidation || he.Kind == headscale.KindUpstreamRejected) {
 			o.security(ctx, a, SecPolicyCheckFailed, audit.SeverityHigh, "policy_check:"+a.in.InstanceID.String(),

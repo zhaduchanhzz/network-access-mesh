@@ -607,6 +607,10 @@ func (s *VersionService) Validate(ctx context.Context, tenantID, id uuid.UUID, a
 			rep.Check = ResultPassed
 		case errors.Is(cerr, ErrPolicyInstanceUnavailable):
 			return Version{}, cerr
+		case testsRefused(cerr):
+			rep.Check = ResultFailed
+			rep.add(Finding{Rule: RuleCheck, Severity: SeverityError, Code: "tests_failed",
+				Message: "the tenant's Headscale refused the generated tests: an assertion of report.tests does not hold, or a device it names is gone (PL-04)"})
 		default:
 			rep.Check = ResultFailed
 			rep.add(Finding{Rule: RuleCheck, Severity: SeverityError, Code: "check_rejected",

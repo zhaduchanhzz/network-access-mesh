@@ -1132,6 +1132,201 @@ func (e PolicySSHRuleAction) Valid() bool {
 	}
 }
 
+// Defines values for PolicyTemplateId.
+const (
+	PolicyTemplateIdAdminsToDevices PolicyTemplateId = "admins-to-devices"
+	PolicyTemplateIdDenyAll         PolicyTemplateId = "deny-all"
+	PolicyTemplateIdExitNode        PolicyTemplateId = "exit-node"
+	PolicyTemplateIdGroupToResource PolicyTemplateId = "group-to-resource"
+	PolicyTemplateIdOwnDevices      PolicyTemplateId = "own-devices"
+	PolicyTemplateIdSubnetRouter    PolicyTemplateId = "subnet-router"
+)
+
+// Valid indicates whether the value is a known member of the PolicyTemplateId enum.
+func (e PolicyTemplateId) Valid() bool {
+	switch e {
+	case PolicyTemplateIdAdminsToDevices:
+		return true
+	case PolicyTemplateIdDenyAll:
+		return true
+	case PolicyTemplateIdExitNode:
+		return true
+	case PolicyTemplateIdGroupToResource:
+		return true
+	case PolicyTemplateIdOwnDevices:
+		return true
+	case PolicyTemplateIdSubnetRouter:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PolicyTemplateMode.
+const (
+	PolicyTemplateModeAppend  PolicyTemplateMode = "append"
+	PolicyTemplateModeReplace PolicyTemplateMode = "replace"
+)
+
+// Valid indicates whether the value is a known member of the PolicyTemplateMode enum.
+func (e PolicyTemplateMode) Valid() bool {
+	switch e {
+	case PolicyTemplateModeAppend:
+		return true
+	case PolicyTemplateModeReplace:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PolicyTemplateNotes.
+const (
+	PolicyTemplateNotesReplacesDraft        PolicyTemplateNotes = "replaces_draft"
+	PolicyTemplateNotesRoutesNeedApproval   PolicyTemplateNotes = "routes_need_approval"
+	PolicyTemplateNotesSelfLargeTenant      PolicyTemplateNotes = "self_large_tenant"
+	PolicyTemplateNotesTestsSelfNotAsserted PolicyTemplateNotes = "tests_self_not_asserted"
+	PolicyTemplateNotesTestsViaNotAsserted  PolicyTemplateNotes = "tests_via_not_asserted"
+)
+
+// Valid indicates whether the value is a known member of the PolicyTemplateNotes enum.
+func (e PolicyTemplateNotes) Valid() bool {
+	switch e {
+	case PolicyTemplateNotesReplacesDraft:
+		return true
+	case PolicyTemplateNotesRoutesNeedApproval:
+		return true
+	case PolicyTemplateNotesSelfLargeTenant:
+		return true
+	case PolicyTemplateNotesTestsSelfNotAsserted:
+		return true
+	case PolicyTemplateNotesTestsViaNotAsserted:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PolicyTemplateParamKind.
+const (
+	PolicyTemplateParamKindGroup    PolicyTemplateParamKind = "group"
+	PolicyTemplateParamKindPorts    PolicyTemplateParamKind = "ports"
+	PolicyTemplateParamKindResource PolicyTemplateParamKind = "resource"
+	PolicyTemplateParamKindTag      PolicyTemplateParamKind = "tag"
+)
+
+// Valid indicates whether the value is a known member of the PolicyTemplateParamKind enum.
+func (e PolicyTemplateParamKind) Valid() bool {
+	switch e {
+	case PolicyTemplateParamKindGroup:
+		return true
+	case PolicyTemplateParamKindPorts:
+		return true
+	case PolicyTemplateParamKindResource:
+		return true
+	case PolicyTemplateParamKindTag:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PolicyTemplateParamName.
+const (
+	PolicyTemplateParamNameGroupId    PolicyTemplateParamName = "group_id"
+	PolicyTemplateParamNamePorts      PolicyTemplateParamName = "ports"
+	PolicyTemplateParamNameResourceId PolicyTemplateParamName = "resource_id"
+	PolicyTemplateParamNameTagId      PolicyTemplateParamName = "tag_id"
+)
+
+// Valid indicates whether the value is a known member of the PolicyTemplateParamName enum.
+func (e PolicyTemplateParamName) Valid() bool {
+	switch e {
+	case PolicyTemplateParamNameGroupId:
+		return true
+	case PolicyTemplateParamNamePorts:
+		return true
+	case PolicyTemplateParamNameResourceId:
+		return true
+	case PolicyTemplateParamNameTagId:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PolicyTemplateRenderMode.
+const (
+	PolicyTemplateRenderModeAppend  PolicyTemplateRenderMode = "append"
+	PolicyTemplateRenderModeReplace PolicyTemplateRenderMode = "replace"
+)
+
+// Valid indicates whether the value is a known member of the PolicyTemplateRenderMode enum.
+func (e PolicyTemplateRenderMode) Valid() bool {
+	switch e {
+	case PolicyTemplateRenderModeAppend:
+		return true
+	case PolicyTemplateRenderModeReplace:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PolicyTestCaseProto.
+const (
+	PolicyTestCaseProtoSctp PolicyTestCaseProto = "sctp"
+	PolicyTestCaseProtoTcp  PolicyTestCaseProto = "tcp"
+	PolicyTestCaseProtoUdp  PolicyTestCaseProto = "udp"
+)
+
+// Valid indicates whether the value is a known member of the PolicyTestCaseProto enum.
+func (e PolicyTestCaseProto) Valid() bool {
+	switch e {
+	case PolicyTestCaseProtoSctp:
+		return true
+	case PolicyTestCaseProtoTcp:
+		return true
+	case PolicyTestCaseProtoUdp:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PolicyTestCaseSkipped.
+const (
+	PolicyTestCaseSkippedAppOnly           PolicyTestCaseSkipped = "app_only"
+	PolicyTestCaseSkippedCapped            PolicyTestCaseSkipped = "capped"
+	PolicyTestCaseSkippedNoDestination     PolicyTestCaseSkipped = "no_destination"
+	PolicyTestCaseSkippedNoSourceDevice    PolicyTestCaseSkipped = "no_source_device"
+	PolicyTestCaseSkippedNoTestablePort    PolicyTestCaseSkipped = "no_testable_port"
+	PolicyTestCaseSkippedSelfNotAssertable PolicyTestCaseSkipped = "self_not_assertable"
+	PolicyTestCaseSkippedViaNotAssertable  PolicyTestCaseSkipped = "via_not_assertable"
+)
+
+// Valid indicates whether the value is a known member of the PolicyTestCaseSkipped enum.
+func (e PolicyTestCaseSkipped) Valid() bool {
+	switch e {
+	case PolicyTestCaseSkippedAppOnly:
+		return true
+	case PolicyTestCaseSkippedCapped:
+		return true
+	case PolicyTestCaseSkippedNoDestination:
+		return true
+	case PolicyTestCaseSkippedNoSourceDevice:
+		return true
+	case PolicyTestCaseSkippedNoTestablePort:
+		return true
+	case PolicyTestCaseSkippedSelfNotAssertable:
+		return true
+	case PolicyTestCaseSkippedViaNotAssertable:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PolicyValidationReportCheck.
 const (
 	PolicyValidationReportCheckFailed  PolicyValidationReportCheck = "failed"
@@ -3352,6 +3547,96 @@ type PolicySource struct {
 	Ssh           *[]PolicySSHRule     `json:"ssh,omitempty"`
 }
 
+// PolicyTemplate defines model for PolicyTemplate.
+type PolicyTemplate struct {
+	Id      PolicyTemplateId      `json:"id"`
+	Mode    PolicyTemplateMode    `json:"mode"`
+	Notes   []PolicyTemplateNotes `json:"notes"`
+	Params  []PolicyTemplateParam `json:"params"`
+	Version int                   `json:"version"`
+}
+
+// PolicyTemplateId defines model for PolicyTemplate.Id.
+type PolicyTemplateId string
+
+// PolicyTemplateMode defines model for PolicyTemplate.Mode.
+type PolicyTemplateMode string
+
+// PolicyTemplateNotes defines model for PolicyTemplate.Notes.
+type PolicyTemplateNotes string
+
+// PolicyTemplateList defines model for PolicyTemplateList.
+type PolicyTemplateList struct {
+	Items []PolicyTemplate `json:"items"`
+}
+
+// PolicyTemplateParam defines model for PolicyTemplateParam.
+type PolicyTemplateParam struct {
+	// Default Gợi ý least-privilege cho `ports`
+	Default  *[]string               `json:"default,omitempty"`
+	Kind     PolicyTemplateParamKind `json:"kind"`
+	Name     PolicyTemplateParamName `json:"name"`
+	Required bool                    `json:"required"`
+}
+
+// PolicyTemplateParamKind defines model for PolicyTemplateParam.Kind.
+type PolicyTemplateParamKind string
+
+// PolicyTemplateParamName defines model for PolicyTemplateParam.Name.
+type PolicyTemplateParamName string
+
+// PolicyTemplateParams defines model for PolicyTemplateParams.
+type PolicyTemplateParams struct {
+	GroupId    *openapi_types.UUID `json:"group_id,omitempty"`
+	Ports      *[]string           `json:"ports,omitempty"`
+	ResourceId *openapi_types.UUID `json:"resource_id,omitempty"`
+	TagId      *openapi_types.UUID `json:"tag_id,omitempty"`
+}
+
+// PolicyTemplateRender defines model for PolicyTemplateRender.
+type PolicyTemplateRender struct {
+	Mode PolicyTemplateRenderMode `json:"mode"`
+
+	// Report Kết quả lint/render/CheckPolicy (`policy_versions.validation_report`); `tests` = các ca `tests` sinh từ grants +
+	// inventory thiết bị lúc render (P5-T01) — được gửi cùng policy và Headscale chạy chúng ở `CheckPolicy`/`SetPolicy`
+	Report PolicyValidationReport `json:"report"`
+
+	// Source Nội dung có kiểu của một version (§13.3): `groups`, `hosts` và `tagOwners` **không** nằm ở đây — được render từ
+	// bảng `groups`/`group_members`, `network_resources`, `tenant_tags` lúc áp dụng.
+	Source     PolicySource `json:"source"`
+	TemplateId string       `json:"template_id"`
+	Version    int          `json:"version"`
+}
+
+// PolicyTemplateRenderMode defines model for PolicyTemplateRender.Mode.
+type PolicyTemplateRenderMode string
+
+// PolicyTemplateRenderRequest defines model for PolicyTemplateRenderRequest.
+type PolicyTemplateRenderRequest struct {
+	Params     PolicyTemplateParams `json:"params"`
+	TemplateId string               `json:"template_id"`
+	Version    *int                 `json:"version,omitempty"`
+}
+
+// PolicyTestCase Một ca `tests` sinh tự động (P5-T01) từ grant thứ `grant` (chỉ số trong `source.grants`), hoặc lý do grant đó
+// không có ca (`skipped`): `via_not_assertable`/`self_not_assertable` (V-24 — Headscale chạy `tests` trên bộ lọc
+// toàn cục, không thấy grant `via` và `autogroup:self`), `app_only`, `no_testable_port`, `no_source_device`,
+// `no_destination` (chưa có thiết bị — PL-04), `capped`.
+type PolicyTestCase struct {
+	Accept  *[]string              `json:"accept,omitempty"`
+	Deny    *[]string              `json:"deny,omitempty"`
+	Grant   int                    `json:"grant"`
+	Proto   *PolicyTestCaseProto   `json:"proto,omitempty"`
+	Skipped *PolicyTestCaseSkipped `json:"skipped,omitempty"`
+	Src     *string                `json:"src,omitempty"`
+}
+
+// PolicyTestCaseProto defines model for PolicyTestCase.Proto.
+type PolicyTestCaseProto string
+
+// PolicyTestCaseSkipped defines model for PolicyTestCase.Skipped.
+type PolicyTestCaseSkipped string
+
 // PolicyUpdate defines model for PolicyUpdate.
 type PolicyUpdate struct {
 	// Source Nội dung có kiểu của một version (§13.3): `groups`, `hosts` và `tagOwners` **không** nằm ở đây — được render từ
@@ -3359,7 +3644,8 @@ type PolicyUpdate struct {
 	Source PolicySource `json:"source"`
 }
 
-// PolicyValidationReport Kết quả lint/render/CheckPolicy (`policy_versions.validation_report`); `tests` luôn rỗng (chưa sinh)
+// PolicyValidationReport Kết quả lint/render/CheckPolicy (`policy_versions.validation_report`); `tests` = các ca `tests` sinh từ grants +
+// inventory thiết bị lúc render (P5-T01) — được gửi cùng policy và Headscale chạy chúng ở `CheckPolicy`/`SetPolicy`
 type PolicyValidationReport struct {
 	Check          *PolicyValidationReportCheck `json:"check,omitempty"`
 	Engine         string                       `json:"engine"`
@@ -3368,7 +3654,7 @@ type PolicyValidationReport struct {
 	RenderedSha256 *string                      `json:"rendered_sha256,omitempty"`
 	Result         PolicyValidationReportResult `json:"result"`
 	Revision       *int64                       `json:"revision,omitempty"`
-	Tests          []interface{}                `json:"tests"`
+	Tests          []PolicyTestCase             `json:"tests"`
 	ValidatedAt    *time.Time                   `json:"validated_at,omitempty"`
 	Warnings       []PolicyFinding              `json:"warnings"`
 }
@@ -3411,7 +3697,8 @@ type PolicyVersion struct {
 	SubmittedBy *openapi_types.UUID `json:"submitted_by,omitempty"`
 	UpdatedAt   time.Time           `json:"updated_at"`
 
-	// ValidationReport Kết quả lint/render/CheckPolicy (`policy_versions.validation_report`); `tests` luôn rỗng (chưa sinh)
+	// ValidationReport Kết quả lint/render/CheckPolicy (`policy_versions.validation_report`); `tests` = các ca `tests` sinh từ grants +
+	// inventory thiết bị lúc render (P5-T01) — được gửi cùng policy và Headscale chạy chúng ở `CheckPolicy`/`SetPolicy`
 	ValidationReport *PolicyValidationReport `json:"validation_report,omitempty"`
 	Version          int                     `json:"version"`
 }
@@ -5272,6 +5559,9 @@ type ExportTenantPolicyJSONRequestBody = PolicyExportRequest
 // ImportTenantPolicyJSONRequestBody defines body for ImportTenantPolicy for application/json ContentType.
 type ImportTenantPolicyJSONRequestBody = PolicyImportRequest
 
+// RenderTenantPolicyTemplateJSONRequestBody defines body for RenderTenantPolicyTemplate for application/json ContentType.
+type RenderTenantPolicyTemplateJSONRequestBody = PolicyTemplateRenderRequest
+
 // UpdateTenantPolicyJSONRequestBody defines body for UpdateTenantPolicy for application/json ContentType.
 type UpdateTenantPolicyJSONRequestBody = PolicyUpdate
 
@@ -5670,6 +5960,12 @@ type ServerInterface interface {
 	// ImportTenantPolicy Dịch HuJSON của admin sang mô hình có kiểu (không lưu, không gọi Headscale)
 	// (POST /tenants/{tenantId}/policies/import)
 	ImportTenantPolicy(w http.ResponseWriter, r *http.Request, tenantId TenantId)
+	// ListTenantPolicyTemplates Danh mục template policy (least-privilege)
+	// (GET /tenants/{tenantId}/policies/templates)
+	ListTenantPolicyTemplates(w http.ResponseWriter, r *http.Request, tenantId TenantId)
+	// RenderTenantPolicyTemplate Render một template thành đoạn PolicySource (không lưu, không gọi Headscale)
+	// (POST /tenants/{tenantId}/policies/templates/render)
+	RenderTenantPolicyTemplate(w http.ResponseWriter, r *http.Request, tenantId TenantId)
 	// GetTenantPolicy Một version policy
 	// (GET /tenants/{tenantId}/policies/{versionId})
 	GetTenantPolicy(w http.ResponseWriter, r *http.Request, tenantId TenantId, versionId PolicyVersionId)
@@ -11410,6 +11706,58 @@ func (siw *ServerInterfaceWrapper) ImportTenantPolicy(w http.ResponseWriter, r *
 	handler.ServeHTTP(w, r)
 }
 
+// ListTenantPolicyTemplates operation middleware
+func (siw *ServerInterfaceWrapper) ListTenantPolicyTemplates(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListTenantPolicyTemplates(w, r, tenantId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RenderTenantPolicyTemplate operation middleware
+func (siw *ServerInterfaceWrapper) RenderTenantPolicyTemplate(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RenderTenantPolicyTemplate(w, r, tenantId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetTenantPolicy operation middleware
 func (siw *ServerInterfaceWrapper) GetTenantPolicy(w http.ResponseWriter, r *http.Request) {
 
@@ -13556,6 +13904,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tenants/{tenantId}/policies/{versionId}/diff", wrapper.DiffTenantPolicy)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants/{tenantId}/policies/import", wrapper.ImportTenantPolicy)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants/{tenantId}/policies/export", wrapper.ExportTenantPolicy)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tenants/{tenantId}/policies/templates", wrapper.ListTenantPolicyTemplates)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants/{tenantId}/policies/templates/render", wrapper.RenderTenantPolicyTemplate)
 
 	return m
 }
@@ -32575,6 +32925,288 @@ func (response ImportTenantPolicydefaultApplicationProblemPlusJSONResponse) Visi
 	return err
 }
 
+type ListTenantPolicyTemplatesRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+}
+
+type ListTenantPolicyTemplatesResponseObject interface {
+	VisitListTenantPolicyTemplatesResponse(w http.ResponseWriter) error
+}
+
+type ListTenantPolicyTemplates200JSONResponse PolicyTemplateList
+
+func (response ListTenantPolicyTemplates200JSONResponse) VisitListTenantPolicyTemplatesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantPolicyTemplates401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response ListTenantPolicyTemplates401ApplicationProblemPlusJSONResponse) VisitListTenantPolicyTemplatesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantPolicyTemplates403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response ListTenantPolicyTemplates403ApplicationProblemPlusJSONResponse) VisitListTenantPolicyTemplatesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantPolicyTemplates404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response ListTenantPolicyTemplates404ApplicationProblemPlusJSONResponse) VisitListTenantPolicyTemplatesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantPolicyTemplates429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response ListTenantPolicyTemplates429ApplicationProblemPlusJSONResponse) VisitListTenantPolicyTemplatesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantPolicyTemplatesdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response ListTenantPolicyTemplatesdefaultApplicationProblemPlusJSONResponse) VisitListTenantPolicyTemplatesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RenderTenantPolicyTemplateRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	Body     *RenderTenantPolicyTemplateJSONRequestBody
+}
+
+type RenderTenantPolicyTemplateResponseObject interface {
+	VisitRenderTenantPolicyTemplateResponse(w http.ResponseWriter) error
+}
+
+type RenderTenantPolicyTemplate200JSONResponse PolicyTemplateRender
+
+func (response RenderTenantPolicyTemplate200JSONResponse) VisitRenderTenantPolicyTemplateResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RenderTenantPolicyTemplate401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response RenderTenantPolicyTemplate401ApplicationProblemPlusJSONResponse) VisitRenderTenantPolicyTemplateResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RenderTenantPolicyTemplate403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response RenderTenantPolicyTemplate403ApplicationProblemPlusJSONResponse) VisitRenderTenantPolicyTemplateResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RenderTenantPolicyTemplate404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response RenderTenantPolicyTemplate404ApplicationProblemPlusJSONResponse) VisitRenderTenantPolicyTemplateResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RenderTenantPolicyTemplate422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response RenderTenantPolicyTemplate422ApplicationProblemPlusJSONResponse) VisitRenderTenantPolicyTemplateResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RenderTenantPolicyTemplate429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response RenderTenantPolicyTemplate429ApplicationProblemPlusJSONResponse) VisitRenderTenantPolicyTemplateResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RenderTenantPolicyTemplatedefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response RenderTenantPolicyTemplatedefaultApplicationProblemPlusJSONResponse) VisitRenderTenantPolicyTemplateResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetTenantPolicyRequestObject struct {
 	TenantId  TenantId        `json:"tenantId"`
 	VersionId PolicyVersionId `json:"versionId"`
@@ -39686,6 +40318,12 @@ type StrictServerInterface interface {
 	// ImportTenantPolicy Dịch HuJSON của admin sang mô hình có kiểu (không lưu, không gọi Headscale)
 	// (POST /tenants/{tenantId}/policies/import)
 	ImportTenantPolicy(ctx context.Context, request ImportTenantPolicyRequestObject) (ImportTenantPolicyResponseObject, error)
+	// ListTenantPolicyTemplates Danh mục template policy (least-privilege)
+	// (GET /tenants/{tenantId}/policies/templates)
+	ListTenantPolicyTemplates(ctx context.Context, request ListTenantPolicyTemplatesRequestObject) (ListTenantPolicyTemplatesResponseObject, error)
+	// RenderTenantPolicyTemplate Render một template thành đoạn PolicySource (không lưu, không gọi Headscale)
+	// (POST /tenants/{tenantId}/policies/templates/render)
+	RenderTenantPolicyTemplate(ctx context.Context, request RenderTenantPolicyTemplateRequestObject) (RenderTenantPolicyTemplateResponseObject, error)
 	// GetTenantPolicy Một version policy
 	// (GET /tenants/{tenantId}/policies/{versionId})
 	GetTenantPolicy(ctx context.Context, request GetTenantPolicyRequestObject) (GetTenantPolicyResponseObject, error)
@@ -43204,6 +43842,65 @@ func (sh *strictHandler) ImportTenantPolicy(w http.ResponseWriter, r *http.Reque
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ImportTenantPolicyResponseObject); ok {
 		if err := validResponse.VisitImportTenantPolicyResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListTenantPolicyTemplates operation middleware
+func (sh *strictHandler) ListTenantPolicyTemplates(w http.ResponseWriter, r *http.Request, tenantId TenantId) {
+	var request ListTenantPolicyTemplatesRequestObject
+
+	request.TenantId = tenantId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListTenantPolicyTemplates(ctx, request.(ListTenantPolicyTemplatesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListTenantPolicyTemplates")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListTenantPolicyTemplatesResponseObject); ok {
+		if err := validResponse.VisitListTenantPolicyTemplatesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RenderTenantPolicyTemplate operation middleware
+func (sh *strictHandler) RenderTenantPolicyTemplate(w http.ResponseWriter, r *http.Request, tenantId TenantId) {
+	var request RenderTenantPolicyTemplateRequestObject
+
+	request.TenantId = tenantId
+
+	var body RenderTenantPolicyTemplateJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RenderTenantPolicyTemplate(ctx, request.(RenderTenantPolicyTemplateRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RenderTenantPolicyTemplate")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RenderTenantPolicyTemplateResponseObject); ok {
+		if err := validResponse.VisitRenderTenantPolicyTemplateResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

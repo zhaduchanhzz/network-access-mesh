@@ -315,6 +315,8 @@ func (m *matrixWorld) handlerSets(t *testing.T, w *sessionfixture.World) httpapi
 		Policies: policiesapi.New(versions),
 		// PolicyHuJSON (P4-T11): the HuJSON translator of the editor, the same handler set
 		PolicyHuJSON: policiesapi.New(versions),
+		// PolicyTmpl (P5-T01): the template catalog and render of the editor, the same handler set
+		PolicyTmpl: policiesapi.New(versions),
 		// Support (P4-T13): Support Access Grants, both sides
 		Support: supportapi.New(dir),
 		// Network (P4-T12): routes over the register (Headscale unreachable — every write is refused 428 first), DNS,

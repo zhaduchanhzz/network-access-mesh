@@ -53,14 +53,14 @@ type Finding struct {
 
 // Report is policy_versions.validation_report of a typed version (PolicyVersion.validation_report — §13.3): the
 // findings of the lint, the sha256 of the rendered policy it judged and the outcome of the dry run on the instance.
-// tests[] is always empty: tests are not generated (PL-04 — see the evidence of P4-T10).
+// tests[] lists the generated tests of the render and the grants left without one (testgen.go — P5-T01).
 type Report struct {
 	Engine         string     `json:"engine"`
 	Result         string     `json:"result"` // passed | failed
 	Errors         []Finding  `json:"errors"`
 	Warnings       []Finding  `json:"warnings"`
 	Info           []Finding  `json:"info"`
-	Tests          []any      `json:"tests"`
+	Tests          []TestCase `json:"tests"`
 	RenderedSHA256 string     `json:"rendered_sha256,omitempty"`
 	Check          string     `json:"check,omitempty"` // passed | failed | skipped
 	Revision       int64      `json:"revision,omitempty"`
@@ -75,7 +75,7 @@ const (
 )
 
 func newReport() Report {
-	return Report{Engine: engineTyped, Errors: []Finding{}, Warnings: []Finding{}, Info: []Finding{}, Tests: []any{}}
+	return Report{Engine: engineTyped, Errors: []Finding{}, Warnings: []Finding{}, Info: []Finding{}, Tests: []TestCase{}}
 }
 
 // add files f by its severity; a finding that needs an acknowledgement it does not have becomes an error.
@@ -217,6 +217,11 @@ func OutputLint(applied string) []Finding {
 			}
 			tokens = append(tokens, strs(r["dst"])...)
 		}
+	}
+	for _, r := range rules("tests") { // generated (P5-T01): a source or a destination may name a user
+		tokens = append(tokens, strs(r["src"])...)
+		tokens = append(tokens, strs(r["accept"])...)
+		tokens = append(tokens, strs(r["deny"])...)
 	}
 	for _, r := range rules("ssh") {
 		if a, _ := r["action"].(string); a == SSHCheck {

@@ -1498,7 +1498,7 @@
       "warnings": "Warnings",
       "info": "Information",
       "clean": "No finding.",
-      "testsNote": "tests/sshTests are not generated yet (PL-04); impact checks rely on CheckPolicy and the diff — not a simulation of effective access."
+      "testsNote": "Tests are generated at validation/application (see below); impact checks also rely on CheckPolicy and the diff — not a simulation of effective access."
     },
     "finding": {
       "wildcard_destination": "* or a default route as a destination — blocked unless a Tenant Owner acknowledges it with a reason (L4).",
@@ -1542,7 +1542,10 @@
       "unknown_autogroup": "Unknown autogroup.",
       "invalid_cidr": "The prefix has host bits set.",
       "invalid_prefix": "A route must be a masked IP prefix.",
-      "empty_principal": "Empty principal."
+      "empty_principal": "Empty principal.",
+      "via_not_asserted": "Generated tests cannot assert the access through via of this rule (V-24).",
+      "self_not_asserted": "Generated tests cannot assert the access to autogroup:self of this rule (V-24).",
+      "tests_failed": "Headscale refused the generated tests: an assertion is wrong, or a device they name is gone (PL-04)."
     },
     "hujson": {
       "label": "HuJSON text",
@@ -1694,6 +1697,80 @@
       "usersRequired": "needs at least one account.",
       "badSshUser": "invalid SSH account.",
       "ackReason": "the reason needs 5–500 characters."
+    },
+    "templates": {
+      "title": "Least-privilege templates",
+      "intro": "Templates are platform data (versioned): the server renders one deterministically into typed rules (by id) that are added to the draft — not saved, not applied. Save, validate and review as any change.",
+      "choose": "Template",
+      "versionN": "v{{version}}",
+      "loading": "Loading the template catalog…",
+      "apply": "Add to the draft",
+      "replace": "Replace the draft",
+      "applied": "{{count}} rule(s) from “{{name}}” ({{version}}) added to the draft — save to keep them.",
+      "replaced": "The draft was replaced by “{{name}}” ({{version}}) — save to keep it.",
+      "reportTitle": "Check of the template's rules on their own",
+      "params": {
+        "group_id": "Group granted access",
+        "tag_id": "Tag of the router / exit node (via)",
+        "resource_id": "Network resource",
+        "ports": "Protocol/ports",
+        "portsHint": "Comma separated, e.g. tcp:22, tcp:443. * is not accepted (least privilege).",
+        "portsInvalid": "Invalid protocol/port, or * (every port): {{value}}",
+        "noResources": "The network resource catalog cannot be read (the role cannot read it, or there is none yet).",
+        "required": "Choose {{name}}."
+      },
+      "items": {
+        "deny-all": {
+          "name": "Baseline deny-all",
+          "description": "Removes every rule: grants: [] — denies every connection (like the baseline policy of a new tenant)."
+        },
+        "own-devices": {
+          "name": "Only my own devices",
+          "description": "Every member reaches their own devices (autogroup:member → autogroup:self) on the chosen ports."
+        },
+        "group-to-resource": {
+          "name": "Group → resource by port",
+          "description": "A group reaches one network resource, on the chosen ports only."
+        },
+        "admins-to-devices": {
+          "name": "Admins → every device over management ports",
+          "description": "An admin group reaches every device (members' and tagged) on management ports only (tcp:22 by default)."
+        },
+        "exit-node": {
+          "name": "Exit node through a via tag",
+          "description": "A group uses the Internet through the exit node carrying the chosen tag (autogroup:internet with via)."
+        },
+        "subnet-router": {
+          "name": "Subnet router by resource",
+          "description": "A group reaches one resource (subnet) through the router carrying the chosen tag (via), on the chosen ports."
+        }
+      },
+      "notes": {
+        "tests_self_not_asserted": "Generated tests CANNOT assert access to autogroup:self: Headscale runs tests on its global filter, which leaves self rules out (V-24). Check with real connections.",
+        "tests_via_not_asserted": "Generated tests CANNOT assert access through via: Headscale runs tests on its global filter, which leaves via rules out (V-24). Check with real connections.",
+        "routes_need_approval": "The routes of the router/exit node still have to be approved on the Routes page.",
+        "self_large_tenant": "autogroup:self is costly in a large tenant (L8).",
+        "replaces_draft": "Replaces every rule of the draft."
+      }
+    },
+    "testsGen": {
+      "title": "Generated tests",
+      "intro": "At every validation/application the server generates tests from the grants and the devices of the moment; Headscale runs them on CheckPolicy/SetPolicy and refuses the policy when an assertion is wrong. Tests only see the global filter: they CANNOT assert access from via or autogroup:self (V-24) — this is not a simulation of effective access.",
+      "generated": "{{count}} test(s) generated",
+      "skippedCount": "{{count}} rule(s) without a test",
+      "rule": "Rule {{n}}",
+      "accept": "must be allowed",
+      "deny": "must be denied",
+      "proto": "protocol",
+      "skipped": {
+        "via_not_assertable": "has via — tests cannot see it (V-24)",
+        "self_not_assertable": "destination is only autogroup:self — tests cannot see it (V-24)",
+        "app_only": "application capabilities only, no port",
+        "no_testable_port": "no port tests can check (only * or a protocol tests do not take)",
+        "no_source_device": "no source has a device yet (PL-04)",
+        "no_destination": "no destination resolves to an address yet (PL-04)",
+        "capped": "over the test limit"
+      }
     }
   },
   "tags": {

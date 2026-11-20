@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -589,6 +590,13 @@ func codeOf(err error) string {
 		return CodeInternal
 	}
 	return CodeInstanceUnavailable
+}
+
+// testsRefused reports whether Headscale refused a policy because of its "tests" block ("test(s) failed" — the
+// upstream message is only matched, never shown: §13.4 rule 5).
+func testsRefused(err error) bool {
+	he, ok := headscale.AsError(err)
+	return ok && strings.Contains(he.Upstream, "test(s) failed")
 }
 
 // causeKind is the adapter error kind of cause for the audit ("" for another error) — never the upstream message.

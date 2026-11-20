@@ -359,7 +359,10 @@ run_phase 11 || { finish; exit 1; }
 
 # Pha 12: lõi policy của P3-T08a (internal/policies) trên bản vá, cùng sổ của pha 8–11 — fixture allow của repo (mount
 # chỉ-đọc ở /fixtures) ⇒ sha256 đọc lại khớp; chuỗi rỗng/thiếu grants bị lint chặn trước mọi lời gọi; áp đồng thời được
-# tuần tự hóa; kết thúc bằng baseline deny-all.
+# tuần tự hóa; kết thúc bằng baseline deny-all. Rồi (P5-T01, policytests_test.go) khối `tests` của policy: V-24 — tests có
+# khẳng định được quyền chỉ đến từ via / autogroup:self hay không (đối chứng không via/self + rule thật trong packet
+# filter của router / thiết bị), và tests do internal/policies sinh trên inventory thật qua CheckPolicy + SetPolicy; trả
+# lại policy cũ byte-for-byte và xóa node của nó.
 run_phase 12 || { finish; exit 1; }
 
 # Pha 13: xoay API key của instance (P3-T10, internal/provisioning/apikey) trên bản vá, cùng sổ của pha 8–12 — key của

@@ -627,13 +627,19 @@ func (c *InstanceReconfigurer) stepPolicy(ctx context.Context, a *rcAttempt, s s
 		_ = detail(s, map[string]any{"checked": true, "applied_sha256": pol.SHA256, "result": "lint_rejected"})
 		return jobs.Permanent("policy_check_failed", fmt.Errorf("the applied policy does not pass the lint: %w", lerr))
 	}
+	// The generated tests of the applied policy are left out (P5-T01): Headscale never runs them at start-up, and they
+	// name the devices of the moment of the apply (PL-04).
+	startup, err := policies.WithoutTests(doc.Applied)
+	if err != nil {
+		return jobs.Permanent("policy_check_failed", fmt.Errorf("the applied policy is not a JSON object: %w", err))
+	}
 	cctx, cancel := c.call(ctx)
 	defer cancel()
 	hs, err := c.cfg.Headscale.ForTenant(cctx, a.in.TenantID)
 	if err != nil {
 		return headscaleErr("ForTenant", err)
 	}
-	if err := hs.CheckPolicy(cctx, doc.Applied); err != nil {
+	if err := hs.CheckPolicy(cctx, startup); err != nil {
 		if he, ok := headscale.AsError(err); ok && (he.Kind == headscale.KindPolicyRejected ||
 			he.Kind == headscale.KindValidation || he.Kind == headscale.KindUpstreamRejected) {
 			// §7.3: a stored policy that does not pass CheckPolicy would stop the instance from starting (HS-09) —

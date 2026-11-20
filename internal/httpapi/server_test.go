@@ -111,6 +111,8 @@ var operations = []struct {
 	{http.MethodGet, "/api/v1/tenants/" + tenantID + "/policies/" + itemID + "/diff", "", "DiffTenantPolicy", nil},
 	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/policies/import", `{"hujson":"{}"}`, "ImportTenantPolicy", nil},
 	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/policies/export", `{"source":{"grants":[]}}`, "ExportTenantPolicy", nil},
+	{http.MethodGet, "/api/v1/tenants/" + tenantID + "/policies/templates", "", "ListTenantPolicyTemplates", nil},
+	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/policies/templates/render", `{"template_id":"deny-all","params":{}}`, "RenderTenantPolicyTemplate", nil},
 	{http.MethodPost, "/api/v1/tenants/" + tenantID + "/invitations/" + itemID + "/resend", "", "ResendTenantInvitation", nil},
 	// support access grants (P4-T13)
 	{http.MethodGet, "/api/v1/tenants/" + tenantID + "/support-grants?status=pending&limit=5", "", "ListTenantSupportGrants", nil},

@@ -2870,6 +2870,56 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tenants/{tenantId}/policies/templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Danh mục template policy (least-privilege)
+         * @description Template là **dữ liệu** của nền tảng (P5-T01, §7.2): `id` + `version` + tham số + ghi chú; editor hiển thị theo
+         *     `id` (bản dịch phía Portal). `deny-all` (thay toàn bộ bản nháp bằng `grants: []`), `own-devices`
+         *     (`autogroup:member` → `autogroup:self`), `group-to-resource`, `admins-to-devices` (group → `autogroup:member` +
+         *     `autogroup:tagged` trên cổng quản trị), `exit-node` (`autogroup:internet` qua `via` tag), `subnet-router` (tài
+         *     nguyên qua `via` tag). Ghi chú `tests_self_not_asserted`/`tests_via_not_asserted`: `tests` sinh tự động **không**
+         *     khẳng định được quyền đến từ `autogroup:self`/`via` (V-24). Như nhau cho mọi tenant; không đổi gì.
+         */
+        get: operations["listTenantPolicyTemplates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenantId}/policies/templates/render": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Render một template thành đoạn PolicySource (không lưu, không gọi Headscale)
+         * @description Tất định: cùng `template_id` + `version` + `params` ⇒ cùng đoạn `source` (principal có kiểu theo id). Tham số
+         *     không thuộc template, thiếu, sai dạng, cổng `*` (least-privilege) hoặc tham chiếu group/tag/tài nguyên không có
+         *     trong tenant ⇒ `422` (trường `params.<tên>`); `version` khác bản hiện hành ⇒ `422`. `report` là kết quả render +
+         *     lint L3–L13 của **riêng đoạn đó** trên bảng của tenant, kèm `tests` nó sẽ sinh từ inventory hiện tại. Editor
+         *     thêm đoạn vào bản nháp (`mode: append`) hoặc thay bản nháp (`mode: replace`) rồi lưu bằng `PATCH
+         *     /policies/{versionId}` như mọi lần sửa.
+         */
+        post: operations["renderTenantPolicyTemplate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -4439,7 +4489,10 @@ export interface components {
             owner_only?: boolean;
             acknowledged?: boolean;
         };
-        /** @description Kết quả lint/render/CheckPolicy (`policy_versions.validation_report`); `tests` luôn rỗng (chưa sinh) */
+        /**
+         * @description Kết quả lint/render/CheckPolicy (`policy_versions.validation_report`); `tests` = các ca `tests` sinh từ grants +
+         *     inventory thiết bị lúc render (P5-T01) — được gửi cùng policy và Headscale chạy chúng ở `CheckPolicy`/`SetPolicy`
+         */
         PolicyValidationReport: {
             engine: string;
             /** @enum {string} */
@@ -4447,7 +4500,7 @@ export interface components {
             errors: components["schemas"]["PolicyFinding"][];
             warnings: components["schemas"]["PolicyFinding"][];
             info: components["schemas"]["PolicyFinding"][];
-            tests: unknown[];
+            tests: components["schemas"]["PolicyTestCase"][];
             rendered_sha256?: string;
             /** @enum {string} */
             check?: "passed" | "failed" | "skipped";
@@ -4587,6 +4640,65 @@ export interface components {
             errors: components["schemas"]["PolicyFinding"][];
             warnings: components["schemas"]["PolicyFinding"][];
             principals: components["schemas"]["PolicyPrincipalName"][];
+        };
+        PolicyTemplateParam: {
+            /** @enum {string} */
+            name: "group_id" | "tag_id" | "resource_id" | "ports";
+            /** @enum {string} */
+            kind: "group" | "tag" | "resource" | "ports";
+            required: boolean;
+            /** @description Gợi ý least-privilege cho `ports` */
+            default?: string[];
+        };
+        PolicyTemplate: {
+            /** @enum {string} */
+            id: "deny-all" | "own-devices" | "group-to-resource" | "admins-to-devices" | "exit-node" | "subnet-router";
+            version: number;
+            /** @enum {string} */
+            mode: "append" | "replace";
+            params: components["schemas"]["PolicyTemplateParam"][];
+            notes: ("tests_self_not_asserted" | "tests_via_not_asserted" | "routes_need_approval" | "self_large_tenant" | "replaces_draft")[];
+        };
+        PolicyTemplateList: {
+            items: components["schemas"]["PolicyTemplate"][];
+        };
+        PolicyTemplateParams: {
+            /** Format: uuid */
+            group_id?: string;
+            /** Format: uuid */
+            tag_id?: string;
+            /** Format: uuid */
+            resource_id?: string;
+            ports?: string[];
+        };
+        PolicyTemplateRenderRequest: {
+            template_id: string;
+            version?: number;
+            params: components["schemas"]["PolicyTemplateParams"];
+        };
+        PolicyTemplateRender: {
+            template_id: string;
+            version: number;
+            /** @enum {string} */
+            mode: "append" | "replace";
+            source: components["schemas"]["PolicySource"];
+            report: components["schemas"]["PolicyValidationReport"];
+        };
+        /**
+         * @description Một ca `tests` sinh tự động (P5-T01) từ grant thứ `grant` (chỉ số trong `source.grants`), hoặc lý do grant đó
+         *     không có ca (`skipped`): `via_not_assertable`/`self_not_assertable` (V-24 — Headscale chạy `tests` trên bộ lọc
+         *     toàn cục, không thấy grant `via` và `autogroup:self`), `app_only`, `no_testable_port`, `no_source_device`,
+         *     `no_destination` (chưa có thiết bị — PL-04), `capped`.
+         */
+        PolicyTestCase: {
+            grant: number;
+            src?: string;
+            /** @enum {string} */
+            proto?: "tcp" | "udp" | "sctp";
+            accept?: string[];
+            deny?: string[];
+            /** @enum {string} */
+            skipped?: "via_not_assertable" | "self_not_assertable" | "app_only" | "no_testable_port" | "no_source_device" | "no_destination" | "capped";
         };
         PolicyExportRequest: {
             source: components["schemas"]["PolicySource"];
@@ -10522,6 +10634,67 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PolicyExport"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    listTenantPolicyTemplates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Danh mục template */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyTemplateList"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            default: components["responses"]["Unexpected"];
+        };
+    };
+    renderTenantPolicyTemplate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID tenant (UUID) — nguồn duy nhất của ngữ cảnh tenant (§13.1) */
+                tenantId: components["parameters"]["TenantId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyTemplateRenderRequest"];
+            };
+        };
+        responses: {
+            /** @description Đoạn PolicySource + báo cáo */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyTemplateRender"];
                 };
             };
             401: components["responses"]["Unauthenticated"];

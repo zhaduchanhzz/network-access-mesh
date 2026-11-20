@@ -3,7 +3,9 @@
 // (`tenant.policy:read`), createTenantPolicy, updateTenantPolicy, validateTenantPolicy, submitTenantPolicy
 // (`tenant.policy:edit`), approveTenantPolicy, rejectTenantPolicy (`tenant.policy:approve`), applyTenantPolicy,
 // rollbackTenantPolicy (`tenant.policy:apply` — §8.6) — and, for P4-T11 (httpapi.PolicyHuJSONHandlers), the HuJSON
-// translator of the editor: importTenantPolicy (`tenant.policy:edit`) and exportTenantPolicy (`tenant.policy:read`). It only translates between the generated types and
+// translator of the editor: importTenantPolicy (`tenant.policy:edit`) and exportTenantPolicy (`tenant.policy:read`) —
+// and, for P5-T01 (httpapi.PolicyTemplateHandlers), the template catalog: listTenantPolicyTemplates
+// (`tenant.policy:read`) and renderTenantPolicyTemplate (`tenant.policy:edit`). It only translates between the generated types and
 // policies.VersionService, which takes every decision (typed model, render, lint, review rule, If-Match, stale base,
 // step-up, the policy.apply job).
 //
@@ -46,6 +48,7 @@ type Service interface {
 	Diff(ctx context.Context, tenantID, id uuid.UUID, against *uuid.UUID) (policies.Diff, error)
 	Import(ctx context.Context, tenantID uuid.UUID, text string) (policies.ImportResult, error)
 	Export(ctx context.Context, tenantID uuid.UUID, source json.RawMessage) (policies.ExportResult, error)
+	RenderTemplate(ctx context.Context, tenantID uuid.UUID, req policies.TemplateRequest) (policies.TemplateResult, error)
 }
 
 var _ Service = (*policies.VersionService)(nil)
@@ -57,8 +60,9 @@ type Handlers struct {
 }
 
 var (
-	_ httpapi.PolicyHandlers       = (*Handlers)(nil)
-	_ httpapi.PolicyHuJSONHandlers = (*Handlers)(nil) // P4-T11: the same set serves the HuJSON translator
+	_ httpapi.PolicyHandlers         = (*Handlers)(nil)
+	_ httpapi.PolicyHuJSONHandlers   = (*Handlers)(nil) // P4-T11: the same set serves the HuJSON translator
+	_ httpapi.PolicyTemplateHandlers = (*Handlers)(nil) // P5-T01: and the template catalog
 )
 
 // New returns the handler set of P4-T10.
@@ -484,4 +488,35 @@ func (h *Handlers) ExportTenantPolicy(ctx context.Context, req gen.ExportTenantP
 		return nil, err
 	}
 	return gen.ExportTenantPolicy200JSONResponse(out), nil
+}
+
+// ListTenantPolicyTemplates implements GET /tenants/{tenantId}/policies/templates (P5-T01): the catalog — the same for
+// every tenant, data of the platform.
+func (h *Handlers) ListTenantPolicyTemplates(_ context.Context, _ gen.ListTenantPolicyTemplatesRequestObject) (gen.ListTenantPolicyTemplatesResponseObject, error) {
+	out, err := convert[gen.PolicyTemplateList](map[string]any{"items": policies.Templates()})
+	if err != nil {
+		return nil, err
+	}
+	return gen.ListTenantPolicyTemplates200JSONResponse(out), nil
+}
+
+// RenderTenantPolicyTemplate implements POST /tenants/{tenantId}/policies/templates/render (P5-T01): the fragment of a
+// template and its report — nothing is stored.
+func (h *Handlers) RenderTenantPolicyTemplate(ctx context.Context, req gen.RenderTenantPolicyTemplateRequestObject) (gen.RenderTenantPolicyTemplateResponseObject, error) {
+	if req.Body == nil {
+		return nil, bodyMissing()
+	}
+	in, err := convert[policies.TemplateRequest](req.Body)
+	if err != nil {
+		return nil, err
+	}
+	r, err := h.svc.RenderTemplate(ctx, req.TenantId, in)
+	if err != nil {
+		return nil, failure(err)
+	}
+	out, err := convert[gen.PolicyTemplateRender](r)
+	if err != nil {
+		return nil, err
+	}
+	return gen.RenderTenantPolicyTemplate200JSONResponse(out), nil
 }
