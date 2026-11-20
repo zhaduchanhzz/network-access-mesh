@@ -172,6 +172,27 @@ func (e BackupStatus) Valid() bool {
 	}
 }
 
+// Defines values for ConnectivityDiagnosisVerdict.
+const (
+	ConnectivityDiagnosisVerdictAllowed ConnectivityDiagnosisVerdict = "allowed"
+	ConnectivityDiagnosisVerdictBlocked ConnectivityDiagnosisVerdict = "blocked"
+	ConnectivityDiagnosisVerdictUnknown ConnectivityDiagnosisVerdict = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the ConnectivityDiagnosisVerdict enum.
+func (e ConnectivityDiagnosisVerdict) Valid() bool {
+	switch e {
+	case ConnectivityDiagnosisVerdictAllowed:
+		return true
+	case ConnectivityDiagnosisVerdictBlocked:
+		return true
+	case ConnectivityDiagnosisVerdictUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for DeviceRevocationKind.
 const (
 	DeviceRevocationKindDelete DeviceRevocationKind = "delete"
@@ -208,6 +229,267 @@ func (e DeviceRevocationState) Valid() bool {
 	case DeviceRevocationStateNone:
 		return true
 	case DeviceRevocationStatePending:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DiagnosticsAPIKeyStatus.
+const (
+	DiagnosticsAPIKeyStatusExpired  DiagnosticsAPIKeyStatus = "expired"
+	DiagnosticsAPIKeyStatusExpiring DiagnosticsAPIKeyStatus = "expiring"
+	DiagnosticsAPIKeyStatusUnknown  DiagnosticsAPIKeyStatus = "unknown"
+	DiagnosticsAPIKeyStatusValid    DiagnosticsAPIKeyStatus = "valid"
+)
+
+// Valid indicates whether the value is a known member of the DiagnosticsAPIKeyStatus enum.
+func (e DiagnosticsAPIKeyStatus) Valid() bool {
+	switch e {
+	case DiagnosticsAPIKeyStatusExpired:
+		return true
+	case DiagnosticsAPIKeyStatusExpiring:
+		return true
+	case DiagnosticsAPIKeyStatusUnknown:
+		return true
+	case DiagnosticsAPIKeyStatusValid:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DiagnosticsAccessDecision.
+const (
+	DiagnosticsAccessDecisionAllowed DiagnosticsAccessDecision = "allowed"
+	DiagnosticsAccessDecisionDenied  DiagnosticsAccessDecision = "denied"
+	DiagnosticsAccessDecisionUnknown DiagnosticsAccessDecision = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the DiagnosticsAccessDecision enum.
+func (e DiagnosticsAccessDecision) Valid() bool {
+	switch e {
+	case DiagnosticsAccessDecisionAllowed:
+		return true
+	case DiagnosticsAccessDecisionDenied:
+		return true
+	case DiagnosticsAccessDecisionUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DiagnosticsCheckId.
+const (
+	DiagnosticsCheckIdInstanceHealthy  DiagnosticsCheckId = "instance_healthy"
+	DiagnosticsCheckIdInventoryFresh   DiagnosticsCheckId = "inventory_fresh"
+	DiagnosticsCheckIdPolicyApplied    DiagnosticsCheckId = "policy_applied"
+	DiagnosticsCheckIdPolicyGrant      DiagnosticsCheckId = "policy_grant"
+	DiagnosticsCheckIdRelayHealthy     DiagnosticsCheckId = "relay_healthy"
+	DiagnosticsCheckIdRouteApproved    DiagnosticsCheckId = "route_approved"
+	DiagnosticsCheckIdSourceNotExpired DiagnosticsCheckId = "source_not_expired"
+	DiagnosticsCheckIdSourceNotRevoked DiagnosticsCheckId = "source_not_revoked"
+	DiagnosticsCheckIdSourceOnline     DiagnosticsCheckId = "source_online"
+	DiagnosticsCheckIdTargetNotExpired DiagnosticsCheckId = "target_not_expired"
+	DiagnosticsCheckIdTargetNotRevoked DiagnosticsCheckId = "target_not_revoked"
+	DiagnosticsCheckIdTargetOnline     DiagnosticsCheckId = "target_online"
+	DiagnosticsCheckIdTenantActive     DiagnosticsCheckId = "tenant_active"
+)
+
+// Valid indicates whether the value is a known member of the DiagnosticsCheckId enum.
+func (e DiagnosticsCheckId) Valid() bool {
+	switch e {
+	case DiagnosticsCheckIdInstanceHealthy:
+		return true
+	case DiagnosticsCheckIdInventoryFresh:
+		return true
+	case DiagnosticsCheckIdPolicyApplied:
+		return true
+	case DiagnosticsCheckIdPolicyGrant:
+		return true
+	case DiagnosticsCheckIdRelayHealthy:
+		return true
+	case DiagnosticsCheckIdRouteApproved:
+		return true
+	case DiagnosticsCheckIdSourceNotExpired:
+		return true
+	case DiagnosticsCheckIdSourceNotRevoked:
+		return true
+	case DiagnosticsCheckIdSourceOnline:
+		return true
+	case DiagnosticsCheckIdTargetNotExpired:
+		return true
+	case DiagnosticsCheckIdTargetNotRevoked:
+		return true
+	case DiagnosticsCheckIdTargetOnline:
+		return true
+	case DiagnosticsCheckIdTenantActive:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DiagnosticsCheckStatus.
+const (
+	DiagnosticsCheckStatusFail          DiagnosticsCheckStatus = "fail"
+	DiagnosticsCheckStatusNotApplicable DiagnosticsCheckStatus = "not_applicable"
+	DiagnosticsCheckStatusPass          DiagnosticsCheckStatus = "pass"
+	DiagnosticsCheckStatusUnknown       DiagnosticsCheckStatus = "unknown"
+	DiagnosticsCheckStatusWarn          DiagnosticsCheckStatus = "warn"
+)
+
+// Valid indicates whether the value is a known member of the DiagnosticsCheckStatus enum.
+func (e DiagnosticsCheckStatus) Valid() bool {
+	switch e {
+	case DiagnosticsCheckStatusFail:
+		return true
+	case DiagnosticsCheckStatusNotApplicable:
+		return true
+	case DiagnosticsCheckStatusPass:
+		return true
+	case DiagnosticsCheckStatusUnknown:
+		return true
+	case DiagnosticsCheckStatusWarn:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DiagnosticsCommandId.
+const (
+	DiagnosticsCommandIdAcceptRoutes DiagnosticsCommandId = "accept_routes"
+	DiagnosticsCommandIdDebugDerp    DiagnosticsCommandId = "debug_derp"
+	DiagnosticsCommandIdHttpProbe    DiagnosticsCommandId = "http_probe"
+	DiagnosticsCommandIdListenCheck  DiagnosticsCommandId = "listen_check"
+	DiagnosticsCommandIdNetcheck     DiagnosticsCommandId = "netcheck"
+	DiagnosticsCommandIdPing         DiagnosticsCommandId = "ping"
+	DiagnosticsCommandIdStatus       DiagnosticsCommandId = "status"
+	DiagnosticsCommandIdTcpConnect   DiagnosticsCommandId = "tcp_connect"
+)
+
+// Valid indicates whether the value is a known member of the DiagnosticsCommandId enum.
+func (e DiagnosticsCommandId) Valid() bool {
+	switch e {
+	case DiagnosticsCommandIdAcceptRoutes:
+		return true
+	case DiagnosticsCommandIdDebugDerp:
+		return true
+	case DiagnosticsCommandIdHttpProbe:
+		return true
+	case DiagnosticsCommandIdListenCheck:
+		return true
+	case DiagnosticsCommandIdNetcheck:
+		return true
+	case DiagnosticsCommandIdPing:
+		return true
+	case DiagnosticsCommandIdStatus:
+		return true
+	case DiagnosticsCommandIdTcpConnect:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DiagnosticsCommandOs.
+const (
+	DiagnosticsCommandOsLinux   DiagnosticsCommandOs = "linux"
+	DiagnosticsCommandOsMacos   DiagnosticsCommandOs = "macos"
+	DiagnosticsCommandOsWindows DiagnosticsCommandOs = "windows"
+)
+
+// Valid indicates whether the value is a known member of the DiagnosticsCommandOs enum.
+func (e DiagnosticsCommandOs) Valid() bool {
+	switch e {
+	case DiagnosticsCommandOsLinux:
+		return true
+	case DiagnosticsCommandOsMacos:
+		return true
+	case DiagnosticsCommandOsWindows:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DiagnosticsCommandRunOn.
+const (
+	DiagnosticsCommandRunOnSource DiagnosticsCommandRunOn = "source"
+	DiagnosticsCommandRunOnTarget DiagnosticsCommandRunOn = "target"
+)
+
+// Valid indicates whether the value is a known member of the DiagnosticsCommandRunOn enum.
+func (e DiagnosticsCommandRunOn) Valid() bool {
+	switch e {
+	case DiagnosticsCommandRunOnSource:
+		return true
+	case DiagnosticsCommandRunOnTarget:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DiagnosticsDeviceRevocationState.
+const (
+	DiagnosticsDeviceRevocationStateApplied DiagnosticsDeviceRevocationState = "applied"
+	DiagnosticsDeviceRevocationStateFailed  DiagnosticsDeviceRevocationState = "failed"
+	DiagnosticsDeviceRevocationStateNone    DiagnosticsDeviceRevocationState = "none"
+	DiagnosticsDeviceRevocationStatePending DiagnosticsDeviceRevocationState = "pending"
+)
+
+// Valid indicates whether the value is a known member of the DiagnosticsDeviceRevocationState enum.
+func (e DiagnosticsDeviceRevocationState) Valid() bool {
+	switch e {
+	case DiagnosticsDeviceRevocationStateApplied:
+		return true
+	case DiagnosticsDeviceRevocationStateFailed:
+		return true
+	case DiagnosticsDeviceRevocationStateNone:
+		return true
+	case DiagnosticsDeviceRevocationStatePending:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DiagnosticsEdgeStatus.
+const (
+	DiagnosticsEdgeStatusReachable   DiagnosticsEdgeStatus = "reachable"
+	DiagnosticsEdgeStatusUnknown     DiagnosticsEdgeStatus = "unknown"
+	DiagnosticsEdgeStatusUnreachable DiagnosticsEdgeStatus = "unreachable"
+)
+
+// Valid indicates whether the value is a known member of the DiagnosticsEdgeStatus enum.
+func (e DiagnosticsEdgeStatus) Valid() bool {
+	switch e {
+	case DiagnosticsEdgeStatusReachable:
+		return true
+	case DiagnosticsEdgeStatusUnknown:
+		return true
+	case DiagnosticsEdgeStatusUnreachable:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DiagnosticsTargetKind.
+const (
+	DiagnosticsTargetKindDevice   DiagnosticsTargetKind = "device"
+	DiagnosticsTargetKindResource DiagnosticsTargetKind = "resource"
+)
+
+// Valid indicates whether the value is a known member of the DiagnosticsTargetKind enum.
+func (e DiagnosticsTargetKind) Valid() bool {
+	switch e {
+	case DiagnosticsTargetKindDevice:
+		return true
+	case DiagnosticsTargetKindResource:
 		return true
 	default:
 		return false
@@ -2084,6 +2366,39 @@ type ComponentHealth struct {
 	Status HealthStatus `json:"status"`
 }
 
+// ConnectivityDiagnosis Kết luận của control plane (không phải phép đo đường đi — `path_observable` luôn `false`) + checklist lệnh
+type ConnectivityDiagnosis struct {
+	CheckedAt time.Time            `json:"checked_at"`
+	Checks    []DiagnosticsCheck   `json:"checks"`
+	Commands  []DiagnosticsCommand `json:"commands"`
+
+	// PathObservable Luôn `false` — server không quan sát được đường đi giữa hai thiết bị
+	PathObservable bool `json:"path_observable"`
+
+	// Policy Policy của tenant theo hồ sơ của nền tảng: lần áp hiện hành của instance (đã áp lên Headscale và read-back — không phải "client đã hội tụ", T-18), lần áp gần nhất bất kể trạng thái, version mong muốn
+	Policy DiagnosticsPolicy `json:"policy"`
+	Port   *int              `json:"port,omitempty"`
+
+	// RelayCode region_code của relay `active` (vắng khi không có)
+	RelayCode *string `json:"relay_code,omitempty"`
+
+	// Source Thiết bị trong sổ thiết bị (cache của `inventory.sync`, kèm `synced_at`) — `online` là góc nhìn của control plane
+	Source  DiagnosticsDevice            `json:"source"`
+	Target  DiagnosticsTarget            `json:"target"`
+	Verdict ConnectivityDiagnosisVerdict `json:"verdict"`
+}
+
+// ConnectivityDiagnosisVerdict defines model for ConnectivityDiagnosis.Verdict.
+type ConnectivityDiagnosisVerdict string
+
+// ConnectivityDiagnosisRequest Đúng một trong `target_device_id`, `target_resource_id`; `port` vắng ⇒ cổng TCP bất kỳ
+type ConnectivityDiagnosisRequest struct {
+	Port             *int                `json:"port,omitempty"`
+	SourceDeviceId   openapi_types.UUID  `json:"source_device_id"`
+	TargetDeviceId   *openapi_types.UUID `json:"target_device_id,omitempty"`
+	TargetResourceId *openapi_types.UUID `json:"target_resource_id,omitempty"`
+}
+
 // Device Thiết bị (node của Headscale) trong sổ thiết bị của nền tảng (§13.3); dữ liệu cache kèm `synced_at`
 type Device struct {
 	// Expiry Hạn của node; `null` là không hết hạn
@@ -2184,6 +2499,183 @@ type DeviceTagsUpdate struct {
 	// Tags Tập tag mới (thay thế toàn bộ) — mỗi tag phải có trong danh mục của tenant
 	Tags []string `json:"tags"`
 }
+
+// DiagnosticsAPIKey Hạn API key Headscale của instance (`tenant_instances.api_key_expires_at`) — chỉ thời điểm, không secret, không prefix. `expiring` khi còn ≤ 14 ngày (§13.5, §16.3); `unknown` khi chưa ghi nhận hạn
+type DiagnosticsAPIKey struct {
+	ExpiresAt *time.Time              `json:"expires_at"`
+	Status    DiagnosticsAPIKeyStatus `json:"status"`
+}
+
+// DiagnosticsAPIKeyStatus defines model for DiagnosticsAPIKey.Status.
+type DiagnosticsAPIKeyStatus string
+
+// DiagnosticsAccess Câu trả lời của policy đang áp (văn bản đã read-back) cho nguồn → đích ở TCP `port` — `grants` là chỉ số các grant phủ cặp nguồn/đích (bất kể cổng), `allowed` là các mục `ip` của chúng; `unresolved` là principal không hiểu được (khi đó từ chối được báo `unknown`, không phải `denied`)
+type DiagnosticsAccess struct {
+	Allowed  []string                  `json:"allowed"`
+	Decision DiagnosticsAccessDecision `json:"decision"`
+	Grants   []int                     `json:"grants"`
+
+	// Reason `no_matching_grant`, `port_not_allowed`, `no_tcp_allowed`, `unreadable_policy`, `unsupported_policy`, `unresolved_principals`, `no_applied_policy` (chỉ bổ sung)
+	Reason     *string  `json:"reason,omitempty"`
+	Unresolved []string `json:"unresolved"`
+}
+
+// DiagnosticsAccessDecision defines model for DiagnosticsAccess.Decision.
+type DiagnosticsAccessDecision string
+
+// DiagnosticsCheck Một phép kiểm trên dữ liệu control plane (thứ tự cố định)
+type DiagnosticsCheck struct {
+	Id     DiagnosticsCheckId     `json:"id"`
+	Reason *string                `json:"reason,omitempty"`
+	Status DiagnosticsCheckStatus `json:"status"`
+}
+
+// DiagnosticsCheckId defines model for DiagnosticsCheck.Id.
+type DiagnosticsCheckId string
+
+// DiagnosticsCheckStatus defines model for DiagnosticsCheck.Status.
+type DiagnosticsCheckStatus string
+
+// DiagnosticsCommand Một lệnh của checklist — chạy trên thiết bị (`run_on`), không phải trên server. `<host>` trong `command` là chỗ người dùng điền một địa chỉ trong subnet của tài nguyên
+type DiagnosticsCommand struct {
+	Command string                  `json:"command"`
+	Id      DiagnosticsCommandId    `json:"id"`
+	Os      DiagnosticsCommandOs    `json:"os"`
+	RunOn   DiagnosticsCommandRunOn `json:"run_on"`
+}
+
+// DiagnosticsCommandId defines model for DiagnosticsCommand.Id.
+type DiagnosticsCommandId string
+
+// DiagnosticsCommandOs defines model for DiagnosticsCommand.Os.
+type DiagnosticsCommandOs string
+
+// DiagnosticsCommandRunOn defines model for DiagnosticsCommand.RunOn.
+type DiagnosticsCommandRunOn string
+
+// DiagnosticsDevice Thiết bị trong sổ thiết bị (cache của `inventory.sync`, kèm `synced_at`) — `online` là góc nhìn của control plane
+type DiagnosticsDevice struct {
+	Expiry      *time.Time         `json:"expiry"`
+	GivenName   string             `json:"given_name"`
+	Id          openapi_types.UUID `json:"id"`
+	IpAddresses []string           `json:"ip_addresses"`
+	LastSeen    *time.Time         `json:"last_seen"`
+	Name        string             `json:"name"`
+	Online      bool               `json:"online"`
+
+	// OwnerMembershipId Chủ của thiết bị không gắn tag; vắng khi gắn tag hoặc không rõ
+	OwnerMembershipId *openapi_types.UUID              `json:"owner_membership_id,omitempty"`
+	RevocationState   DiagnosticsDeviceRevocationState `json:"revocation_state"`
+	SyncedAt          time.Time                        `json:"synced_at"`
+	Tags              []string                         `json:"tags"`
+}
+
+// DiagnosticsDeviceRevocationState defines model for DiagnosticsDevice.RevocationState.
+type DiagnosticsDeviceRevocationState string
+
+// DiagnosticsDeviceCounts Số thiết bị của sổ thiết bị (`offline` = `total − online`; `expired` theo đồng hồ DB); số chỉ có nghĩa khi `synced_at` khác `null`
+type DiagnosticsDeviceCounts struct {
+	Expired  int        `json:"expired"`
+	Offline  int        `json:"offline"`
+	Online   int        `json:"online"`
+	SyncedAt *time.Time `json:"synced_at"`
+	Total    int        `json:"total"`
+}
+
+// DiagnosticsEdge Edge tới được trên hostname của tenant — suy ra từ phép kiểm DERP của lần `relay.probe` gần nhất của relay `active` đầu tiên (`GET /derp/probe` qua listener công khai, cùng đường với kết nối control của client); không có kết luận ⇒ `unknown` kèm `reason`
+type DiagnosticsEdge struct {
+	CheckedAt *time.Time `json:"checked_at"`
+
+	// Reason Mã lỗi của prober khi `unreachable`; lý do không kết luận khi `unknown` (`no_relay`, `never_checked`, `stale`…)
+	Reason *string               `json:"reason,omitempty"`
+	Status DiagnosticsEdgeStatus `json:"status"`
+}
+
+// DiagnosticsEdgeStatus defines model for DiagnosticsEdge.Status.
+type DiagnosticsEdgeStatus string
+
+// DiagnosticsInstance Instance chưa `removed` của tenant; `status` vắng khi tenant chưa có instance (`health.reason = no_instance`)
+type DiagnosticsInstance struct {
+	// ApiKey Hạn API key Headscale của instance (`tenant_instances.api_key_expires_at`) — chỉ thời điểm, không secret, không prefix. `expiring` khi còn ≤ 14 ngày (§13.5, §16.3); `unknown` khi chưa ghi nhận hạn
+	ApiKey DiagnosticsAPIKey `json:"api_key"`
+
+	// Health Kết quả health probe gần nhất của instance qua adapter (`GET /version`, `GET /api/v1/health` — §16.2); `checked_at` là lúc probe bắt đầu, `null` khi chưa từng probe. Kết quả cũ hơn ngưỡng, hoặc instance không ở trạng thái `running`, cho `status = unknown` kèm `reason`
+	Health InstanceHealth `json:"health"`
+
+	// Status TenantInstanceStatus (§13.3)
+	Status *InstanceStatus `json:"status,omitempty"`
+}
+
+// DiagnosticsPolicy Policy của tenant theo hồ sơ của nền tảng: lần áp hiện hành của instance (đã áp lên Headscale và read-back — không phải "client đã hội tụ", T-18), lần áp gần nhất bất kể trạng thái, version mong muốn
+type DiagnosticsPolicy struct {
+	// Access Câu trả lời của policy đang áp (văn bản đã read-back) cho nguồn → đích ở TCP `port` — `grants` là chỉ số các grant phủ cặp nguồn/đích (bất kể cổng), `allowed` là các mục `ip` của chúng; `unresolved` là principal không hiểu được (khi đó từ chối được báo `unknown`, không phải `denied`)
+	Access          *DiagnosticsAccess `json:"access,omitempty"`
+	Applied         bool               `json:"applied"`
+	AppliedAt       *time.Time         `json:"applied_at,omitempty"`
+	AppliedSha256   *string            `json:"applied_sha256,omitempty"`
+	DesiredVersion  *int               `json:"desired_version,omitempty"`
+	LatestAt        *time.Time         `json:"latest_at,omitempty"`
+	LatestErrorCode *string            `json:"latest_error_code,omitempty"`
+
+	// LatestState Trạng thái lần áp gần nhất (`pending`, `applied`, `failed`…)
+	LatestState *string             `json:"latest_state,omitempty"`
+	Trigger     *string             `json:"trigger,omitempty"`
+	Version     *int                `json:"version,omitempty"`
+	VersionId   *openapi_types.UUID `json:"version_id,omitempty"`
+}
+
+// DiagnosticsRelay Relay của tenant (region_code là mã `tailscale status`/`ping` in — `relay "<code>"`, `via DERP(<code>)`)
+type DiagnosticsRelay struct {
+	CheckedAt *time.Time `json:"checked_at"`
+	Code      string     `json:"code"`
+
+	// DerpOk Phép kiểm DERP của lần probe ở `checked_at`; vắng khi không có
+	DerpOk *bool `json:"derp_ok,omitempty"`
+
+	// Health Kết quả health check gần nhất; `unknown` khi chưa từng kiểm
+	Health   HealthStatus `json:"health"`
+	Hostname string       `json:"hostname"`
+	Name     string       `json:"name"`
+	Reason   *string      `json:"reason,omitempty"`
+
+	// Status Trạng thái quản trị (`relay_regions.status`, `relay_assignments.status` — 0010); sức khỏe đo được nằm ở `health`, không ở đây
+	Status RelayAdminStatus `json:"status"`
+
+	// StunOk Phép kiểm STUN của lần probe ở `checked_at`; vắng khi không có
+	StunOk *bool `json:"stun_ok,omitempty"`
+}
+
+// DiagnosticsResource defines model for DiagnosticsResource.
+type DiagnosticsResource struct {
+	// Address Địa chỉ đơn (không độ dài prefix) hoặc prefix của subnet
+	Address  string             `json:"address"`
+	Id       openapi_types.UUID `json:"id"`
+	Name     string             `json:"name"`
+	Ports    []string           `json:"ports"`
+	Protocol string             `json:"protocol"`
+}
+
+// DiagnosticsRouter Router có route đã duyệt phủ địa chỉ của tài nguyên (route exit node không tính)
+type DiagnosticsRouter struct {
+	ApprovedRoutes []string           `json:"approved_routes"`
+	DeviceId       openapi_types.UUID `json:"device_id"`
+	IpAddresses    []string           `json:"ip_addresses"`
+	Name           string             `json:"name"`
+	Online         bool               `json:"online"`
+	Tags           []string           `json:"tags"`
+}
+
+// DiagnosticsTarget defines model for DiagnosticsTarget.
+type DiagnosticsTarget struct {
+	// Device Thiết bị trong sổ thiết bị (cache của `inventory.sync`, kèm `synced_at`) — `online` là góc nhìn của control plane
+	Device   *DiagnosticsDevice    `json:"device,omitempty"`
+	Kind     DiagnosticsTargetKind `json:"kind"`
+	Resource *DiagnosticsResource  `json:"resource,omitempty"`
+	Routers  []DiagnosticsRouter   `json:"routers"`
+}
+
+// DiagnosticsTargetKind defines model for DiagnosticsTarget.Kind.
+type DiagnosticsTargetKind string
 
 // DnsPending Lần `instance.reconfigure` chưa kết thúc của instance
 type DnsPending struct {
@@ -4266,6 +4758,28 @@ type TenantDeletionRequestCreate struct {
 	Reason      string `json:"reason"`
 }
 
+// TenantDiagnostics Trạng thái control plane của tenant (P5-T08) — mọi phần kèm thời điểm quan sát; phần không có nguồn ở `unavailable`
+type TenantDiagnostics struct {
+	CheckedAt time.Time `json:"checked_at"`
+
+	// Devices Số thiết bị của sổ thiết bị (`offline` = `total − online`; `expired` theo đồng hồ DB); số chỉ có nghĩa khi `synced_at` khác `null`
+	Devices DiagnosticsDeviceCounts `json:"devices"`
+
+	// Edge Edge tới được trên hostname của tenant — suy ra từ phép kiểm DERP của lần `relay.probe` gần nhất của relay `active` đầu tiên (`GET /derp/probe` qua listener công khai, cùng đường với kết nối control của client); không có kết luận ⇒ `unknown` kèm `reason`
+	Edge DiagnosticsEdge `json:"edge"`
+
+	// Instance Instance chưa `removed` của tenant; `status` vắng khi tenant chưa có instance (`health.reason = no_instance`)
+	Instance DiagnosticsInstance `json:"instance"`
+
+	// Policy Policy của tenant theo hồ sơ của nền tảng: lần áp hiện hành của instance (đã áp lên Headscale và read-back — không phải "client đã hội tụ", T-18), lần áp gần nhất bất kể trạng thái, version mong muốn
+	Policy DiagnosticsPolicy  `json:"policy"`
+	Relays []DiagnosticsRelay `json:"relays"`
+
+	// TenantStatus Trạng thái tenant (`tenants.status`, §6.3)
+	TenantStatus TenantStatus         `json:"tenant_status"`
+	Unavailable  []UnavailableSection `json:"unavailable"`
+}
+
 // TenantEnrollmentSettings defines model for TenantEnrollmentSettings.
 type TenantEnrollmentSettings struct {
 	IdentityMode TenantIdentityMode `json:"identity_mode"`
@@ -4440,10 +4954,10 @@ type UnavailableSection struct {
 	// Detail Câu giải thích ngắn (tiếng Anh) cho người đọc; phần ổn định là `reason`
 	Detail *string `json:"detail,omitempty"`
 
-	// Reason `never_synced` (sổ thiết bị chưa từng sync — các số đếm của `devices` không phải số liệu), `no_source` (nền tảng chưa có nguồn cho mục này), `not_served` (có nguồn nhưng dashboard chưa phục vụ số liệu này)
+	// Reason `never_synced` (sổ thiết bị chưa từng sync — các số đếm của `devices` không phải số liệu), `no_source` (nền tảng chưa có nguồn cho mục này), `not_served` (có nguồn nhưng dashboard chưa phục vụ số liệu này); diagnostics: `no_probe` (không có probe riêng), `not_observable` (server không quan sát được), `never_applied` (chưa có policy nào được ghi nhận đã áp), `no_relay` (tenant chưa có relay)
 	Reason string `json:"reason"`
 
-	// Section Mục của dashboard — `devices`, `policies`, `routes`, `relay`, `security_events` (chỉ bổ sung)
+	// Section Mục của dashboard — `devices`, `policies`, `routes`, `relay`, `security_events`; của diagnostics (P5-T08) thêm `noise`, `p2p_path` (chỉ bổ sung)
 	Section string `json:"section"`
 }
 
@@ -5514,6 +6028,9 @@ type RenameDeviceJSONRequestBody = DeviceRename
 // SetDeviceTagsJSONRequestBody defines body for SetDeviceTags for application/json ContentType.
 type SetDeviceTagsJSONRequestBody = DeviceTagsUpdate
 
+// RunTenantConnectivityDiagnosisJSONRequestBody defines body for RunTenantConnectivityDiagnosis for application/json ContentType.
+type RunTenantConnectivityDiagnosisJSONRequestBody = ConnectivityDiagnosisRequest
+
 // CreateTenantDnsRecordJSONRequestBody defines body for CreateTenantDnsRecord for application/json ContentType.
 type CreateTenantDnsRecordJSONRequestBody = DnsRecordCreate
 
@@ -5849,6 +6366,12 @@ type ServerInterface interface {
 	// SetDeviceTags Thay tập tag của thiết bị
 	// (PUT /tenants/{tenantId}/devices/{deviceId}/tags)
 	SetDeviceTags(w http.ResponseWriter, r *http.Request, tenantId TenantId, deviceId DeviceId, params SetDeviceTagsParams)
+	// RunTenantConnectivityDiagnosis Kết luận kết nối từ dữ liệu control plane + checklist lệnh chạy trên thiết bị
+	// (POST /tenants/{tenantId}/diagnostics/connectivity)
+	RunTenantConnectivityDiagnosis(w http.ResponseWriter, r *http.Request, tenantId TenantId)
+	// GetTenantDiagnosticsInstance Trạng thái control plane của tenant — mỗi phần kèm thời điểm quan sát
+	// (GET /tenants/{tenantId}/diagnostics/instance)
+	GetTenantDiagnosticsInstance(w http.ResponseWriter, r *http.Request, tenantId TenantId)
 	// GetTenantDns DNS của tenant — MagicDNS, nameserver đang hiệu lực, lần reconfigure chưa xong
 	// (GET /tenants/{tenantId}/dns)
 	GetTenantDns(w http.ResponseWriter, r *http.Request, tenantId TenantId)
@@ -10038,6 +10561,58 @@ func (siw *ServerInterfaceWrapper) SetDeviceTags(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// RunTenantConnectivityDiagnosis operation middleware
+func (siw *ServerInterfaceWrapper) RunTenantConnectivityDiagnosis(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RunTenantConnectivityDiagnosis(w, r, tenantId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetTenantDiagnosticsInstance operation middleware
+func (siw *ServerInterfaceWrapper) GetTenantDiagnosticsInstance(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", r.PathValue("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tenantId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetTenantDiagnosticsInstance(w, r, tenantId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetTenantDns operation middleware
 func (siw *ServerInterfaceWrapper) GetTenantDns(w http.ResponseWriter, r *http.Request) {
 
@@ -13786,6 +14361,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tenants/{tenantId}/notifications", wrapper.ListNotifications)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants/{tenantId}/notifications/{notificationId}/read", wrapper.MarkNotificationRead)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tenants/{tenantId}/relay", wrapper.GetTenantRelay)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tenants/{tenantId}/diagnostics/instance", wrapper.GetTenantDiagnosticsInstance)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tenants/{tenantId}/diagnostics/connectivity", wrapper.RunTenantConnectivityDiagnosis)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/platform/relay-regions", wrapper.ListPlatformRelayRegions)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/platform/tenants", wrapper.ListPlatformTenants)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/platform/tenants", wrapper.CreatePlatformTenant)
@@ -26565,6 +27142,288 @@ type SetDeviceTagsdefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response SetDeviceTagsdefaultApplicationProblemPlusJSONResponse) VisitSetDeviceTagsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunTenantConnectivityDiagnosisRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	Body     *RunTenantConnectivityDiagnosisJSONRequestBody
+}
+
+type RunTenantConnectivityDiagnosisResponseObject interface {
+	VisitRunTenantConnectivityDiagnosisResponse(w http.ResponseWriter) error
+}
+
+type RunTenantConnectivityDiagnosis200JSONResponse ConnectivityDiagnosis
+
+func (response RunTenantConnectivityDiagnosis200JSONResponse) VisitRunTenantConnectivityDiagnosisResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunTenantConnectivityDiagnosis401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response RunTenantConnectivityDiagnosis401ApplicationProblemPlusJSONResponse) VisitRunTenantConnectivityDiagnosisResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunTenantConnectivityDiagnosis403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response RunTenantConnectivityDiagnosis403ApplicationProblemPlusJSONResponse) VisitRunTenantConnectivityDiagnosisResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunTenantConnectivityDiagnosis404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response RunTenantConnectivityDiagnosis404ApplicationProblemPlusJSONResponse) VisitRunTenantConnectivityDiagnosisResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunTenantConnectivityDiagnosis422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response RunTenantConnectivityDiagnosis422ApplicationProblemPlusJSONResponse) VisitRunTenantConnectivityDiagnosisResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunTenantConnectivityDiagnosis429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response RunTenantConnectivityDiagnosis429ApplicationProblemPlusJSONResponse) VisitRunTenantConnectivityDiagnosisResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunTenantConnectivityDiagnosisdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response RunTenantConnectivityDiagnosisdefaultApplicationProblemPlusJSONResponse) VisitRunTenantConnectivityDiagnosisResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTenantDiagnosticsInstanceRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+}
+
+type GetTenantDiagnosticsInstanceResponseObject interface {
+	VisitGetTenantDiagnosticsInstanceResponse(w http.ResponseWriter) error
+}
+
+type GetTenantDiagnosticsInstance200JSONResponse TenantDiagnostics
+
+func (response GetTenantDiagnosticsInstance200JSONResponse) VisitGetTenantDiagnosticsInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTenantDiagnosticsInstance401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response GetTenantDiagnosticsInstance401ApplicationProblemPlusJSONResponse) VisitGetTenantDiagnosticsInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTenantDiagnosticsInstance403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response GetTenantDiagnosticsInstance403ApplicationProblemPlusJSONResponse) VisitGetTenantDiagnosticsInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTenantDiagnosticsInstance404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response GetTenantDiagnosticsInstance404ApplicationProblemPlusJSONResponse) VisitGetTenantDiagnosticsInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTenantDiagnosticsInstance429ApplicationProblemPlusJSONResponse struct {
+	RateLimitedApplicationProblemPlusJSONResponse
+}
+
+func (response GetTenantDiagnosticsInstance429ApplicationProblemPlusJSONResponse) VisitGetTenantDiagnosticsInstanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RateLimitLimit != nil {
+		w.Header().Set("RateLimit-Limit", fmt.Sprint(*response.Headers.RateLimitLimit))
+	}
+	if response.Headers.RateLimitRemaining != nil {
+		w.Header().Set("RateLimit-Remaining", fmt.Sprint(*response.Headers.RateLimitRemaining))
+	}
+	if response.Headers.RateLimitReset != nil {
+		w.Header().Set("RateLimit-Reset", fmt.Sprint(*response.Headers.RateLimitReset))
+	}
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	if response.Headers.XRequestId != nil {
+		w.Header().Set("X-Request-Id", fmt.Sprint(*response.Headers.XRequestId))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTenantDiagnosticsInstancedefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	Headers    UnexpectedResponseHeaders
+	StatusCode int
+}
+
+func (response GetTenantDiagnosticsInstancedefaultApplicationProblemPlusJSONResponse) VisitGetTenantDiagnosticsInstanceResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -40207,6 +41066,12 @@ type StrictServerInterface interface {
 	// SetDeviceTags Thay tập tag của thiết bị
 	// (PUT /tenants/{tenantId}/devices/{deviceId}/tags)
 	SetDeviceTags(ctx context.Context, request SetDeviceTagsRequestObject) (SetDeviceTagsResponseObject, error)
+	// RunTenantConnectivityDiagnosis Kết luận kết nối từ dữ liệu control plane + checklist lệnh chạy trên thiết bị
+	// (POST /tenants/{tenantId}/diagnostics/connectivity)
+	RunTenantConnectivityDiagnosis(ctx context.Context, request RunTenantConnectivityDiagnosisRequestObject) (RunTenantConnectivityDiagnosisResponseObject, error)
+	// GetTenantDiagnosticsInstance Trạng thái control plane của tenant — mỗi phần kèm thời điểm quan sát
+	// (GET /tenants/{tenantId}/diagnostics/instance)
+	GetTenantDiagnosticsInstance(ctx context.Context, request GetTenantDiagnosticsInstanceRequestObject) (GetTenantDiagnosticsInstanceResponseObject, error)
 	// GetTenantDns DNS của tenant — MagicDNS, nameserver đang hiệu lực, lần reconfigure chưa xong
 	// (GET /tenants/{tenantId}/dns)
 	GetTenantDns(ctx context.Context, request GetTenantDnsRequestObject) (GetTenantDnsResponseObject, error)
@@ -42739,6 +43604,65 @@ func (sh *strictHandler) SetDeviceTags(w http.ResponseWriter, r *http.Request, t
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SetDeviceTagsResponseObject); ok {
 		if err := validResponse.VisitSetDeviceTagsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RunTenantConnectivityDiagnosis operation middleware
+func (sh *strictHandler) RunTenantConnectivityDiagnosis(w http.ResponseWriter, r *http.Request, tenantId TenantId) {
+	var request RunTenantConnectivityDiagnosisRequestObject
+
+	request.TenantId = tenantId
+
+	var body RunTenantConnectivityDiagnosisJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RunTenantConnectivityDiagnosis(ctx, request.(RunTenantConnectivityDiagnosisRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RunTenantConnectivityDiagnosis")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RunTenantConnectivityDiagnosisResponseObject); ok {
+		if err := validResponse.VisitRunTenantConnectivityDiagnosisResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetTenantDiagnosticsInstance operation middleware
+func (sh *strictHandler) GetTenantDiagnosticsInstance(w http.ResponseWriter, r *http.Request, tenantId TenantId) {
+	var request GetTenantDiagnosticsInstanceRequestObject
+
+	request.TenantId = tenantId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetTenantDiagnosticsInstance(ctx, request.(GetTenantDiagnosticsInstanceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetTenantDiagnosticsInstance")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetTenantDiagnosticsInstanceResponseObject); ok {
+		if err := validResponse.VisitGetTenantDiagnosticsInstanceResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

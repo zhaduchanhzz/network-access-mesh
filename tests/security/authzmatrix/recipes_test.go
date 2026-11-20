@@ -274,6 +274,17 @@ var recipes = map[string]recipe{
 	// granted render of deny-all (no parameter) answers 200.
 	"listTenantPolicyTemplates":  {ok: answer{status: http.StatusOK}},
 	"renderTenantPolicyTemplate": {body: `{"template_id":"deny-all","params":{}}`, ok: answer{status: http.StatusOK}},
+	// Connectivity Diagnostics (P5-T08, diagnosticsapi over monitoring — mounted; reads the database only). The instance
+	// state answers 200 to every granted caller. The diagnosis is asked from the End User's untagged device to the Tenant
+	// Admin's device of the tenant of the path: 200 to a caller of scope any (the verdict is "blocked" — the fixture's
+	// devices are offline), 404 to the End User (own-only: the target is another member's device — layer 2).
+	"getTenantDiagnosticsInstance": {ok: answer{status: http.StatusOK}},
+	"runTenantConnectivityDiagnosis": {bodyOf: diagnosisBody, okOf: func(_ *matrix, c *call) outcome {
+		if c.actor.role == authz.RoleEndUser {
+			return outcome{answer: answer{http.StatusNotFound, gen.ProblemCodeNotFound}}
+		}
+		return outcome{answer: answer{status: http.StatusOK}}
+	}},
 	// support access grants (P4-T13, supportapi — mounted). The objects are pending grants whose requester/grantee is a
 	// Super Admin that is no actor of the matrix (world_test.go): a granted decision answers 200 for the first caller
 	// and 409 grant_closed after (the order of parallel callers decides), so the answer is left open; the requests
@@ -395,4 +406,15 @@ var paramObjects = map[string]objectKind{
 	"hostId": objHost, "tagId": objTag, "notificationId": objNotification, "groupId": objGroup,
 	"platformUserId": objPlatformUser, "settingKey": objSetting, "planId": objPlan, "enrollmentRequestId": objEnrollment,
 	"versionId": objPolicy, "grantId": objGrant, "recordId": objDNSRecord, "resourceId": objResource,
+}
+
+// diagnosisBody is the body of a diagnosis on the tenant of the path (A's devices for a path that is neither A nor B —
+// refused before any handler): from the End User's untagged device to the Tenant Admin's device, TCP 443.
+func diagnosisBody(m *matrix, c *call) string {
+	name := "A"
+	if c.pathTenant == m.B.ID {
+		name = "B"
+	}
+	return `{"source_device_id":"` + m.obj.devEU[name].String() + `","target_device_id":"` + m.obj.devOther[name].String() +
+		`","port":443}`
 }

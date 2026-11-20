@@ -121,6 +121,43 @@ func (q *Queries) GetInstanceForProbe(ctx context.Context, arg GetInstanceForPro
 	return i, err
 }
 
+const getTenantDiagnosticsInstance = `-- name: GetTenantDiagnosticsInstance :one
+SELECT t.status AS tenant_status, ti.id AS instance_id, ti.status AS instance_status, ti.last_health,
+       ti.last_health_at, ti.api_key_expires_at, statement_timestamp()::timestamptz AS now
+FROM tenants t
+LEFT JOIN tenant_instances ti ON ti.tenant_id = t.id AND ti.status <> 'removed'
+WHERE t.id = $1
+ORDER BY ti.created_at DESC NULLS LAST
+LIMIT 1
+`
+
+type GetTenantDiagnosticsInstanceRow struct {
+	TenantStatus    string
+	InstanceID      *uuid.UUID
+	InstanceStatus  *string
+	LastHealth      []byte
+	LastHealthAt    *time.Time
+	ApiKeyExpiresAt *time.Time
+	Now             time.Time
+}
+
+// Pool tenant (Connectivity Diagnostics — P5-T08): trạng thái tenant, instance chưa removed (MVP: tối đa một; vắng ⇒
+// cột instance NULL) với health gần nhất và hạn API key (chỉ thời điểm — không secret, không prefix), kèm đồng hồ DB.
+func (q *Queries) GetTenantDiagnosticsInstance(ctx context.Context, tenantID uuid.UUID) (GetTenantDiagnosticsInstanceRow, error) {
+	row := q.db.QueryRow(ctx, getTenantDiagnosticsInstance, tenantID)
+	var i GetTenantDiagnosticsInstanceRow
+	err := row.Scan(
+		&i.TenantStatus,
+		&i.InstanceID,
+		&i.InstanceStatus,
+		&i.LastHealth,
+		&i.LastHealthAt,
+		&i.ApiKeyExpiresAt,
+		&i.Now,
+	)
+	return i, err
+}
+
 const getTenantInstanceHealth = `-- name: GetTenantInstanceHealth :one
 SELECT id, status, last_health, last_health_at, statement_timestamp()::timestamptz AS now
 FROM tenant_instances

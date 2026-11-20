@@ -1,5 +1,5 @@
 // Mục điều hướng của hai console (§12.2, §12.3 — bảng "Truy vết màn hình → task"). Mỗi mục cần đúng một permission
-// đọc của ma trận §8.5/§8.6 để hiện (UX — server vẫn quyết định). Mục chưa xây (`available: false`) hiện trang
+// (đọc — riêng Diagnostics là quyền chạy chẩn đoán, không đổi gì) của ma trận §8.5/§8.6 để hiện (UX — server vẫn quyết định). Mục chưa xây (`available: false`) hiện trang
 // "chưa khả dụng" kèm task sẽ xây nó (§12.4: không mock, không số liệu giả); task UI thay `available` khi hoàn tất.
 // Thứ tự trong mảng = thứ tự ưu tiên của trang chủ tenant (mục đầu tiên role được xem); sidebar nhóm theo NAV_GROUPS.
 import { can, canAny } from "../auth/permissions";
@@ -34,7 +34,9 @@ export const TENANT_NAV: readonly NavItem[] = [
   { path: "routes", labelKey: "nav.tenant.routes", group: "network", permission: "tenant.route:read", task: "P4-T12", phase: "mvp", available: true },
   { path: "dns", labelKey: "nav.tenant.dns", group: "network", permission: "tenant.dns:read", task: "P4-T12", phase: "mvp", available: true },
   { path: "resources", labelKey: "nav.tenant.resources", group: "network", permission: "tenant.resource:read", task: "P4-T12", phase: "mvp", available: true },
-  { path: "diagnostics", labelKey: "nav.tenant.diagnostics", group: "network", permission: "tenant.diagnostics:read", task: "P5-T08", phase: "mvp", available: false },
+  // P5-T08: cổng là quyền chạy (đọc trạng thái control plane cũng cần tenant.diagnostics:read — trang tự ẩn phần đó): End User
+  // (ô ○ của tenant.diagnostics:run) kiểm kết nối giữa các thiết bị của chính mình; Tenant Viewer không có quyền nào ⇒ ẩn
+  { path: "diagnostics", labelKey: "nav.tenant.diagnostics", group: "network", permission: "tenant.diagnostics:run", task: "P5-T08", phase: "mvp", available: true },
   { path: "users", labelKey: "nav.tenant.users", group: "people", permission: "tenant.user:read", task: "P4-T09a", phase: "mvp", available: true },
   { path: "groups", labelKey: "nav.tenant.groups", group: "people", permission: "tenant.group:read", task: "P4-T09a", phase: "mvp", available: true },
   { path: "invitations", labelKey: "nav.tenant.invitations", group: "people", permission: "tenant.invitation:manage", task: "P4-T09a", phase: "mvp", available: true },

@@ -63,7 +63,7 @@ func TestRateLimitPerIP(t *testing.T) {
 	}
 }
 
-// TestRateLimitClasses: auth, enrollment and sync have their own (stricter) buckets; the class follows the path
+// TestRateLimitClasses: auth, enrollment, sync and diagnostics have their own (stricter) buckets; the class follows the path
 // segments as the router sees them, so an encoded path cannot slip into a laxer class.
 func TestRateLimitClasses(t *testing.T) {
 	one := ratelimit.Limit{Every: time.Hour, Burst: 1}
@@ -74,6 +74,7 @@ func TestRateLimitClasses(t *testing.T) {
 		{ClassAuth, req(http.MethodGet, "/api/v1/auth/session"), req(http.MethodGet, "/api/v1/%61uth/login?scope=tenant")},
 		{ClassEnrollment, req(http.MethodPost, "/api/v1/tenants/"+tenantID+"/enrollment/requests"), req(http.MethodGet, "/api/v1/tenants/"+tenantID+"/enrollment/instructions")},
 		{ClassSync, req(http.MethodPost, "/api/v1/tenants/"+tenantID+"/devices/sync"), req(http.MethodGet, "/api/v1/tenants/"+tenantID+"/devices?fresh=true")},
+		{ClassDiagnostics, req(http.MethodPost, "/api/v1/tenants/"+tenantID+"/diagnostics/connectivity"), req(http.MethodPost, "/api/v1/tenants/"+tenantID+"/%64iagnostics/connectivity")},
 	} {
 		e := newEnv(t, Options{RateLimits: tight(c.class, one, one)})
 		if w := e.do(c.first.method, c.first.target, "", idempotency); w.Code == http.StatusTooManyRequests {

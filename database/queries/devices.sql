@@ -201,8 +201,10 @@ WHERE tenant_id = sqlc.arg(tenant_id) AND id = sqlc.arg(id) AND revocation_state
 RETURNING id;
 
 -- name: CountDevices :one
--- Tổng số thiết bị còn sống và số đang online theo góc nhìn của control plane (dashboard — P2-T13a).
-SELECT count(*)::bigint AS total, count(*) FILTER (WHERE online)::bigint AS online
+-- Tổng số thiết bị còn sống, số đang online theo góc nhìn của control plane (dashboard — P2-T13a) và số đã hết hạn
+-- theo đồng hồ DB (Connectivity Diagnostics — P5-T08).
+SELECT count(*)::bigint AS total, count(*) FILTER (WHERE online)::bigint AS online,
+       count(*) FILTER (WHERE expiry IS NOT NULL AND expiry <= statement_timestamp())::bigint AS expired
 FROM device_inventory_cache
 WHERE tenant_id = sqlc.arg(tenant_id) AND removed_at IS NULL;
 

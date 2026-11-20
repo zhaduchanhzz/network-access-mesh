@@ -30,6 +30,7 @@ import adminpublic  # noqa: E402 — E2E-121, E2E-122 (edge v11 admin_public: ad
 import admin  # noqa: E402 — E2E-94, E2E-95 (P4-T03a: IdP của tenant do nền tảng sửa qua 2P, role SA qua 2P, thiết lập bảo mật)
 import backend  # noqa: E402 — E2E-17 … E2E-25 (P2-T16)
 import checks  # noqa: E402
+import diagnostics  # noqa: E402 — E2E-123 (P5-T08: Connectivity Diagnostics — trạng thái control plane, kết luận khớp TCP thật)
 import dualcontrol  # noqa: E402 — E2E-37 … E2E-39 (P3-T05a, P3-T04a)
 import enrollment  # noqa: E402 — E2E-99 … E2E-101 (P4-T06: pre-auth key, web-auth claim, phê duyệt + IT-13)
 import idpadmin  # noqa: E402 — E2E-40 … E2E-43 (P3-T15)
@@ -239,6 +240,9 @@ def test(st: Stack, r: checks.Results) -> None:
     with timed("ca E2E-102 … E2E-104 (P4-T12: route quảng bá chưa duyệt không dùng được, duyệt đọc–sửa–ghi + đồng thời 412, "
                "DNS record hot-reload phân giải từ client, resource ⇒ policy.apply resource_change)"):
         network.run_all(r, st, guarded)
+    with timed("ca E2E-123 (P5-T08: Connectivity Diagnostics — trạng thái control plane kèm checked_at, kết luận từ control "
+               "plane a1→a2 khớp TCP thật trên cổng được phép/bị cấm, checklist theo OS, 404/422/403; dọn về baseline)"):
+        diagnostics.run_all(r, st, guarded)
     with timed("ca E2E-94, E2E-95 (P4-T03a: IdP của tenant do nền tảng sửa ⇒ 2P + audit tenant, role Super Admin qua 2P, "
                "thiết lập bảo mật — tắt 4-eyes qua phê duyệt trong tenant, yêu cầu xóa tenant)"):
         admin.run_all(r, st, guarded)

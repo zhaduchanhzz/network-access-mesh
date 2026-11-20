@@ -57,8 +57,8 @@ describe("điều hướng", () => {
     }
   });
 
-  it("End User: thiết bị, thêm thiết bị, thông báo — không users/policies/audit", () => {
-    expect(visibleItems(TENANT_NAV, "end_user").map((i) => i.path)).toEqual(["devices", "enroll", "notifications"]);
+  it("End User: thiết bị, thêm thiết bị, thông báo, chẩn đoán (thiết bị của mình) — không users/policies/audit", () => {
+    expect(visibleItems(TENANT_NAV, "end_user").map((i) => i.path)).toEqual(["devices", "enroll", "notifications", "diagnostics"]);
   });
 
   it("role platform không thấy mục tenant và ngược lại", () => {

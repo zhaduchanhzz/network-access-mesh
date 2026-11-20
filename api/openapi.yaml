@@ -88,6 +88,8 @@ tags:
     description: Vòng đời policy — mô hình có kiểu, render tất định, lint L1–L13, duyệt (4-eyes), apply/rollback (§7.2, §7.3) — P4-T10
   - name: enrollment
     description: Thêm thiết bị — web-auth do Portal môi giới, pre-auth key ngắn hạn, phê duyệt trước bước thiết bị, hướng dẫn theo OS (§7.4) — P4-T06
+  - name: diagnostics
+    description: Connectivity Diagnostics — trạng thái control plane kèm `checked_at` và checklist lệnh chạy trên thiết bị; server không đo được đường P2P (§9.5, §12.3, §13.2) — P5-T08
   - name: support
     description: Support Access Grant phía tenant — minh bạch, duyệt, từ chối, thu hồi (§8.7) — P4-T13
 paths:
@@ -1634,6 +1636,97 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/diagnostics/instance:
+    get:
+      tags: [diagnostics]
+      operationId: getTenantDiagnosticsInstance
+      summary: Trạng thái control plane của tenant — mỗi phần kèm thời điểm quan sát
+      description: >-
+        Connectivity Diagnostics (§12.3, §13.2): health của instance (`health.probe`, `checked_at` là lúc probe bắt
+        đầu), edge tới được hay không trên hostname của tenant (suy ra từ phép kiểm DERP của `relay.probe` — cùng
+        listener công khai và hostname với kết nối control của client; Noise `/ts2021` không có probe riêng ⇒
+        `unavailable`), relay kèm kết quả DERP/STUN gần nhất, policy đang áp lên Headscale (version, sha256 đã
+        read-back, thời điểm áp, lần áp gần nhất nếu thất bại), số thiết bị online/offline/hết hạn kèm `synced_at`, hạn
+        API key của instance (chỉ thời điểm — không secret, không prefix). `checked_at` gốc là đồng hồ DB lúc đọc. Thiếu
+        dữ liệu ⇒ trạng thái `unknown` hoặc mục trong `unavailable` kèm lý do — không số giả; đường đi giữa hai thiết bị
+        (direct/relay) luôn nằm trong `unavailable` (`p2p_path`, `not_observable`). Đọc được khi tenant `suspended`.
+        Tenant chỉ lấy từ path.
+      x-permission: tenant.diagnostics:read
+      x-task: P5-T08
+      x-audit-action: diagnostics.instance.read
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '200':
+          description: Trạng thái control plane của tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantDiagnostics'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        default:
+          $ref: '#/components/responses/Unexpected'
+  /tenants/{tenantId}/diagnostics/connectivity:
+    post:
+      tags: [diagnostics]
+      operationId: runTenantConnectivityDiagnosis
+      summary: Kết luận kết nối từ dữ liệu control plane + checklist lệnh chạy trên thiết bị
+      description: |-
+        Server **không** đo đường P2P (§13.2): kết luận `verdict` chỉ từ dữ liệu control plane — hai thiết bị (hoặc
+        thiết bị và tài nguyên của Network Resource Catalog) thuộc tenant của path, online theo lần sync gần nhất, chưa
+        hết hạn, chưa bị thu hồi; policy đang áp (bản đã read-back của lần áp hiện hành) có grant cho TCP từ nguồn tới
+        đích ở `port` (vắng ⇒ cổng bất kỳ) hay không — `internal/policies` đánh giá chính văn bản đã áp; đích là
+        subnet ⇒ cần route đã duyệt của một router online (`via` của grant xét theo tag của router). `blocked` khi một
+        phép kiểm `fail`; `unknown` khi chưa có policy áp hoặc policy có principal không hiểu được; còn lại `allowed`
+        (control plane cho phép — firewall trên máy đích, trạng thái client hay mạng giữa đường vẫn có thể chặn).
+        `commands` là checklist theo OS cho người dùng chạy trên thiết bị (`tailscale status`, `tailscale ping`,
+        `tailscale netcheck`, `tailscale debug derp <region>`, kết nối TCP thật bằng `nc`/`Test-NetConnection`, `curl`
+        cho cổng web) — `tailscale ping` không kiểm policy (HS-25, CL-09). `path_observable` luôn `false`.
+        Đúng một trong `target_device_id`, `target_resource_id` (sai ⇒ `422`); thiết bị/tài nguyên không thuộc tenant
+        ⇒ `404`. End User (ô ○): nguồn và đích phải là thiết bị (không gắn tag) của chính mình — thiết bị khác hay
+        tài nguyên ⇒ `404`. Là POST vì nhận câu hỏi; không đổi gì. Tenant `suspended` từ chối như mọi thao tác không
+        an toàn (§8.4 bất biến 5 — `403 tenant_suspended`). Hạn mức riêng `diagnostics` (chặt hơn mặc định).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      x-permission: tenant.diagnostics:run
+      x-own-resource: true
+      x-task: P5-T08
+      x-audit-action: diagnostics.connectivity.run
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConnectivityDiagnosisRequest'
+      responses:
+        '200':
+          description: Kết luận từ control plane + checklist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConnectivityDiagnosis'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
         '429':
           $ref: '#/components/responses/RateLimited'
         default:
@@ -7762,13 +7855,17 @@ components:
       properties:
         section:
           type: string
-          description: Mục của dashboard — `devices`, `policies`, `routes`, `relay`, `security_events` (chỉ bổ sung)
+          description: >-
+            Mục của dashboard — `devices`, `policies`, `routes`, `relay`, `security_events`; của diagnostics (P5-T08)
+            thêm `noise`, `p2p_path` (chỉ bổ sung)
           pattern: '^[a-z][a-z0-9_]{0,63}$'
         reason:
           type: string
           description: >-
             `never_synced` (sổ thiết bị chưa từng sync — các số đếm của `devices` không phải số liệu), `no_source` (nền
-            tảng chưa có nguồn cho mục này), `not_served` (có nguồn nhưng dashboard chưa phục vụ số liệu này)
+            tảng chưa có nguồn cho mục này), `not_served` (có nguồn nhưng dashboard chưa phục vụ số liệu này);
+            diagnostics: `no_probe` (không có probe riêng), `not_observable` (server không quan sát được),
+            `never_applied` (chưa có policy nào được ghi nhận đã áp), `no_relay` (tenant chưa có relay)
           pattern: '^[a-z][a-z0-9_]{0,63}$'
         detail:
           type: string
@@ -11250,3 +11347,381 @@ components:
           x-go-type: json.RawMessage
         is_active:
           type: boolean
+    # ------------------------------------------------------------ diagnostics (P5-T08, §12.3, §13.2)
+    DiagnosticsAPIKey:
+      type: object
+      description: >-
+        Hạn API key Headscale của instance (`tenant_instances.api_key_expires_at`) — chỉ thời điểm, không secret, không
+        prefix. `expiring` khi còn ≤ 14 ngày (§13.5, §16.3); `unknown` khi chưa ghi nhận hạn
+      required: [status, expires_at]
+      properties:
+        status:
+          type: string
+          enum: [valid, expiring, expired, unknown]
+        expires_at:
+          type: [string, 'null']
+          format: date-time
+    DiagnosticsInstance:
+      type: object
+      description: Instance chưa `removed` của tenant; `status` vắng khi tenant chưa có instance (`health.reason = no_instance`)
+      required: [health, api_key]
+      properties:
+        status:
+          $ref: '#/components/schemas/InstanceStatus'
+        health:
+          $ref: '#/components/schemas/InstanceHealth'
+        api_key:
+          $ref: '#/components/schemas/DiagnosticsAPIKey'
+    DiagnosticsEdge:
+      type: object
+      description: >-
+        Edge tới được trên hostname của tenant — suy ra từ phép kiểm DERP của lần `relay.probe` gần nhất của relay
+        `active` đầu tiên (`GET /derp/probe` qua listener công khai, cùng đường với kết nối control của client); không
+        có kết luận ⇒ `unknown` kèm `reason`
+      required: [status, checked_at]
+      properties:
+        status:
+          type: string
+          enum: [reachable, unreachable, unknown]
+        reason:
+          type: string
+          pattern: '^[a-z][a-z0-9_]{0,63}$'
+          description: Mã lỗi của prober khi `unreachable`; lý do không kết luận khi `unknown` (`no_relay`, `never_checked`, `stale`…)
+        checked_at:
+          type: [string, 'null']
+          format: date-time
+    DiagnosticsRelay:
+      type: object
+      description: Relay của tenant (region_code là mã `tailscale status`/`ping` in — `relay "<code>"`, `via DERP(<code>)`)
+      required: [code, name, hostname, status, health, checked_at]
+      properties:
+        code:
+          type: string
+        name:
+          type: string
+        hostname:
+          type: string
+        status:
+          $ref: '#/components/schemas/RelayAdminStatus'
+        health:
+          $ref: '#/components/schemas/HealthStatus'
+        reason:
+          type: string
+          pattern: '^[a-z][a-z0-9_]{0,63}$'
+        checked_at:
+          type: [string, 'null']
+          format: date-time
+        derp_ok:
+          type: boolean
+          description: Phép kiểm DERP của lần probe ở `checked_at`; vắng khi không có
+        stun_ok:
+          type: boolean
+          description: Phép kiểm STUN của lần probe ở `checked_at`; vắng khi không có
+    DiagnosticsAccess:
+      type: object
+      description: >-
+        Câu trả lời của policy đang áp (văn bản đã read-back) cho nguồn → đích ở TCP `port` — `grants` là chỉ số các
+        grant phủ cặp nguồn/đích (bất kể cổng), `allowed` là các mục `ip` của chúng; `unresolved` là principal không
+        hiểu được (khi đó từ chối được báo `unknown`, không phải `denied`)
+      required: [decision, grants, allowed, unresolved]
+      properties:
+        decision:
+          type: string
+          enum: [allowed, denied, unknown]
+        reason:
+          type: string
+          pattern: '^[a-z][a-z0-9_]{0,63}$'
+          description: >-
+            `no_matching_grant`, `port_not_allowed`, `no_tcp_allowed`, `unreadable_policy`, `unsupported_policy`,
+            `unresolved_principals`, `no_applied_policy` (chỉ bổ sung)
+        grants:
+          type: array
+          items:
+            type: integer
+            minimum: 0
+        allowed:
+          type: array
+          items:
+            type: string
+        unresolved:
+          type: array
+          maxItems: 10
+          items:
+            type: string
+    DiagnosticsPolicy:
+      type: object
+      description: >-
+        Policy của tenant theo hồ sơ của nền tảng: lần áp hiện hành của instance (đã áp lên Headscale và read-back —
+        không phải "client đã hội tụ", T-18), lần áp gần nhất bất kể trạng thái, version mong muốn
+      required: [applied]
+      properties:
+        applied:
+          type: boolean
+        version_id:
+          type: string
+          format: uuid
+        version:
+          type: integer
+          minimum: 1
+        applied_sha256:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        applied_at:
+          type: string
+          format: date-time
+        trigger:
+          type: string
+        latest_state:
+          type: string
+          description: Trạng thái lần áp gần nhất (`pending`, `applied`, `failed`…)
+        latest_error_code:
+          type: string
+        latest_at:
+          type: string
+          format: date-time
+        desired_version:
+          type: integer
+          minimum: 1
+        access:
+          $ref: '#/components/schemas/DiagnosticsAccess'
+    DiagnosticsDeviceCounts:
+      type: object
+      description: Số thiết bị của sổ thiết bị (`offline` = `total − online`; `expired` theo đồng hồ DB); số chỉ có nghĩa khi `synced_at` khác `null`
+      required: [total, online, offline, expired, synced_at]
+      properties:
+        total:
+          type: integer
+          minimum: 0
+        online:
+          type: integer
+          minimum: 0
+        offline:
+          type: integer
+          minimum: 0
+        expired:
+          type: integer
+          minimum: 0
+        synced_at:
+          type: [string, 'null']
+          format: date-time
+    TenantDiagnostics:
+      type: object
+      description: Trạng thái control plane của tenant (P5-T08) — mọi phần kèm thời điểm quan sát; phần không có nguồn ở `unavailable`
+      required: [checked_at, tenant_status, instance, edge, relays, policy, devices, unavailable]
+      properties:
+        checked_at:
+          type: string
+          format: date-time
+        tenant_status:
+          $ref: '#/components/schemas/TenantStatus'
+        instance:
+          $ref: '#/components/schemas/DiagnosticsInstance'
+        edge:
+          $ref: '#/components/schemas/DiagnosticsEdge'
+        relays:
+          type: array
+          items:
+            $ref: '#/components/schemas/DiagnosticsRelay'
+        policy:
+          $ref: '#/components/schemas/DiagnosticsPolicy'
+        devices:
+          $ref: '#/components/schemas/DiagnosticsDeviceCounts'
+        unavailable:
+          type: array
+          items:
+            $ref: '#/components/schemas/UnavailableSection'
+    ConnectivityDiagnosisRequest:
+      type: object
+      additionalProperties: false
+      description: Đúng một trong `target_device_id`, `target_resource_id`; `port` vắng ⇒ cổng TCP bất kỳ
+      required: [source_device_id]
+      properties:
+        source_device_id:
+          type: string
+          format: uuid
+        target_device_id:
+          type: string
+          format: uuid
+        target_resource_id:
+          type: string
+          format: uuid
+        port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+    DiagnosticsDevice:
+      type: object
+      description: Thiết bị trong sổ thiết bị (cache của `inventory.sync`, kèm `synced_at`) — `online` là góc nhìn của control plane
+      required: [id, name, given_name, ip_addresses, tags, online, last_seen, expiry, revocation_state, synced_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        given_name:
+          type: string
+        ip_addresses:
+          type: array
+          items:
+            type: string
+        owner_membership_id:
+          type: string
+          format: uuid
+          description: Chủ của thiết bị không gắn tag; vắng khi gắn tag hoặc không rõ
+        tags:
+          type: array
+          items:
+            type: string
+        online:
+          type: boolean
+        last_seen:
+          type: [string, 'null']
+          format: date-time
+        expiry:
+          type: [string, 'null']
+          format: date-time
+        revocation_state:
+          type: string
+          enum: [none, pending, applied, failed]
+        synced_at:
+          type: string
+          format: date-time
+    DiagnosticsResource:
+      type: object
+      required: [id, name, address, ports, protocol]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        address:
+          type: string
+          description: Địa chỉ đơn (không độ dài prefix) hoặc prefix của subnet
+        ports:
+          type: array
+          items:
+            type: string
+        protocol:
+          type: string
+    DiagnosticsRouter:
+      type: object
+      description: Router có route đã duyệt phủ địa chỉ của tài nguyên (route exit node không tính)
+      required: [device_id, name, ip_addresses, tags, online, approved_routes]
+      properties:
+        device_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        ip_addresses:
+          type: array
+          items:
+            type: string
+        tags:
+          type: array
+          items:
+            type: string
+        online:
+          type: boolean
+        approved_routes:
+          type: array
+          items:
+            type: string
+    DiagnosticsTarget:
+      type: object
+      required: [kind, routers]
+      properties:
+        kind:
+          type: string
+          enum: [device, resource]
+        device:
+          $ref: '#/components/schemas/DiagnosticsDevice'
+        resource:
+          $ref: '#/components/schemas/DiagnosticsResource'
+        routers:
+          type: array
+          items:
+            $ref: '#/components/schemas/DiagnosticsRouter'
+    DiagnosticsCheck:
+      type: object
+      description: Một phép kiểm trên dữ liệu control plane (thứ tự cố định)
+      required: [id, status]
+      properties:
+        id:
+          type: string
+          enum:
+            - tenant_active
+            - instance_healthy
+            - inventory_fresh
+            - source_online
+            - source_not_expired
+            - source_not_revoked
+            - target_online
+            - target_not_expired
+            - target_not_revoked
+            - route_approved
+            - policy_applied
+            - policy_grant
+            - relay_healthy
+        status:
+          type: string
+          enum: [pass, fail, warn, unknown, not_applicable]
+        reason:
+          type: string
+          pattern: '^[a-z][a-z0-9_]{0,63}$'
+    DiagnosticsCommand:
+      type: object
+      description: >-
+        Một lệnh của checklist — chạy trên thiết bị (`run_on`), không phải trên server. `<host>` trong `command` là chỗ
+        người dùng điền một địa chỉ trong subnet của tài nguyên
+      required: [id, os, run_on, command]
+      properties:
+        id:
+          type: string
+          enum: [status, ping, netcheck, debug_derp, accept_routes, tcp_connect, http_probe, listen_check]
+        os:
+          type: string
+          enum: [linux, macos, windows]
+        run_on:
+          type: string
+          enum: [source, target]
+        command:
+          type: string
+    ConnectivityDiagnosis:
+      type: object
+      description: >-
+        Kết luận của control plane (không phải phép đo đường đi — `path_observable` luôn `false`) + checklist lệnh
+      required: [checked_at, path_observable, verdict, source, target, checks, policy, commands]
+      properties:
+        checked_at:
+          type: string
+          format: date-time
+        path_observable:
+          type: boolean
+          description: Luôn `false` — server không quan sát được đường đi giữa hai thiết bị
+        verdict:
+          type: string
+          enum: [allowed, blocked, unknown]
+        source:
+          $ref: '#/components/schemas/DiagnosticsDevice'
+        target:
+          $ref: '#/components/schemas/DiagnosticsTarget'
+        port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        checks:
+          type: array
+          items:
+            $ref: '#/components/schemas/DiagnosticsCheck'
+        policy:
+          $ref: '#/components/schemas/DiagnosticsPolicy'
+        relay_code:
+          type: string
+          description: region_code của relay `active` (vắng khi không có)
+        commands:
+          type: array
+          items:
+            $ref: '#/components/schemas/DiagnosticsCommand'
