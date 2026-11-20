@@ -139,7 +139,9 @@ func idpRealmRepair(ctx context.Context, rp realmRepair, args []string, stdout, 
 			p("%s: skipped:disabled", what)
 			skipped++
 			continue
-		case t.Reg.Scope == idp.ScopeTenant && t.Reg.DriverRef != "" && t.Reg.DriverRef[0] != '{':
+		case t.Reg.DriverRef != "" && t.Reg.DriverRef[0] != '{':
+			// a bare driver_ref names a rendered realm — the platform realm included (scope platform, driver_ref
+			// "platform"): realm-update.sh owns it, the driver's JSON ref is never there
 			p("%s: skipped:rendered_realm (infrastructure/idp/realm-update.sh)", what)
 			skipped++
 			continue

@@ -30,7 +30,8 @@ func (f *fakeRealmSMTP) EnsureI18n(_ context.Context, reg idp.Registration) (boo
 	return f.changed[reg.Issuer], f.err[reg.Issuer]
 }
 
-// realmTargets: a realm to repair, one already repaired, a rendered realm, a deleted IdP, a pending IdP.
+// realmTargets: a realm to repair, one already repaired, a rendered tenant realm, the rendered platform realm, a deleted IdP,
+// a pending IdP.
 func realmTargets() []realmSMTPTarget {
 	tenant := uuid.New()
 	ref := func(realm string) string {
@@ -40,6 +41,7 @@ func realmTargets() []realmSMTPTarget {
 		{Reg: idp.Registration{IdPID: uuid.New(), Scope: idp.ScopeTenant, TenantID: tenant, Issuer: "iss/new", DriverRef: ref("new")}, Status: "active"},
 		{Reg: idp.Registration{IdPID: uuid.New(), Scope: idp.ScopeTenant, TenantID: tenant, Issuer: "iss/ok", DriverRef: ref("ok")}, Status: "active"},
 		{Reg: idp.Registration{IdPID: uuid.New(), Scope: idp.ScopeTenant, TenantID: tenant, Issuer: "iss/tenant-a", DriverRef: "tenant-a"}, Status: "active"},
+		{Reg: idp.Registration{IdPID: uuid.New(), Scope: idp.ScopePlatform, Issuer: "iss/platform", DriverRef: "platform"}, Status: "active"},
 		{Reg: idp.Registration{IdPID: uuid.New(), Scope: idp.ScopeTenant, TenantID: tenant, Issuer: "iss/gone", DriverRef: ref("gone")}, Status: "disabled"},
 		{Reg: idp.Registration{IdPID: uuid.New(), Scope: idp.ScopeTenant, TenantID: tenant, Issuer: "iss/bad", DriverRef: ref("bad")}, Status: "pending"},
 	}
@@ -79,7 +81,8 @@ func TestIdpRealmSMTP(t *testing.T) {
 		t.Fatalf("exit %d smtp %+v\n%s%s", code, smtp, out, stderr)
 	}
 	for _, want := range []string{"iss/new: updated", "iss/ok: unchanged", "iss/tenant-a: skipped:rendered_realm",
-		"iss/gone: skipped:disabled", "iss/bad: unchanged", "updated 1, unchanged 2, skipped 2, failed 0", "OK"} {
+		"iss/platform: skipped:rendered_realm", "iss/gone: skipped:disabled", "iss/bad: unchanged",
+		"updated 1, unchanged 2, skipped 3, failed 0", "OK"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)
 		}
@@ -121,7 +124,8 @@ func TestIdpRealmI18n(t *testing.T) {
 		t.Fatalf("exit %d opened %v relay %+v\n%s%s", code, opened, relay, out, stderr)
 	}
 	for _, want := range []string{"iss/new: updated", "iss/ok: unchanged", "iss/tenant-a: skipped:rendered_realm",
-		"iss/gone: skipped:disabled", "idp-realm-i18n: updated 1, unchanged 2, skipped 2, failed 0", "OK"} {
+		"iss/platform: skipped:rendered_realm", "iss/gone: skipped:disabled",
+		"idp-realm-i18n: updated 1, unchanged 2, skipped 3, failed 0", "OK"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)
 		}
