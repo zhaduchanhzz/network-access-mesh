@@ -4,7 +4,9 @@
 // Nút xác nhận chỉ là UX: server mới là nơi quyết định (quyền, 2P, step-up, `confirm_slug`).
 import { useId, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { Link, useLocation } from "react-router";
 import { ApiError } from "../api/problem";
+import { useConsole } from "../app/console";
 import { useStepUp } from "../components/Banners";
 import { ProblemAlert } from "../components/ProblemAlert";
 import { ModalDialog } from "./Dialog";
@@ -116,14 +118,29 @@ function ConfirmBody({
 }
 
 /** Lỗi của server trong hộp thoại đang mở + nút xác thực lại khi 401 reauth_required (lời nhắc step-up chung nằm sau
- * lớp modal). Dùng chung cho ConfirmDialog và FormDialog (ui/FormDialog.tsx). */
+ * lớp modal). Dùng chung cho ConfirmDialog và FormDialog (ui/FormDialog.tsx).
+ * Nhân viên nền tảng trên route tenant (admin. /t/…, Support Access Grant — §8.7): `403 forbidden` của một nút UI đã hiện
+ * theo role hiệu lực của grant nghĩa là grant đã hết hạn/bị thu hồi (lớp 1 — `no_support_grant`, hoặc trong transaction —
+ * `support_grant_not_live`; server không nêu lý do của 403) ⇒ nói rõ điều đó + link tới trang Support Access (G4b). */
 export function DialogProblem({ error }: { error: unknown }) {
   const { t } = useTranslation();
   const stepUp = useStepUp();
+  const kind = useConsole();
+  const { pathname } = useLocation();
   if (!error) return null;
+  const supportEnded =
+    kind === "platform" && pathname.startsWith("/t/") && error instanceof ApiError && error.status === 403 && error.code === "forbidden";
   return (
     <>
       <ProblemAlert error={error} />
+      {supportEnded ? (
+        <p className="text-sm" data-testid="support-grant-ended">
+          {t("support.grantEnded")}{" "}
+          <Link to="/platform/support-access" className="link">
+            {t("support.grantEndedLink")}
+          </Link>
+        </p>
+      ) : null}
       {error instanceof ApiError && error.code === "reauth_required" ? (
         <button type="button" className="btn-secondary" onClick={stepUp}>
           {t("stepUp.action")}

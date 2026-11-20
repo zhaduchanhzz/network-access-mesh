@@ -131,3 +131,30 @@ describe("khóa động của Platform Console (P4-T02)", () => {
     expect(keys.filter((k) => !has("vi", k) || !has("en", k))).toEqual([]);
   });
 });
+
+// WCAG 2.5.3 Label in Name (axe `label-content-name-mismatch`, serious): nút có chữ hiển thị t("A") và aria-label
+// t("AFor", …) — tên truy cập phải CHỨA chữ hiển thị ở cả hai ngôn ngữ (người dùng điều khiển bằng giọng nói gọi nút theo
+// chữ nhìn thấy). G4b (P4-T14, Playwright giao diện en): "Edit the description of …" / "Edit description", "Revoke route
+// approval of …" / "Revoke approval" — chỉ lộ ra khi trang có dữ liệu (tag, route đã duyệt).
+describe("nhãn trong tên truy cập (WCAG 2.5.3)", () => {
+  it("aria-label của nút chứa chữ hiển thị của nút (vi + en)", () => {
+    const pair = /aria-label=\{t\(\s*"([\w.]+)"((?:(?!<\/button>|<button)[\s\S]){0,600}?)>\s*\{t\(\s*"([\w.]+)"\s*\)\}\s*<\/button>/g;
+    const strip = (s: string) => s.replace(/\{\{\s*\w+\s*\}\}/g, "").toLowerCase();
+    const found: string[] = [];
+    const bad: string[] = [];
+    for (const text of sourceTexts()) {
+      for (const m of text.matchAll(pair)) {
+        const [aria, visible] = [m[1] ?? "", m[3] ?? ""];
+        found.push(`${aria} ⊇ ${visible}`);
+        for (const lang of ["vi", "en"] as const) {
+          const a = catalogs[lang].get(aria) ?? catalogs[lang].get(`${aria}_other`) ?? "";
+          const v = catalogs[lang].get(visible) ?? catalogs[lang].get(`${visible}_other`) ?? "";
+          if (!strip(a).includes(strip(v).trim())) bad.push(`${lang}: ${aria} = "${a}" không chứa ${visible} = "${v}"`);
+        }
+      }
+    }
+    expect(found.length, "bộ dò tìm thấy các cặp nút đã biết (RequestTable, Routes, Tags, DNS, tài nguyên…)").toBeGreaterThanOrEqual(16);
+    expect(found).toEqual(expect.arrayContaining(["tags.editOf ⊇ tags.edit", "network.routes.revokeFor ⊇ network.routes.revoke"]));
+    expect(bad).toEqual([]);
+  });
+});

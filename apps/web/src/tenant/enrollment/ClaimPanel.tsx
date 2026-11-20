@@ -8,11 +8,13 @@
 // `503 instance_unavailable` ⇒ yêu cầu ĐÃ KẾT THÚC (server đã claim rồi đánh `failed` khi AuthRegister lỗi, giữ hash Auth
 // ID — gửi lại cùng Auth ID chỉ nhận 409 replay, chạy lại lệnh cũ ⇒ 409 no_pending_request) ⇒ tạo yêu cầu mới; 200
 // `failed` ⇒ `failure_code`; 200 `verified` ⇒ tên thiết bị + link. Thử lại cùng Auth ID chỉ với lỗi trước bước claim: 429,
-// 503 `maintenance`, lỗi mạng/edge, 401 `reauth_required`.
+// 503 `maintenance`, lỗi mạng/edge, 401 `reauth_required`. 429 ở lần xác nhận đầu (F-G4a-1 — bucket `enrollment` dùng chung
+// cho các GET của trang và POST claim) ⇒ màn hình tự gửi lại MỘT lần sau `Retry-After` (≤ 60 s) với cùng thân (claim không
+// có Idempotency-Key: 429 bị từ chối trước mọi xử lý nên gửi lại an toàn); người dùng bấm lại trước đó ⇒ hủy lượt tự động.
 // Auth ID chỉ nằm trong props của màn hình (không useMutation — biến của mutation sẽ ở lại cache), được bỏ khi có kết quả
 // cuối (`onSpent`), không bao giờ hiển thị.
 import { useQueryClient } from "@tanstack/react-query";
-import { useId, useState } from "react";
+import { useEffect, useEffectEvent, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 import { api, call } from "../../api/client";
@@ -32,6 +34,9 @@ type Outcome =
   | { kind: "disabled" }
   | { kind: "invalid" }
   | { kind: "error"; error: unknown };
+
+/** Trần của lần tự thử lại sau 429 (giây) — Retry-After dài hơn ⇒ chỉ người dùng bấm lại. */
+export const CLAIM_AUTO_RETRY_MAX_S = 60;
 
 export interface ClaimPanelProps {
   tenantId: string;
@@ -56,6 +61,9 @@ export function ClaimPanel({ tenantId, membershipId, authId, readOnly, onSpent }
   const [busy, setBusy] = useState(false);
   const [retryable, setRetryable] = useState<unknown>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
+  // F-G4a-1: thời điểm (ms) của lần tự gửi lại duy nhất sau 429; đã dùng ⇒ không tự gửi nữa
+  const [autoAt, setAutoAt] = useState<number | null>(null);
+  const [autoUsed, setAutoUsed] = useState(false);
 
   // bộ chọn chỉ sau 422 request_id_required: chọn trước theo danh sách client có thể trỏ vào yêu cầu của phiên khác ⇒ 409
   const requestId = mustPick ? picked : null;
@@ -69,6 +77,7 @@ export function ClaimPanel({ tenantId, membershipId, authId, readOnly, onSpent }
 
   const confirm = async () => {
     if (!canConfirm) return;
+    setAutoAt(null); // bấm tay trước hạn ⇒ hủy lượt tự động
     setBusy(true);
     setRetryable(null);
     try {
@@ -99,11 +108,34 @@ export function ClaimPanel({ tenantId, membershipId, authId, readOnly, onSpent }
         // trước bước claim (rate limit, bảo trì, edge/mạng, step-up) ⇒ thử lại được với cùng Auth ID (pending registration
         // sống 15 phút ở Headscale)
         setRetryable(e);
+        const wait = e.status === 429 ? (e.retryAfter ?? 1) : null;
+        if (wait !== null && !autoUsed && wait <= CLAIM_AUTO_RETRY_MAX_S) {
+          setAutoUsed(true);
+          setAutoAt(Date.now() + Math.max(1, wait) * 1000);
+        }
       } else finish({ kind: "error", error: e });
     } finally {
       setBusy(false);
     }
   };
+
+  // lượt tự động đọc state MỚI NHẤT (người dùng bỏ ô xác nhận trong lúc chờ ⇒ canConfirm sai ⇒ không gửi)
+  const autoConfirm = useEffectEvent(() => {
+    void confirm();
+  });
+  useEffect(() => {
+    if (autoAt === null) return;
+    const id = window.setTimeout(
+      () => {
+        setAutoAt(null);
+        autoConfirm();
+      },
+      Math.max(0, autoAt - Date.now()),
+    );
+    return () => {
+      window.clearTimeout(id);
+    };
+  }, [autoAt]);
 
   if (outcome) return <ClaimOutcome outcome={outcome} tenantId={tenantId} />;
 
@@ -167,6 +199,11 @@ export function ClaimPanel({ tenantId, membershipId, authId, readOnly, onSpent }
         </label>
       </div>
       {retryable ? <ProblemAlert error={retryable} /> : null}
+      {autoAt !== null ? (
+        <p role="status" className="text-sm" data-testid="claim-auto-retry">
+          {t("enroll.claim.autoRetry")}
+        </p>
+      ) : null}
       <button type="button" className="btn-primary" disabled={!canConfirm} onClick={() => void confirm()}>
         {busy ? t("common.working") : t("enroll.claim.confirm")}
       </button>
