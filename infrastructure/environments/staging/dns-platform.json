@@ -12,6 +12,12 @@
     "ttl": 300
   },
   {
+    "type": "A",
+    "name": "admin.${MG_BASE_DOMAIN}",
+    "content": "${MG_PUBLIC_IPV4}",
+    "ttl": 300
+  },
+  {
     "type": "CAA",
     "name": "app.${MG_BASE_DOMAIN}",
     "ttl": 3600,

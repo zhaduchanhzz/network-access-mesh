@@ -1,0 +1,108 @@
+# Sinh bởi tools/render_edge.py từ infrastructure/compose/compose.edge.yaml.tmpl (template_version 11).
+# KHÔNG sửa tay — render lại. Project mg-edge (§14.4): chỉ edge, tách khỏi mg-core để việc deploy mg-core không bao
+# giờ recreate edge. Đặt tại /opt/meshguard/core/compose.edge.yaml; Caddyfile render ra /opt/meshguard/core/caddy/.
+# Network do infrastructure/host/networks.sh tạo trước (external); network của tenant được gắn lúc chạy
+# (docker network connect — thêm tenant không reload Caddy, §14.6), compose không quản lý chúng.
+name: mg-edge
+
+services:
+  edge:
+    image: ghcr.io/zhaduchanhzz/network-access-mesh/edge@sha256:0a03d9dd8fbae6c42c6861d041ee785c37506aa5f30bd9ce9290c824cb960fdc
+    container_name: mg-edge
+    user: "10001:10001"
+    group_add: ["20005"]            # mg-sec-edge: đọc secret của edge (§14.2, P1-T03)
+    read_only: true
+    tmpfs:
+      - /run/caddy:size=1m,mode=0700,uid=10001,gid=10001   # admin API qua unix socket (§14.4, EG-04)
+      - /tmp:size=16m,mode=1777
+    volumes:
+      - type: bind
+        source: /opt/meshguard/core/caddy
+        target: /etc/caddy
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind                  # access log JSON, CrowdSec đọc chỉ-đọc (§14.7)
+        source: /opt/meshguard/logs/edge
+        target: /var/log/caddy
+        bind:
+          create_host_path: false
+      - edge-data:/data             # tài khoản ACME + chứng chỉ (persist, backup — §15.4)
+    secrets:
+      - source: cloudflare_dns_token
+        target: cloudflare_dns_token
+      - source: edge_bouncer_key
+        target: bouncer_key
+      - source: edge_admin_token      # listener admin (mg-admin) — cùng giá trị với app/edge_admin_token
+        target: admin_token
+      - source: edge_metrics_token    # listener metrics (mg-obs) — cùng giá trị với obs/edge_metrics_token
+        target: metrics_token
+    ports:                          # IPv4 tường minh: không bind 0.0.0.0 hay [::] (§14.4, §15.4)
+      - "192.0.2.10:80:80/tcp"
+      - "192.0.2.10:443:443/tcp"
+      - "10.248.0.2:8080:8080/tcp"   # tunnel-facing (VPS gateway)
+      - "10.248.0.2:8443:8443/tcp"
+    networks:
+      mg-edge:
+        ipv4_address: 10.249.0.2
+        gw_priority: 1              # default gateway (và đích DNAT của cổng publish) ở mg-edge — V-30
+      mg-sec: {}
+      mg-admin:
+        ipv4_address: 10.249.2.2
+      mg-obs:
+        ipv4_address: 10.249.3.2
+      mg-idp:                       # → idp:8080 (auth.<domain>); chỉ edge + idp trên network này (G2 vòng 2, A-8)
+        ipv4_address: 10.249.7.2
+    dns_search: ["."]               # xóa search domain kế thừa; tên upstream rooted (hs-<slug>.) — §14.6
+    dns_opt: ["ndots:1"]
+    sysctls:                        # edge không được làm router giữa các network (IT-14)
+      net.ipv4.ip_forward: "0"
+      net.ipv6.conf.all.forwarding: "0"
+      net.ipv4.conf.all.arp_ignore: "1"
+      net.ipv4.conf.all.arp_announce: "2"
+      net.ipv4.conf.all.rp_filter: "1"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 1g
+    pids_limit: 512
+    healthcheck:
+      test: ["CMD", "/usr/bin/healthprobe", "http://10.249.0.2/generate_204", "204"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+      start_interval: 2s
+    restart: unless-stopped
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    labels:
+      meshguard.role: edge
+
+secrets:
+  cloudflare_dns_token:
+    file: /opt/meshguard/secrets/edge/cloudflare_dns_token
+  edge_bouncer_key:
+    file: /opt/meshguard/secrets/edge/bouncer_key
+  edge_admin_token:
+    file: /opt/meshguard/secrets/edge/admin_token
+  edge_metrics_token:
+    file: /opt/meshguard/secrets/edge/metrics_token
+
+volumes:
+  edge-data:
+
+networks:
+  mg-edge:
+    external: true
+  mg-sec:
+    external: true
+  mg-admin:
+    external: true
+  mg-obs:
+    external: true
+  mg-idp:
+    external: true

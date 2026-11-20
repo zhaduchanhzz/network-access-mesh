@@ -6,6 +6,7 @@
   "image": "ghcr.io/zhaduchanhzz/network-access-mesh/edge@sha256:9ec3b439981854185ae162b23be6dc974419d6d5443bc9b0198b92b41d685c08",
   "dns_resolvers": "${MG_DNS_RESOLVERS:list}",
   "admin_allow": "${MG_LAN_CIDR:list}",
+  "admin_public": true,
   "tunnel": {
     "edge_tunnel_ipv4": "${MG_TUNNEL_HOST_IPV4}",
     "peer_ipv4": "${MG_TUNNEL_VPS_IPV4}",

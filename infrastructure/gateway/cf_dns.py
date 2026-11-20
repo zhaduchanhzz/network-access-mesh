@@ -4,6 +4,7 @@ token as a file secret — the token is read from the file and never printed.
 
     sudo python3 cf_dns.py apply  [<zone>] <records.json> [--token-file F]
     sudo python3 cf_dns.py delete [<zone>] <records.json> [--token-file F]   # undo: remove exactly these records
+    ... [--record "<TYPE> <name>"]   # only that record of the file (e.g. "A admin.<domain>" — undo of one record)
 
 <zone> defaults to MG_DNS_ZONE of the environment's env file (tools/mgenv.py). records.json may use ${MG_*}
 placeholders — e.g. infrastructure/environments/staging/dns-public.json:
@@ -50,8 +51,10 @@ def errs(d: dict) -> str:
 
 def main() -> int:
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    if "--token-file" in sys.argv:
-        args.remove(sys.argv[sys.argv.index("--token-file") + 1])
+    for opt in ("--token-file", "--record"):
+        if opt in sys.argv:
+            args.remove(sys.argv[sys.argv.index(opt) + 1])
+    only = sys.argv[sys.argv.index("--record") + 1] if "--record" in sys.argv else None
     if len(args) not in (2, 3) or args[0] not in ("apply", "delete"):
         print(__doc__)
         return 2
@@ -65,6 +68,11 @@ def main() -> int:
         else "/opt/meshguard/secrets/edge/cloudflare_dns_token"
     token = open(token_file, encoding="utf-8").read().strip()
     wanted = mgenv.load_params(rec_file)   # ${MG_*} expanded (public IP, domain, ACME account)
+    if only is not None:
+        wanted = [w for w in wanted if f'{w["type"]} {w["name"]}' == only]
+        if len(wanted) != 1:
+            print(f"--record {only!r}: want exactly one record of {rec_file} with this type and name, found {len(wanted)}")
+            return 2
     z = call(token, "GET", f"/zones?name={urllib.parse.quote(zone_name)}")
     if not z.get("success") or not z.get("result"):
         print(f"zone {zone_name}: not accessible — {errs(z)}")

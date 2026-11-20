@@ -26,6 +26,7 @@ except ImportError:            # Windows: only `render` is useful there
     fcntl = None
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import adminpublic  # noqa: E402 — E2E-121, E2E-122 (edge v11 admin_public: admin. ra Internet qua tunnel-facing, IP thật qua PROXY v2)
 import admin  # noqa: E402 — E2E-94, E2E-95 (P4-T03a: IdP của tenant do nền tảng sửa qua 2P, role SA qua 2P, thiết lập bảo mật)
 import backend  # noqa: E402 — E2E-17 … E2E-25 (P2-T16)
 import checks  # noqa: E402
@@ -250,6 +251,11 @@ def test(st: Stack, r: checks.Results) -> None:
     with timed("ca E2E-99 … E2E-101 (P4-T06: enrollment — pre-auth key một lần với client chính thức, web-auth claim trong "
                "cùng phiên + kiểm node, phê duyệt trước bước thiết bị, IT-13 chéo tenant)"):
         enrollment.run_all(r, st, guarded)
+    # reloads the edge twice (public Caddyfile, then the stack's again): late, so the stream closes of the reloads
+    # (stream_close_delay) do not overlap the client cases above
+    with timed("ca E2E-121, E2E-122 (edge v11 admin_public: admin. qua listener tunnel-facing với PROXY v2 từ host đóng vai "
+               "VPS — conformance platform --admin public, console Keycloak vẫn sau cổng 2P, api thấy đúng IP client)"):
+        adminpublic.run_all(r, st, guarded)
     # last: E2E-71 replaces the stack's database by an older dump (restore runbook) — nothing may run after it
     with timed("ca E2E-70, E2E-71 (Phase 3: chế độ bảo trì + đối soát sau restore PostgreSQL P3-T17 — pg_dump/pg_restore thật)"):
         postrestore.run_all(r, st, guarded)

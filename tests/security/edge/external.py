@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """AC-20 from the Internet (P1-T18; §15.1, §22.2 of the master plan): run from a machine OUTSIDE the platform.
 
-    python -I tests/security/edge/external.py <public_entry_ipv4> <mesh_domain> <tenant[,tenant...]>
+    python -I tests/security/edge/external.py <public_entry_ipv4> <mesh_domain> <tenant[,tenant...]> [--admin-public]
 
 1. TCP connect scan of the public entry IP: ports 1-1024 plus the service ports of the platform and common services
    (PostgreSQL, Caddy admin, Docker API, listener admin/metrics, tunnel-facing ports, gRPC, ...). Prints the open set;
    the caller compares it with the port matrix (§15.1) — on the staging VPS: 22, 80, 443, 587 (mail of the owner).
 2. On every tenant hostname plus one that does not exist: every forbidden path and traversal of conformance.py ⇒ 404
    (or no answer); /bootstrap-dns answers the entry IP; :80 /generate_204 ⇒ 204 and any other :80 path ⇒ 308 to https;
-   /key?v=113 ⇒ 200 for real tenants; a foreign SNI gets no TLS; admin.<base domain> is not served by the entry.
+   /key?v=113 ⇒ 200 for real tenants; a foreign SNI gets no TLS; admin.<base domain> is not served by the entry —
+   or, with --admin-public (edge template v11, admin_public — owner's decision 2026-11-20), it is: the SPA on /,
+   /api/v1/auth/session ⇒ 401 from the api, and every Keycloak console path (master realm, /admin/*, impersonation)
+   ⇒ 401 of the api's console gate without a session — never Keycloak.
 From outside there is no upstream log, so "the edge answered 404" is the criterion (the LAN-side run of conformance.py
 proves nothing reaches the instance). Prints statuses only; exit code 0 = every check passed. Standard library only.
 """
@@ -52,6 +55,8 @@ def scan(entry: str) -> dict[int, str]:
 def main(argv: list[str]) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
+    admin_public = "--admin-public" in argv
+    argv = [x for x in argv if x != "--admin-public"]
     if len(argv) != 4:
         print(__doc__)
         return 2
@@ -91,8 +96,14 @@ def main(argv: list[str]) -> int:
     st, _, _ = c.https(entry, "example.com", "GET", "/")
     r.check(st is None, "foreign SNI example.com: no TLS (strict SNI, no default certificate)", f"status {st}")
     admin = f"admin.{domain.split('.', 1)[1]}"
-    st, err, _ = c.https(entry, admin, "GET", "/")
-    r.check(st is None or st == 404, f"{admin} not served by the public entry", f"status {st} {err if st is None else ''}")
+    st, err, body = c.https(entry, admin, "GET", "/")
+    if not admin_public:
+        r.check(st is None or st == 404, f"{admin} not served by the public entry", f"status {st} {err if st is None else ''}")
+    else:
+        r.check(st == 200 and b'id="root"' in body, f"{admin} / ⇒ the SPA (admin public)", f"status {st}")
+        st, _, _ = c.https(entry, admin, "GET", "/api/v1/auth/session")
+        r.check(st == 401, f"{admin} /api/v1/auth/session ⇒ 401 from the api", f"status {st}")
+        c.check_console_gate(r, entry, admin, 443)
     return r.done(f"AC-20 external ({len(hosts)} hostnames)")
 
 

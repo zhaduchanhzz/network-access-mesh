@@ -200,17 +200,8 @@ class Stack:
             files = render_instance.render(params)
             render_instance.write(files, out / slug)
             log(f"render {slug}: {', '.join(sorted(files))} (image {params['image'].split('@')[0]})")
-        # The edge's static IPs and internal subnets are module constants of render_edge (the host layout of
-        # infrastructure/host/networks.sh); the stack uses its own subnets. Updated in place: render_idp shares the dict
-        # (KC_PROXY_TRUSTED_ADDRESSES = the edge's IP on the idp network).
-        render_edge.EDGE_IPS.update(edge_ip=self.edge_ip, edge_admin_ip=self.admin_ip, edge_obs_ip=self.obs_ip,
-                                    edge_idp_ip=self.edge_idp_ip)
-        render_edge.INTERNAL.update(admin_subnet=self.networks["admin"][0], obs_subnet=self.networks["obs"][0])
-        render_edge.APP_IPS.update(worker_edge_ip=self.worker_edge_ip)
+        files = self.edge_files()
         render_mail.MAIL_NET.update(subnet=self.networks["mail"][0])   # mailrelay listens on the stack's mail network
-        params = mgenv.expand(json.loads((ENV_DIR / "edge.json").read_text(encoding="utf-8")), self.env)
-        files = render_edge.render(params)
-        files["caddy/Caddyfile"] = ci_tls(files["caddy/Caddyfile"])
         render_edge.write(files, out / "edge")
         log(f"render edge: Caddyfile (template {render_edge.TEMPLATE_VERSION}, tls → CA nội bộ), compose.edge.yaml")
         files = render_idp.render(self.env, self.images["idp"])
@@ -227,6 +218,21 @@ class Stack:
         os.chmod(pol / "test-allow-intra.hujson", 0o644)
         for p in out.rglob("*"):   # config is not secret; Headscale/Keycloak/Caddy run as other UIDs
             os.chmod(p, 0o755 if p.is_dir() else 0o644)
+
+    def edge_files(self, **overrides) -> dict[str, str]:
+        """The edge's files by tools/render_edge.py from the ci edge.json — plus `overrides` of its parameters (E2E-121:
+        admin_public with a tunnel whose peer is this host) — with the CI tls block (ci_tls)."""
+        # The edge's static IPs and internal subnets are module constants of render_edge (the host layout of
+        # infrastructure/host/networks.sh); the stack uses its own subnets. Updated in place: render_idp shares the dict
+        # (KC_PROXY_TRUSTED_ADDRESSES = the edge's IP on the idp network).
+        render_edge.EDGE_IPS.update(edge_ip=self.edge_ip, edge_admin_ip=self.admin_ip, edge_obs_ip=self.obs_ip,
+                                    edge_idp_ip=self.edge_idp_ip)
+        render_edge.INTERNAL.update(admin_subnet=self.networks["admin"][0], obs_subnet=self.networks["obs"][0])
+        render_edge.APP_IPS.update(worker_edge_ip=self.worker_edge_ip)
+        params = {**mgenv.expand(json.loads((ENV_DIR / "edge.json").read_text(encoding="utf-8")), self.env), **overrides}
+        files = render_edge.render(params)
+        files["caddy/Caddyfile"] = ci_tls(files["caddy/Caddyfile"])
+        return files
 
     def render_app(self) -> None:
         """compose.app.yaml (P2-T16) by tools/render_app.py with the images of this run (dummy IDs before the build)."""
