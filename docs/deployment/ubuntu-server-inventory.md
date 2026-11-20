@@ -145,7 +145,7 @@ Mọi VM dùng cloud image Ubuntu 24.04 (noble): `SHA256SUMS` được kiểm ch
 | 13 | SSH key trên VPS (user `mgdeploy`) và Proxmox (root); chủ dự án quyết định không đổi mật khẩu root của VPS và Proxmox (D-10, chấp nhận rủi ro); bản sao trên máy vận hành đã xóa |
 | 14 | VPS không có IPv6; LAN có IPv6 công khai (V-35) |
 | 15 | GitHub (repo public 2026-11-16, **private từ 2026-11-17**) + GitHub Actions trên runner của GitHub + GHCR (D-12) |
-| 16 | Quy mô kỳ vọng cho MVP và 12 tháng: chưa biết — chủ dự án; cần trước P6-T08 |
+| 16 | Quy mô kỳ vọng (chủ dự án duyệt ở G5, 2026-11-20): MVP **10 tenant × ≤ 25 thiết bị** trên 1 host; 12 tháng **100 tenant × ≤ 25 thiết bị** trên 1–3 host; ngưỡng P6-T08/P6-T09 ở báo cáo G5 mục 7 (`docs/planning/evidence/G5.md`) |
 | 17 | `sudo` NOPASSWD toàn quyền, tạm thời (D-13) |
 | 18 | Từ 2 người trở lên (D-11) |
 | 19 | Host staging 192.168.1.8/24, gateway 192.168.1.1; LAN 192.168.1.0/24; segment `lan10` 192.168.10.0/24 sau OPNsense; Proxmox và máy Windows thuộc tailnet riêng của chủ dự án (dải `100.64.0.0/10`, `fd7a:115c:a1e0::/48`), máy Windows tới LAN qua subnet route của tailnet đó. Pool Docker không được chồng các dải này (§14.1) |
