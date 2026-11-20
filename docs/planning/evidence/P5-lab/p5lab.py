@@ -242,7 +242,7 @@ def jload(src) -> dict:
     """JSON từ một file (Path) hoặc văn bản thô (str); bỏ phần trước dấu { đầu tiên."""
     try:
         txt = src.read_text(encoding="utf-8") if isinstance(src, pathlib.Path) else (src or "")
-        return json.loads(txt[txt.index("{"):]) if "{" in txt else {}
+        return json.JSONDecoder().raw_decode(txt[txt.index("{"):])[0] if "{" in txt else {}   # bỏ phần thừa sau JSON
     except (OSError, ValueError):
         return {}
 
