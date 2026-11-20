@@ -104,7 +104,7 @@ func (h *Handlers) ListDevices(ctx context.Context, req gen.ListDevicesRequestOb
 	if err != nil {
 		return nil, problemOf(err)
 	}
-	out := gen.DeviceList{Items: make([]gen.Device, 0, len(page.Items))}
+	out := gen.DeviceList{Items: make([]gen.Device, 0, len(page.Items)), SyncedAt: page.SyncedAt}
 	for _, d := range page.Items {
 		out.Items = append(out.Items, device(d))
 	}

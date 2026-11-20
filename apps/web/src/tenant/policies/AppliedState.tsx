@@ -121,7 +121,10 @@ export function ApplyJobPanel({ jobId }: { jobId: string }) {
           ) : null}
           {job.data.error ? (
             <p className="text-danger">
-              {t("policies.applied.error")} <code>{job.data.error.code}</code>
+              {t("policies.applied.error")}{" "}
+              <span className="text-xs" data-code={job.data.error.code}>
+                {t("ui.jobErrorCode", { code: job.data.error.code })}
+              </span>
             </p>
           ) : null}
           {status === "succeeded" ? <p data-testid="apply-done">{t("policies.job.succeeded")}</p> : null}

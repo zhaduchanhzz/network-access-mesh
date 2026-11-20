@@ -128,6 +128,10 @@ describe("vòng đời", () => {
     expect(isEditable(version(V2))).toBe(true);
     expect(isEditable(version(V2, { desired: true }))).toBe(false);
     expect(isEditable(version(V2, { state: "superseded" }))).toBe(false);
+    // G4b-E15: đã duyệt ⇒ chỉ đọc (đổi qua bản nháp mới); chưa duyệt ⇒ sửa được
+    expect(isEditable(version(V2, { state: "approved", approved_at: "x" }))).toBe(false);
+    expect(isEditable(version(V2, { state: "rejected" }))).toBe(false);
+    for (const state of ["validated", "pending_approval"] as const) expect(isEditable(version(V2, { state }))).toBe(true);
     expect(isEditable(version(V2, { kind: "baseline", source: undefined, hujson: "{}" }))).toBe(false);
     const cur = current();
     expect(isStaleBase(version(V2, { parent_version_id: V1 }), cur)).toBe(false);

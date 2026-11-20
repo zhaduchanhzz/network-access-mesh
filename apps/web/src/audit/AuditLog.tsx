@@ -250,12 +250,42 @@ function AuditFilters({ filter, onApply }: { filter: AuditFilter; onApply: (f: A
   );
 }
 
-/** Người thực hiện: tên (ảnh chụp lúc ghi) + loại; hành động của support mang grant (§8.7 bước 3). */
+/** Mã actor (`actor.kind` — G4b-E13); server cũ không trả ⇒ suy từ loại. */
+export function actorKindOf(actor: AuditEvent["actor"]): string {
+  if (actor.kind) return actor.kind;
+  return actor.type === "identity" ? "user" : actor.type === "support" ? "support" : "system";
+}
+
+/**
+ * Người thực hiện (G4b-E13 — một quy ước cho mọi màn hình): người dùng / nhân viên hỗ trợ ⇒ tên hiển thị (tên hiện tại
+ * của danh tính khi server đọc được, nếu không thì ảnh chụp lúc ghi) kèm e-mail nhỏ, ID danh tính ở tooltip; hệ thống ⇒
+ * nhãn đã dịch theo mã actor, ảnh chụp thô (mã job, lệnh, mô tả tiếng Anh) chỉ ở tooltip. Hành động của support mang
+ * grant (§8.7 bước 3).
+ */
 export function ActorCell({ actor }: { actor: AuditEvent["actor"] }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const kind = actorKindOf(actor);
+  const person = actor.type !== "system";
+  const kindKey = `audit.actorKinds.${kind}`;
+  const label = i18n.exists(kindKey) ? t(kindKey) : t("audit.actorKinds.system");
+  const name = person ? (actor.display_name ?? t("audit.unknownUser")) : label;
+  const title = person
+    ? actor.identity_id
+      ? t("audit.actorIdTooltip", { id: actor.identity_id })
+      : undefined
+    : actor.display_name
+      ? t("audit.actorRaw", { raw: actor.display_name })
+      : undefined;
   return (
-    <div className="space-y-1">
-      <div>{actor.display_name ?? actor.identity_id ?? t(`audit.actorTypes.${actor.type}`)}</div>
+    <div className="space-y-1" data-actor-kind={kind}>
+      <div title={title} data-testid="actor-name">
+        {name}
+      </div>
+      {person && actor.email && actor.email !== name ? (
+        <div className="hint break-all" data-testid="actor-email">
+          {actor.email}
+        </div>
+      ) : null}
       {actor.type === "identity" ? null : (
         <StatusBadge tone={actor.type === "support" ? "warn" : "neutral"} testId={`actor-${actor.type}`}>
           {t(`audit.actorTypes.${actor.type}`)}

@@ -235,7 +235,10 @@ describe("Chi tiết tenant", () => {
     expect(within(inst).getByText("v0.29.7")).toBeInTheDocument();
     expect(within(inst).getByText("Khỏe")).toHaveAttribute("data-status", "healthy");
     expect(await screen.findByText("mg-acme")).toBeInTheDocument();
-    expect(screen.getByText("never_checked")).toBeInTheDocument();
+    // lý do health dịch theo mã, mã thô chỉ ở tooltip (G4b-E11)
+    const reason = document.querySelector('[data-reason="never_checked"]');
+    expect(reason).toHaveAttribute("title", "never_checked");
+    expect(reason).not.toHaveTextContent("never_checked");
     // G4b-E12: cùng nhãn đã dịch với trang Relay Region; khóa thô chỉ ở tooltip
     expect(screen.getByTestId("relay-unavailable")).toHaveTextContent("Lưu lượng (byte)");
     expect(screen.getByTestId("relay-unavailable")).toHaveTextContent("không khả dụng — Thành phần không cung cấp số đo này");
@@ -317,7 +320,7 @@ describe("Chi tiết tenant", () => {
     // lời nhắc chung ở đầu trang bị lớp modal che ⇒ hộp có nút xác thực lại, quay về đúng trang
     const assign = vi.spyOn(browser, "assign").mockImplementation(() => undefined);
     await userEvent.click(within(dialog).getByRole("button", { name: "Xác thực lại" }));
-    expect(assign).toHaveBeenCalledWith(`/api/v1/auth/login?scope=platform&return_to=%2Fplatform%2Ftenants%2F${T1}&reauth=true`);
+    expect(assign).toHaveBeenCalledWith(`/api/v1/auth/login?scope=platform&return_to=%2Fplatform%2Ftenants%2F${T1}&reauth=true&ui_locales=vi`);
   });
 
   it("Resume chỉ hiện khi suspended", async () => {

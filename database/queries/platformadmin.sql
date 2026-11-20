@@ -169,3 +169,20 @@ UPDATE subscriptions
 SET plan_id = sqlc.arg(plan_id), overrides = sqlc.arg(overrides), updated_at = sqlc.arg(now)::timestamptz,
     version = version + 1
 WHERE id = sqlc.arg(id) AND tenant_id = sqlc.arg(tenant_id);
+
+-- ---------------------------------------------------------------- nhãn của Platform Console (G4b-E12)
+
+-- name: ListTenantLabels :many
+-- Slug, tên và gói (subscription còn hiệu lực — trialing/active/past_due, tối đa một: partial UNIQUE của 0012) của các
+-- tenant được nhắc tới trên một trang của Platform Console (instance, job, relay region, IdP, danh sách tenant) — tra
+-- theo lô thay cho UUID. Tenant không có subscription còn hiệu lực ⇒ plan_key rỗng.
+SELECT t.id, t.slug::text AS slug, t.name,
+       COALESCE((SELECT p.key FROM subscriptions s JOIN subscription_plans p ON p.id = s.plan_id
+                 WHERE s.tenant_id = t.id AND s.status IN ('trialing', 'active', 'past_due')
+                 ORDER BY s.created_at DESC LIMIT 1), '')::text AS plan_key
+FROM tenants t
+WHERE t.id = ANY(sqlc.arg(ids)::uuid[]);
+
+-- name: ListHostNames :many
+-- Tên host (nhãn DNS, bất biến) của các host được nhắc tới trên một trang của Platform Console (G4b-E12).
+SELECT id, name FROM hosts WHERE id = ANY(sqlc.arg(ids)::uuid[]);

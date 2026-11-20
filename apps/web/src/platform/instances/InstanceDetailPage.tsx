@@ -19,6 +19,7 @@ import { useInstance, useInstanceBackups, useInstanceConfigVersions, type Instan
 import { usePlatformRole } from "../PlatformScope";
 import { InstanceActions } from "./InstanceActions";
 import { HealthCell } from "./InstanceBits";
+import { HostRef, TenantRef } from "../Refs";
 
 export function InstanceDetailPage() {
   const { instanceId: raw = "" } = useParams();
@@ -91,14 +92,10 @@ function Summary({ instance: i }: { instance: Instance }) {
           </code>
         </Field>
         <Field label={t("platform.instances.col.tenant")}>
-          <Link to={`/platform/tenants/${i.tenant_id}`} className="link font-mono text-xs">
-            {i.tenant_id}
-          </Link>
+          <TenantRef id={i.tenant_id} slug={i.tenant_slug} name={i.tenant_name} />
         </Field>
         <Field label={t("platform.instances.col.host")}>
-          <Link to={`/platform/hosts/${i.host_id}`} className="link font-mono text-xs">
-            {i.host_id}
-          </Link>
+          <HostRef id={i.host_id} name={i.host_name} />
         </Field>
         <Field label={t("platform.instance.serverUrl")}>
           <code className="text-xs">{i.server_url}</code>

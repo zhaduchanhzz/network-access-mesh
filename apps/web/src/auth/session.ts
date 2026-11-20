@@ -7,6 +7,7 @@ import { api, API_PREFIX, call, setCsrfToken } from "../api/client";
 import { ApiError } from "../api/problem";
 import { queryKeys } from "../api/queryClient";
 import { browser, type ConsoleKind } from "../app/console";
+import { i18n, isLanguage, type Language } from "../i18n";
 
 export type Session = components["schemas"]["Session"];
 export type SessionMembership = components["schemas"]["SessionMembership"];
@@ -46,6 +47,8 @@ export interface LoginOptions {
   tenantSlug?: string | null;
   returnTo?: string | null;
   reauth?: boolean;
+  /** ngôn ngữ của SPA ⇒ `ui_locales` (G4b-E14: trang đăng nhập của IdP cùng ngôn ngữ) */
+  uiLocale?: Language | null;
 }
 
 /** URL của GET /api/v1/auth/login — `scope=platform` chỉ trên admin., `scope=tenant&tenant=<slug>` trên app. */
@@ -63,13 +66,15 @@ export function loginUrl(opts: LoginOptions): string {
   const back = safeReturnTo(opts.returnTo);
   if (back) q.set("return_to", back);
   if (opts.reauth) q.set("reauth", "true");
+  if (opts.uiLocale && isLanguage(opts.uiLocale)) q.set("ui_locales", opts.uiLocale);
   return `${API_PREFIX}/auth/login?${q.toString()}`;
 }
 
 /** Bắt đầu đăng nhập (hoặc step-up khi `reauth`): điều hướng top-level — không dùng <form> vì `form-action 'self'`
  * của CSP áp cả lên chuyển hướng sau khi submit (tới auth.<domain>). */
 export function startLogin(opts: LoginOptions): void {
-  browser.assign(loginUrl(opts));
+  const lang = i18n.language;
+  browser.assign(loginUrl({ ...opts, uiLocale: opts.uiLocale ?? (isLanguage(lang) ? lang : null) }));
 }
 
 /** POST /auth/logout (CSRF) rồi điều hướng tới `redirect_to` (end_session_endpoint của IdP) — chỉ URL https. */

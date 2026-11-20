@@ -13,6 +13,10 @@ package main
 // Output: one line per keycloak IdP (realm issuer, result updated | unchanged | would-update | skipped:<why> |
 // failed:<code>). Exit status: 0 done, 1 some realm failed, 2 usage or configuration error (no relay: MG_SMTP_ADDR unset
 // or authenticated).
+//
+// `meshguard-worker admin idp-realm-i18n [--dry-run]` — G4b-E14, same targets, same rules and output: give those realms
+// the i18n settings of the realm template (internationalizationEnabled, supportedLocales vi/en, defaultLocale —
+// keycloak.EnsureI18n), so that the login pages and e-mails follow the Portal's ui_locales. Needs no relay.
 
 import (
 	"context"
@@ -37,53 +41,92 @@ const realmSMTPUsage = `usage: meshguard-worker admin idp-realm-smtp [--dry-run]
   docker compose -p mg-app exec -T worker /usr/local/bin/meshguard admin idp-realm-smtp
 `
 
+const realmI18nUsage = `usage: meshguard-worker admin idp-realm-i18n [--dry-run]
+  sets the i18n of the realm template (vi, en) on every realm the keycloak driver created; runs inside the worker
+  container: docker compose -p mg-app exec -T worker /usr/local/bin/meshguard admin idp-realm-i18n
+`
+
+// realmRepair is one repair of the realms the keycloak driver created (G4b-E1 SMTP, G4b-E14 i18n).
+type realmRepair struct {
+	name, usage string
+	// relay: the repair sets the relay of MG_SMTP_* (configuration error without one)
+	relay  bool
+	ensure func(ctx context.Context, drv realmSMTPEnsurer, reg idp.Registration) (bool, error)
+}
+
+var (
+	repairSMTP = realmRepair{name: "idp-realm-smtp", usage: realmSMTPUsage, relay: true,
+		ensure: func(ctx context.Context, drv realmSMTPEnsurer, reg idp.Registration) (bool, error) {
+			return drv.EnsureSMTP(ctx, reg)
+		}}
+	repairI18n = realmRepair{name: "idp-realm-i18n", usage: realmI18nUsage,
+		ensure: func(ctx context.Context, drv realmSMTPEnsurer, reg idp.Registration) (bool, error) {
+			return drv.EnsureI18n(ctx, reg)
+		}}
+)
+
 // realmSMTPTarget is one keycloak IdP of the registry.
 type realmSMTPTarget struct {
 	Reg    idp.Registration
 	Status string
 }
 
-// realmSMTPEnsurer is what the command needs from the keycloak driver (replaced in tests).
+// realmSMTPEnsurer is what the commands need from the keycloak driver (replaced in tests).
 type realmSMTPEnsurer interface {
 	EnsureSMTP(ctx context.Context, reg idp.Registration) (bool, error)
+	EnsureI18n(ctx context.Context, reg idp.Registration) (bool, error)
 }
 
 type realmSMTPEnv struct {
 	getenv  func(string) string
 	environ []string
-	// open returns the keycloak IdPs of the registry and the driver configured with the relay; close releases them.
-	open func(ctx context.Context, cfg config.Config, smtp keycloak.SMTPServer, w io.Writer) ([]realmSMTPTarget,
+	// open returns the keycloak IdPs of the registry and the driver, configured with the relay when smtp is set; close
+	// releases them.
+	open func(ctx context.Context, cfg config.Config, smtp *keycloak.SMTPServer, w io.Writer) ([]realmSMTPTarget,
 		realmSMTPEnsurer, func(), error)
 }
 
 func idpRealmSMTP(ctx context.Context, args []string, stdout, stderr io.Writer, env realmSMTPEnv) int {
-	fset := flag.NewFlagSet("idp-realm-smtp", flag.ContinueOnError)
+	return idpRealmRepair(ctx, repairSMTP, args, stdout, stderr, env)
+}
+
+func idpRealmI18n(ctx context.Context, args []string, stdout, stderr io.Writer, env realmSMTPEnv) int {
+	return idpRealmRepair(ctx, repairI18n, args, stdout, stderr, env)
+}
+
+func idpRealmRepair(ctx context.Context, rp realmRepair, args []string, stdout, stderr io.Writer, env realmSMTPEnv) int {
+	prefix := "meshguard-worker admin " + rp.name + ": "
+	fset := flag.NewFlagSet(rp.name, flag.ContinueOnError)
 	fset.SetOutput(io.Discard)
 	dry := fset.Bool("dry-run", false, "")
 	if err := fset.Parse(args); err != nil || fset.NArg() != 0 {
-		_, _ = io.WriteString(stderr, "meshguard-worker admin idp-realm-smtp: invalid flags\n"+realmSMTPUsage)
+		_, _ = io.WriteString(stderr, prefix+"invalid flags\n"+rp.usage)
 		return 2
 	}
 	cfg, err := config.Load("worker", env.getenv, env.environ)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "meshguard-worker admin idp-realm-smtp: invalid configuration:\n%v\n", err)
+		_, _ = fmt.Fprintf(stderr, "%sinvalid configuration:\n%v\n", prefix, err)
 		return 2
 	}
 	if !cfg.Wired {
-		_, _ = io.WriteString(stderr, "meshguard-worker admin idp-realm-smtp: the worker is not configured (MG_DB_URL)\n")
+		_, _ = io.WriteString(stderr, prefix+"the worker is not configured (MG_DB_URL)\n")
 		return 2
 	}
-	smtp, ok, err := keycloak.SMTPFromConfig(cfg.SMTP.Addr, cfg.SMTP.TLS, cfg.SMTP.From, cfg.SMTP.Username, cfg.BaseDomain)
-	if err != nil || !ok {
-		_, _ = io.WriteString(stderr, "meshguard-worker admin idp-realm-smtp: no realm relay — MG_SMTP_ADDR must be set "+
-			"and unauthenticated (a realm's smtpServer never holds a password)\n")
-		return 2
+	var smtp *keycloak.SMTPServer
+	if rp.relay {
+		s, ok, err := keycloak.SMTPFromConfig(cfg.SMTP.Addr, cfg.SMTP.TLS, cfg.SMTP.From, cfg.SMTP.Username, cfg.BaseDomain)
+		if err != nil || !ok {
+			_, _ = io.WriteString(stderr, prefix+"no realm relay — MG_SMTP_ADDR must be set "+
+				"and unauthenticated (a realm's smtpServer never holds a password)\n")
+			return 2
+		}
+		smtp = &s
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
 	targets, drv, closeAll, err := env.open(ctx, cfg, smtp, stderr)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "meshguard-worker admin idp-realm-smtp: FAILED: %s\n", logx.RedactString(err.Error()))
+		_, _ = fmt.Fprintf(stderr, "%sFAILED: %s\n", prefix, logx.RedactString(err.Error()))
 		return 1
 	}
 	defer closeAll()
@@ -106,10 +149,10 @@ func idpRealmSMTP(ctx context.Context, args []string, stdout, stderr io.Writer, 
 			continue
 		}
 		if *dry {
-			p("%s: would-update (if its smtpServer differs)", what)
+			p("%s: would-update (if it differs)", what)
 			continue
 		}
-		changed, err := drv.EnsureSMTP(ctx, t.Reg)
+		changed, err := rp.ensure(ctx, drv, t.Reg)
 		switch {
 		case idp.CodeOf(err) == idp.CodeUnsupported:
 			p("%s: skipped:rendered_realm", what)
@@ -126,8 +169,12 @@ func idpRealmSMTP(ctx context.Context, args []string, stdout, stderr io.Writer, 
 			unchanged++
 		}
 	}
-	p("idp-realm-smtp: relay %s:%d, updated %d, unchanged %d, skipped %d, failed %d", smtp.Host, smtp.Port, updated,
-		unchanged, skipped, failed)
+	if smtp != nil {
+		p("%s: relay %s:%d, updated %d, unchanged %d, skipped %d, failed %d", rp.name, smtp.Host, smtp.Port, updated,
+			unchanged, skipped, failed)
+	} else {
+		p("%s: updated %d, unchanged %d, skipped %d, failed %d", rp.name, updated, unchanged, skipped, failed)
+	}
 	if failed > 0 {
 		return 1
 	}
@@ -136,8 +183,8 @@ func idpRealmSMTP(ctx context.Context, args []string, stdout, stderr io.Writer, 
 }
 
 // openRealmSMTP reads the keycloak IdPs of the registry (platform pool) and builds the keycloak driver with the
-// provisioning identity (its latest secret version) and the relay.
-func openRealmSMTP(ctx context.Context, cfg config.Config, smtp keycloak.SMTPServer, w io.Writer) ([]realmSMTPTarget,
+// provisioning identity (its latest secret version) and the relay (nil: none — the i18n repair).
+func openRealmSMTP(ctx context.Context, cfg config.Config, smtp *keycloak.SMTPServer, w io.Writer) ([]realmSMTPTarget,
 	realmSMTPEnsurer, func(), error,
 ) {
 	log := logx.New(w, cfg.LogLevel, "admin")
@@ -190,7 +237,7 @@ func openRealmSMTP(ctx context.Context, cfg config.Config, smtp keycloak.SMTPSer
 		return fail(err)
 	}
 	kc, err := keycloak.New(keycloak.Config{Route: route, Secrets: ss, Provisioner: keycloak.Credentials{ClientID: clientID,
-		Secret: ref}, AppHost: cfg.AppHost(), AdminHost: cfg.AdminHost(), Logger: log, SMTP: &smtp})
+		Secret: ref}, AppHost: cfg.AppHost(), AdminHost: cfg.AdminHost(), Logger: log, SMTP: smtp})
 	if err != nil {
 		return fail(err)
 	}

@@ -56,6 +56,8 @@ type InstanceService interface {
 	ListInstances(ctx context.Context, f platform.InstanceFilter) (platform.InstancePage, error)
 	GetInstance(ctx context.Context, id uuid.UUID) (platform.Instance, error)
 	ListInstanceConfigVersions(ctx context.Context, instanceID uuid.UUID, limit int, cursor string) (platform.ConfigVersionPage, error)
+	// Labels names the tenants and hosts of a page (G4b-E12: slug/name/plan instead of a UUID in the Platform Console).
+	Labels(ctx context.Context, tenantIDs, hostIDs []uuid.UUID) (platform.Labels, error)
 }
 
 var (
@@ -208,7 +210,15 @@ func (h *Handlers) ListPlatformTenants(ctx context.Context, req gen.ListPlatform
 		return nil, failure(err)
 	}
 	out := gen.ListPlatformTenants200JSONResponse{Items: make([]gen.Tenant, 0, len(p.Items)), NextCursor: cursorOf(p.NextCursor)}
+	ids := make([]uuid.UUID, 0, len(p.Items))
 	for _, t := range p.Items {
+		ids = append(ids, t.ID)
+	}
+	l := h.labels(ctx, ids, nil)
+	for _, t := range p.Items {
+		if t.Plan == "" { // the list read carries no subscription: the plan key of the live one (G4b-E12)
+			t.Plan = l.Tenants[t.ID].Plan
+		}
 		out.Items = append(out.Items, toTenant(t))
 	}
 	return out, nil
@@ -244,8 +254,9 @@ func (h *Handlers) ListPlatformInstances(ctx context.Context, req gen.ListPlatfo
 		return nil, failure(err)
 	}
 	out := gen.ListPlatformInstances200JSONResponse{Items: make([]gen.Instance, 0, len(p.Items)), NextCursor: cursorOf(p.NextCursor)}
+	l := h.instanceLabels(ctx, p.Items...)
 	for _, i := range p.Items {
-		out.Items = append(out.Items, toInstance(i))
+		out.Items = append(out.Items, labelInstance(toInstance(i), l))
 	}
 	return out, nil
 }
@@ -266,11 +277,12 @@ func (h *Handlers) ListPlatformTenantInstances(ctx context.Context, req gen.List
 		return nil, failure(err)
 	}
 	out := gen.ListPlatformTenantInstances200JSONResponse{Items: make([]gen.Instance, 0, len(p.Items)), NextCursor: cursorOf(p.NextCursor)}
+	l := h.instanceLabels(ctx, p.Items...)
 	for _, i := range p.Items {
 		if i.TenantID != req.TenantId {
 			return nil, problem.Internal(errForeignInstance)
 		}
-		out.Items = append(out.Items, toInstance(i))
+		out.Items = append(out.Items, labelInstance(toInstance(i), l))
 	}
 	return out, nil
 }
@@ -287,7 +299,36 @@ func (h *Handlers) GetPlatformInstance(ctx context.Context, req gen.GetPlatformI
 	if i.ID != req.InstanceId {
 		return nil, notFound()
 	}
-	return gen.GetPlatformInstance200JSONResponse(toInstance(i)), nil
+	return gen.GetPlatformInstance200JSONResponse(labelInstance(toInstance(i), h.instanceLabels(ctx, i))), nil
+}
+
+// labels reads the labels of a page. They only name what the page already identifies by UUID: a failed lookup leaves
+// them out (the Console then shows the UUID, as before G4b-E12) rather than failing the read.
+func (h *Handlers) labels(ctx context.Context, tenantIDs, hostIDs []uuid.UUID) platform.Labels {
+	l, err := h.platform.Labels(ctx, tenantIDs, hostIDs)
+	if err != nil {
+		return platform.Labels{}
+	}
+	return l
+}
+
+func (h *Handlers) instanceLabels(ctx context.Context, items ...platform.Instance) platform.Labels {
+	tids, hids := make([]uuid.UUID, 0, len(items)), make([]uuid.UUID, 0, len(items))
+	for _, i := range items {
+		tids, hids = append(tids, i.TenantID), append(hids, i.HostID)
+	}
+	return h.labels(ctx, tids, hids)
+}
+
+// labelInstance adds the tenant's slug and name and the host's name to an instance (G4b-E12).
+func labelInstance(out gen.Instance, l platform.Labels) gen.Instance {
+	if t, ok := l.Tenants[out.TenantId]; ok {
+		out.TenantSlug, out.TenantName = &t.Slug, &t.Name
+	}
+	if n, ok := l.Hosts[out.HostId]; ok {
+		out.HostName = &n
+	}
+	return out
 }
 
 // ListPlatformInstanceConfigVersions implements GET /platform/instances/{instanceId}/config-versions (P4-T03 — the
@@ -317,8 +358,9 @@ func (h *Handlers) ListPlatformInstanceConfigVersions(ctx context.Context, req g
 
 // ToTenant maps the registry view to schema Tenant — shared with PATCH /platform/tenants/{id} (P4-T03a, adminapi).
 // Plan and Limits are the live subscription's (the effective limits: the plan's, each key of the overrides replacing
-// it — §13.3), read by the single-tenant reads; a list (and a tenant without a live subscription) carries no plan key
-// ("") and an empty PlanLimits ("a missing key means the plan sets no such limit", §13.3).
+// it — §13.3), read by the single-tenant reads; a list carries the plan key only (ListPlatformTenants adds it from the
+// labels of the page — G4b-E12) and an empty PlanLimits ("a missing key means the plan sets no such limit", §13.3); a
+// tenant without a live subscription has no plan key ("").
 func ToTenant(t tenants.Tenant) gen.Tenant {
 	out := gen.Tenant{
 		Id: t.ID, Slug: t.Slug, Name: t.Name, Status: gen.TenantStatus(t.Status), DeploymentRegion: t.DeploymentRegion,

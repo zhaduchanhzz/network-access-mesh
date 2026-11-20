@@ -256,7 +256,8 @@ describe.skipIf(!ADMIN || !OWNER || !TENANT || PHASE !== "b")("Policies trên st
       expect(await within(dialog).findByTestId("stale-base-dialog", {}, T)).toBeInTheDocument();
       await userEvent.click(within(dialog).getByRole("button", { name: "Hủy" }));
       record("stale_base_seen", (await screen.findByTestId("stale-base", {}, T)).textContent.includes("stale_base"));
-      await userEvent.click(screen.getByRole("button", { name: "Tạo bản nháp mới từ nội dung này" }));
+      // C đã duyệt ⇒ chỉ đọc; soạn lại qua "Tạo bản nháp từ version này" (G4b-E15)
+      await userEvent.click(within(screen.getByTestId("policy-sealed")).getByRole("button", { name: "Tạo bản nháp từ version này" }));
       await waitFor(() => expect(lastId(router)).not.toBe(c), T);
       await screen.findByTestId("version-etag", {}, T);
       record("version_d", lastId(router));

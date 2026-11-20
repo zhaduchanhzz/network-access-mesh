@@ -89,6 +89,55 @@ func TestHandlersMapQueryAndPage(t *testing.T) {
 	}
 }
 
+// TestActorKindNameAndEmail — G4b-E13: one name per person (the identity's current name, else the snapshot; e-mail
+// apart) and a stable kind per actor so that the Portal labels system actors in the reader's language.
+func TestActorKindNameAndEmail(t *testing.T) {
+	alice, staff := uuid.New(), uuid.New()
+	at := time.Date(2026, 11, 20, 9, 0, 0, 0, time.UTC)
+	entry := func(e audit.Entry) audit.Entry {
+		e.ID, e.OccurredAt, e.Action, e.ResourceType, e.Outcome = uuid.New(), at, "x.y", "z", audit.OutcomeSuccess
+		return e
+	}
+	fr := &fakeReader{page: audit.Page{Items: []audit.Entry{
+		// auth.login: no snapshot, the identity's current name and e-mail
+		entry(audit.Entry{ActorType: audit.ActorIdentity, ActorIdentityID: &alice, ActorName: "Alice", ActorEmail: "alice@a.test"}),
+		// invitation.accept recorded the e-mail as the snapshot: the current name wins
+		entry(audit.Entry{ActorType: audit.ActorIdentity, ActorIdentityID: &alice, ActorDisplay: "alice@a.test", ActorName: "Alice", ActorEmail: "alice@a.test"}),
+		// an identity the scope cannot read: the snapshot
+		entry(audit.Entry{ActorType: audit.ActorSupport, ActorIdentityID: &staff, ActorDisplay: "Staff One"}),
+		entry(audit.Entry{ActorType: audit.ActorSystem, ActorDisplay: "Keycloak administrator (master realm)"}),
+		entry(audit.Entry{ActorType: audit.ActorSystem, ActorDisplay: "Keycloak master: admin"}),
+		entry(audit.Entry{ActorType: audit.ActorSystem, ActorDisplay: "IdP provisioning identity (platform)",
+			Details: map[string]any{"idp_actor_kind": "idp_driver"}}),
+		entry(audit.Entry{ActorType: audit.ActorSystem, ActorDisplay: "member.idp_invite"}),
+		entry(audit.Entry{ActorType: audit.ActorSystem, ActorDisplay: "meshguard admin seed-membership"}),
+		entry(audit.Entry{ActorType: audit.ActorSystem}),
+	}}}
+	resp, err := New(fr).ListTenantAuditEvents(t.Context(), gen.ListTenantAuditEventsRequestObject{TenantId: uuid.New()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := resp.(gen.ListTenantAuditEvents200JSONResponse).Items
+	want := []struct{ kind, name, email string }{
+		{"user", "Alice", "alice@a.test"}, {"user", "Alice", "alice@a.test"}, {"support", "Staff One", ""},
+		{"idp_admin", "Keycloak administrator (master realm)", ""}, {"idp_admin", "Keycloak master: admin", ""},
+		{"idp_driver", "IdP provisioning identity (platform)", ""}, {"job", "member.idp_invite", ""},
+		{"admin_command", "meshguard admin seed-membership", ""}, {"system", "", ""},
+	}
+	str := func(p *string) string {
+		if p == nil {
+			return ""
+		}
+		return *p
+	}
+	for i, w := range want {
+		a := items[i].Actor
+		if str(a.Kind) != w.kind || str(a.DisplayName) != w.name || str(a.Email) != w.email {
+			t.Errorf("item %d: kind %q name %q email %q, want %+v", i, str(a.Kind), str(a.DisplayName), str(a.Email), w)
+		}
+	}
+}
+
 func TestHandlersRefuseBadParameters(t *testing.T) {
 	fr := &fakeReader{}
 	h := New(fr)

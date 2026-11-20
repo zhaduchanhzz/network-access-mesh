@@ -144,7 +144,8 @@ describe.skipIf(!SA1 || !SA2 || !TENANT_A)("Platform Console trên stack thật"
       const status = document.querySelector("[data-status]")?.getAttribute("data-status");
       record("suspend_status", status);
       expect(status).toBe("succeeded");
-      await userEvent.click(screen.getByRole("link", { name: TENANT_A }));
+      // tenant hiện theo tên (G4b-E12) — link theo đích, không theo UUID
+      await userEvent.click(screen.getAllByRole("link").find((a) => a.getAttribute("href") === `/platform/tenants/${TENANT_A}`)!);
       expect(await screen.findByRole("button", { name: "Khôi phục" }, { timeout: 30_000 })).toBeInTheDocument();
       expect(screen.getByText("Tạm ngưng", { selector: "[data-status=suspended]" })).toBeInTheDocument();
       await userEvent.click(screen.getByRole("button", { name: "Khôi phục" }));

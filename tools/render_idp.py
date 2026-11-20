@@ -82,6 +82,9 @@ IMAGE_RE = re.compile(r"^(?:[a-z0-9][a-z0-9._/:-]*@)?sha256:[0-9a-f]{64}$")   # 
 # A-3 — danh sách mật khẩu cấm nướng trong image idp (infrastructure/docker/idp/Dockerfile: /opt/keycloak/mg/
 #       password-blacklists/<file>); đổi nội dung danh sách ⇒ đổi tên file (v2…) để realm nào cũng phải cập nhật policy.
 BLOCKLIST_FILE = "mg-passwords-v1.txt"
+# Ngôn ngữ của Portal (apps/web/src/i18n LANGUAGES) — realm bật i18n đúng các ngôn ngữ này; trang đăng nhập/thư của
+# Keycloak 26.8.2 có sẵn bản dịch vi (theme base, keycloak.v2), không cần theme riêng (G4b-E14).
+UI_LOCALES = ("vi", "en")
 # A-4 — required action đổi/thêm/gỡ credential từ account console (AIA): luôn xác thực lại (max_auth_age 0; mặc định
 #       của Keycloak 26.8.2 là 300 s — P12).
 REAUTH_ACTIONS = ("UPDATE_PASSWORD", "CONFIGURE_TOTP", "delete_credential", "webauthn-register",
@@ -247,6 +250,9 @@ def check_realm(rep: dict, realm: str, base_domain: str, idp_id: str) -> list[st
     need(rep.get("sslRequired") == "all", "sslRequired phải là all (mọi lời gọi qua TLS của edge)")
     need(rep.get("registrationAllowed") is False, "tự đăng ký phải tắt (user chỉ vào qua lời mời/driver)")
     need(rep.get("organizationsEnabled") is False, "Organizations phải tắt (issuer theo realm — §8.2)")
+    need(rep.get("internationalizationEnabled") is True and sorted(rep.get("supportedLocales") or []) == sorted(UI_LOCALES)
+         and rep.get("defaultLocale") in UI_LOCALES,
+         f"i18n phải bật với đúng các ngôn ngữ của Portal {UI_LOCALES} (ui_locales của /auth/login — G4b-E14)")
     # brute force: bật, khóa TẠM (không khóa vĩnh viễn — tránh DoS khóa Tenant Owner)
     need(rep.get("bruteForceProtected") is True and rep.get("permanentLockout") is False
          and 3 <= int(rep.get("failureFactor", 0)) <= 10, "brute-force detection")

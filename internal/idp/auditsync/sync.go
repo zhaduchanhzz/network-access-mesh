@@ -461,7 +461,11 @@ func (s *Syncer) write(ctx context.Context, t Target, r Record) (bool, error) {
 			var ns []notifications.Event
 			switch {
 			case t.Kind == RealmTenant && t.TenantID != nil:
-				ns = append(ns, notifications.IdPAdminChange(*t.TenantID, r.EventID, r.Action, r.ActorDisplay, user, r.At))
+				n := notifications.IdPAdminChange(*t.TenantID, r.EventID, r.Action, r.ActorDisplay, user, r.At)
+				if r.ActorKind != "" { // the Portal names the actor by kind in the reader's language (G4b-E13)
+					n.Payload["actor_kind"] = r.ActorKind
+				}
+				ns = append(ns, n)
 			case r.ConsoleLogin:
 				ip := ""
 				if r.ActorIP.IsValid() {

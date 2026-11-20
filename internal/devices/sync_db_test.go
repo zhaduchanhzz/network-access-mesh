@@ -69,6 +69,18 @@ func TestSyncNormalisesFromListNodes(t *testing.T) {
 	if err != nil || len(page.Items) != 3 {
 		t.Fatalf("list: %v %d", err, len(page.Items))
 	}
+	if page.SyncedAt == nil || !page.SyncedAt.Equal(rep.SyncedAt) {
+		t.Errorf("list synced_at %v, want the sync of the tenant %s", page.SyncedAt, rep.SyncedAt)
+	}
+	// An empty page (an End User with no device yet) still carries the tenant's last sync (G4b-E9).
+	if empty, err := f.api.List(ctx, a.id, Access{OwnOnly: true, MembershipID: uuid.New()}, ListQuery{}); err != nil ||
+		len(empty.Items) != 0 || empty.SyncedAt == nil || !empty.SyncedAt.Equal(rep.SyncedAt) {
+		t.Errorf("empty own list: %d items, synced_at %v, %v; want the sync of the tenant", len(empty.Items), empty.SyncedAt, err)
+	}
+	// Tenant B was never synced: no synced_at at all.
+	if pb, err := f.api.List(ctx, f.b.id, Access{}, ListQuery{}); err != nil || pb.SyncedAt != nil {
+		t.Errorf("tenant B never synced: synced_at %v, %v", pb.SyncedAt, err)
+	}
 	for _, d := range page.Items {
 		switch d.ID {
 		case d1.ID:

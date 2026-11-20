@@ -185,8 +185,13 @@ export function splitTokens(text: string): string[] {
 // ---------------------------------------------------------------------------------------------------- vòng đời
 
 /** Version sửa được qua PATCH (server: 409 với desired, version nền tảng/HuJSON, superseded/rejected). */
+/**
+ * Biểu mẫu sửa được: version do admin soạn, chưa duyệt (draft, validated, pending_approval — lưu đưa về draft). Version đã
+ * duyệt, đang mong muốn/đã áp dụng, đã thay thế hoặc bị từ chối là bản ghi đã chốt ⇒ chỉ đọc; muốn đổi thì tạo bản nháp
+ * mới từ nội dung của nó (G4b-E15 — server vẫn nhận PATCH một version approved và đưa nó về draft, UI không mở lối đó).
+ */
 export function isEditable(v: PolicyVersion): boolean {
-  return v.kind === "user" && v.source !== undefined && !v.desired && v.state !== "superseded" && v.state !== "rejected";
+  return v.kind === "user" && v.source !== undefined && !v.desired && (v.state === "draft" || v.state === "validated" || v.state === "pending_approval");
 }
 
 /** Người gọi là người soạn hoặc người gửi — khi 4-eyes bật thì không được duyệt (server trả 403 self_approval). */

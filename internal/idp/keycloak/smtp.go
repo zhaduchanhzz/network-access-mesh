@@ -145,29 +145,39 @@ func (d *Driver) EnsureSMTP(ctx context.Context, reg idp.Registration) (changed 
 	if d.smtp == nil {
 		return false, idp.NewError(idp.CodeInvalidArgument, op, "realm_smtp_not_configured", nil)
 	}
-	if reg.Scope == idp.ScopeTenant && validRealm(reg.DriverRef) {
-		return false, idp.NewError(idp.CodeUnsupported, op, "rendered_realm", nil)
-	}
-	ref, _, err := ParseDriverRef(reg.DriverRef)
+	realm, live, err := d.driverRealm(ctx, op, reg)
 	if err != nil {
 		return false, err
-	}
-	ts := d.provisioner()
-	var live map[string]any
-	if _, _, err := d.call(ctx, op, ts, http.MethodGet, realmPath(ref.Realm), nil, &live); err != nil {
-		return false, err
-	}
-	la := asMap(live["attributes"])
-	if str(la["meshguard.idp_id"]) != reg.IdPID.String() || str(la["meshguard.scope"]) != string(reg.Scope) {
-		return false, idp.NewError(idp.CodeConflict, op, "realm_of_another_idp", nil)
 	}
 	want := d.smtp.rep()
 	if !smtpDiffers(want, live["smtpServer"]) {
 		return false, nil
 	}
-	if _, _, err := d.call(ctx, op, ts, http.MethodPut, realmPath(ref.Realm), map[string]any{"smtpServer": want}, nil); err != nil {
+	if _, _, err := d.call(ctx, op, d.provisioner(), http.MethodPut, realmPath(realm), map[string]any{"smtpServer": want}, nil); err != nil {
 		return false, err
 	}
-	d.log.Info("keycloak: realm smtpServer set", "realm", ref.Realm)
+	d.log.Info("keycloak: realm smtpServer set", "realm", realm)
 	return true, nil
+}
+
+// driverRealm reads the realm of a driver-created IdP (JSON driver_ref) after checking that its attributes name this
+// IdP and scope — the precondition of the repairs of existing realms (EnsureSMTP, EnsureI18n). An adopted rendered
+// realm (bare driver_ref of a tenant IdP) is infrastructure/idp/realm-update.sh's: CodeUnsupported.
+func (d *Driver) driverRealm(ctx context.Context, op string, reg idp.Registration) (string, map[string]any, error) {
+	if reg.Scope == idp.ScopeTenant && validRealm(reg.DriverRef) {
+		return "", nil, idp.NewError(idp.CodeUnsupported, op, "rendered_realm", nil)
+	}
+	ref, _, err := ParseDriverRef(reg.DriverRef)
+	if err != nil {
+		return "", nil, err
+	}
+	var live map[string]any
+	if _, _, err := d.call(ctx, op, d.provisioner(), http.MethodGet, realmPath(ref.Realm), nil, &live); err != nil {
+		return "", nil, err
+	}
+	la := asMap(live["attributes"])
+	if str(la["meshguard.idp_id"]) != reg.IdPID.String() || str(la["meshguard.scope"]) != string(reg.Scope) {
+		return "", nil, idp.NewError(idp.CodeConflict, op, "realm_of_another_idp", nil)
+	}
+	return ref.Realm, live, nil
 }

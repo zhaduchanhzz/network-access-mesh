@@ -179,6 +179,9 @@ function VersionView({ versionId }: { versionId: string }) {
   const canApprove = can(role, "tenant.policy:approve") && !readOnly;
   const canApply = can(role, "tenant.policy:apply") && !readOnly;
   const editable = canEdit && isEditable(v);
+  // G4b-E15: version đã chốt (đã duyệt / đang mong muốn / đã thay thế / bị từ chối) ⇒ Biểu mẫu chỉ đọc, đổi qua bản nháp mới
+  const sealed = canEdit && v.kind === "user" && v.source !== undefined && !isEditable(v);
+  const sealedState = v.desired ? t("policies.desiredBadge") : t(`policies.states.${v.state}`);
   const source = edit ?? v.source;
   const dirty = edit !== null && v.source !== undefined && !sameSource(edit, v.source);
   const problems = edit ? localProblems(edit) : [];
@@ -365,7 +368,7 @@ function VersionView({ versionId }: { versionId: string }) {
               {t("policies.actions.rollback")}
             </button>
           ) : null}
-          {canEdit && v.kind === "user" && v.source ? (
+          {canEdit && v.kind === "user" && v.source && !sealed ? (
             <button type="button" className="btn-secondary" disabled={busy || newDraft.isPending} onClick={() => v.source && newDraft.mutate(v.source)}>
               {t("policies.actions.newDraft")}
             </button>
@@ -407,6 +410,19 @@ function VersionView({ versionId }: { versionId: string }) {
           ) : null}
         </div>
         {exporter.isError ? <ProblemAlert error={exporter.error} /> : null}
+        {sealed ? (
+          <div className="rounded-md border border-line bg-surface p-3 text-sm" data-testid="policy-sealed">
+            <p>{t("policies.content.sealed", { state: sealedState })}</p>
+            <button
+              type="button"
+              className="btn-secondary mt-2"
+              disabled={busy || newDraft.isPending}
+              onClick={() => v.source && newDraft.mutate(v.source)}
+            >
+              {t("policies.content.newDraftFrom")}
+            </button>
+          </div>
+        ) : null}
         {!source ? (
           <div>
             <p className="text-sm text-muted">{t("policies.content.platformText")}</p>

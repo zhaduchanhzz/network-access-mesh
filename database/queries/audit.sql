@@ -103,3 +103,11 @@ SELECT EXISTS (
       AND details ->> 'dedupe_key' = sqlc.arg(dedupe_key)::text
       AND occurred_at >= now() - make_interval(secs => sqlc.arg(window_seconds)::float8)
 )::bool AS found;
+
+-- name: ListAuditActorIdentities :many
+-- G4b-E13: tên hiển thị và e-mail HIỆN TẠI của các danh tính là actor trên một trang audit — chỉ danh tính thuộc phạm
+-- vi của list (tenant_id của tenant; NULL = nhân sự nền tảng ở GET /platform/audit). Điều kiện tường minh + RLS của pool
+-- (danh tính nền tảng trong audit của tenant — support — không đọc được ở pool tenant: giữ ảnh chụp lúc ghi).
+SELECT id, COALESCE(display_name, '')::text AS display_name, COALESCE(email::text, '')::text AS email
+FROM identities
+WHERE id = ANY(sqlc.arg(ids)::uuid[]) AND tenant_id IS NOT DISTINCT FROM sqlc.narg(tenant_id)::uuid;

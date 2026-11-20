@@ -42,7 +42,7 @@ describe("đăng nhập", () => {
     await userEvent.type(input, "tenant-a");
     await userEvent.click(screen.getByRole("button", { name: "Tiếp tục tới trang đăng nhập" }));
     expect(assign).toHaveBeenCalledWith(
-      `/api/v1/auth/login?scope=tenant&tenant=tenant-a&return_to=${encodeURIComponent("/t/" + TENANT_A + "/devices")}`,
+      `/api/v1/auth/login?scope=tenant&tenant=tenant-a&return_to=${encodeURIComponent("/t/" + TENANT_A + "/devices")}&ui_locales=vi`,
     );
   });
 
@@ -51,7 +51,7 @@ describe("đăng nhập", () => {
     const assign = vi.spyOn(browser, "assign").mockImplementation(() => undefined);
     renderApp({ path: "/login", console: "platform" });
     await userEvent.click(await screen.findByRole("button", { name: "Tiếp tục tới trang đăng nhập" }));
-    expect(assign).toHaveBeenCalledWith("/api/v1/auth/login?scope=platform");
+    expect(assign).toHaveBeenCalledWith("/api/v1/auth/login?scope=platform&ui_locales=vi");
     expect(screen.queryByLabelText("Mã tenant (slug)")).toBeNull();
   });
 
@@ -60,7 +60,7 @@ describe("đăng nhập", () => {
     const assign = vi.spyOn(browser, "assign").mockImplementation(() => undefined);
     renderApp({ path: "/login?tenant=tenant-a&return_to=%2F%2Fevil.example", console: "tenant" });
     await userEvent.click(await screen.findByRole("button", { name: "Tiếp tục tới trang đăng nhập" }));
-    expect(assign).toHaveBeenCalledWith("/api/v1/auth/login?scope=tenant&tenant=tenant-a");
+    expect(assign).toHaveBeenCalledWith("/api/v1/auth/login?scope=tenant&tenant=tenant-a&ui_locales=vi");
   });
 });
 
@@ -204,7 +204,7 @@ describe("xử lý lỗi API", () => {
     const dialog = await screen.findByRole("alertdialog", { name: "Cần xác thực lại" });
     await userEvent.click(within(dialog).getByRole("button", { name: "Xác thực lại" }));
     expect(assign).toHaveBeenCalledWith(
-      `/api/v1/auth/login?scope=tenant&tenant=tenant-a&return_to=${encodeURIComponent(`/t/${TENANT_A}/audit`)}&reauth=true`,
+      `/api/v1/auth/login?scope=tenant&tenant=tenant-a&return_to=${encodeURIComponent(`/t/${TENANT_A}/audit`)}&reauth=true&ui_locales=vi`,
     );
   });
 

@@ -19,6 +19,8 @@ import { ProblemAlert } from "../components/ProblemAlert";
 import { ForbiddenPage, NotFoundPage, UnavailablePage } from "../pages/StatusPages";
 import { TENANT_PAGES } from "./pages";
 import { useUnreadCount } from "./notifications/useUnreadCount";
+import { useInstructions } from "./enrollment/Instructions";
+import { SELF_ENROLL_ROLE, selfEnrollClosed } from "./enrollment/model";
 
 export interface TenantContextValue {
   tenantId: string;
@@ -102,7 +104,7 @@ function TenantShell({ value, banner }: { value: TenantContextValue; banner: Rea
   return (
     <AppShell
       base={`/t/${value.tenantId}`}
-      nav={visibleItems(TENANT_NAV, value.role)}
+      nav={useTenantNav(value)}
       context={value.name ?? value.slug ?? value.tenantId}
       banner={banner}
       badges={unread.data ? { notifications: unread.data } : undefined}
@@ -110,6 +112,18 @@ function TenantShell({ value, banner }: { value: TenantContextValue; banner: Rea
       <Outlet />
     </AppShell>
   );
+}
+
+/**
+ * Mục điều hướng của role. G4b-E3: End User của tenant tắt `enrollment.self_enroll` không thấy "Thêm thiết bị" — cờ
+ * `self_enroll` của GET /enrollment/instructions (cùng query với trang Thêm thiết bị); gõ thẳng URL vẫn tới trang giải
+ * thích. Chưa biết cờ (đang tải, lỗi, tenant chưa có instance) ⇒ giữ mục như cũ.
+ */
+function useTenantNav(value: TenantContextValue): NavItem[] {
+  const items = visibleItems(TENANT_NAV, value.role);
+  const watch = value.role === SELF_ENROLL_ROLE && items.some((i) => i.path === "enroll");
+  const probe = useInstructions(value.tenantId, "linux", watch);
+  return watch && selfEnrollClosed(value.role, probe.data) ? items.filter((i) => i.path !== "enroll") : items;
 }
 
 /** /t/:tenantId ⇒ mục đầu tiên role được xem (Tổng quan; End User không có dashboard ⇒ Thiết bị). */

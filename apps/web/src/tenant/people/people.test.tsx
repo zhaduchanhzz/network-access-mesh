@@ -296,7 +296,7 @@ describe("Users — chi tiết: quy tắc 3a ở UI, server vẫn quyết địn
     );
     renderApp({ path: `/t/${TENANT_A}/users/${END_USER}` });
     expect(await screen.findByTestId("offboard-panel")).toHaveAttribute("data-state", "failed");
-    expect(await screen.findByText("(instance_unavailable)")).toBeInTheDocument();
+    expect(await screen.findByText("Mã lỗi: instance_unavailable")).toBeInTheDocument(); // mã lỗi là chi tiết kỹ thuật nhỏ (G4b-E11)
     await userEvent.click(screen.getByRole("button", { name: "Offboard lại…" }));
     await userEvent.type(within(dialog()).getByLabelText("Gõ lại email (hoặc tên) của thành viên để xác nhận"), "u4@example.test");
     await userEvent.click(within(dialog()).getByRole("button", { name: "Offboard" }));

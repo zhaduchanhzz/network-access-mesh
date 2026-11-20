@@ -887,7 +887,8 @@
       "override": "Replace all limit overrides",
       "overrideHint": "The API only returns effective limits (plan + overrides): the values sent replace every existing override; leaving every field empty removes all overrides.",
       "save": "Save"
-    }
+    },
+    "idTooltip": "ID: {{id}}"
   },
   "ui": {
     "cancel": "Cancel",
@@ -908,7 +909,8 @@
     "copyFailed": "Could not copy — select the text and copy it manually.",
     "syncedNever": "Never synced from Headscale.",
     "checkedNever": "Never checked.",
-    "observedNever": "Never observed."
+    "observedNever": "Never observed.",
+    "jobErrorCode": "Error code: {{code}}"
   },
   "notif": {
     "filterLabel": "Filter notifications",
@@ -1144,7 +1146,7 @@
     "addresses": "Public addresses",
     "verifyMode": "Client verification",
     "verify": {
-      "in_process": "In process (verify_clients)",
+      "in_process": "In process (the embedded DERP checks clients)",
       "verify_url": "Through a verify URL (fail-closed)"
     },
     "adminStatus": "Administrative status",
@@ -1385,7 +1387,7 @@
     }
   },
   "policies": {
-    "intro": "Policies are written on a typed model (members, groups, tags and resources chosen by id), checked by lint L1–L13 and CheckPolicy on the instance, and reviewed before they are applied. Groups, hosts and tagOwners are rendered from the tenant's tables when a version is applied.",
+    "intro": "Policies are written on a typed model (members, groups, tags and resources chosen by id), checked by the rule checks and CheckPolicy on the instance, and reviewed before they are applied. Groups, hosts and tagOwners are rendered from the tenant's tables when a version is applied.",
     "newVersion": "New version",
     "history": "Version history",
     "noVersions": "The tenant has no policy version yet.",
@@ -1450,7 +1452,7 @@
       "denyAll": "No rule: this policy blocks every connection (deny-all).",
       "ssh": "SSH rules",
       "addSsh": "Add SSH rule",
-      "sshHint": "None by default. accept always allows port forwarding and is not recorded (L10 — needs an acknowledgement); check is refused.",
+      "sshHint": "None by default. accept always allows port forwarding and is not recorded (needs an acknowledgement); check is refused.",
       "grantN": "Rule {{n}}",
       "removeGrant": "Remove rule {{n}}",
       "remove": "Remove",
@@ -1465,7 +1467,7 @@
       "removeSsh": "Remove SSH rule {{n}}",
       "sshAction": "Action",
       "sshActions": {
-        "accept": "accept (needs L10 acknowledgement)",
+        "accept": "accept (needs an acknowledgement)",
         "check": "check (refused — post-MVP)"
       },
       "sshSrcN": "Sources of SSH rule {{n}}",
@@ -1473,7 +1475,7 @@
       "sshUsersN": "Login accounts of SSH rule {{n}}",
       "sshUsersHint": "e.g. root, autogroup:nonroot, ubuntu.",
       "autoApprovers": "Route auto-approvers (autoApprovers)",
-      "autoApproversHint": "None by default. Only the platform's router/exit tags need no acknowledgement (L7); autoApprovers run again on every apply.",
+      "autoApproversHint": "None by default. Only the platform's router/exit tags need no acknowledgement; autoApprovers run again on every apply.",
       "routeApprovers": "Auto-approvers of route {{prefix}}",
       "removeRoute": "Remove route {{prefix}}",
       "routePrefix": "Route (prefix)",
@@ -1484,7 +1486,7 @@
     "ack": {
       "title": "Rule acknowledgements",
       "hint": "A rule that needs an acknowledgement passes validation only with one and a reason (≥ 5 characters). Acknowledgements are not part of the HuJSON text.",
-      "rule": "Acknowledge {{rule}}",
+      "rule": "Acknowledge: {{name}}",
       "desc": {
         "L4": "* or a default route as a destination (subnet routes and exit nodes included).",
         "L7": "autogroup:internet without via, or autoApprovers other than platform tags.",
@@ -1494,8 +1496,16 @@
       },
       "ownerOnly": "Tenant Owner approval only",
       "needed": "required by the report",
-      "reason": "Reason for {{rule}}",
-      "reasonHint": "5–500 characters; stored in the version's content and shown to the reviewer."
+      "reason": "Reason for the acknowledgement ({{name}})",
+      "reasonHint": "5–500 characters; stored in the version's content and shown to the reviewer.",
+      "name": {
+        "L4": "* or default route as destination",
+        "L7": "internet without an exit node / non-platform autoApprovers",
+        "L10": "SSH accept rule",
+        "L12": "tagOwners with owners",
+        "L13": "autogroup:member with headscale_oidc"
+      },
+      "ruleCode": "Rule code: {{rule}}"
     },
     "report": {
       "findings": "Findings",
@@ -1522,38 +1532,39 @@
       "warnings": "Warnings",
       "info": "Information",
       "clean": "No finding.",
-      "testsNote": "Tests are generated at validation/application (see below); impact checks also rely on CheckPolicy and the diff — not a simulation of effective access."
+      "testsNote": "Tests are generated at validation/application (see below); impact checks also rely on CheckPolicy and the diff — not a simulation of effective access.",
+      "technical": "Technical detail: {{rule}} · {{code}}"
     },
     "finding": {
-      "wildcard_destination": "* or a default route as a destination — blocked unless a Tenant Owner acknowledges it with a reason (L4).",
-      "danger_all_source": "autogroup:danger-all as a source — always blocked (L5).",
-      "undeclared_group": "The group referenced does not exist in the tenant (L6).",
-      "undeclared_tag": "The tag is not in the tenant's tag catalog (L6).",
-      "undeclared_user": "The member does not exist, is offboarded, or the e-mail belongs to no member (L6).",
-      "undeclared_resource": "No network resource has this name (alias) (L6).",
+      "wildcard_destination": "* or a default route as a destination — blocked unless a Tenant Owner acknowledges it with a reason.",
+      "danger_all_source": "autogroup:danger-all as a source — always blocked.",
+      "undeclared_group": "The group referenced does not exist in the tenant.",
+      "undeclared_tag": "The tag is not in the tenant's tag catalog.",
+      "undeclared_user": "The member does not exist, is offboarded, or the e-mail belongs to no member.",
+      "undeclared_resource": "No network resource has this name (alias).",
       "unresolved_reference": "The reference no longer exists in the tenant — fix it before saving.",
       "ambiguous_user": "Several members have this e-mail — write the member as mg-<membership>@.",
       "ambiguous_resource": "Several network resources have this name.",
-      "internet_without_via": "autogroup:internet without a via tag (exit node) — needs an L7 acknowledgement.",
-      "auto_approver_not_platform": "autoApprovers other than the platform's router/exit tags — needs an L7 acknowledgement.",
+      "internet_without_via": "autogroup:internet without a via tag (exit node) — needs an acknowledgement.",
+      "auto_approver_not_platform": "autoApprovers other than the platform's router/exit tags — needs an acknowledgement.",
       "ssh_check": "SSH check is refused (post-MVP).",
-      "ssh_accept": "SSH accept always allows port forwarding and is not recorded — needs an L10 acknowledgement.",
-      "self_large_tenant": "autogroup:self in a large tenant costs on every change (L8).",
-      "member_oidc": "autogroup:member in headscale_oidc mode includes every user of the IdP — needs an L13 acknowledgement.",
-      "tag_owners": "tagOwners has owners (L12).",
-      "user_token": "A user token of the output is not mg-<membership>@ (L11).",
-      "acls_legacy": "An acls section (legacy — L9).",
+      "ssh_accept": "SSH accept always allows port forwarding and is not recorded — needs an acknowledgement.",
+      "self_large_tenant": "autogroup:self in a large tenant costs on every change.",
+      "member_oidc": "autogroup:member in headscale_oidc mode includes every user of the IdP — needs an acknowledgement.",
+      "tag_owners": "tagOwners has owners.",
+      "user_token": "A user token of the output is not mg-<membership>@.",
+      "acls_legacy": "An acls section (legacy).",
       "check_rejected": "Headscale refused the rendered policy (CheckPolicy).",
-      "missing_grants": "No grants key — Headscale would allow all traffic (L1). Use \"grants\": [] for deny-all.",
-      "null_grants": "\"grants\": null means allow-all (L1) — use an explicit array.",
-      "grants_not_array": "grants must be an array (L1).",
-      "empty": "The policy text is empty — Headscale would store it and allow all traffic at its next start (L2). Not sent.",
-      "managed_key": "This key is rendered from the tenant's tables (groups, resources, tag catalog) — remove it from the text and manage it on its page (L3).",
-      "acls_unsupported": "acls is the legacy format — write the rules as grants (L3).",
-      "node_attrs": "nodeAttrs is refused in the MVP (L3).",
-      "tests_generated": "tests/sshTests are generated at apply time, not written by hand (L3).",
-      "unsupported_key": "This key is not part of a tenant policy (L3).",
-      "unknown_key": "Unknown key at this position (L3).",
+      "missing_grants": "No grants key — Headscale would allow all traffic. Use \"grants\": [] for deny-all.",
+      "null_grants": "\"grants\": null means allow-all — use an explicit array.",
+      "grants_not_array": "grants must be an array.",
+      "empty": "The policy text is empty — Headscale would store it and allow all traffic at its next start. Not sent.",
+      "managed_key": "This key is rendered from the tenant's tables (groups, resources, tag catalog) — remove it from the text and manage it on its page.",
+      "acls_unsupported": "acls is the legacy format — write the rules as grants.",
+      "node_attrs": "nodeAttrs is refused in the MVP.",
+      "tests_generated": "tests/sshTests are generated at apply time, not written by hand.",
+      "unsupported_key": "This key is not part of a tenant policy.",
+      "unknown_key": "Unknown key at this position.",
       "misspelled_key": "The key's case is wrong — Headscale matches keys case-insensitively, so it is refused.",
       "comment_key": "A key starting with # is silently ignored by Headscale — refused.",
       "duplicate_key": "The key is repeated (compared case-insensitively).",
@@ -1635,7 +1646,7 @@
       "stepUp": "Apply/rollback need a sign-in within 15 minutes"
     },
     "job": {
-      "title": "policy.apply job",
+      "title": "Policy apply job",
       "final": "final state",
       "polling": "refreshing automatically",
       "steps": "Job steps",
@@ -1662,7 +1673,7 @@
       "title": "Lifecycle",
       "saveFirst": "There are unsaved changes — save before validating or reviewing.",
       "fourEyesSelf": "4-eyes is on: you wrote or submitted this version, so you cannot approve it — another Owner/Admin approves it.",
-      "ownerOnly": "The version acknowledges a rule only a Tenant Owner may accept (L4/L12) — a Tenant Owner approves it.",
+      "ownerOnly": "The version acknowledges a rule only a Tenant Owner may accept — a Tenant Owner approves it.",
       "validate": "Validate",
       "submit": "Submit for review",
       "approve": "Approve",
@@ -1675,7 +1686,7 @@
     },
     "staleBase": {
       "title": "Stale base (409 stale_base)",
-      "body": "This version was written on an older desired version; the desired version has changed since. Create a new draft from this content (based on the current desired version), validate and review it again."
+      "body": "This version was written on an older desired version; the desired version has changed since. “Create a draft from this version” (based on the current desired version), validate and review it again."
     },
     "content": {
       "title": "Content",
@@ -1688,7 +1699,9 @@
       "unsaved": "Unsaved",
       "localProblems_one": "{{count}} problem to fix before saving",
       "localProblems_other": "{{count}} problems to fix before saving",
-      "backToDraft": "Saving returns the version to draft and clears its approval and validation result."
+      "backToDraft": "Saving returns the version to draft and clears its approval and validation result.",
+      "sealed": "This version is “{{state}}” and read-only. To change it, create a new draft from its content — this version stays as it is.",
+      "newDraftFrom": "Create a draft from this version"
     },
     "approve": {
       "title": "Approve version {{n}}?",
@@ -1708,7 +1721,7 @@
     },
     "apply": {
       "title": "Apply version {{n}}?",
-      "description": "The version becomes desired and the policy.apply job renders it over the current tables → lint → CheckPolicy → SetPolicy → read-back sha256.",
+      "description": "The version becomes desired and the apply job renders it over the current tables → rule checks → CheckPolicy → SetPolicy → read-back sha256.",
       "stepUp": "This needs a sign-in within the last 15 minutes (step-up) — when asked, sign in again and retry.",
       "converged": "\"Applied to Headscale\" does not mean every client has the new policy."
     },
@@ -1773,7 +1786,7 @@
         "tests_self_not_asserted": "Generated tests CANNOT assert access to autogroup:self: Headscale runs tests on its global filter, which leaves self rules out. Check with real connections.",
         "tests_via_not_asserted": "Generated tests CANNOT assert access through via: Headscale runs tests on its global filter, which leaves via rules out. Check with real connections.",
         "routes_need_approval": "The routes of the router/exit node still have to be approved on the Routes page.",
-        "self_large_tenant": "autogroup:self is costly in a large tenant (L8).",
+        "self_large_tenant": "autogroup:self is costly in a large tenant.",
         "replaces_draft": "Replaces every rule of the draft."
       }
     },
@@ -1871,7 +1884,21 @@
       "denied": "Denied",
       "failure": "Failure"
     },
-    "actionPlaceholder": "device.rename"
+    "actionPlaceholder": "device.rename",
+    "actorKinds": {
+      "user": "User",
+      "support": "Platform support staff",
+      "idp_driver": "Platform IdP automation (realm service account)",
+      "idp_provisioner": "Platform IdP provisioning identity",
+      "idp_admin": "Keycloak administrator (master realm)",
+      "realm_user": "User of the realm",
+      "job": "Platform background job",
+      "admin_command": "Platform admin command",
+      "system": "System"
+    },
+    "unknownUser": "User (name unknown)",
+    "actorRaw": "Recorded as: {{raw}}",
+    "actorIdTooltip": "Identity ID: {{id}}"
   },
   "support": {
     "tenantIntro": "Platform staff can enter this tenant only through a time-boxed grant (at most 8 hours) that you approve here. Every action they take appears in the audit log. You can revoke a grant at any time — it stops at their next request.",

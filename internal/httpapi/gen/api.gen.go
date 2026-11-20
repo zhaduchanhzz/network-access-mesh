@@ -2149,6 +2149,24 @@ func (e AuthLoginParamsScope) Valid() bool {
 	}
 }
 
+// Defines values for AuthLoginParamsUiLocales.
+const (
+	AuthLoginParamsUiLocalesEn AuthLoginParamsUiLocales = "en"
+	AuthLoginParamsUiLocalesVi AuthLoginParamsUiLocales = "vi"
+)
+
+// Valid indicates whether the value is a known member of the AuthLoginParamsUiLocales enum.
+func (e AuthLoginParamsUiLocales) Valid() bool {
+	switch e {
+	case AuthLoginParamsUiLocalesEn:
+		return true
+	case AuthLoginParamsUiLocalesVi:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ListPlatformAuditEventsParamsActorType.
 const (
 	ListPlatformAuditEventsParamsActorTypeIdentity ListPlatformAuditEventsParamsActorType = "identity"
@@ -2264,9 +2282,15 @@ type ApprovalStatus string
 
 // AuditActor defines model for AuditActor.
 type AuditActor struct {
-	// DisplayName Ảnh chụp tên hiển thị lúc ghi
-	DisplayName    *string             `json:"display_name,omitempty"`
-	IdentityId     *openapi_types.UUID `json:"identity_id,omitempty"`
+	// DisplayName Danh tính: tên hiển thị hiện tại của danh tính khi đọc được trong phạm vi của view (G4b-E13), nếu không thì ảnh chụp lúc ghi; actor hệ thống: ảnh chụp lúc ghi (mã job, lệnh, mô tả tiếng Anh — giao diện hiển thị nhãn theo `kind`, ảnh chụp ở tooltip)
+	DisplayName *string `json:"display_name,omitempty"`
+
+	// Email E-mail hiện tại của danh tính, khi đọc được trong phạm vi của view (G4b-E13)
+	Email      *string             `json:"email,omitempty"`
+	IdentityId *openapi_types.UUID `json:"identity_id,omitempty"`
+
+	// Kind Mã ổn định của actor để giao diện dịch nhãn (G4b-E13): `user` (danh tính), `support` (nhân viên nền tảng qua Support Access Grant); actor hệ thống — `idp_driver`, `idp_provisioner`, `idp_admin`, `realm_user` (sự kiện của IdP do nền tảng host), `job` (job nền — `display_name` là kind của job), `admin_command` (lệnh quản trị `meshguard …` — `display_name` là lệnh), `system` (khác). Tập giá trị chỉ được bổ sung (cộng thêm)
+	Kind           *string             `json:"kind,omitempty"`
 	SupportGrantId *openapi_types.UUID `json:"support_grant_id,omitempty"`
 	Type           AuditActorType      `json:"type"`
 }
@@ -2453,6 +2477,9 @@ type DeviceCounts struct {
 type DeviceList struct {
 	Items      []Device `json:"items"`
 	NextCursor *string  `json:"next_cursor"`
+
+	// SyncedAt Lần sync gần nhất đã áp của instance live của tenant (cả khi trang rỗng — End User chưa có thiết bị); vắng hoặc `null` ⇒ chưa sync lần nào / không có instance live (G4b-E9). Mỗi hàng vẫn mang `synced_at` của chính nó
+	SyncedAt *time.Time `json:"synced_at,omitempty"`
 }
 
 // DeviceOwner Chủ thiết bị — vắng khi node thuộc tag
@@ -3113,9 +3140,15 @@ type IdentityProvider struct {
 	Status               IdentityProviderStatus `json:"status"`
 
 	// TenantId Tenant của hàng `scope=tenant`
-	TenantId  *openapi_types.UUID `json:"tenant_id,omitempty"`
-	UpdatedAt time.Time           `json:"updated_at"`
-	Version   int64               `json:"version"`
+	TenantId *openapi_types.UUID `json:"tenant_id,omitempty"`
+
+	// TenantName Tên hiển thị của tenant (chỉ ở các view của Platform Console — G4b-E12; vắng khi không tra được)
+	TenantName *string `json:"tenant_name,omitempty"`
+
+	// TenantSlug Slug của tenant (chỉ ở các view của Platform Console — G4b-E12; vắng khi không tra được)
+	TenantSlug *string   `json:"tenant_slug,omitempty"`
+	UpdatedAt  time.Time `json:"updated_at"`
+	Version    int64     `json:"version"`
 }
 
 // IdentityProviderDriver defines model for IdentityProvider.Driver.
@@ -3216,8 +3249,11 @@ type Instance struct {
 	HeadscaleVersion string `json:"headscale_version"`
 
 	// Health Kết quả health probe gần nhất của instance qua adapter (`GET /version`, `GET /api/v1/health` — §16.2); `checked_at` là lúc probe bắt đầu, `null` khi chưa từng probe. Kết quả cũ hơn ngưỡng, hoặc instance không ở trạng thái `running`, cho `status = unknown` kèm `reason`
-	Health              InstanceHealth     `json:"health"`
-	HostId              openapi_types.UUID `json:"host_id"`
+	Health InstanceHealth     `json:"health"`
+	HostId openapi_types.UUID `json:"host_id"`
+
+	// HostName Tên host (nhãn DNS — G4b-E12; vắng khi không tra được)
+	HostName            *string            `json:"host_name,omitempty"`
 	Id                  openapi_types.UUID `json:"id"`
 	ImageDigest         string             `json:"image_digest"`
 	NetCidr             string             `json:"net_cidr"`
@@ -3228,7 +3264,13 @@ type Instance struct {
 	// Status TenantInstanceStatus (§13.3)
 	Status   InstanceStatus     `json:"status"`
 	TenantId openapi_types.UUID `json:"tenant_id"`
-	Version  int64              `json:"version"`
+
+	// TenantName Tên hiển thị của tenant (chỉ ở các view của Platform Console — G4b-E12; vắng khi không tra được)
+	TenantName *string `json:"tenant_name,omitempty"`
+
+	// TenantSlug Slug của tenant (chỉ ở các view của Platform Console — G4b-E12; vắng khi không tra được)
+	TenantSlug *string `json:"tenant_slug,omitempty"`
+	Version    int64   `json:"version"`
 }
 
 // InstanceConfigVersion Một version cấu hình của instance (`instance_config_versions`, §6.3) — bản ghi do orchestrator (bước 8 của §11.3) và job reconfigure (P3-T13) viết. Không có `rendered_config` (nội dung thật nằm trên host, đối chiếu bằng `config_sha256`); `params` là tham số render như đã lưu — không chứa secret (§6.3).
@@ -3419,6 +3461,12 @@ type Job struct {
 	Status   JobStatus           `json:"status"`
 	Steps    []JobStep           `json:"steps"`
 	TenantId *openapi_types.UUID `json:"tenant_id,omitempty"`
+
+	// TenantName Tên hiển thị của tenant (chỉ ở các view của Platform Console — G4b-E12; vắng khi không tra được)
+	TenantName *string `json:"tenant_name,omitempty"`
+
+	// TenantSlug Slug của tenant (chỉ ở các view của Platform Console — G4b-E12; vắng khi không tra được)
+	TenantSlug *string `json:"tenant_slug,omitempty"`
 }
 
 // JobError defines model for JobError.
@@ -3720,6 +3768,12 @@ type PlatformJob struct {
 	Status   JobStatus           `json:"status"`
 	Steps    []PlatformJobStep   `json:"steps"`
 	TenantId *openapi_types.UUID `json:"tenant_id,omitempty"`
+
+	// TenantName Tên hiển thị của tenant (chỉ ở các view của Platform Console — G4b-E12; vắng khi không tra được)
+	TenantName *string `json:"tenant_name,omitempty"`
+
+	// TenantSlug Slug của tenant (chỉ ở các view của Platform Console — G4b-E12; vắng khi không tra được)
+	TenantSlug *string `json:"tenant_slug,omitempty"`
 }
 
 // PlatformJobError Lỗi gốc của job (đã redaction) — chỉ ở `GET /platform/jobs/{jobId}`
@@ -3771,13 +3825,22 @@ type PlatformRelayRegion struct {
 	Health RelayHealth         `json:"health"`
 	HostId *openapi_types.UUID `json:"host_id,omitempty"`
 
+	// HostName Tên host (nhãn DNS — G4b-E12; vắng khi không tra được)
+	HostName *string `json:"host_name,omitempty"`
+
 	// Region Region relay (`relay_regions`, §6.3) — tham số công khai, như client của tenant thấy trong DERP map; không chứa secret
 	Region RelayRegion `json:"region"`
 
 	// TenantId Tenant sở hữu region (`embedded`, `standalone`); `null` với region `shared`
-	TenantId  *openapi_types.UUID `json:"tenant_id"`
-	UpdatedAt time.Time           `json:"updated_at"`
-	Version   int64               `json:"version"`
+	TenantId *openapi_types.UUID `json:"tenant_id"`
+
+	// TenantName Tên hiển thị của tenant (chỉ ở các view của Platform Console — G4b-E12; vắng khi không tra được)
+	TenantName *string `json:"tenant_name,omitempty"`
+
+	// TenantSlug Slug của tenant (chỉ ở các view của Platform Console — G4b-E12; vắng khi không tra được)
+	TenantSlug *string   `json:"tenant_slug,omitempty"`
+	UpdatedAt  time.Time `json:"updated_at"`
+	Version    int64     `json:"version"`
 }
 
 // PlatformRole defines model for PlatformRole.
@@ -4678,7 +4741,7 @@ type Tenant struct {
 	Limits PlanLimits `json:"limits"`
 	Name   string     `json:"name"`
 
-	// Plan Khóa gói (`subscription_plans.key`)
+	// Plan Khóa gói (`subscription_plans.key`) của subscription còn hiệu lực — có cả ở danh sách `GET /platform/tenants` (G4b-E12); chuỗi rỗng khi tenant không có subscription còn hiệu lực
 	Plan string `json:"plan"`
 
 	// Slug Slug của tenant — nhãn DNS, bất biến (§11.3 bước 1)
@@ -5176,10 +5239,16 @@ type AuthLoginParams struct {
 
 	// Reauth `true` ⇒ xác thực lại tường minh (step-up, §8.3 bước 7): IdP được yêu cầu `prompt=login` và `max_age=0`, kể cả khi request chưa mang session nào. Vắng hoặc `false` ⇒ step-up chỉ khi request đã mang session hợp lệ của chính origin này (suy ra, P2-T06).
 	Reauth *bool `form:"reauth,omitempty" json:"reauth,omitempty"`
+
+	// UiLocales Ngôn ngữ giao diện của SPA (G4b-E14) — chuyển cho IdP thành tham số OIDC `ui_locales` để trang đăng nhập hiện cùng ngôn ngữ (realm bật i18n vi/en). Vắng ⇒ IdP dùng ngôn ngữ mặc định của nó
+	UiLocales *AuthLoginParamsUiLocales `form:"ui_locales,omitempty" json:"ui_locales,omitempty"`
 }
 
 // AuthLoginParamsScope defines parameters for AuthLogin.
 type AuthLoginParamsScope string
+
+// AuthLoginParamsUiLocales defines parameters for AuthLogin.
+type AuthLoginParamsUiLocales string
 
 // ListAuthSessionsParams defines parameters for ListAuthSessions.
 type ListAuthSessionsParams struct {
@@ -6780,6 +6849,19 @@ func (siw *ServerInterfaceWrapper) AuthLogin(w http.ResponseWriter, r *http.Requ
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "reauth"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "reauth", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "ui_locales" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "ui_locales", r.URL.Query(), &params.UiLocales, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "ui_locales"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "ui_locales", Err: err})
 		}
 		return
 	}

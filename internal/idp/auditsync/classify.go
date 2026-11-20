@@ -37,6 +37,29 @@ var actorDisplay = map[string]string{
 	ActorRealmUser:   "user of the realm",
 }
 
+// consoleActorPrefix starts the actor_display of a sign-in to the master realm by a known username.
+const consoleActorPrefix = "Keycloak master: "
+
+// IsActorKind reports whether k is one of the actor kinds (details.idp_actor_kind).
+func IsActorKind(k string) bool {
+	_, ok := actorDisplay[k]
+	return ok
+}
+
+// ActorKindOf returns the actor kind of an actor_display written by this package, "" for any other: the audit list
+// derives AuditActor.kind from it (G4b-E13 — the Portal shows a translated label by kind, never the English display).
+func ActorKindOf(display string) string {
+	for k, v := range actorDisplay {
+		if v == display {
+			return k
+		}
+	}
+	if strings.HasPrefix(display, consoleActorPrefix) {
+		return ActorAdmin
+	}
+	return ""
+}
+
 // Security event kinds raised by the job (security_events.kind) and by the console gate.
 const (
 	KindImpersonation      = "idp.impersonation"            // critical: impersonation done or attempted (§8.2 (2))
@@ -520,9 +543,9 @@ func classifyUser(ev keycloak.UserEvent, k RealmKind, provisionerClient string) 
 			return Record{}, false // the driver's own token requests
 		}
 		r.Action, r.ResourceType, r.ResourceID = "idp.console.login", "idp.user", idOrEmpty(ev.UserID)
-		r.ActorKind, r.ActorDisplay = ActorAdmin, "Keycloak administrator (master realm)"
+		r.ActorKind, r.ActorDisplay = ActorAdmin, actorDisplay[ActorAdmin]
 		if r.Username != "" {
-			r.ActorDisplay = "Keycloak master: " + r.Username
+			r.ActorDisplay = consoleActorPrefix + r.Username
 		}
 		if r.Outcome == audit.OutcomeSuccess {
 			r.Security = sec(KindConsoleLogin, audit.SeverityHigh)

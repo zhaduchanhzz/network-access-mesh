@@ -46,6 +46,28 @@ describe.each(["vi", "en"] as const)("axe Tenant Portal (%s)", (lng) => {
     expect(await violations()).toEqual([]);
   });
 
+  it("End User chưa có thiết bị: dòng đồng bộ theo mốc của tenant, cả khi danh sách rỗng (G4b-E9)", async () => {
+    await i18n.changeLanguage(lng);
+    const asEndUser = {
+      ...api,
+      "GET /auth/session": json(200, tenantSession([{ tenantId: TENANT_A, slug: "tenant-a", name: "Tenant A", role: "end_user" }])),
+    };
+    mockApi({ ...asEndUser, [`GET ${base}/devices`]: json(200, { items: [], next_cursor: null, synced_at: "2026-11-19T00:00:00Z" }) });
+    const { unmount } = renderApp({ path: `/t/${TENANT_A}/devices` });
+    await screen.findByTestId("devices-empty");
+    const synced = screen.getByTestId("devices-synced");
+    expect(synced).toHaveTextContent(i18n.t("ui.syncedAt"));
+    expect(synced).not.toHaveTextContent(i18n.t("ui.syncedNever"));
+    expect(await violations()).toEqual([]);
+    unmount();
+    // tenant chưa sync lần nào ⇒ câu riêng, không "lúc chưa từng"
+    mockApi({ ...asEndUser, [`GET ${base}/devices`]: json(200, { items: [], next_cursor: null, synced_at: null }) });
+    renderApp({ path: `/t/${TENANT_A}/devices` });
+    await screen.findByTestId("devices-empty");
+    expect(screen.getByTestId("devices-synced")).toHaveTextContent(i18n.t("ui.syncedNever"));
+    expect(screen.getByTestId("devices-synced")).not.toHaveTextContent(i18n.t("ui.syncedAt"));
+  });
+
   it("chi tiết thiết bị + hộp xác nhận xóa", async () => {
     await i18n.changeLanguage(lng);
     mockApi(api);

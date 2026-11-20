@@ -17,8 +17,11 @@
 package auditapi
 
 import (
+	"cmp"
 	"context"
 	"errors"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -27,6 +30,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/gen"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/problem"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/idp/auditsync"
 )
 
 // Reader is the part of *audit.Reader the handlers need.
@@ -119,6 +123,43 @@ func listError(err error) error {
 	return problem.Internal(err)
 }
 
+// Actor kinds of AuditActor.kind (G4b-E13) besides those of auditsync (the IdP's actors).
+const (
+	actorKindUser    = "user"
+	actorKindSupport = "support"
+	actorKindJob     = "job"
+	actorKindCommand = "admin_command"
+	actorKindSystem  = "system"
+)
+
+// jobKindRE is a job kind (member.idp_invite, dns.records_write…) — the actor_display of the jobs' own events.
+var jobKindRE = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$`)
+
+// actorKind is the stable code the Portal translates into a label (G4b-E13): a person, support staff, or which
+// system actor — the IdP's actors (details.idp_actor_kind, or the display auditsync wrote before details carried it),
+// a background job (display = its kind), a `meshguard …` admin command (display = the command), anything else.
+func actorKind(e audit.Entry) string {
+	switch e.ActorType {
+	case audit.ActorIdentity:
+		return actorKindUser
+	case audit.ActorSupport:
+		return actorKindSupport
+	}
+	if k, ok := e.Details["idp_actor_kind"].(string); ok && auditsync.IsActorKind(k) {
+		return k
+	}
+	if k := auditsync.ActorKindOf(e.ActorDisplay); k != "" {
+		return k
+	}
+	switch {
+	case strings.HasPrefix(e.ActorDisplay, "meshguard"):
+		return actorKindCommand
+	case jobKindRE.MatchString(e.ActorDisplay):
+		return actorKindJob
+	}
+	return actorKindSystem
+}
+
 // list maps a page to AuditEventList (§13.3 AuditEvent).
 func list(p audit.Page) gen.AuditEventList {
 	out := gen.AuditEventList{Items: make([]gen.AuditEvent, 0, len(p.Items))}
@@ -129,9 +170,15 @@ func list(p audit.Page) gen.AuditEventList {
 			Actor:    gen.AuditActor{Type: gen.AuditActorType(e.ActorType), IdentityId: e.ActorIdentityID, SupportGrantId: e.SupportGrantID},
 			Resource: gen.ResourceRef{Type: e.ResourceType, Id: e.ResourceID},
 		}
-		if e.ActorDisplay != "" {
-			name := e.ActorDisplay
+		kind := actorKind(e)
+		ev.Actor.Kind = &kind
+		// a person: the current name of the identity when the list's scope reads it, else the snapshot (G4b-E13)
+		if name := cmp.Or(e.ActorName, e.ActorDisplay); name != "" {
 			ev.Actor.DisplayName = &name
+		}
+		if e.ActorEmail != "" {
+			email := e.ActorEmail
+			ev.Actor.Email = &email
 		}
 		if ev.Details == nil {
 			ev.Details = map[string]any{}

@@ -20,6 +20,7 @@ import { JobTable } from "../jobs/JobListPage";
 import { usePlatformRole } from "../PlatformScope";
 import { TenantActions } from "./TenantActions";
 import { TenantEdit } from "./TenantEdit";
+import { HostRef } from "../Refs";
 
 export function TenantDetailPage() {
   const { tenantId: raw = "" } = useParams();
@@ -134,6 +135,7 @@ function NoPermission() {
 
 function InstanceSection({ tenantId, enabled }: { tenantId: string; enabled: boolean }) {
   const { t } = useTranslation();
+  const code = useCodeText();
   const q = useTenantInstances(tenantId, enabled);
   return (
     <Section id="tenant-instance" title={t("platform.tenantDetail.instance")}>
@@ -154,7 +156,11 @@ function InstanceSection({ tenantId, enabled }: { tenantId: string; enabled: boo
                       </Field>
                       <Field label={t("platform.tenantDetail.health")}>
                         <StatusBadge status={i.health.status}>{t(`status.health.${i.health.status}`)}</StatusBadge>
-                        {i.health.reason ? <code className="ms-2 text-xs">{i.health.reason}</code> : null}
+                        {i.health.reason ? (
+                          <span className="ms-2 text-xs text-muted" title={i.health.reason} data-reason={i.health.reason}>
+                            {code("health.reason", i.health.reason, "health.reasonOther")}
+                          </span>
+                        ) : null}
                       </Field>
                       <Field label={t("platform.tenantDetail.checkedAt")}>
                         <Timestamp iso={i.health.checked_at} emptyKey="common.none" />
@@ -166,7 +172,7 @@ function InstanceSection({ tenantId, enabled }: { tenantId: string; enabled: boo
                         <code>{i.control_hostname}</code>
                       </Field>
                       <Field label={t("platform.tenantDetail.host")}>
-                        <code className="text-xs">{i.host_id}</code>
+                        <HostRef id={i.host_id} name={i.host_name} />
                       </Field>
                       <Field label={t("platform.tenantDetail.netCidr")}>
                         <code>{i.net_cidr}</code>
@@ -233,7 +239,11 @@ function RelaySection({ tenantId, enabled }: { tenantId: string; enabled: boolea
                           </td>
                           <td>
                             <StatusBadge status={r.health.status}>{t(`status.health.${r.health.status}`)}</StatusBadge>
-                            {r.health.reason ? <code className="ms-2 text-xs">{r.health.reason}</code> : null}
+                            {r.health.reason ? (
+                              <span className="ms-2 text-xs text-muted" title={r.health.reason} data-reason={r.health.reason}>
+                                {code("relay.healthReason", r.health.reason, "health.reasonOther")}
+                              </span>
+                            ) : null}
                           </td>
                           <td>
                             <Timestamp iso={r.health.checked_at} emptyKey="common.none" />

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/google/uuid"
+
 	"github.com/zhaduchanhzz/network-access-mesh/internal/authz"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/authz/approvals"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/approvalsapi"
@@ -234,6 +236,24 @@ func ToIdentityProvider(c tenants.IdPConfig) gen.IdentityProvider {
 		CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt, Version: c.Version, Etag: c.ETag}
 }
 
+// tenantLabels reads the labels of the tenants of a page (G4b-E12). They only name what the page already identifies by
+// UUID: a failed lookup leaves them out (the Console then shows the UUID) rather than failing the read.
+func (h *Handlers) tenantLabels(ctx context.Context, ids ...uuid.UUID) platform.Labels {
+	l, err := h.platform.Labels(ctx, ids, nil)
+	if err != nil {
+		return platform.Labels{}
+	}
+	return l
+}
+
+// labelIdP adds the slug and name of the tenant of a scope=tenant identity provider (G4b-E12).
+func labelIdP(out gen.IdentityProvider, l platform.Labels) gen.IdentityProvider {
+	if t, ok := l.Tenant(out.TenantId); ok {
+		out.TenantSlug, out.TenantName = &t.Slug, &t.Name
+	}
+	return out
+}
+
 // ListPlatformIdentityProviders implements GET /platform/identity-providers.
 func (h *Handlers) ListPlatformIdentityProviders(ctx context.Context, req gen.ListPlatformIdentityProvidersRequestObject) (gen.ListPlatformIdentityProvidersResponseObject, error) {
 	f := platform.IdPFilter{Limit: limitOf(req.Params.Limit), Cursor: strOf(req.Params.Cursor)}
@@ -246,8 +266,15 @@ func (h *Handlers) ListPlatformIdentityProviders(ctx context.Context, req gen.Li
 	}
 	out := gen.ListPlatformIdentityProviders200JSONResponse{Items: make([]gen.IdentityProvider, 0, len(p.Items)),
 		NextCursor: nextCursor(p.NextCursor)}
+	ids := make([]uuid.UUID, 0, len(p.Items))
 	for _, c := range p.Items {
-		out.Items = append(out.Items, ToIdentityProvider(c))
+		if c.TenantID != nil {
+			ids = append(ids, *c.TenantID)
+		}
+	}
+	l := h.tenantLabels(ctx, ids...)
+	for _, c := range p.Items {
+		out.Items = append(out.Items, labelIdP(ToIdentityProvider(c), l))
 	}
 	return out, nil
 }
@@ -258,7 +285,11 @@ func (h *Handlers) GetPlatformIdentityProvider(ctx context.Context, req gen.GetP
 	if err != nil {
 		return nil, failure(err)
 	}
-	return gen.GetPlatformIdentityProvider200JSONResponse{Body: ToIdentityProvider(c),
+	var ids []uuid.UUID
+	if c.TenantID != nil {
+		ids = append(ids, *c.TenantID)
+	}
+	return gen.GetPlatformIdentityProvider200JSONResponse{Body: labelIdP(ToIdentityProvider(c), h.tenantLabels(ctx, ids...)),
 		Headers: gen.GetPlatformIdentityProvider200ResponseHeaders{ETag: c.ETag}}, nil
 }
 

@@ -64,6 +64,19 @@ describe.each(["vi", "en"] as const)("axe Policies (%s)", (lng) => {
     expect(await violations()).toEqual([]);
   });
 
+  it("version đã duyệt: Biểu mẫu chỉ đọc + tạo bản nháp từ version này (G4b-E15)", async () => {
+    await i18n.changeLanguage(lng);
+    const approved = version(V2, { state: "approved", approved_at: "2026-11-19T03:00:00Z", review_mode: "self", validation_report: report });
+    mockApi({ ...api, [`GET ${base}/policies/${V2}`]: json(200, approved, { ETag: approved.etag }) });
+    renderApp({ path: `/t/${TENANT_A}/policies/${V2}` });
+    const sealed = await screen.findByTestId("policy-sealed");
+    expect(sealed).toHaveTextContent(i18n.t("policies.states.approved"));
+    expect(screen.getByRole("button", { name: i18n.t("policies.content.newDraftFrom") })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: i18n.t("policies.content.save") })).toBeNull();
+    expect(screen.queryByRole("button", { name: i18n.t("policies.editor.addGrant") })).toBeNull();
+    expect(await violations()).toEqual([]);
+  });
+
   it("chi tiết version: form, báo cáo, diff; HuJSON; hộp duyệt", async () => {
     await i18n.changeLanguage(lng);
     mockApi(api);
@@ -124,6 +137,7 @@ describe("khóa động của Policies/Tags", () => {
         ["bootstrap", "manual", "group_change", "resource_change", "tag_change", "suspend", "resume", "restore", "drift_repair", "rollback"] as const satisfies readonly components["schemas"]["PolicyApplication"]["trigger"][]
       ).map((s) => `policies.applied.triggers.${s}`),
       ...ACK_RULES.map((r) => `policies.ack.desc.${r}`),
+      ...ACK_RULES.map((r) => `policies.ack.name.${r}`),
       ...(["passed", "failed"] as const).map((r) => `policies.report.results.${r}`),
       ...(["passed", "failed", "skipped"] as const).map((r) => `policies.report.checks.${r}`),
       ...(["router", "exit", "server", "custom"] as const satisfies readonly components["schemas"]["TagPurpose"][]).map((p) => `tags.purposes.${p}`),

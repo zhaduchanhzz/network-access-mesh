@@ -22,6 +22,7 @@ import { ProblemAlert } from "../../components/ProblemAlert";
 import { NotFoundPage } from "../../pages/StatusPages";
 import { invalidatePlatform, useJob } from "../api";
 import { usePlatformRole } from "../PlatformScope";
+import { TenantRef } from "../Refs";
 
 type Step = PlatformJob["steps"][number];
 type Row = { name: string; step: Step | null };
@@ -100,9 +101,7 @@ function JobDetail({ jobId }: { jobId: string }) {
           </Field>
           <Field label={t("platform.jobs.col.tenant")}>
             {j.tenant_id ? (
-              <Link to={`/platform/tenants/${j.tenant_id}`} className="link font-mono text-xs">
-                {j.tenant_id}
-              </Link>
+              <TenantRef id={j.tenant_id} slug={j.tenant_slug} name={j.tenant_name} />
             ) : (
               t("platform.jobs.platformJob")
             )}

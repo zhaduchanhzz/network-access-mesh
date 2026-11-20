@@ -31,6 +31,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/authzhook"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/gen"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/problem"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/platform"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/relay"
 )
 
@@ -44,7 +45,22 @@ var _ Service = (*relay.Service)(nil)
 
 // Handlers implements httpapi.RelayHandlers.
 type Handlers struct {
-	svc Service
+	svc    Service
+	labels Labeler
+}
+
+// Labeler names the owning tenants and the hosts of a page of the Platform Console (G4b-E12) — *platform.Service.
+type Labeler interface {
+	Labels(ctx context.Context, tenantIDs, hostIDs []uuid.UUID) (platform.Labels, error)
+}
+
+var _ Labeler = (*platform.Service)(nil)
+
+// WithLabels adds the owning tenant's slug and name and the host's name to the regions of the platform lists; without
+// it they carry the ids only.
+func (h *Handlers) WithLabels(l Labeler) *Handlers {
+	h.labels = l
+	return h
 }
 
 var _ httpapi.RelayHandlers = (*Handlers)(nil)
@@ -158,6 +174,22 @@ func (h *Handlers) platformRegions(ctx context.Context, limit *gen.Limit, cursor
 		c := page.NextCursor
 		out.NextCursor = &c
 	}
+	tids, hids := make([]uuid.UUID, 0, len(page.Items)), make([]uuid.UUID, 0, len(page.Items))
+	for _, r := range page.Items {
+		if r.TenantID != nil {
+			tids = append(tids, *r.TenantID)
+		}
+		if r.HostID != nil {
+			hids = append(hids, *r.HostID)
+		}
+	}
+	var l platform.Labels
+	if h.labels != nil {
+		// labels only name what the region already identifies by UUID: a failed lookup leaves them out
+		if got, err := h.labels.Labels(ctx, tids, hids); err == nil {
+			l = got
+		}
+	}
 	for _, r := range page.Items {
 		g := gen.PlatformRelayRegion{Region: region(r.Region), HostId: r.HostID, TenantId: r.TenantID,
 			Assignments: make([]gen.PlatformRelayAssignment, 0, len(r.Assignments)), Health: health(r.Health),
@@ -166,6 +198,14 @@ func (h *Handlers) platformRegions(ctx context.Context, limit *gen.Limit, cursor
 			g.Assignments = append(g.Assignments, gen.PlatformRelayAssignment{Id: a.ID, TenantId: a.TenantID,
 				InstanceId: a.InstanceID, Priority: a.Priority, Status: gen.RelayAdminStatus(a.Status),
 				InstanceStatus: gen.InstanceStatus(a.InstanceStatus)})
+		}
+		if t, ok := l.Tenant(r.TenantID); ok {
+			g.TenantSlug, g.TenantName = &t.Slug, &t.Name
+		}
+		if r.HostID != nil {
+			if n, ok := l.Hosts[*r.HostID]; ok {
+				g.HostName = &n
+			}
 		}
 		out.Items = append(out.Items, g)
 	}
