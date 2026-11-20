@@ -34,7 +34,8 @@ FUNCTIONAL only (§22.1). Every probe goes through the edge as a client would; t
   E2E-132 raw logs of every container of the stack (docker logs, not the redacted artifacts of E2E-16) hold none of the
           run's secret values (the files of <work>/secrets and every value the harness learnt: passwords, TOTP keys,
           session ids, CSRF tokens, API keys) and no hskey-/Bearer pattern — except the Auth IDs Headscale itself logs at
-          level info (hs-* containers only, counted and reported: F-P5-T09-5)
+          level info and the node name mg-<one-time enrollment code> it registers (the code is the hostname by design —
+          T-06) — hs-* containers only, counted and reported: F-P5-T09-5
 
 Standard library only. No credential is printed: values stay in this process and its redaction set.
 """
@@ -512,13 +513,19 @@ def check_headers(r, st: Stack, s: Session, ids: dict) -> None:
         "403 csrf": s.call("POST", f"/tenants/{t}/devices/sync", b"{}", csrf=False),
         "404 problem": s.call("GET", f"/tenants/{ids['tenant-b']}/devices"),
         "422 problem": s.call("GET", "/auth/login?scope=tenant&tenant=tenant-a&return_to=%2F%2Fevil"),
-        "over body cap": s.call("POST", f"/tenants/{t}/policies/import", b'{"hujson":"' + b"a" * ((1 << 20) + 64) + b'"}'),
         "302 login": b.get(f"{app}/api/v1/auth/login?scope=tenant&tenant=tenant-a&return_to=%2F"),
         "401 anon": b.get(f"{app}/api/v1/auth/session"),
         "401 admin": b.get(f"{admin}/api/v1/auth/session"),
         "SPA": b.get(f"{app}/tenants/{t}/devices"),
         "unknown api path": b.get(f"{app}/api/v1/nope"),
     }
+    # the api answers a body over its cap and closes while the client may still be sending: kept when the answer
+    # arrives, otherwise recorded (as in E2E-129)
+    try:
+        samples["over body cap"] = s.call("POST", f"/tenants/{t}/policies/import",
+                                          b'{"hujson":"' + b"a" * ((1 << 20) + 64) + b'"}')
+    except OSError as e:
+        c("over body cap", True, f"connection closed before the answer was read ({type(e).__name__}) — not sampled")
     bad = {k: (v.status, header_issues(v)) for k, v in samples.items() if header_issues(v)}
     c("edge headers exactly once, no Server", not bad, f"{len(samples)} answers ({', '.join(samples)}), wrong {bad}")
     nostore = {k: v.header("Cache-Control") for k, v in samples.items() if k not in ("SPA",) and
@@ -568,9 +575,13 @@ def check_raw_logs(r, st: Stack) -> None:
             # Headscale (upstream, log level info) prints the Auth ID of every web-auth registration it starts and the
             # /register/<auth_id> path of its access log — F-P5-T09-5: counted apart, never an API or pre-auth key
             authreq = len(re.findall(r"hskey-authreq-[A-Za-z0-9_-]+", text))
-            if authreq:
-                upstream[short] = authreq
+            # the one-time enrollment code is the node's hostname by design (T-06: mg-<code>, renamed after the claim):
+            # Headscale logs the name it registers — not a credential once the claim is decided
+            codes = len(re.findall(r"\bmg-[a-z0-9]{12}\b", text))
+            if authreq or codes:
+                upstream[short] = f"{authreq} Auth ID, {codes} mg-<code>"
             text = re.sub(r"hskey-authreq-[A-Za-z0-9_-]+", "[upstream-auth-id]", text)
+            text = re.sub(r"\bmg-[a-z0-9]{12}\b", "mg-[enroll-code]", text)
         hits = sum(1 for v in values if v in text)
         pat = [m.group(0)[:10] for m in SECRET_RE.finditer(text)]
         if hits or pat:
