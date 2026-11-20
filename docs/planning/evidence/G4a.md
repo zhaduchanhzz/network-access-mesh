@@ -242,4 +242,4 @@ for s in audit cleanup after; do python -B docs/planning/evidence/G4a/g4a.py $s;
 
 | Vai trò | Quyết định | Ngày |
 |---|---|---|
-| Chủ dự án | _(chờ ký — Go / No-Go G4a; V-07 Windows/macOS: chạy ở P5-T03 hay trước G4b)_ | |
+| Chủ dự án | **Go** — "Ký G4a ngay, G4b tự động" (sau khi tự thử staging: "Tôi đã Test qua stagging khi hoàn thành có thể thực hiện luôn phase 5"). G4b coi là Go nếu báo cáo G4b xanh và không có phát hiện Cao/Nghiêm trọng (có ⇒ dừng hỏi lại). Lab Phase 5: "Chỉ dùng VM lab" ⇒ V-07 Windows/macOS/iOS/Android và tiêu chí "≥ 2 hệ điều hành" của P5-T02 ghi là ngoại lệ chờ thiết bị (P5-T03) | 2026-11-20 |
