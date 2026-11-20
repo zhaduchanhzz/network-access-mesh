@@ -24,7 +24,7 @@
 | n | P4-T07 — Caddyfile **v10**: `/register/<auth_id>` không `via=portal` ⇒ 302 tới trang claim của Portal; chỉ sau khi API claim (P4-T06) và trang `/enroll/claim` (P4-T08) đã chạy | **[CHỦ DỰ ÁN DUYỆT]** + **thông báo trước reload edge** | Xem mục n |
 | o | Lô Phase 4 đầu tiên lên staging (`8840590` → `9736636`): migration `0020`–`0028`, api/worker/web/**agent** mới, Caddyfile v9 (v10 khi có P4-T08) — trình tự đã diễn tập trên VM 110 | **[CHỦ DỰ ÁN DUYỆT]** + **thông báo trước reload edge** | Xem mục o |
 | p | `admin.` ra Internet: Caddyfile **v11** (`admin_public: true` — `admin.` cả trên listener tunnel-facing, bỏ `admin_allow`; console Keycloak giữ cổng `forward_auth` 2P) + `A admin.` → VPS (quyết định của chủ dự án 2026-11-20) | **[CHỦ DỰ ÁN DUYỆT]** (đã quyết 2026-11-20) + **thông báo trước reload edge** | Reload; sau DNS: Platform Console + console Keycloak (sau cổng 2P) nhận lưu lượng Internet |
-| q | G4b-E1 — realm do IdP driver tạo có SMTP, lời mời Owner qua IdP: api/worker/web mới (không migration, không đổi idp/edge) + `meshguard admin idp-realm-smtp` cho realm tenant đã tạo trước bản sửa | Người điều phối (lô sửa G4b) | Không (worker/api/web tạo lại; realm chỉ thêm `smtpServer`) |
+| q | G4b-E1 — realm do IdP driver tạo có SMTP, lời mời Owner qua IdP: api/worker/web mới (không migration, không đổi idp/edge) + `meshguard admin idp-realm-smtp` cho realm tenant đã tạo trước bản sửa; bổ sung G4b-E14 — `realm-update.sh` (i18n của realm render tĩnh) + `meshguard admin idp-realm-i18n` (realm do driver tạo) | Người điều phối (lô sửa G4b) | Không (worker/api/web tạo lại; realm chỉ thêm `smtpServer` / bật i18n) |
 
 Lệch thứ tự so với danh sách của brief: **idp-bootstrap và đăng nhập thử nằm sau (h)** — worker chỉ tới được Admin API của Keycloak qua site `auth.` mới của edge, đăng nhập cần site `app.`/`admin.`. Adopt, client secret, bootstrap SA/seed (e, f) không cần edge mới.
 
@@ -507,7 +507,7 @@ $PSQL -c "SELECT origin, host(ip), created_at FROM sessions WHERE origin = 'admi
 Ghi vào `current.md`: giờ reload v11, bản sao `/root/Caddyfile.v10.$TS`, id bản ghi `A admin.` (dòng `create ok id=…` của
 `cf_dns.py`), kết quả `run_staging.sh`/`external.py`.
 
-## q. G4b-E1 — SMTP của realm do IdP driver tạo, lời mời Owner qua IdP
+## q. G4b-E1 — SMTP của realm do IdP driver tạo, lời mời Owner qua IdP (+ G4b-E14 i18n của realm)
 
 Bản sửa của vòng khám phá G4b ([G4b](../planning/evidence/G4b.md) mục 6). Không migration, không đổi image idp/edge hay
 `staging.env`: worker lấy `smtpServer` của realm từ chính relay thư của nó (`MG_SMTP_ADDR`/`MG_SMTP_TLS`/`MG_SMTP_FROM` —
@@ -533,3 +533,26 @@ Kiểm: provision một tenant thử (Console, IdP do nền tảng host) ⇒ job
 `member.idp_invite` của lời mời Owner `succeeded`; Owner nhận thư thiết lập (relay thật — chỉ tới địa chỉ chủ dự án
 chọn), đặt mật khẩu + TOTP, đăng nhập ⇒ Tenant Owner; Owner mời một End User ⇒ cột IdP "đã gửi"; dọn tenant thử bằng xóa
 2P. Ghi vào `current.md`: commit/digest đã chạy, kết quả `idp-realm-smtp` (số realm updated/unchanged/skipped).
+
+**Bổ sung (lô `g4b-fix2` — G4b-E3/E9/E11–E15).** Không migration, không đổi image idp/edge hay `staging.env`. API thêm
+trường (cộng thêm): `DeviceList.synced_at`, nhãn `tenant_slug`/`tenant_name`/`host_name` ở view của Console, `plan` ở
+danh sách tenant, `AuditActor.kind`/`email`, tham số `ui_locales` của `GET /auth/login`. G4b-E14 cần thêm hai bước trên
+staging sau khi api/worker/web mới chạy (trang đăng nhập Keycloak theo ngôn ngữ của SPA; Keycloak 26.8.2 có sẵn bản dịch
+`vi` của theme login/email/account — không đổi image idp):
+
+```bash
+# 4. realm render tĩnh (platform, tenant-a, tenant-b): render lại /opt/meshguard/core/idp/realms bằng tools/render_idp.py
+#    của commit sửa (template bật internationalizationEnabled, supportedLocales vi+en, defaultLocale vi), rồi
+sudo bash infrastructure/idp/realm-update.sh --check     # liệt kê "i18n" của từng realm (exit 3 = còn thay đổi)
+sudo bash infrastructure/idp/realm-update.sh             # áp + check_realm trên bản export của Keycloak
+sudo bash infrastructure/idp/realm-update.sh --check     # 0 thay đổi
+# 5. realm do driver tạo (tenant provision qua orchestrator): xem trước, áp, chạy lại ⇒ updated 0
+sudo docker compose -p mg-app exec -T worker /usr/local/bin/meshguard admin idp-realm-i18n --dry-run
+sudo docker compose -p mg-app exec -T worker /usr/local/bin/meshguard admin idp-realm-i18n
+sudo docker compose -p mg-app exec -T worker /usr/local/bin/meshguard admin idp-realm-i18n   # updated 0
+```
+
+Kiểm: đăng nhập Portal và Console với giao diện vi ⇒ trang Keycloak tiếng Việt (`<html lang="vi">`), đổi sang en ⇒
+tiếng Anh; End User của tenant tắt tự đăng ký không thấy "Thêm thiết bị"; Console hiện tên tenant/host thay UUID. Hoàn
+tác i18n: `PUT` realm với `internationalizationEnabled=false` (giá trị trước nằm trong diff của `realm-update.sh`) — không
+ảnh hưởng đăng nhập. Ghi vào `current.md`: kết quả `realm-update.sh` (số thay đổi theo realm) và `idp-realm-i18n`.

@@ -141,13 +141,16 @@ TenantInstanceStatus: allocated -> starting -> running; running <-> stopped (upg
                     mọi trạng thái chưa removed -> quarantined; quarantined -> starting -> running chỉ sau /release có 2P (§11.4)
                     # allocated: bước 3; starting: bước 10–18; running: bước 19 (§11.3); removed: sau deprovision hoặc khi instance bị thay thế (§11.4)
 EnrollmentStatus:  # enum của enrollment_requests.status: tập giá trị ở §6.3, thứ tự chuyển trạng thái theo từng phương thức ở §7.4 — nguồn duy nhất, không lặp lại ở đây
-Job:               {id, kind, tenant_id?, status, current_step, resource{type,id}?, steps[{name,status,attempt,started_at,finished_at,message}], error?, created_at}
+Job:               {id, kind, tenant_id?, tenant_slug?, tenant_name?, status, current_step, resource{type,id}?, steps[{name,status,attempt,started_at,finished_at,message}], error?, created_at}
+                    # tenant_slug/tenant_name chỉ ở view của Platform Console (G4b-E12 — cũng ở Instance, PlatformRelayRegion, IdentityProvider kèm host_name)
                     # steps[].detail thô chỉ có ở GET /platform/jobs/{id}; phía tenant chỉ nhận message đã lọc; resource = tài nguyên job tạo ra
                     # phía tenant (GET /tenants/{t}/jobs…): message chỉ sinh từ danh mục mẫu thông điệp theo mã (tham số, nếu có, chỉ là dữ liệu của chính tenant) — không chép
                     # chuỗi lỗi thô của orchestrator/Agent; error chỉ gồm mã lỗi ổn định {code}; không đường dẫn host, tên container, địa chỉ nội bộ hay định danh của tenant khác;
                     # error thô chỉ trả ở GET /platform/jobs/{id}
-AuditEvent:        {id, occurred_at, actor{type,identity_id?,display_name?,support_grant_id?}, action, resource{type,id},
+AuditEvent:        {id, occurred_at, actor{type,kind?,identity_id?,display_name?,email?,support_grant_id?}, action, resource{type,id},
                     outcome, request_id, operation_id?, details}
+                    # actor.kind: mã ổn định để UI dịch nhãn (user, support, idp_driver, idp_provisioner, idp_admin, realm_user, job,
+                    # admin_command, system); display_name/email của danh tính = giá trị hiện tại khi phạm vi của list đọc được (G4b-E13)
 Problem:           {type, title, status, detail, instance, code, request_id, errors[{field,code,message}]}
 ```
 
