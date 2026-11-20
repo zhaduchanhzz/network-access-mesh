@@ -27,6 +27,8 @@ except ImportError:            # Windows: only `render` is useful there
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import adminpublic  # noqa: E402 — E2E-121, E2E-122 (edge v11 admin_public: admin. ra Internet qua tunnel-facing, IP thật qua PROXY v2)
+import attacks  # noqa: E402 — E2E-125 … E2E-132 (P5-T09: CSRF, chéo tenant, SSRF, open redirect, đầu vào thù địch, rate
+#                                limit, header bảo mật, log thô không chứa secret)
 import admin  # noqa: E402 — E2E-94, E2E-95 (P4-T03a: IdP của tenant do nền tảng sửa qua 2P, role SA qua 2P, thiết lập bảo mật)
 import backend  # noqa: E402 — E2E-17 … E2E-25 (P2-T16)
 import checks  # noqa: E402
@@ -270,6 +272,11 @@ def test(st: Stack, r: checks.Results) -> None:
                "SMTP; lời mời Owner bước 16 + lời mời End User ⇒ thư Keycloak qua mailrelay ⇒ đặt mật khẩu/TOTP từ link ⇒ "
                "đăng nhập; dọn agent/instance/realm, worker về như cũ)"):
         provisioned.run_all(r, st, guarded)
+    # last: E2E-130 spends the auth bucket of this host, E2E-132 reads the raw logs of every case before it
+    with timed("ca E2E-125 … E2E-132 (P5-T09: CSRF trên mọi operation không an toàn, mọi operation với tenant khác, SSRF "
+               "qua issuer tới canary nội bộ, open redirect, đầu vào thù địch, rate limit với IP giả, header bảo mật, "
+               "log thô của mọi container không chứa secret)"):
+        attacks.run_all(r, st, guarded)
 
 
 def versions(st: Stack) -> dict[str, str]:

@@ -44,10 +44,18 @@ type recipe struct {
 	idempotent bool
 	// endsSession: the request revokes the session it is sent with (logout) — sent with a throwaway session.
 	endsSession bool
-	// ok is the answer a mounted handler gives to a granted request on an own object; zero ⇒ any answer that is not a
-	// refusal (401/403/404), not 500/501 — for the device writes, whose answer depends on the order of the parallel
-	// requests on the same device (202, 409 revocation in progress) or on Headscale (unreachable here ⇒ 503).
+	// ok is the answer a mounted handler gives to a granted request on an own object. Every mounted operation has an
+	// exact expectation — ok, okOf or oneOf (TestNoPermissiveRecipe, P5-T09): no "any answer that is not a refusal".
 	ok answer
+	// oneOf lists the exact answers a granted request on an own object may get when the matrix's parallel granted
+	// callers race on the same object (the first one acts, the next ones meet the state it left: 201 then 409, a
+	// decision then 409, a job then 409 when another write holds the device) — oneOf[0] is the success; ok and okOf win
+	// over it.
+	oneOf []answer
+	// race names what a success (oneOf[0]) consumes; nil ⇒ the success may repeat (the same pending job for every
+	// caller). Two calls with the same key never both succeed (checkRaces): one decision of an approval executes, one
+	// creation of a name, one open request per person.
+	race func(c *call) string
 	// after is outcome.after of ok (an enrollment write on its own request).
 	after string
 	// okOf is the outcome when it depends on the caller — its role, its tenant's settings, which object it acts on;
@@ -81,12 +89,14 @@ var recipes = map[string]recipe{
 	"getPlatformTenant":     {ok: answer{status: http.StatusOK}},
 	"listPlatformInstances": {ok: answer{status: http.StatusOK}},
 	"getPlatformInstance":   {ok: answer{status: http.StatusOK}},
-	// devices (P2-T13, devicesapi — mounted; Headscale behind the real Locator is unreachable: see handlerSets)
+	// devices (P2-T13, devicesapi — mounted; Headscale behind the real Locator is unreachable: see handlerSets): a rename
+	// asks Headscale ⇒ 503 instance_unavailable; a delete or an expire enqueues the revocation (202) or meets the one
+	// another parallel write left on the device (409)
 	"listDevices":  {ok: answer{status: http.StatusOK}},
 	"getDevice":    {ok: answer{status: http.StatusOK}},
-	"renameDevice": {body: `{"given_name":"matrix-renamed"}`},
-	"deleteDevice": {},
-	"expireDevice": {idempotent: true},
+	"renameDevice": {body: `{"given_name":"matrix-renamed"}`, ok: answer{http.StatusServiceUnavailable, gen.ProblemCodeInstanceUnavailable}},
+	"deleteDevice": {oneOf: accepted},
+	"expireDevice": {idempotent: true, oneOf: accepted},
 	"syncDevices":  {idempotent: true, ok: answer{status: http.StatusAccepted}},
 	// audit (P2-T08, auditapi — mounted)
 	"listTenantAuditEvents":   {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
@@ -114,33 +124,34 @@ var recipes = map[string]recipe{
 	// instance detail of the Platform Console (P4-T03 — tenantsapi as PlatformInstanceViewHandlers)
 	"listPlatformInstanceConfigVersions": {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
 	// dual control (P3-T04a, approvalsapi — mounted with the matrix's actions, world_test.go): granted deciders race
-	// on the same request (one executes, the others get 409) — any answer that is not a refusal
+	// on the same request (one executes, the others get 409 — never two successes: checkRaces)
 	"listPlatformApprovals":   {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
 	"getPlatformApproval":     {ok: answer{status: http.StatusOK}},
-	"approvePlatformApproval": {body: `{"payload_sha256":"` + matrixPlatformHash + `"}`},
-	"rejectPlatformApproval":  {},
+	"approvePlatformApproval": {body: `{"payload_sha256":"` + matrixPlatformHash + `"}`, oneOf: decided, race: raceOn("decide")},
+	"rejectPlatformApproval":  {oneOf: decided, race: raceOn("decide")},
 	"listTenantApprovals":     {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
 	"getTenantApproval":       {ok: answer{status: http.StatusOK}},
-	"approveTenantApproval":   {body: `{"payload_sha256":"` + matrixTenantHash + `"}`},
-	"rejectTenantApproval":    {},
+	"approveTenantApproval":   {body: `{"payload_sha256":"` + matrixTenantHash + `"}`, oneOf: decided, race: raceOn("decide")},
+	"rejectTenantApproval":    {oneOf: decided, race: raceOn("decide")},
 	// invitations (P3-T05a, invitationsapi — mounted): the same address from every granted caller (201, then 409)
-	"listTenantInvitations":  {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
-	"createTenantInvitation": {idempotent: true, body: `{"email":"matrix-invitee@example.test","role":"tenant_viewer"}`},
-	"revokeTenantInvitation": {},
-	"resendTenantInvitation": {},
+	"listTenantInvitations": {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
+	"createTenantInvitation": {idempotent: true, body: `{"email":"matrix-invitee@example.test","role":"tenant_viewer"}`,
+		oneOf: created, race: raceIn},
+	"revokeTenantInvitation": {oneOf: []answer{{status: http.StatusNoContent}, conflict}, race: raceOn("revoke-invitation")},
+	"resendTenantInvitation": {oneOf: decided},
 	// users (write) and groups (P4-T09, membersapi — mounted): the membership writes act on a dedicated end-user member
 	// of each tenant, never on an actor of the matrix (place); without If-Match a granted write answers 428 on the
 	// existing object; an offboarding answers 202 (the next granted caller: the same pending job); the transfer to the
 	// nil membership is refused 422 before the step-up
 	"updateTenantUser":         {body: `{"status":"active"}`, ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
-	"offboardTenantUser":       {},
+	"offboardTenantUser":       {ok: answer{status: http.StatusAccepted}},
 	"setTenantUserRole":        {body: `{"role":"tenant_viewer"}`, ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
 	"setTenantUserAdminRole":   {body: `{"role":"tenant_admin"}`, ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
 	"revokeTenantUserSessions": {ok: answer{status: http.StatusNoContent}},
 	"transferTenantOwnership": {body: `{"membership_id":"00000000-0000-0000-0000-000000000000"}`,
 		ok: answer{http.StatusUnprocessableEntity, gen.ProblemCodeValidationFailed}},
 	"listTenantGroups":      {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
-	"createTenantGroup":     {idempotent: true, body: `{"name":"matrix-created"}`},
+	"createTenantGroup":     {idempotent: true, body: `{"name":"matrix-created"}`, oneOf: created, race: raceIn},
 	"getTenantGroup":        {ok: answer{status: http.StatusOK}},
 	"updateTenantGroup":     {body: `{"description":"matrix"}`, ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
 	"deleteTenantGroup":     {ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
@@ -150,45 +161,46 @@ var recipes = map[string]recipe{
 	"listPlatformHosts": {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
 	"getPlatformHost":   {ok: answer{status: http.StatusOK}},
 	"createPlatformHost": {idempotent: true, body: `{"name":"matrix-created","region":"matrix",` +
-		`"run_uid_range":{"first":50000,"last":50099},"tenant_net_pool":"10.251.0.0/24"}`},
+		`"run_uid_range":{"first":50000,"last":50099},"tenant_net_pool":"10.251.0.0/24"}`, oneOf: created, race: raceIn},
 	"updatePlatformHost": {body: `{"status":"active"}`,
 		ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
 	// Keycloak console session (P3-T15, idpconsoleapi — mounted with the console action, world_test.go): the request is
 	// always 2P (Super Admin only); granted callers race on one open request per person (202, then 409)
-	"listIdpConsoleSessions":   {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
-	"requestIdpConsoleSession": {idempotent: true, body: `{"reason":"matrix","duration_minutes":10,"source_cidr":"192.0.2.0/24"}`},
+	"listIdpConsoleSessions": {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
+	"requestIdpConsoleSession": {idempotent: true, body: `{"reason":"matrix","duration_minutes":10,"source_cidr":"192.0.2.0/24"}`,
+		oneOf: accepted, race: raceBy},
 	// Tenant Orchestrator (P3-T05, provisioningapi — mounted): the same slug from every granted caller (202, then 409);
-	// the controls on the matrix's platform job — any answer that is not a refusal (409 for a job that is not a
-	// failed_resumable lifecycle job)
+	// the controls on the matrix's platform job ⇒ 409 (it is not a failed_resumable lifecycle job)
 	"createPlatformTenant": {idempotent: true, body: `{"slug":"matrix-new","name":"Matrix","plan_key":"standard",` +
-		`"owner_email":"owner@matrix.example","identity_provider":{"driver":"keycloak"}}`},
+		`"owner_email":"owner@matrix.example","identity_provider":{"driver":"keycloak"}}`, oneOf: accepted, race: raceIn},
 	// Backup/restore (P3-T11, backupapi — mounted with the restore action, world_test.go): a backup of instance A now
 	// (202, the same job for the next granted caller); a restore request is always 2P — a backup id that is no backup of
-	// the instance ⇒ 422, any answer that is not a refusal; the backup book
-	"backupPlatformInstance":  {idempotent: true},
-	"restorePlatformInstance": {idempotent: true, body: `{"backup_id":"0190a000-0000-7000-8000-0000000000b1","reason":"matrix"}`},
-	"listPlatformBackups":     {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
-	"retryPlatformJob":        {idempotent: true},
-	"cancelPlatformJob":       {idempotent: true},
-	"rollbackPlatformJob":     {idempotent: true},
+	// the instance ⇒ 422 validation_failed; the backup book
+	"backupPlatformInstance": {idempotent: true, ok: answer{status: http.StatusAccepted}},
+	"restorePlatformInstance": {idempotent: true, body: `{"backup_id":"0190a000-0000-7000-8000-0000000000b1","reason":"matrix"}`,
+		ok: invalidOp},
+	"listPlatformBackups": {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
+	"retryPlatformJob":    {idempotent: true, ok: conflict},
+	"cancelPlatformJob":   {idempotent: true, ok: conflict},
+	"rollbackPlatformJob": {idempotent: true, ok: conflict},
 	// suspend / resume (P3-T08, lifecycleapi — mounted): the matrix's tenants have no desired policy version, so a
-	// granted request is answered 409 (no_policy_to_restore, already_suspended, not_suspended) — any answer that is not
-	// a refusal; the flows themselves are internal/provisioning/lifecycle's DB tests and E2E-56…E2E-58
-	"suspendPlatformTenant": {idempotent: true},
-	"resumePlatformTenant":  {idempotent: true},
+	// granted request is answered 409 (no_policy_to_restore, already_suspended, not_suspended); the
+	// flows themselves are internal/provisioning/lifecycle's DB tests and E2E-56…E2E-58
+	"suspendPlatformTenant": {idempotent: true, ok: conflict},
+	"resumePlatformTenant":  {idempotent: true, ok: conflict},
 	// deprovision (P3-T09, deprovisionapi — mounted with the deprovision action, world_test.go): always 2P (Super Admin
-	// only); the typed slug is not the tenant's ⇒ 422 — any answer that is not a refusal; the flow itself is
+	// only); the typed slug is not the tenant's ⇒ 422 validation_failed; the flow itself is
 	// internal/provisioning/deprovision's DB tests and the provisioning harness (E2E-73…E2E-75)
-	"deletePlatformTenant": {idempotent: true, body: `{"confirm_slug":"matrix-mismatch","reason":"matrix"}`},
+	"deletePlatformTenant": {idempotent: true, body: `{"confirm_slug":"matrix-mismatch","reason":"matrix"}`, ok: invalidOp},
 	// instance.reconfigure (P3-T13, reconfigureapi — mounted): the matrix's instances carry no configuration version
 	// recorded by the orchestrator, so a granted call reaches the service and answers 409 no_config_version
 	"reconfigurePlatformInstance": {idempotent: true, body: `{"log_level":"warn"}`,
 		ok: answer{http.StatusConflict, gen.ProblemCodeConflict}},
 	// instance.restart, instance.upgrade (P3-T13a, instanceopsapi — mounted): a restart of the matrix's instance is
 	// enqueued (202 — the next granted caller gets the same unfinished job) or refused 409 when the instance does not
-	// run — any answer that is not a refusal; an upgrade needs a configuration version recorded by the orchestrator,
+	// run; an upgrade needs a configuration version recorded by the orchestrator,
 	// which the matrix's instances do not have ⇒ 409 no_config_version for every granted caller
-	"restartPlatformInstance": {idempotent: true},
+	"restartPlatformInstance": {idempotent: true, oneOf: accepted},
 	"upgradePlatformInstance": {idempotent: true, body: `{"image_digest":"sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}`,
 		ok: answer{http.StatusConflict, gen.ProblemCodeConflict}},
 	// quarantine / release (P3-T18, quarantineapi — mounted): a granted quarantine reaches the service, finds the
@@ -215,13 +227,14 @@ var recipes = map[string]recipe{
 		ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
 	"requestTenantDeletion": {body: `{"confirm_slug":"matrix-mismatch","reason":"matrix"}`,
 		ok: answer{http.StatusUnprocessableEntity, gen.ProblemCodeValidationFailed}},
-	"listPlatformUsers":  {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
-	"getPlatformUser":    {ok: answer{status: http.StatusOK}},
-	"createPlatformUser": {idempotent: true, body: `{"subject":"0190a000-0000-7000-8000-0000000000c1","role":"platform_viewer"}`},
+	"listPlatformUsers": {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
+	"getPlatformUser":   {ok: answer{status: http.StatusOK}},
+	"createPlatformUser": {idempotent: true, body: `{"subject":"0190a000-0000-7000-8000-0000000000c1","role":"platform_viewer"}`,
+		oneOf: created, race: raceIn},
 	"updatePlatformUser": {body: `{"role":"platform_support"}`,
 		ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
 	"deletePlatformUser":            {ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
-	"setPlatformUserSuperAdminRole": {body: `{"super_admin":true,"reason":"matrix"}`},
+	"setPlatformUserSuperAdminRole": {body: `{"super_admin":true,"reason":"matrix"}`, oneOf: accepted, race: raceOn("super-admin")},
 	"listPlatformSettings":          {ok: answer{status: http.StatusOK}},
 	"getPlatformSetting":            {ok: answer{status: http.StatusOK}},
 	"putPlatformSetting": {body: `{"value":24}`,
@@ -233,7 +246,7 @@ var recipes = map[string]recipe{
 	"listPlatformPlans": {ok: answer{status: http.StatusOK}},
 	"getPlatformPlan":   {ok: answer{status: http.StatusOK}},
 	"createPlatformPlan": {idempotent: true, body: `{"key":"matrix","name":"Matrix","limits":{"max_devices":1,"max_users":1,` +
-		`"max_tagged_devices":1,"max_live_enrollment_credentials":1}}`},
+		`"max_tagged_devices":1,"max_live_enrollment_credentials":1}}`, oneOf: created, race: raceIn},
 	"updatePlatformPlan": {body: `{"is_active":true}`,
 		ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
 	// tag catalog (P4-T15, tagsapi — mounted): the matrix's tag of each tenant is tag:server, carried by the End User's
@@ -241,7 +254,7 @@ var recipes = map[string]recipe{
 	// PATCH without If-Match reaches the service and answers 428; a create of the same name answers 201 the first time
 	// and 409 after. PUT /devices/{id}/tags without If-Match answers 428 before the catalog or Headscale.
 	"listTenantTags":  {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
-	"createTenantTag": {idempotent: true, body: `{"name":"tag:matrix-new"}`},
+	"createTenantTag": {idempotent: true, body: `{"name":"tag:matrix-new"}`, oneOf: created, race: raceIn},
 	"updateTenantTag": {body: `{"description":"matrix"}`,
 		ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
 	"deleteTenantTag": {ok: answer{http.StatusConflict, gen.ProblemCodeConflict}},
@@ -287,20 +300,20 @@ var recipes = map[string]recipe{
 	}},
 	// support access grants (P4-T13, supportapi — mounted). The objects are pending grants whose requester/grantee is a
 	// Super Admin that is no actor of the matrix (world_test.go): a granted decision answers 200 for the first caller
-	// and 409 grant_closed after (the order of parallel callers decides), so the answer is left open; the requests
+	// and 409 grant_closed after (the order of parallel callers decides — never two successes: checkRaces); the requests
 	// create a pending grant into tenant A for the calling staff member (201, then 409 support_grant_open) — never a
 	// live grant, so the staff column of every other operation stays "no grant".
 	"listTenantSupportGrants":       {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
-	"approveTenantSupportGrant":     {},
-	"rejectTenantSupportGrant":      {},
-	"revokeTenantSupportGrant":      {},
+	"approveTenantSupportGrant":     {oneOf: decided, race: raceOn("grant-decide")},
+	"rejectTenantSupportGrant":      {oneOf: decided, race: raceOn("grant-decide")},
+	"revokeTenantSupportGrant":      {oneOf: decided, race: raceOn("grant-revoke")},
 	"listPlatformSupportGrants":     {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
-	"approveSupportGrantBreakglass": {},
-	"revokePlatformSupportGrant":    {},
+	"approveSupportGrantBreakglass": {oneOf: decided, race: raceOn("breakglass")},
+	"revokePlatformSupportGrant":    {oneOf: decided, race: raceOn("grant-revoke")},
 	"createSupportGrant": {idempotent: true, bodyOf: func(m *matrix, _ *call) string {
 		return `{"tenant_id":"` + m.A.ID.String() + `","effective_role":"support_operator","reason":"matrix",` +
 			`"ticket_ref":"MATRIX-1","duration_minutes":30}`
-	}},
+	}, oneOf: created, race: raceBy},
 	// network (P4-T12, networkapi — mounted). Every write that needs If-Match is sent without it: a granted caller is
 	// answered 428 before any read or write (the route approvals check it first — the body's device need not exist; the
 	// objects stay for every caller); the reads answer 200 from the register and the tables; a DNS record whose value is
@@ -320,7 +333,7 @@ var recipes = map[string]recipe{
 	"deleteTenantDnsRecord": {ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
 	"listTenantResources":   {query: func(*call) string { return "limit=5" }, ok: answer{status: http.StatusOK}},
 	"getTenantResource":     {ok: answer{status: http.StatusOK}},
-	"createTenantResource":  {idempotent: true, body: `{"name":"matrix-new","kind":"host","address":"10.9.9.9"}`},
+	"createTenantResource":  {idempotent: true, body: `{"name":"matrix-new","kind":"host","address":"10.9.9.9"}`, oneOf: created, race: raceIn},
 	"updateTenantResource": {body: `{"description":"matrix"}`,
 		ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
 	"deleteTenantResource": {ok: answer{http.StatusPreconditionRequired, gen.ProblemCodePreconditionRequired}},
@@ -356,6 +369,26 @@ func selfEnrolled(o outcome) func(m *matrix, c *call) outcome {
 		return o
 	}
 }
+
+// Answers of the races of parallel granted callers (oneOf): a success, then a conflict for the callers after it.
+var (
+	created   = []answer{{status: http.StatusCreated}, {http.StatusConflict, gen.ProblemCodeConflict}}
+	accepted  = []answer{{status: http.StatusAccepted}, {http.StatusConflict, gen.ProblemCodeConflict}}
+	decided   = []answer{{status: http.StatusOK}, {http.StatusConflict, gen.ProblemCodeConflict}}
+	conflict  = answer{http.StatusConflict, gen.ProblemCodeConflict}
+	invalidOp = answer{http.StatusUnprocessableEntity, gen.ProblemCodeValidationFailed}
+)
+
+// raceOn keys a race by a group of operations and the object of the path (approve and reject decide the same
+// request); raceIn by the operation and the tenant of the path (a create of the same name); raceBy by the operation
+// and the caller (one open request per person).
+func raceOn(group string) func(c *call) string {
+	return func(c *call) string { return group + "/" + c.pathTenant.String() + "/" + c.objectID.String() }
+}
+
+func raceIn(c *call) string { return c.op.ID + "/" + c.pathTenant.String() }
+
+func raceBy(c *call) string { return c.op.ID + "/" + c.actor.name }
 
 // startOutcome is the outcome of a granted /start on the call's own approved request (enrollmentObject): the code of
 // the request for its requester — the End User on its own request, when its tenant allows self-enrolment — and 409

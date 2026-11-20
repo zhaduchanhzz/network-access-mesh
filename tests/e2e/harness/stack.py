@@ -219,16 +219,21 @@ class Stack:
         for p in out.rglob("*"):   # config is not secret; Headscale/Keycloak/Caddy run as other UIDs
             os.chmod(p, 0o755 if p.is_dir() else 0o644)
 
-    def edge_files(self, **overrides) -> dict[str, str]:
-        """The edge's files by tools/render_edge.py from the ci edge.json — plus `overrides` of its parameters (E2E-121:
-        admin_public with a tunnel whose peer is this host) — with the CI tls block (ci_tls)."""
-        # The edge's static IPs and internal subnets are module constants of render_edge (the host layout of
-        # infrastructure/host/networks.sh); the stack uses its own subnets. Updated in place: render_idp shares the dict
-        # (KC_PROXY_TRUSTED_ADDRESSES = the edge's IP on the idp network).
+    def net_constants(self) -> None:
+        """The edge's static IPs and internal subnets are module constants of render_edge (the host layout of
+        infrastructure/host/networks.sh); the stack uses its own subnets. Updated in place: render_idp and render_app
+        share the dicts (KC_PROXY_TRUSTED_ADDRESSES = the edge's IP on the idp network; the worker's address on the edge
+        network). Called before every render — also by `e2e.py test` in a process of its own, whose re-render of
+        compose.app.yaml (E2E-77) would otherwise carry the host layout (10.249.0.4) (P5-T09)."""
         render_edge.EDGE_IPS.update(edge_ip=self.edge_ip, edge_admin_ip=self.admin_ip, edge_obs_ip=self.obs_ip,
                                     edge_idp_ip=self.edge_idp_ip)
         render_edge.INTERNAL.update(admin_subnet=self.networks["admin"][0], obs_subnet=self.networks["obs"][0])
         render_edge.APP_IPS.update(worker_edge_ip=self.worker_edge_ip)
+
+    def edge_files(self, **overrides) -> dict[str, str]:
+        """The edge's files by tools/render_edge.py from the ci edge.json — plus `overrides` of its parameters (E2E-121:
+        admin_public with a tunnel whose peer is this host) — with the CI tls block (ci_tls)."""
+        self.net_constants()
         params = {**mgenv.expand(json.loads((ENV_DIR / "edge.json").read_text(encoding="utf-8")), self.env), **overrides}
         files = render_edge.render(params)
         files["caddy/Caddyfile"] = ci_tls(files["caddy/Caddyfile"])
@@ -236,6 +241,7 @@ class Stack:
 
     def render_app(self) -> None:
         """compose.app.yaml (P2-T16) by tools/render_app.py with the images of this run (dummy IDs before the build)."""
+        self.net_constants()
         files = render_app.render(self.env, *self.app_images)
         render_edge.write(files, self.work / "render" / "app")
         os.chmod(self.work / "render" / "app" / "compose.app.yaml", 0o644)

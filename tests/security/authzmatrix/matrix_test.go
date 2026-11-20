@@ -81,7 +81,7 @@ const (
 type expectation struct {
 	status   int
 	code     gen.ProblemCode
-	accepted bool // any answer that is not a refusal (mounted handler, own object)
+	oneOf    []answer // the exact answers of a race of parallel granted callers (recipe.oneOf)
 	decision decisionKind
 	denyKind error
 	reason   string // authz.Denial.Reason
@@ -508,8 +508,9 @@ func (m *matrix) expect(c *call) expectation {
 }
 
 // handlerAnswer is the answer to a granted request: 501 while the handler set is not mounted; once it is, the own
-// object (or no object) is accepted and anything else — another member's object under an own-only grant, another
-// tenant's object, a missing one, another identity's session — is 404 (layer 2, §8.8; §8.4 invariants 3b and 6).
+// object (or no object) gets the exact answer of its recipe (ok, okOf or oneOf) and anything else — another member's
+// object under an own-only grant, another tenant's object, a missing one, another identity's session — is 404 (layer
+// 2, §8.8; §8.4 invariants 3b and 6).
 func (m *matrix) handlerAnswer(c *call, ownOnly bool) expectation {
 	e := expectation{decision: decGrant, ownOnly: ownOnly}
 	if !m.mounted[goName(c.op.ID)] {
@@ -535,7 +536,10 @@ func (m *matrix) handlerAnswer(c *call, ownOnly bool) expectation {
 		e.status, e.code, e.handlerReason, e.after = o.status, o.code, o.reason, o.after
 		return e
 	}
-	e.accepted = true
+	if len(c.recipe.oneOf) == 0 {
+		panic("matrix: no exact expectation for " + c.op.ID + " (recipe ok, okOf or oneOf — TestNoPermissiveRecipe)")
+	}
+	e.oneOf = c.recipe.oneOf
 	return e
 }
 
@@ -576,9 +580,11 @@ func (m *matrix) check(t *testing.T, c *call) []string {
 	rec, e := c.rec, c.exp
 	p, isProblem := problemOf(rec)
 	switch {
-	case e.accepted:
-		if slices.Contains([]int{401, 403, 404, 500, 501}, rec.Code) {
-			add("HTTP %d %s, want an accepted answer (granted, own object, mounted handler)", rec.Code, p.Code)
+	case len(e.oneOf) > 0:
+		if !slices.ContainsFunc(e.oneOf, func(a answer) bool {
+			return a.status == rec.Code && (a.code == "") == !isProblem && (a.code == "" || p.Code == a.code)
+		}) {
+			add("HTTP %d %q, want one of %v", rec.Code, p.Code, e.oneOf)
 		}
 	case rec.Code != e.status || (e.code != "" && (!isProblem || p.Code != e.code)) || (e.code == "" && isProblem):
 		add("HTTP %d %q, want %d %q", rec.Code, p.Code, e.status, e.code)
@@ -741,6 +747,7 @@ func TestAuthzMatrix(t *testing.T) {
 		t.Errorf("%d of %d requests do not match §8.5/§8.6", nFail, len(m.calls))
 	}
 	m.checkAudit(t)
+	m.checkRaces(t)
 	m.checkEnrollmentObjects(t)
 	if m.checkEnrollmentHeadscale(t) == 0 {
 		t.Error("degenerate matrix: no privileged enrollment key was issued (createEnrollmentKey never succeeded)")
@@ -750,6 +757,30 @@ func TestAuthzMatrix(t *testing.T) {
 	if total := len(authz.Operations()); covered != total {
 		t.Errorf("coverage %d/%d operations", covered, total)
 	}
+}
+
+// checkRaces — the races of parallel granted callers (recipe.oneOf + race) have at most one winner per key: one
+// decision of an approval or a grant executes, one creation of a name, one open request per person (P5-T09: the
+// answer of a race is exact, not "any answer that is not a refusal").
+func (m *matrix) checkRaces(t *testing.T) {
+	t.Helper()
+	wins, raced := map[string][]string{}, 0
+	for _, c := range m.calls {
+		if len(c.exp.oneOf) == 0 || c.recipe.race == nil {
+			continue
+		}
+		raced++
+		if c.rec.Code == c.exp.oneOf[0].status {
+			key := c.recipe.race(c)
+			wins[key] = append(wins[key], c.String())
+		}
+	}
+	for key, w := range wins {
+		if len(w) > 1 {
+			t.Errorf("race %s: %d successes, want at most one: %v", key, len(w), w)
+		}
+	}
+	t.Logf("races: %d granted calls on raced objects, %d keys won once", raced, len(wins))
 }
 
 // snapshot fingerprints every row of a tenant in every table with a tenant_id column (and the tenant row, its

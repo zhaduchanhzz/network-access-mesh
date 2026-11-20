@@ -364,6 +364,29 @@ func TestEveryOperationHasAnExpectation(t *testing.T) {
 	t.Logf("%d operations, %d recipes", len(ops), len(recipes))
 }
 
+// TestNoPermissiveRecipe (P5-T09): every operation that is not public has an exact expectation for a granted request
+// on an own object — ok, okOf or oneOf; "any answer that is not a refusal" is not an expectation. A race key needs the
+// answers it races on.
+func TestNoPermissiveRecipe(t *testing.T) {
+	n := 0
+	for _, op := range authz.Operations() {
+		r := recipes[op.ID]
+		if r.public.status != 0 {
+			continue
+		}
+		if r.ok.status == 0 && r.okOf == nil && len(r.oneOf) == 0 {
+			t.Errorf("%s: no exact answer for a granted request (recipe ok, okOf or oneOf)", op.ID)
+		}
+		if r.race != nil && len(r.oneOf) == 0 {
+			t.Errorf("%s: a race key without the answers it races on (oneOf)", op.ID)
+		}
+		if len(r.oneOf) > 0 {
+			n++
+		}
+	}
+	t.Logf("%d operations, %d of them with the exact answers of a race (oneOf)", len(authz.Operations()), n)
+}
+
 func columnsOf(perm authz.Permission) []string {
 	if perm.Scope() == authz.ScopeTenant {
 		return tenantColumns
