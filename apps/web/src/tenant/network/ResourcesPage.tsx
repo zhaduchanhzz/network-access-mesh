@@ -73,7 +73,12 @@ export function ResourcesPage() {
   const [editing, setEditing] = useState<NetworkResource | "new" | null>(null);
   const [deleting, setDeleting] = useState<NetworkResource | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const refresh = () => queryClient.invalidateQueries({ queryKey: queryKeys.tenant(tenantId, "resources") });
+  // danh mục cũng là nguồn của bộ chọn tài nguyên trong Biểu mẫu policy (G4b-E4) ⇒ làm mới cả danh mục tên của policy
+  const refresh = () =>
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.tenant(tenantId, "resources") }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.tenant(tenantId, "policies", "names") }),
+    ]);
   const stale = () => {
     setEditing(null);
     setDeleting(null);
@@ -126,7 +131,7 @@ export function ResourcesPage() {
             {data.items.length === 0 ? (
               <EmptyState>{t("network.resources.empty")}</EmptyState>
             ) : (
-              <div className="overflow-x-auto">
+              <div className="relative overflow-x-auto">
                 <table className="data-table" data-testid="resources-table">
                   <caption className="sr-only">{t("nav.tenant.resources")}</caption>
                   <thead>

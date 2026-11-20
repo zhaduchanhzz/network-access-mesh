@@ -14,7 +14,7 @@ export interface AppShellProps {
   /** tiền tố của mục điều hướng: /t/<tenantId> hoặc /platform; null ⇒ không có điều hướng (trang chọn tenant) */
   base: string | null;
   nav: readonly NavItem[];
-  /** tên ngữ cảnh hiển thị ở header (tên tenant, hoặc nhãn Platform Console) */
+  /** tên ngữ cảnh hiển thị ở header (tên tenant); "" ⇒ không có (Platform Console: badge đã nói) */
   context: string;
   banner?: ReactNode;
   /** số đếm cạnh mục điều hướng, theo `path` của mục (P4-T04: thông báo chưa đọc); 0 ⇒ không hiện */
@@ -49,9 +49,11 @@ export function AppShell({ base, nav, context, banner, badges, children }: AppSh
           <span className="rounded bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent">
             {kind === "platform" ? t("shell.platformConsole") : t("shell.tenantPortal")}
           </span>
-          <span className="truncate text-sm text-muted" data-testid="shell-context">
-            {context}
-          </span>
+          {context ? (
+            <span className="truncate text-sm text-muted" data-testid="shell-context">
+              {context}
+            </span>
+          ) : null}
           {multiTenant && base !== "/platform" ? (
             <Link to="/tenants" className="link text-sm">
               {t("shell.switchTenant")}

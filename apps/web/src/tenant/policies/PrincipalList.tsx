@@ -1,5 +1,6 @@
 // Danh sách principal có kiểu của một vị trí (src/dst/via/SSH/autoApprovers — P4-T11): mỗi phần tử là {type, ref}
-// chọn theo id từ danh mục của tenant (thành viên, group, tag; tài nguyên đã được tham chiếu), autogroup theo vị trí,
+// chọn theo id từ danh mục của tenant (thành viên, group, tag, tài nguyên mạng — GET /resources của P4-T12, cộng tài
+// nguyên đã được tham chiếu mà danh mục không có), autogroup theo vị trí,
 // hoặc địa chỉ/prefix gõ tay. Không bao giờ nhận chuỗi tự do cho user/group/tag/resource (§7.2).
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -124,7 +125,9 @@ function AddPrincipal({
           </p>
         </div>
       ) : options.length === 0 ? (
-        <p className="pt-1 text-sm text-muted">{t(type === "resource" ? "policies.editor.noResources" : "policies.editor.noChoices")}</p>
+        <p className="pt-1 text-sm text-muted" data-testid="no-choices">
+          {t(type !== "resource" ? "policies.editor.noChoices" : catalog?.resources === null ? "policies.editor.resourcesUnreadable" : "policies.editor.noResources")}
+        </p>
       ) : (
         <select
           className="select max-w-full"
@@ -157,9 +160,15 @@ function choices(type: PrincipalType, position: Position, catalog: Catalog | und
       return (catalog?.groups ?? []).map((g) => ({ ref: g.id, label: `group:${g.name}` }));
     case "tag":
       return (catalog?.tags ?? []).map((g) => ({ ref: g.id, label: g.name }));
-    case "resource":
-      // danh mục tài nguyên chưa có API đọc (P4-T12): chỉ những tài nguyên đã được tham chiếu (tên do server trả)
-      return [...extra.entries()].filter(([k]) => k.startsWith("resource/")).map(([k, name]) => ({ ref: k.slice("resource/".length), label: name }));
+    case "resource": {
+      // danh mục của tenant (tên + địa chỉ), cộng tài nguyên đã được tham chiếu mà danh mục không có (tên do server trả)
+      const listed = (catalog?.resources ?? []).map((r) => ({ ref: r.id, label: `${r.name} (${r.address})` }));
+      const known = new Set(listed.map((o) => o.ref));
+      const referenced = [...extra.entries()]
+        .filter(([k]) => k.startsWith("resource/") && !known.has(k.slice("resource/".length)))
+        .map(([k, name]) => ({ ref: k.slice("resource/".length), label: name }));
+      return [...listed, ...referenced];
+    }
     case "autogroup":
       return (POSITION_AUTOGROUPS[position] ?? []).map((a) => ({ ref: a, label: `autogroup:${a}` }));
     case "cidr":

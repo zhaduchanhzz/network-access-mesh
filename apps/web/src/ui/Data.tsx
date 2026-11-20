@@ -27,14 +27,14 @@ export function EmptyState({ children }: { children: ReactNode }) {
   );
 }
 
-/** Trang trước / sau của danh sách con trỏ. */
+/** Trang trước / sau của danh sách con trỏ — cùng nhãn ở Portal và Console (G4b-E18: "Trang trước" / "Trang sau"). */
 export function Pager({ pager, nextCursor, label }: { pager: CursorPager; nextCursor: string | null | undefined; label: string }) {
   const { t } = useTranslation();
   if (!pager.hasPrevious && !nextCursor) return null;
   return (
     <nav aria-label={label} className="mt-4 flex items-center justify-between gap-3">
       <button type="button" className="btn-secondary" disabled={!pager.hasPrevious} onClick={pager.previous}>
-        {t("common.previous")}
+        {t("ui.prevPage")}
       </button>
       <span className="text-sm text-muted">{t("common.page", { page: pager.page })}</span>
       <button
@@ -45,7 +45,7 @@ export function Pager({ pager, nextCursor, label }: { pager: CursorPager; nextCu
           if (nextCursor) pager.next(nextCursor);
         }}
       >
-        {t("common.next")}
+        {t("ui.nextPage")}
       </button>
     </nav>
   );

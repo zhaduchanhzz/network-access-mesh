@@ -107,6 +107,24 @@ export function problemReason(error: unknown, code: "conflict" | "validation_fai
 }
 
 /** Yêu cầu của chính người gọi (người tạo, hoặc chủ thiết bị của key do người khác phát). */
+/** Role có grant `tenant.enrollment:request` kèm điều kiện `self_enroll` (database/seeds/rbac.sql, §8.6): chỉ End User. */
+export const SELF_ENROLL_ROLE = "end_user";
+
+/**
+ * 403 `forbidden` khi End User tạo/nhận/claim yêu cầu = tenant tắt `enrollment.self_enroll` (G4b-E3). Spec không có cách
+ * đọc cài đặt này trước với quyền của End User và problem không mang lý do ổn định (`self_enroll_disabled` chỉ ở
+ * `detail` tiếng Anh) ⇒ suy ra từ role + mã: grant của End User chỉ có điều kiện này.
+ */
+export function isSelfEnrollRefusal(error: unknown, role: string): boolean {
+  return role === SELF_ENROLL_ROLE && error instanceof ApiError && error.code === "forbidden";
+}
+
+/** Tenant tắt `enrollment.self_enroll` và người gọi bị điều kiện này (End User): biết ngay từ GET /enrollment/instructions
+ * (`self_enroll` của tenant — G4b-E3), không phải chờ 403. */
+export function selfEnrollClosed(role: string, instructions: Pick<EnrollmentInstructions, "self_enroll"> | undefined): boolean {
+  return role === SELF_ENROLL_ROLE && instructions?.self_enroll === false;
+}
+
 export function isMine(r: EnrollmentRequest, membershipId: string | null): boolean {
   return membershipId !== null && (r.requested_by_membership_id === membershipId || r.target_membership_id === membershipId);
 }

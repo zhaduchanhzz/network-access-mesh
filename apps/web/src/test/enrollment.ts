@@ -80,6 +80,7 @@ export function instructions(os: S["EnrollmentOS"], over: Partial<S["EnrollmentI
     preauth_key_command: mobile ? null : `tailscale up --login-server=${LOGIN_SERVER} --auth-key="$TS_AUTHKEY"`,
     privacy_notice: "The official Tailscale client may send diagnostic logs…",
     managed_env: { TS_NO_LOGS_NO_SUPPORT: "true" },
+    self_enroll: true,
     ...over,
   };
 }

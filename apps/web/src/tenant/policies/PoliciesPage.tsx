@@ -72,7 +72,7 @@ export function PoliciesPage() {
               <EmptyState>{t("policies.noVersions")}</EmptyState>
             ) : (
               <>
-                <div className="overflow-x-auto">
+                <div className="relative overflow-x-auto">
                   <table className="data-table" data-testid="policy-versions">
                     <thead>
                       <tr>

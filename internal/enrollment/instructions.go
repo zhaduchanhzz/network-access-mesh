@@ -23,6 +23,9 @@ type Instructions struct {
 	PreauthKeyCommand *string
 	PrivacyNotice     string
 	ManagedEnv        map[string]string
+	// SelfEnroll is enrollment.self_enroll of the tenant: false ⇒ an End User's request is refused (condition self_enroll
+	// of §8.6), so the Portal shows that instead of the wizard (G4b-E3). Not a secret: every member may know it.
+	SelfEnroll bool
 }
 
 // PrivacyNotice is the notice of HS-22: the client may send diagnostic logs to Tailscale Inc. before its first successful
@@ -48,7 +51,7 @@ func (s *Service) Instructions(ctx context.Context, tenantID uuid.UUID, os strin
 		ls := *row.ServerUrl
 		set := settingsOf(row.Settings).Enrollment
 		out = Instructions{OS: os, LoginServer: ls, Steps: append([]string{}, steps...), PrivacyNotice: PrivacyNotice,
-			ManagedEnv: map[string]string{"TS_NO_LOGS_NO_SUPPORT": "true"}}
+			ManagedEnv: map[string]string{"TS_NO_LOGS_NO_SUPPORT": "true"}, SelfEnroll: set.SelfEnroll}
 		mobile := os == "ios" || os == "android"
 		if set.WebAuthEnabled && !mobile {
 			c := webAuthCommand(ls, HostnamePrefix+"<code>")

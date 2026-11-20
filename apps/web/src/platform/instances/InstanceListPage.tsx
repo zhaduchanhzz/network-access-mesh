@@ -78,7 +78,7 @@ export function InstanceListPage() {
 export function InstanceTable({ items, caption, showHost = true }: { items: readonly Instance[]; caption: string; showHost?: boolean }) {
   const { t } = useTranslation();
   return (
-    <div className="overflow-x-auto rounded-lg border border-line bg-surface">
+    <div className="relative overflow-x-auto rounded-lg border border-line bg-surface">
       <table className="data-table">
         <caption className="sr-only">{caption}</caption>
         <thead>

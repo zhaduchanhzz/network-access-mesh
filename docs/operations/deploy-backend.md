@@ -24,6 +24,7 @@
 | n | P4-T07 — Caddyfile **v10**: `/register/<auth_id>` không `via=portal` ⇒ 302 tới trang claim của Portal; chỉ sau khi API claim (P4-T06) và trang `/enroll/claim` (P4-T08) đã chạy | **[CHỦ DỰ ÁN DUYỆT]** + **thông báo trước reload edge** | Xem mục n |
 | o | Lô Phase 4 đầu tiên lên staging (`8840590` → `9736636`): migration `0020`–`0028`, api/worker/web/**agent** mới, Caddyfile v9 (v10 khi có P4-T08) — trình tự đã diễn tập trên VM 110 | **[CHỦ DỰ ÁN DUYỆT]** + **thông báo trước reload edge** | Xem mục o |
 | p | `admin.` ra Internet: Caddyfile **v11** (`admin_public: true` — `admin.` cả trên listener tunnel-facing, bỏ `admin_allow`; console Keycloak giữ cổng `forward_auth` 2P) + `A admin.` → VPS (quyết định của chủ dự án 2026-11-20) | **[CHỦ DỰ ÁN DUYỆT]** (đã quyết 2026-11-20) + **thông báo trước reload edge** | Reload; sau DNS: Platform Console + console Keycloak (sau cổng 2P) nhận lưu lượng Internet |
+| q | G4b-E1 — realm do IdP driver tạo có SMTP, lời mời Owner qua IdP: api/worker/web mới (không migration, không đổi idp/edge) + `meshguard admin idp-realm-smtp` cho realm tenant đã tạo trước bản sửa | Người điều phối (lô sửa G4b) | Không (worker/api/web tạo lại; realm chỉ thêm `smtpServer`) |
 
 Lệch thứ tự so với danh sách của brief: **idp-bootstrap và đăng nhập thử nằm sau (h)** — worker chỉ tới được Admin API của Keycloak qua site `auth.` mới của edge, đăng nhập cần site `app.`/`admin.`. Adopt, client secret, bootstrap SA/seed (e, f) không cần edge mới.
 
@@ -505,3 +506,30 @@ $PSQL -c "SELECT origin, host(ip), created_at FROM sessions WHERE origin = 'admi
 
 Ghi vào `current.md`: giờ reload v11, bản sao `/root/Caddyfile.v10.$TS`, id bản ghi `A admin.` (dòng `create ok id=…` của
 `cf_dns.py`), kết quả `run_staging.sh`/`external.py`.
+
+## q. G4b-E1 — SMTP của realm do IdP driver tạo, lời mời Owner qua IdP
+
+Bản sửa của vòng khám phá G4b ([G4b](../planning/evidence/G4b.md) mục 6). Không migration, không đổi image idp/edge hay
+`staging.env`: worker lấy `smtpServer` của realm từ chính relay thư của nó (`MG_SMTP_ADDR`/`MG_SMTP_TLS`/`MG_SMTP_FROM` —
+staging: `mailrelay:587`, STARTTLS, người gửi mặc định), giống ba realm render tĩnh của `render_idp.py`; realm tạo từ nay
+có SMTP ngay ở `idp.ensure`. Lời mời Owner của bước 16 enqueue `member.idp_invite` (tài khoản Owner ở realm + thư thiết
+lập). Trình tự:
+
+```bash
+# 1. image api/worker/web của commit sửa (pin ở versions.lock như mục o), render lại mg-app nếu digest đổi, rồi
+sudo docker compose -p mg-app up -d --wait api worker web
+sudo docker logs --since 2m $(sudo docker compose -p mg-app ps -q worker) 2>&1 | grep -c "realms the driver creates get no SMTP"   # 0
+# 2. realm tenant đã tạo trước bản sửa (driver_ref JSON — realm render tĩnh platform/tenant-a/tenant-b bị bỏ qua, IdP
+#    disabled bị bỏ qua): xem trước, rồi áp; chạy lại ⇒ mọi realm "unchanged"
+sudo docker compose -p mg-app exec -T worker /usr/local/bin/meshguard admin idp-realm-smtp --dry-run
+sudo docker compose -p mg-app exec -T worker /usr/local/bin/meshguard admin idp-realm-smtp
+sudo docker compose -p mg-app exec -T worker /usr/local/bin/meshguard admin idp-realm-smtp   # updated 0
+# 3. lời mời đang chờ có cột IdP "thất bại" (idp_email_failed) ⇒ Portal "Gửi lại" (job member.idp_invite mới);
+#    lời mời Owner của tenant provision trước bản sửa (chưa có job IdP) ⇒ "Gửi lại" từ Portal của tenant không có
+#    người gửi được (Owner chưa vào) — tạo tài khoản như G4a (`create-user.sh`) hoặc thu hồi + provision lại tenant thử
+```
+
+Kiểm: provision một tenant thử (Console, IdP do nền tảng host) ⇒ job `tenant.provision` `succeeded`; job
+`member.idp_invite` của lời mời Owner `succeeded`; Owner nhận thư thiết lập (relay thật — chỉ tới địa chỉ chủ dự án
+chọn), đặt mật khẩu + TOTP, đăng nhập ⇒ Tenant Owner; Owner mời một End User ⇒ cột IdP "đã gửi"; dọn tenant thử bằng xóa
+2P. Ghi vào `current.md`: commit/digest đã chạy, kết quả `idp-realm-smtp` (số realm updated/unchanged/skipped).

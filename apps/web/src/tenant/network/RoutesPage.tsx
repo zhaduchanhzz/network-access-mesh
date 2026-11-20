@@ -83,7 +83,7 @@ export function RoutesPage() {
           data.items.length === 0 ? (
             <EmptyState>{t("network.routes.empty")}</EmptyState>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="relative overflow-x-auto">
               <table className="data-table" data-testid="routes-table">
                 <caption className="sr-only">{t("nav.tenant.routes")}</caption>
                 <thead>

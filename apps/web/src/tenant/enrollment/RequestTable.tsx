@@ -121,7 +121,7 @@ export function RequestTable(props: RequestTableProps) {
       {items.length === 0 ? (
         <EmptyState>{props.empty}</EmptyState>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="relative overflow-x-auto">
           <table className="data-table" data-testid={props.testId ?? "enroll-table"}>
             <caption className="sr-only">{props.caption}</caption>
             <thead>

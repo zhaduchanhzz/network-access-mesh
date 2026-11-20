@@ -64,7 +64,7 @@ describe("Instances", () => {
     expect(within(row).getByText(/Kiểm tra lúc|Kiểm lúc/)).toBeInTheDocument();
     expect(screen.getByTestId("host-filter")).toHaveTextContent(HOST1);
     await userEvent.selectOptions(screen.getByLabelText("Trạng thái"), "running");
-    await userEvent.click(await screen.findByRole("button", { name: "Tiếp" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Trang sau" }));
     await waitFor(() => {
       expect(requests.map((r) => new URL(r.url).search)).toContain(`?limit=25&status=running&host=${HOST1}&cursor=c2`);
     });

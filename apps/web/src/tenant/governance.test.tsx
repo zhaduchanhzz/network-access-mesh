@@ -89,7 +89,7 @@ describe("audit", () => {
       expect(q.get("actor_type")).toBe("support");
       expect(q.get("limit")).toBe("50");
     });
-    await user.click(await screen.findByRole("button", { name: "Tiếp" }));
+    await user.click(await screen.findByRole("button", { name: "Trang sau" }));
     await waitFor(() => expect(new URL(requests.at(-1)!.url).searchParams.get("cursor")).toBe("c2"));
     // actor không phải UUID ⇒ không gửi
     await user.type(screen.getByLabelText("Actor (ID danh tính)"), "khong-phai-uuid");

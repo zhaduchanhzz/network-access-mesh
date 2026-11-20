@@ -55,7 +55,7 @@ export function SettingsPage() {
       <QueryBlock query={q}>
         {(data) => (
           <>
-            <div className="overflow-x-auto rounded-lg border border-line bg-surface">
+            <div className="relative overflow-x-auto rounded-lg border border-line bg-surface">
               <table className="data-table">
                 <caption className="sr-only">{t("nav.platform.settings")}</caption>
                 <thead>

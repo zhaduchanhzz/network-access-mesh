@@ -61,7 +61,7 @@ export function TagsPage() {
               <EmptyState>{t("tags.empty")}</EmptyState>
             ) : (
               <>
-                <div className="overflow-x-auto">
+                <div className="relative overflow-x-auto">
                   <table className="data-table" data-testid="tag-table">
                     <thead>
                       <tr>

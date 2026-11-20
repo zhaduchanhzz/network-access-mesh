@@ -78,7 +78,7 @@ export function SupportGrantsPage() {
             <EmptyState>{t("support.empty")}</EmptyState>
           ) : (
             <>
-              <div className="overflow-x-auto rounded-lg border border-line bg-surface">
+              <div className="relative overflow-x-auto rounded-lg border border-line bg-surface">
                 <table className="data-table">
                   <caption className="sr-only">{t("support.caption")}</caption>
                   <thead>
@@ -135,13 +135,19 @@ function RequestForm() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [q, setQ] = useState("");
-  const tenants = useTenantList({ q: q || undefined });
+  // chỉ tenant xin grant được (active, suspended) — lọc ở server theo từng trạng thái, không lọc trang đầu của mọi tenant
+  // (đa số có thể đã xóa — G4b-E7); vẫn chỉ một trang mỗi trạng thái ⇒ còn nữa thì nhắc gõ để tìm
+  const active = useTenantList({ status: "active", q: q || undefined });
+  const suspended = useTenantList({ status: "suspended", q: q || undefined });
   const [tenantId, setTenantId] = useState("");
   const [role, setRole] = useState<SupportGrantRole>("support_operator");
   const [reason, setReason] = useState("");
   const [ticket, setTicket] = useState("");
   const [minutes, setMinutes] = useState<number>(60);
-  const options = (tenants.data?.items ?? []).filter((x) => x.status === "active" || x.status === "suspended");
+  const options = [...(active.data?.items ?? []), ...(suspended.data?.items ?? [])]
+    .filter((x, i, all) => (x.status === "active" || x.status === "suspended") && all.findIndex((y) => y.id === x.id) === i)
+    .sort((a, b) => a.slug.localeCompare(b.slug));
+  const more = Boolean(active.data?.next_cursor) || Boolean(suspended.data?.next_cursor);
   const valid = tenantId !== "" && reason.trim() !== "" && reason.length <= 1000 && ticket.trim() !== "" && ticket.length <= 200 && !/[\n\t]/.test(ticket);
   const create = useIdempotentMutation({
     mutationFn: (body: SupportGrantCreate, key: string) =>
@@ -159,7 +165,7 @@ function RequestForm() {
       </h2>
       <p className="text-sm text-muted">{t("support.requestIntro")}</p>
       <form
-        className="grid gap-3 sm:grid-cols-2"
+        className="grid gap-3 sm:grid-cols-2 [&>*]:min-w-0"
         onSubmit={(e) => {
           e.preventDefault();
           if (valid) {
@@ -171,13 +177,16 @@ function RequestForm() {
           <label htmlFor="grant-tenant-q" className="label">
             {t("support.tenantSearch")}
           </label>
-          <input id="grant-tenant-q" className="input" value={q} onChange={(e) => { setQ(e.target.value.trim()); }} />
+          <input id="grant-tenant-q" className="input" aria-describedby="grant-tenant-q-hint" value={q} onChange={(e) => { setQ(e.target.value.trim()); }} />
+          <p id="grant-tenant-q-hint" className="hint">
+            {t(more ? "support.tenantSearchMore" : "support.tenantSearchHint")}
+          </p>
         </div>
         <div>
           <label htmlFor="grant-tenant" className="label">
             {t("support.col.tenant")}
           </label>
-          <select id="grant-tenant" className="select" value={tenantId} onChange={(e) => { setTenantId(e.target.value); }}>
+          <select id="grant-tenant" className="select w-full max-w-full" value={tenantId} onChange={(e) => { setTenantId(e.target.value); }}>
             <option value="">{t("support.chooseTenant")}</option>
             {options.map((x) => (
               <option key={x.id} value={x.id}>
@@ -190,7 +199,7 @@ function RequestForm() {
           <label htmlFor="grant-role" className="label">
             {t("support.col.role")}
           </label>
-          <select id="grant-role" className="select" value={role} onChange={(e) => { setRole(e.target.value === "support_admin" ? "support_admin" : "support_operator"); }}>
+          <select id="grant-role" className="select w-full max-w-full" value={role} onChange={(e) => { setRole(e.target.value === "support_admin" ? "support_admin" : "support_operator"); }}>
             {GRANT_ROLES.map((r) => (
               <option key={r} value={r}>
                 {t(`roles.${r}`)}
@@ -203,7 +212,7 @@ function RequestForm() {
           <label htmlFor="grant-duration" className="label">
             {t("support.duration")}
           </label>
-          <select id="grant-duration" className="select" value={minutes} onChange={(e) => { setMinutes(Number(e.target.value)); }}>
+          <select id="grant-duration" className="select w-full max-w-full" value={minutes} onChange={(e) => { setMinutes(Number(e.target.value)); }}>
             {GRANT_DURATIONS.map((m) => (
               <option key={m} value={m}>
                 {t("support.minutes", { count: m })}

@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/zhaduchanhzz/network-access-mesh/internal/httpapi/gen"
@@ -74,9 +75,27 @@ func (h *Handlers) AuthLogin(ctx context.Context, req gen.AuthLoginRequestObject
 	in.Current, _ = identity.SessionFromContext(ctx)
 	out, err := h.svc.BeginLogin(ctx, in)
 	if err != nil {
-		return problemFor(err, info), nil
+		return loginFailure(err, info, in), nil
 	}
 	return redirectResponse{location: out.Location, cookies: []*http.Cookie{out.Cookie}}, nil
+}
+
+// loginFailure answers a refused login start. A browser navigating to the Portal's login (Sec-Fetch-Mode: navigate)
+// for a tenant it cannot log in to — unknown slug, deleted or not active, no active IdP — is sent back to the SPA's
+// login page with one code for all of these (G4b-E2: never a raw JSON problem page; the code says nothing about which
+// case it was, as the 404 itself), with the slug (already checked against the slug pattern) and return_to to fill the
+// form again. Any
+// other caller and any other refusal get the problem.
+func loginFailure(err error, info identity.RequestInfo, in identity.LoginRequest) gen.AuthLoginResponseObject {
+	e := identity.AsError(err)
+	if info.FetchMode == "navigate" && in.Scope == identity.ScopeTenant && e.Kind == identity.KindNotFound {
+		q := url.Values{"error": {"tenant_not_found"}, "tenant": {in.TenantSlug}}
+		if in.ReturnTo != "" { // checked before the IdP lookup (a path of this origin)
+			q.Set("return_to", in.ReturnTo)
+		}
+		return redirectResponse{location: "/login?" + q.Encode()}
+	}
+	return problemFor(err, info)
 }
 
 // AuthCallback implements GET /auth/callback/{idpId} (§8.3 steps 3–4). Success sets the session cookie and deletes

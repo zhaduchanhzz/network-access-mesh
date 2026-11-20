@@ -87,8 +87,8 @@ function AssignmentCard({ a }: { a: Assignment }) {
         </StatusBadge>
       </div>
       {a.health.reason ? (
-        <p className="mt-1 text-sm">
-          {code("relay.healthReason", a.health.reason, "health.reasonOther")} <code>{`(${a.health.reason})`}</code>
+        <p className="mt-1 text-sm" title={a.health.reason}>
+          {code("relay.healthReason", a.health.reason, "health.reasonOther")}
         </p>
       ) : null}
       <ObservedAt labelKey="ui.checkedAt" iso={a.health.checked_at} />

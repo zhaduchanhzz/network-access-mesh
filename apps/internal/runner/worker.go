@@ -387,9 +387,17 @@ func idpDrivers(ctx context.Context, cfg config.Config, d *deps) (_ *idp.Registr
 		provisioned = true
 	}
 	sec := platformSecurity{st: d.st} // G2 F3: a client_secret_ref that is not the IdP's own ⇒ security event
+	smtp, err := realmSMTP(cfg)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	if smtp == nil {
+		d.log.Warn("keycloak: realms the driver creates get no SMTP (MG_SMTP_ADDR unset or authenticated) — invitations " +
+			"of their members cannot be e-mailed by the IdP")
+	}
 	kc, err := keycloak.New(keycloak.Config{Route: d.route, Secrets: d.secrets,
 		Provisioner: keycloak.Credentials{ClientID: clientID, Secret: ref},
-		AppHost:     cfg.AppHost(), AdminHost: cfg.AdminHost(), Logger: d.log, Security: sec})
+		AppHost:     cfg.AppHost(), AdminHost: cfg.AdminHost(), Logger: d.log, Security: sec, SMTP: smtp})
 	if err != nil {
 		return nil, nil, false, err
 	}
@@ -399,6 +407,18 @@ func idpDrivers(ctx context.Context, cfg config.Config, d *deps) (_ *idp.Registr
 	}
 	r, err := idp.NewRegistry(kc, ext)
 	return r, kc, provisioned, err
+}
+
+// realmSMTP is the smtpServer of the realms the keycloak driver creates (G4b-E1): the worker's own notification relay
+// (MG_SMTP_ADDR, MG_SMTP_TLS, MG_SMTP_FROM — on staging/production mailrelay:587, STARTTLS, the relay's one sender, which
+// the IdP also reaches on the network mail and trusts through KC_TRUSTSTORE_PATHS, as the realms render_idp.py renders).
+// nil when the worker has no relay or authenticates to it (a realm's smtpServer never holds a password).
+func realmSMTP(cfg config.Config) (*keycloak.SMTPServer, error) {
+	s, ok, err := keycloak.SMTPFromConfig(cfg.SMTP.Addr, cfg.SMTP.TLS, cfg.SMTP.From, cfg.SMTP.Username, cfg.BaseDomain)
+	if err != nil || !ok {
+		return nil, err
+	}
+	return &s, nil
 }
 
 // platformSecurity records the security events of the IdP drivers (idp.SecurityRecorder — G2 F3) in a platform

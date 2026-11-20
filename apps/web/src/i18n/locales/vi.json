@@ -46,7 +46,11 @@
     "tenantInvalid": "Mã tenant không hợp lệ: 3–32 ký tự, bắt đầu bằng chữ cái, chỉ gồm chữ thường, số và dấu gạch ngang.",
     "platformHint": "Dành cho nhân sự nền tảng. Đăng nhập luôn yêu cầu mật khẩu và yếu tố xác thực thứ hai.",
     "submit": "Tiếp tục tới trang đăng nhập",
-    "expired": "Phiên đăng nhập đã hết hạn hoặc đã bị thu hồi. Hãy đăng nhập lại."
+    "expired": "Phiên đăng nhập đã hết hạn hoặc đã bị thu hồi. Hãy đăng nhập lại.",
+    "errors": {
+      "tenantNotFound": "Không tìm thấy tenant hoặc tenant không cho đăng nhập — kiểm tra lại tên tenant.",
+      "startFailed": "Không bắt đầu đăng nhập được — thử lại sau ít phút."
+    }
   },
   "tenantSelect": {
     "title": "Chọn tenant",
@@ -126,8 +130,8 @@
   },
   "unavailable": {
     "title": "Chưa khả dụng",
-    "planned": "Màn hình này chưa được xây (task {{task}}). Không hiển thị số liệu thay thế.",
-    "postMvp": "Tính năng sau MVP (task {{task}}) — chưa có nguồn dữ liệu nên không hiển thị số liệu."
+    "planned": "Màn hình này chưa được xây. Không hiển thị số liệu thay thế.",
+    "postMvp": "Tính năng sau MVP — chưa có nguồn dữ liệu nên không hiển thị số liệu."
   },
   "notFound": {
     "title": "Không tìm thấy",
@@ -303,9 +307,9 @@
       "slugHint": "Nhãn DNS bất biến: 3–32 ký tự, chữ thường, số, dấu gạch ngang; không bắt đầu bằng số, không '--'.",
       "name": "Tên hiển thị",
       "ownerEmail": "Email Tenant Owner",
-      "ownerEmailHint": "Nhận lời mời ở bước cấu hình tenant (bước 16).",
+      "ownerEmailHint": "Nhận lời mời ở bước cấu hình tenant.",
       "plan": "Gói dịch vụ (plan_key)",
-      "planHint": "Khóa của gói đang mở (mặc định: standard). Danh sách gói có ở màn hình Plans (P4-T03).",
+      "planHint": "Khóa của gói đang mở (mặc định: standard). Danh sách gói có ở màn hình Plans.",
       "region": "Vùng triển khai",
       "regionHint": "Bỏ trống ⇒ vùng mặc định của nền tảng.",
       "regionDefault": "Mặc định của nền tảng",
@@ -800,7 +804,7 @@
       "back": "← Danh sách IdP",
       "edit": "Sửa ràng buộc claim…",
       "identity": "Định danh (chỉ đọc)",
-      "immutable": "Issuer, client ID, driver và phạm vi không đổi được (§8.2) — đổi IdP là luồng di trú riêng.",
+      "immutable": "Issuer, client ID, driver và phạm vi không đổi được — đổi IdP là luồng di trú riêng.",
       "clientId": "Client ID",
       "secret": "Client secret",
       "secretSet": "Đã đặt (không bao giờ hiển thị)",
@@ -896,7 +900,10 @@
     "nextPage": "Trang sau",
     "copy": "Sao chép",
     "copied": "Đã sao chép.",
-    "copyFailed": "Không sao chép được — hãy chọn và sao chép thủ công."
+    "copyFailed": "Không sao chép được — hãy chọn và sao chép thủ công.",
+    "syncedNever": "Chưa đồng bộ từ Headscale lần nào.",
+    "checkedNever": "Chưa kiểm tra lần nào.",
+    "observedNever": "Chưa có lần quan sát nào."
   },
   "notif": {
     "filterLabel": "Lọc thông báo",
@@ -994,7 +1001,7 @@
     "noTags": "Không có tag",
     "fresh": "Làm mới từ Headscale",
     "empty": "Không có thiết bị nào khớp bộ lọc.",
-    "noOsNote": "Không hiển thị hệ điều hành, phiên bản client hay endpoint: Headscale API không cung cấp các thông tin này (HS-14).",
+    "noOsNote": "Không hiển thị hệ điều hành, phiên bản client hay endpoint: Headscale API không cung cấp các thông tin này.",
     "filters": "Lọc thiết bị",
     "search": "Tên thiết bị",
     "tagFilter": "Tag",
@@ -1019,7 +1026,7 @@
     },
     "review": {
       "title": "Rà soát tagged node không hết hạn",
-      "description": "Tagged node không bao giờ hết hạn và không có chủ sở hữu (HS-19, PL-09) — rà soát định kỳ (hằng quý) và thu hồi node không còn dùng (§7.4, ADR-23).",
+      "description": "Tagged node không bao giờ hết hạn và không có chủ sở hữu — rà soát định kỳ (hằng quý) và thu hồi node không còn dùng.",
       "open": "Mở báo cáo rà soát",
       "exit": "Thoát chế độ rà soát",
       "empty": "Không có tagged node nào không hết hạn."
@@ -1054,7 +1061,7 @@
     "detail": {
       "info": "Thông tin",
       "hostname": "Hostname (client báo)",
-      "tagsLater": "Đổi tag: chưa khả dụng (P4-T10).",
+      "tagsLater": "Đổi tag: chưa khả dụng.",
       "registerMethod": "Cách đăng ký",
       "routesAdvertised": "Route quảng bá",
       "routesApproved": "Route đã duyệt",
@@ -1181,7 +1188,7 @@
       "headscaleUser": "Headscale user",
       "profileSource": "Hồ sơ",
       "profileFromIdp": "Tên và email đến từ IdP ở mỗi lần đăng nhập — không sửa ở đây.",
-      "ruleNoActions": "Bạn không thao tác được trên thành viên này: chỉ tác động lên role thấp hơn hẳn role của bạn (quy tắc 3a — Tenant Admin không khóa, offboard, đổi role của Owner hay Admin khác).",
+      "ruleNoActions": "Bạn không thao tác được trên thành viên này: chỉ tác động lên role thấp hơn hẳn role của bạn (Tenant Admin không khóa, offboard, đổi role của Owner hay Admin khác).",
       "selfNoActions": "Đây là tài khoản của bạn: không tự khóa, offboard hay đổi role của chính mình ở đây."
     },
     "access": {
@@ -1200,7 +1207,7 @@
     },
     "role": {
       "title": "Role",
-      "description": "Chỉ hiện role bạn được gán theo quy tắc 3a. Role Owner chỉ được cấp bằng chuyển quyền sở hữu.",
+      "description": "Chỉ hiện role bạn được phép gán (thấp hơn role của bạn). Role Owner chỉ được cấp bằng chuyển quyền sở hữu.",
       "newRole": "Role mới",
       "submit": "Đổi role",
       "confirmTitle": "Đổi role của {{name}}?",
@@ -1255,7 +1262,7 @@
       "description": "Người được mời đăng nhập lần đầu qua IdP của tenant với đúng email này (đã xác minh) và nhận role đã chọn.",
       "email": "Email",
       "emailInvalid": "Email không hợp lệ.",
-      "roleHint": "Chỉ hiện role bạn được mời (thấp hơn role của bạn — quy tắc 3a).",
+      "roleHint": "Chỉ hiện role bạn được phép mời (thấp hơn role của bạn).",
       "hours": "Hạn lời mời (giờ, 1–720)",
       "hoursInvalid": "Hạn phải là số nguyên từ 1 đến 720.",
       "summary": "Mời",
@@ -1263,8 +1270,7 @@
       "noRoles": "Role của bạn không mời được ai."
     },
     "invitations": {
-      "intro": "Lời mời người chưa từng đăng nhập. Với IdP do nền tảng host, job member.idp_invite tạo (hoặc tìm) tài khoản và gửi thư thiết lập.",
-      "watching": "Đã gửi lời mời — trạng thái IdP (job member.idp_invite) tự cập nhật trong bảng.",
+      "intro": "Lời mời người chưa từng đăng nhập. Với IdP do nền tảng host, nền tảng tạo (hoặc tìm) tài khoản IdP và gửi thư thiết lập — trạng thái ở cột IdP.",
       "empty": "Không có lời mời.",
       "expires": "Hết hạn",
       "invitedBy": "Người mời",
@@ -1275,10 +1281,27 @@
       "resendTitle": "Gửi lại lời mời cho {{email}}?",
       "resendDesc": "Lời mời nhận link và hạn mới (7 ngày); link cũ mất hiệu lực.",
       "revokeTitle": "Thu hồi lời mời của {{email}}?",
-      "revokeDesc": "Link trong thư mời không còn dùng được."
+      "revokeDesc": "Link trong thư mời không còn dùng được.",
+      "banner": {
+        "created": "Đã tạo lời mời.",
+        "resent": "Đã gửi lại lời mời (link và hạn mới).",
+        "processing": "Tài khoản IdP và thư thiết lập đang được xử lý — trạng thái ở cột IdP tự cập nhật.",
+        "done": "Bước IdP đã xong — xem cột IdP.",
+        "background": "Tài khoản IdP và thư thiết lập được xử lý ở nền.",
+        "failed": "Nhưng bước IdP thất bại — người được mời chưa đăng nhập được."
+      },
+      "idpError": {
+        "idp_email_failed": "Tài khoản đã được tạo ở IdP nhưng thư thiết lập chưa gửi được — liên hệ quản trị nền tảng; sau khi sửa, bấm “Gửi lại”.",
+        "idp_user_disabled": "Địa chỉ này thuộc một tài khoản IdP đã bị vô hiệu (thành viên đã offboard) — tài khoản phải được kích hoạt lại một cách tường minh.",
+        "idp_invite_failed": "Không tạo được tài khoản ở IdP — thử “Gửi lại” sau ít phút; nếu vẫn lỗi, liên hệ quản trị nền tảng.",
+        "not_configured": "IdP của tenant chưa sẵn sàng để tạo tài khoản — liên hệ quản trị nền tảng.",
+        "invalid_input": "Yêu cầu tạo tài khoản IdP không hợp lệ — liên hệ quản trị nền tảng.",
+        "other": "Bước IdP thất bại — liên hệ quản trị nền tảng."
+      },
+      "byPlatform": "Tạo khi provision (nền tảng)"
     },
     "groups": {
-      "intro": "Group được biên dịch vào policy thành group:<tên>. Đổi thành viên áp lại policy (job policy.apply).",
+      "intro": "Group được biên dịch vào policy thành group:<tên>. Đổi thành viên áp lại policy.",
       "create": "Tạo group",
       "createTitle": "Tạo group",
       "createSubmit": "Tạo",
@@ -1409,7 +1432,7 @@
       "principalType": "Kiểu principal — {{list}}",
       "principalValue": "Giá trị — {{list}}",
       "cidrHint": "* hoặc địa chỉ IP / prefix (ví dụ 10.0.0.0/24).",
-      "noResources": "Danh mục tài nguyên mạng chưa có API đọc (P4-T12): chỉ tài nguyên đã được tham chiếu mới chọn được; dùng chế độ HuJSON với tên alias.",
+      "noResources": "Tenant chưa có tài nguyên mạng nào — thêm ở trang Tài nguyên mạng.",
       "noChoices": "Không có mục nào để chọn.",
       "choose": "— chọn —",
       "addTo": "Thêm vào {{list}}",
@@ -1447,7 +1470,8 @@
       "removeRoute": "Gỡ route {{prefix}}",
       "routePrefix": "Route (prefix)",
       "addRoute": "Thêm route",
-      "exitApprovers": "Người tự duyệt exit node"
+      "exitApprovers": "Người tự duyệt exit node",
+      "resourcesUnreadable": "Không đọc được danh mục tài nguyên mạng (role của bạn không có quyền đọc, hoặc tải lỗi) — chỉ chọn được tài nguyên đã được tham chiếu."
     },
     "ack": {
       "title": "Xác nhận luật",
@@ -1504,7 +1528,7 @@
       "ambiguous_resource": "Nhiều tài nguyên mạng có tên này.",
       "internet_without_via": "autogroup:internet không kèm via tag (exit node) — cần xác nhận L7.",
       "auto_approver_not_platform": "autoApprovers ngoài tag router/exit của nền tảng — cần xác nhận L7.",
-      "ssh_check": "SSH check bị chặn (V-26 — sau MVP).",
+      "ssh_check": "SSH check bị chặn (sau MVP).",
       "ssh_accept": "SSH accept luôn cho phép port forwarding và không ghi phiên — cần xác nhận L10.",
       "self_large_tenant": "autogroup:self ở tenant lớn tốn chi phí ở mọi thay đổi (L8).",
       "member_oidc": "autogroup:member ở chế độ headscale_oidc gồm mọi user của IdP — cần xác nhận L13.",
@@ -1518,7 +1542,7 @@
       "empty": "Văn bản policy rỗng — Headscale sẽ lưu và cho phép mọi kết nối ở lần khởi động sau (L2). Không gửi.",
       "managed_key": "Khóa này được render từ bảng của tenant (groups, tài nguyên, danh mục tag) — gỡ khỏi văn bản và quản lý ở trang tương ứng (L3).",
       "acls_unsupported": "acls là định dạng cũ — viết luật bằng grants (L3).",
-      "node_attrs": "nodeAttrs bị từ chối ở MVP (L3, HS-22).",
+      "node_attrs": "nodeAttrs bị từ chối ở MVP (L3).",
       "tests_generated": "tests/sshTests được sinh lúc áp dụng, không viết tay (L3).",
       "unsupported_key": "Khóa này không thuộc policy của tenant (L3).",
       "unknown_key": "Khóa không hợp lệ ở vị trí này (L3).",
@@ -1535,9 +1559,9 @@
       "invalid_cidr": "Prefix còn bit host.",
       "invalid_prefix": "Route phải là prefix IP chuẩn.",
       "empty_principal": "Principal rỗng.",
-      "via_not_asserted": "tests sinh tự động không khẳng định được quyền đi qua via của luật này (V-24).",
-      "self_not_asserted": "tests sinh tự động không khẳng định được quyền tới autogroup:self của luật này (V-24).",
-      "tests_failed": "Headscale từ chối tests sinh tự động: một khẳng định sai, hoặc một thiết bị được nhắc tới đã không còn (PL-04)."
+      "via_not_asserted": "tests sinh tự động không khẳng định được quyền đi qua via của luật này.",
+      "self_not_asserted": "tests sinh tự động không khẳng định được quyền tới autogroup:self của luật này.",
+      "tests_failed": "Headscale từ chối tests sinh tự động: một khẳng định sai, hoặc một thiết bị được nhắc tới đã không còn."
     },
     "hujson": {
       "label": "Văn bản HuJSON",
@@ -1593,7 +1617,7 @@
       "notApplied": "Chưa có lần áp dụng nào",
       "latest": "Lần áp dụng gần nhất",
       "converged": "Client đã hội tụ",
-      "convergedUnknown": "Không quan sát được từ Headscale — mỗi client nhận policy mới ở lần cập nhật kế tiếp (T-18).",
+      "convergedUnknown": "Không quan sát được từ Headscale — mỗi client nhận policy mới ở lần cập nhật kế tiếp.",
       "review": "Duyệt",
       "fourEyesOn": "4-eyes: bật",
       "fourEyesOff": "4-eyes: tắt (tự xác nhận)",
@@ -1668,7 +1692,7 @@
     },
     "rollback": {
       "title": "Rollback về nội dung của version {{n}}?",
-      "description": "Tạo version mới với nội dung này (phê duyệt được kế thừa vì nội dung đã từng được duyệt), đặt làm mong muốn và áp dụng ngay (job policy.apply)."
+      "description": "Tạo version mới với nội dung này (phê duyệt được kế thừa vì nội dung đã từng được duyệt), đặt làm mong muốn và áp dụng ngay."
     },
     "apply": {
       "title": "Áp dụng version {{n}}?",
@@ -1734,8 +1758,8 @@
         }
       },
       "notes": {
-        "tests_self_not_asserted": "tests sinh tự động KHÔNG khẳng định được quyền tới autogroup:self: Headscale chạy tests trên bộ lọc toàn cục, không thấy luật self (V-24). Kiểm bằng kết nối thật.",
-        "tests_via_not_asserted": "tests sinh tự động KHÔNG khẳng định được quyền đi qua via: Headscale chạy tests trên bộ lọc toàn cục, không thấy luật via (V-24). Kiểm bằng kết nối thật.",
+        "tests_self_not_asserted": "tests sinh tự động KHÔNG khẳng định được quyền tới autogroup:self: Headscale chạy tests trên bộ lọc toàn cục, không thấy luật self. Kiểm bằng kết nối thật.",
+        "tests_via_not_asserted": "tests sinh tự động KHÔNG khẳng định được quyền đi qua via: Headscale chạy tests trên bộ lọc toàn cục, không thấy luật via. Kiểm bằng kết nối thật.",
         "routes_need_approval": "Route của router/exit node vẫn phải được duyệt riêng ở trang Routes.",
         "self_large_tenant": "autogroup:self tốn chi phí ở tenant lớn (L8).",
         "replaces_draft": "Thay toàn bộ luật của bản nháp."
@@ -1743,7 +1767,7 @@
     },
     "testsGen": {
       "title": "tests sinh tự động",
-      "intro": "Mỗi lần kiểm tra/áp dụng, server sinh tests từ grants và thiết bị hiện có; Headscale chạy chúng ở CheckPolicy/SetPolicy và từ chối policy nếu một khẳng định sai. tests chỉ thấy bộ lọc toàn cục: KHÔNG khẳng định được quyền từ via hay autogroup:self (V-24) — không phải mô phỏng quyền hiệu lực.",
+      "intro": "Mỗi lần kiểm tra/áp dụng, server sinh tests từ grants và thiết bị hiện có; Headscale chạy chúng ở CheckPolicy/SetPolicy và từ chối policy nếu một khẳng định sai. tests chỉ thấy bộ lọc toàn cục: KHÔNG khẳng định được quyền từ via hay autogroup:self — không phải mô phỏng quyền hiệu lực.",
       "generated": "{{count}} ca được sinh",
       "skippedCount": "{{count}} luật không có ca",
       "rule": "Luật {{n}}",
@@ -1751,12 +1775,12 @@
       "deny": "phải bị chặn",
       "proto": "giao thức",
       "skipped": {
-        "via_not_assertable": "có via — tests không thấy (V-24)",
-        "self_not_assertable": "đích chỉ là autogroup:self — tests không thấy (V-24)",
+        "via_not_assertable": "có via — tests không thấy",
+        "self_not_assertable": "đích chỉ là autogroup:self — tests không thấy",
         "app_only": "chỉ có capability ứng dụng, không có cổng",
         "no_testable_port": "không có cổng kiểm được (chỉ * hoặc giao thức tests không nhận)",
-        "no_source_device": "chưa nguồn nào có thiết bị (PL-04)",
-        "no_destination": "chưa đích nào phân giải ra địa chỉ (PL-04)",
+        "no_source_device": "chưa nguồn nào có thiết bị",
+        "no_destination": "chưa đích nào phân giải ra địa chỉ",
         "capped": "vượt giới hạn số ca"
       }
     }
@@ -1896,7 +1920,9 @@
       "breakglassDesc": "Bạn là Super Admin thứ hai duyệt truy cập của {{staff}} vào tenant {{tenant}} khi chưa có quyết định của tenant. Một security event mức cao được tạo và mọi Tenant Owner được thông báo."
     },
     "grantEnded": "Support Access Grant của bạn cho tenant này có thể đã hết hạn hoặc bị thu hồi — thao tác không được thực hiện.",
-    "grantEndedLink": "Xem Support Access"
+    "grantEndedLink": "Xem Support Access",
+    "tenantSearchHint": "Danh sách chỉ gồm tenant đang hoạt động hoặc tạm ngưng; gõ slug hoặc tên để tìm.",
+    "tenantSearchMore": "Còn nhiều tenant hơn danh sách đang hiện — gõ slug hoặc tên để tìm."
   },
   "approvals": {
     "intro": "Thay đổi trong tenant cần người thứ hai (tắt 4-eyes, bỏ group sensitive, thành viên group sensitive…). Người yêu cầu không tự duyệt được.",
@@ -2068,7 +2094,7 @@
       },
       "warnings": {
         "overlap": "{{prefix}} chồng lấn với {{otherPrefix}} của thiết bị {{other}}.",
-        "untagged_router": "Thiết bị là node của người dùng (không phải tagged node): route sẽ phụ thuộc vào thiết bị cá nhân (T-08).",
+        "untagged_router": "Thiết bị là node của người dùng (không phải tagged node): route sẽ phụ thuộc vào thiết bị cá nhân.",
         "exit_node": "Thiết bị là exit node: lưu lượng Internet của client đi qua thiết bị này."
       },
       "approve": "Duyệt route",
@@ -2147,7 +2173,7 @@
       "add": "Thêm bản ghi"
     },
     "resources": {
-      "intro": "Danh mục tài nguyên mạng: mỗi tài nguyên là một alias (khóa hosts) để policy tham chiếu. Mỗi thay đổi làm policy được render và áp dụng lại (job policy.apply).",
+      "intro": "Danh mục tài nguyên mạng: mỗi tài nguyên là một alias (khóa hosts) để policy tham chiếu. Mỗi thay đổi làm policy được render và áp dụng lại.",
       "empty": "Chưa có tài nguyên nào.",
       "add": "Thêm tài nguyên",
       "addTitle": "Thêm tài nguyên",
@@ -2173,7 +2199,7 @@
       "addressHintHost": "Một địa chỉ IP (host, service).",
       "addressHintSubnet": "Một prefix không có bit host, ví dụ 10.0.0.0/24.",
       "portsHint": "Cổng hoặc dải, cách nhau bằng dấu phẩy: 443, 8000-8100. Để trống = mọi cổng (service bắt buộc có cổng; icmp không có cổng).",
-      "policyNote": "Lưu xong, policy được áp dụng lại ở nền (job policy.apply).",
+      "policyNote": "Lưu xong, policy được áp dụng lại ở nền.",
       "col": {
         "name": "Tên",
         "kind": "Loại",
@@ -2440,6 +2466,10 @@
       "not_approved": "Yêu cầu chưa được duyệt.",
       "not_requester": "Chỉ người tạo yêu cầu mới nhận được lệnh/key.",
       "other": "Trạng thái yêu cầu đã đổi — tải lại danh sách."
+    },
+    "selfEnrollOff": {
+      "title": "Tenant chưa cho phép tự thêm thiết bị",
+      "body": "Quản trị viên của tenant đã tắt việc người dùng tự thêm thiết bị. Liên hệ quản trị viên để được thêm thiết bị hoặc bật lại tùy chọn này."
     }
   },
   "diagnostics": {
@@ -2648,6 +2678,7 @@
           "expect": "Có dòng LISTEN cho cổng này; không có ⇒ dịch vụ chưa chạy (control plane không thấy được điều này)."
         }
       }
-    }
+    },
+    "readNever": "Chưa đọc lần nào."
   }
 }

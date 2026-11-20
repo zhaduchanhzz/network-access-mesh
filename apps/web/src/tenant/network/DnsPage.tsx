@@ -275,7 +275,7 @@ function DnsRecords({ canUpdate, baseDomain }: { canUpdate: boolean; baseDomain:
             data.items.length === 0 ? (
               <EmptyState>{t("network.dns.noRecords")}</EmptyState>
             ) : (
-              <div className="overflow-x-auto">
+              <div className="relative overflow-x-auto">
                 <table className="data-table" data-testid="records-table">
                   <caption className="sr-only">{t("network.dns.recordsTitle")}</caption>
                   <thead>

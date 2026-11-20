@@ -177,8 +177,8 @@ function EdgeCard({ d }: { d: TenantDiagnostics }) {
         </StatusBadge>
       </p>
       {d.edge.reason ? (
-        <p className="mt-1 text-sm">
-          {code("diagnostics.reasons", d.edge.reason)} <code>{`(${d.edge.reason})`}</code>
+        <p className="mt-1 text-sm" title={d.edge.reason}>
+          {code("diagnostics.reasons", d.edge.reason)}
         </p>
       ) : null}
       <ObservedAt labelKey="ui.checkedAt" iso={d.edge.checked_at} />

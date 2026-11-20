@@ -147,10 +147,14 @@ describe("nav theo role", () => {
     await screen.findByRole("heading", { name: "Platform Health", level: 1 });
     expect(router.state.location.pathname).toBe("/platform/health");
     expect(within(nav()).getByRole("link", { name: /Nhân sự nền tảng/ })).toBeInTheDocument();
+    // G4b-E18: "Platform Console" chỉ một lần ở header (badge), không lặp làm ngữ cảnh
+    expect(within(screen.getByRole("banner")).getAllByText("Platform Console")).toHaveLength(1);
+    expect(screen.queryByTestId("shell-context")).toBeNull();
     await router.navigate("/platform/security-events");
     // chờ trang mới (trang trước cũng có data-testid="unavailable")
     await screen.findByRole("heading", { name: "Security Events", level: 1 });
-    expect(screen.getByTestId("unavailable")).toHaveTextContent("P6-T02a");
+    expect(screen.getByTestId("unavailable")).toHaveAttribute("data-task", "P6-T02a");
+    expect(screen.getByTestId("unavailable")).not.toHaveTextContent("P6-T02a"); // G4b-E11: mã task không hiện cho người dùng
     expect(screen.getByTestId("unavailable")).toHaveTextContent("sau MVP");
     unmount();
 

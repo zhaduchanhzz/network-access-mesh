@@ -427,7 +427,7 @@ describe("resources", () => {
     await waitFor(() => expect(row).toHaveTextContent("ops")); // tên nhóm từ GET /groups
     expect(screen.queryByRole("button", { name: "Thêm tài nguyên" })).toBeNull();
     expect(screen.queryByRole("button", { name: /Sửa tài nguyên|Xóa tài nguyên/ })).toBeNull();
-    await userEvent.click(screen.getByRole("button", { name: "Tiếp" }));
+    await userEvent.click(screen.getByRole("button", { name: "Trang sau" }));
     await waitFor(() => expect(screen.getByTestId("resource-row")).toHaveTextContent("db-net"));
     expect(screen.getByTestId("resource-row")).toHaveTextContent("Mọi cổng");
     const q = new URL(requests.filter((r) => r.url.includes("/resources")).at(-1)!.url).searchParams;

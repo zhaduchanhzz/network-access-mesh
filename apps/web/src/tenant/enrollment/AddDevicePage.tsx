@@ -7,6 +7,9 @@
 //      duyệt) ⇒ chờ duyệt rồi `/start` từ danh sách "Yêu cầu của bạn".
 // Ô "dán link hoặc Auth ID" là phương án lùi của trang claim (P4-T07 §4) — cùng API claim, cùng cảnh báo.
 // End User chỉ thấy/thao tác yêu cầu của mình (server lọc — ô ○ của §8.6); tenant suspended ⇒ mọi nút ghi khóa.
+// G4b-E3: End User + tenant tắt `enrollment.self_enroll` (cờ `self_enroll` của GET /enrollment/instructions) ⇒ ngay khi tải,
+// wizard và ô dán link được thay bằng thông báo đã dịch "tenant chưa cho tự thêm thiết bị". Đường lùi: cài đặt có thể đổi
+// giữa chừng ⇒ 403 của lần tạo lệnh cũng chuyển sang thông báo đó (không in `detail` tiếng Anh của server).
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
@@ -27,7 +30,9 @@ import {
   extractAuthId,
   guessOS,
   isMine,
+  isSelfEnrollRefusal,
   MOBILE_OS,
+  selfEnrollClosed,
   TTL_MAX,
   type EnrollmentCredential,
   type EnrollmentIssue,
@@ -46,6 +51,13 @@ export function AddDevicePage() {
   const [web, setWeb] = useState<{ request: EnrollmentRequest; credential: EnrollmentCredential | null } | null>(null);
   const [keyIssue, setKeyIssue] = useState<EnrollmentIssue | null>(null);
   const [waitingApproval, setWaitingApproval] = useState<EnrollmentRequest | null>(null);
+  const [refused, setRefused] = useState(false);
+  const onRefused = (e: unknown) => {
+    if (isSelfEnrollRefusal(e, role)) setRefused(true);
+  };
+  // cờ của tenant, không phụ thuộc OS ⇒ đọc qua hướng dẫn linux (cùng query với ô dán link)
+  const probe = useInstructions(tenantId, "linux");
+  const selfEnrollOff = refused || selfEnrollClosed(role, probe.data);
 
   const onIssued = (issue: EnrollmentIssue) => {
     setWaitingApproval(null);
@@ -62,7 +74,7 @@ export function AddDevicePage() {
     <Page title={t("nav.tenant.enroll")}>
       <p className="mb-4 text-sm text-muted">{t("enroll.intro")}</p>
       {readOnly && canRequest ? <p className="mb-3 text-sm text-muted">{t("ui.readOnlyActions")}</p> : null}
-      <Wizard canRequest={canRequest} onIssued={onIssued} />
+      {selfEnrollOff ? <SelfEnrollOff /> : <Wizard canRequest={canRequest} onIssued={onIssued} onRefused={onRefused} />}
       {waitingApproval ? (
         <div role="status" className="mt-4 rounded-md border border-line bg-surface p-4 text-sm" data-testid="pending-approval">
           <p className="font-semibold">{t("enroll.pendingApproval.title")}</p>
@@ -83,7 +95,7 @@ export function AddDevicePage() {
           }}
         />
       ) : null}
-      {canRequest ? <PasteClaim /> : null}
+      {canRequest && !selfEnrollOff ? <PasteClaim /> : null}
       <section aria-labelledby="enroll-mine" className="mt-8">
         <h2 id="enroll-mine" className="mb-2 text-lg font-semibold">
           {t("enroll.mine.title")}
@@ -107,7 +119,23 @@ export function AddDevicePage() {
   );
 }
 
-function Wizard({ canRequest, onIssued }: { canRequest: boolean; onIssued: (i: EnrollmentIssue) => void }) {
+/** Tenant tắt `enrollment.self_enroll` (biết được sau 403 của lần tạo lệnh): giải thích thay cho wizard. */
+function SelfEnrollOff() {
+  const { t } = useTranslation();
+  return (
+    <section aria-labelledby="enroll-wizard" className="rounded-lg border border-line bg-surface p-4" data-testid="enroll-wizard">
+      <h2 id="enroll-wizard" className="text-lg font-semibold">
+        {t("enroll.wizard.title")}
+      </h2>
+      <div role="alert" className="mt-3 rounded-md border border-warn/40 bg-warn-bg p-3 text-sm" data-testid="self-enroll-off">
+        <p className="font-semibold">{t("enroll.selfEnrollOff.title")}</p>
+        <p className="mt-1">{t("enroll.selfEnrollOff.body")}</p>
+      </div>
+    </section>
+  );
+}
+
+function Wizard({ canRequest, onIssued, onRefused }: { canRequest: boolean; onIssued: (i: EnrollmentIssue) => void; onRefused: (e: unknown) => void }) {
   const { t } = useTranslation();
   const { tenantId, readOnly } = useTenant();
   const [os, setOs] = useState<EnrollmentOS>(() => guessOS(navigator.userAgent));
@@ -125,7 +153,7 @@ function Wizard({ canRequest, onIssued }: { canRequest: boolean; onIssued: (i: E
   const submit = () => {
     if (labelBad || ttlBad || create.isPending || readOnly) return;
     const body: NewRequestBody = { method, ...(label ? { device_label: label } : {}), ...(method === "preauth_key" ? { ttl_minutes: n } : {}) };
-    create.mutate(body);
+    create.mutate(body, { onError: onRefused });
   };
 
   return (

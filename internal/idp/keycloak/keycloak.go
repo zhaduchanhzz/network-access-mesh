@@ -20,7 +20,9 @@
 // source: TestTemplateIsInfrastructureTemplate fails on any difference, TestTemplateMatchesInfrastructure checks that
 // the per-realm values the driver sets reproduce the three rendered infrastructure realms exactly). EnsureIssuer on an
 // existing realm compares it with the same template and repairs drift: realm settings, the MFA browser flow
-// requirements, required actions, the clients of the template, the service-account roles and scope mappings.
+// requirements, required actions, the clients of the template, the service-account roles and scope mappings. The
+// template carries no smtpServer (the rendered realms get theirs from render_idp.py): the driver adds Config.SMTP —
+// the worker's unauthenticated relay — to every realm it creates or reconciles (G4b-E1).
 //
 // Every call goes through the idp.PlatformRoute (https://auth.<domain>, TLS verified for that name, only /realms/ and
 // /admin/realms paths); impersonation is never called and is disabled at the server (feature off — P2-T05).
@@ -75,8 +77,12 @@ type Config struct {
 	// Security receives the security event of a registration whose client_secret_ref is not the IdP's own (G2 F3,
 	// idp.KindClientSecretRefNotOwned); production: the audit.Logger of the process. nil: the refusal stands, no event.
 	Security idp.SecurityRecorder
-	Logger   *slog.Logger
-	Now      func() time.Time
+	// SMTP is the smtpServer every realm the driver creates gets, and EnsureIssuer/EnsureSMTP repair (G4b-E1): without
+	// it Keycloak cannot e-mail the required-actions link of an invitation (execute-actions-email). nil: realms are
+	// created without SMTP and an existing smtpServer is left alone. Production: SMTPFromConfig of the worker's MG_SMTP_*.
+	SMTP   *SMTPServer
+	Logger *slog.Logger
+	Now    func() time.Time
 }
 
 // Driver is the keycloak IdP driver.
@@ -86,6 +92,7 @@ type Driver struct {
 	appHost   string
 	adminHost string
 	security  idp.SecurityRecorder
+	smtp      *SMTPServer
 }
 
 var _ idp.IdPDriver = (*Driver)(nil)
@@ -108,11 +115,19 @@ func New(cfg Config) (*Driver, error) {
 	if !hostRE.MatchString(app) || !hostRE.MatchString(adm) || app == adm {
 		errs = append(errs, errors.New("AppHost and AdminHost must be two DNS host names"))
 	}
+	var smtp *SMTPServer
+	if cfg.SMTP != nil {
+		if err := cfg.SMTP.validate(); err != nil {
+			errs = append(errs, err)
+		}
+		s := *cfg.SMTP
+		smtp = &s
+	}
 	if err := errors.Join(errs...); err != nil {
 		return nil, errors.Join(errors.New("keycloak: invalid configuration"), err)
 	}
 	return &Driver{admin: newAdmin(cfg.Route, cfg.Secrets, cfg.Logger, cfg.Now), prov: cfg.Provisioner,
-		appHost: app, adminHost: adm, security: cfg.Security}, nil
+		appHost: app, adminHost: adm, security: cfg.Security, smtp: smtp}, nil
 }
 
 // Name implements idp.IdPDriver.

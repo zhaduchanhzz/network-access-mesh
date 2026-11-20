@@ -43,6 +43,7 @@ import phase3  # noqa: E402 — E2E-32 … E2E-36 (P3-T14a, P3-T03a, P3-T08a)
 import portal  # noqa: E402 — E2E-87 (P4-T04: hộp thông báo, lọc rà soát tagged node)
 import policylife  # noqa: E402 — E2E-96 … E2E-98 (P4-T10: vòng đời policy, pipeline, drift)
 import postrestore  # noqa: E402 — E2E-70, E2E-71 (P3-T17)
+import provisioned  # noqa: E402 — E2E-124 (G4b-E1: mời thành viên trên tenant vừa provision qua orchestrator)
 import restore  # noqa: E402 — E2E-59, E2E-60 (P3-T11: V-11)
 import spa  # noqa: E402 — E2E-85, E2E-86 (P4-T01a: SPA sau edge template v9)
 import supportgrant  # noqa: E402 — E2E-105 … E2E-107 (P4-T13: Support Access Grant, break-glass, grant.expire)
@@ -260,9 +261,15 @@ def test(st: Stack, r: checks.Results) -> None:
     with timed("ca E2E-121, E2E-122 (edge v11 admin_public: admin. qua listener tunnel-facing với PROXY v2 từ host đóng vai "
                "VPS — conformance platform --admin public, console Keycloak vẫn sau cổng 2P, api thấy đúng IP client)"):
         adminpublic.run_all(r, st, guarded)
-    # last: E2E-71 replaces the stack's database by an older dump (restore runbook) — nothing may run after it
+    # E2E-71 replaces the stack's database by an older dump (restore runbook) — only E2E-124 runs after it (it needs the
+    # platform IdP, the Super Admin of E2E-24 and Keycloak, which the dump keeps; a worker running the orchestrator
+    # before E2E-71 would provision the tenant that case creates in its gap)
     with timed("ca E2E-70, E2E-71 (Phase 3: chế độ bảo trì + đối soát sau restore PostgreSQL P3-T17 — pg_dump/pg_restore thật)"):
         postrestore.run_all(r, st, guarded)
+    with timed("ca E2E-124 (G4b-E1: worker + Host Agent + orchestrator, tenant mới provision ⇒ realm do idp.ensure tạo có "
+               "SMTP; lời mời Owner bước 16 + lời mời End User ⇒ thư Keycloak qua mailrelay ⇒ đặt mật khẩu/TOTP từ link ⇒ "
+               "đăng nhập; dọn agent/instance/realm, worker về như cũ)"):
+        provisioned.run_all(r, st, guarded)
 
 
 def versions(st: Stack) -> dict[str, str]:

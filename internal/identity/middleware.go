@@ -18,6 +18,9 @@ type RequestInfo struct {
 	// FetchSite is the Sec-Fetch-Site header of the request (Fetch Metadata): "" when absent; "invalid" when present
 	// in a form no browser sends (empty or repeated). BeginLogin refuses any value but same-origin and none (G2 F1).
 	FetchSite string
+	// FetchMode is the Sec-Fetch-Mode header, parsed like FetchSite: "navigate" for a top-level navigation of a browser
+	// (GET /auth/login then answers a tenant it cannot log in to with a redirect to the SPA's login page — G4b-E2).
+	FetchMode string
 }
 
 type ctxKey int
@@ -86,7 +89,7 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 		}
 		info := RequestInfo{
 			Origin: origin, ClientIP: s.cfg.ClientIP(r), UserAgent: truncateUTF8(r.UserAgent(), maxUserAgent),
-			RequestID: reqID, Path: r.URL.Path, FetchSite: fetchSite(r),
+			RequestID: reqID, Path: r.URL.Path, FetchSite: fetchSite(r), FetchMode: fetchHeader(r, "Sec-Fetch-Mode"),
 		}
 		ctx := WithRequestInfo(r.Context(), info)
 		w.Header().Set("Cache-Control", "no-store")
@@ -141,8 +144,12 @@ func (s *Service) writeProblem(w http.ResponseWriter, r *http.Request, reqID str
 
 // fetchSite returns the Sec-Fetch-Site header of r: "" when absent, the value when sent once and non-empty, "invalid"
 // otherwise (no browser sends an empty or a repeated Sec-Fetch-Site) — RequestInfo.FetchSite.
-func fetchSite(r *http.Request) string {
-	vs := r.Header.Values("Sec-Fetch-Site")
+func fetchSite(r *http.Request) string { return fetchHeader(r, "Sec-Fetch-Site") }
+
+// fetchHeader returns a Fetch Metadata header of r: "" when absent, the value when sent once and non-empty, "invalid"
+// otherwise.
+func fetchHeader(r *http.Request, name string) string {
+	vs := r.Header.Values(name)
 	switch {
 	case len(vs) == 0:
 		return ""

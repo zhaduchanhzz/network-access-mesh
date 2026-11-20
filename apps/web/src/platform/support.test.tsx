@@ -46,6 +46,10 @@ describe("Support Access (platform)", () => {
     renderApp({ path: "/platform/support-access", console: "platform" });
     const select = await screen.findByLabelText("Tenant");
     await waitFor(() => expect(within(select).getAllByRole("option")).toHaveLength(2)); // gợi ý + acme (gone bị loại)
+    // G4b-E7: lọc trạng thái ở server (active, suspended) — không chỉ trang đầu của mọi tenant; gợi ý "gõ để tìm"
+    const statuses = requests.filter((r) => new URL(r.url).pathname.endsWith("/platform/tenants")).map((r) => new URL(r.url).searchParams.get("status"));
+    expect(new Set(statuses)).toEqual(new Set(["active", "suspended"]));
+    expect(screen.getByLabelText("Tìm tenant")).toHaveAccessibleDescription(/gõ slug hoặc tên để tìm/);
     await user.selectOptions(select, T1);
     await user.type(screen.getByLabelText("Mã ticket"), "SUP-7");
     await user.type(screen.getByLabelText("Lý do"), "Khách báo thiết bị offline");
@@ -83,7 +87,9 @@ describe("Support Access (platform)", () => {
     expect(confirm).toBeDisabled();
     await user.type(within(dialog).getByLabelText("Gõ slug của tenant để xác nhận"), "acme");
     await user.click(confirm);
-    expect(await within(dialog).findByText(/second Super Admin/)).toBeInTheDocument();
+    // giao diện vi: câu dịch theo code, không in `detail` tiếng Anh của 403 (G4b-E3)
+    expect(await within(dialog).findByText("Bạn không có quyền thực hiện thao tác này.")).toBeInTheDocument();
+    expect(dialog).not.toHaveTextContent("second Super Admin");
     expect(breakglass).toBe(1);
     await user.click(within(dialog).getByRole("button", { name: "Hủy" }));
     expect(within(rows[1]!).queryByRole("button", { name: "Duyệt break-glass" })).toBeNull();

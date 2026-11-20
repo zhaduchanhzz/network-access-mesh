@@ -7,6 +7,7 @@ import (
 	"github.com/zhaduchanhzz/network-access-mesh/internal/agentclient"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/config"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/idp"
+	"github.com/zhaduchanhzz/network-access-mesh/internal/members"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/platform"
 	"github.com/zhaduchanhzz/network-access-mesh/internal/provisioning/orchestrator"
 )
@@ -41,7 +42,9 @@ func newProvisioner(cfg config.Config, d *deps, agent *agentclient.Client, idps 
 	if err != nil {
 		return nil, err
 	}
-	oc := orchestrator.Config{Store: orchestrator.NewDBStore(d.st, nil), Agent: agent, Placer: placer, Secrets: d.secrets,
+	// G4b-E1: the Owner invitation of step 16 also creates the Owner's account at a platform-hosted IdP (member.idp_invite)
+	dbs := orchestrator.NewDBStore(d.st, nil).WithOwnerInvite(members.IdPInviteNotifier{})
+	oc := orchestrator.Config{Store: dbs, Agent: agent, Placer: placer, Secrets: d.secrets,
 		IdP: idps, Headscale: d.headscale, Security: platformSecurity{st: d.st}, Logger: d.log,
 		HeadscaleDigest: pc.HeadscaleDigest, HeadscaleVersion: pc.HeadscaleVersion, Nameservers: pc.Nameservers,
 		EdgeAddress: pc.EdgeAddr}

@@ -43,12 +43,13 @@ export function UnavailablePage({ item }: { item: NavItem }) {
   const { t } = useTranslation();
   return (
     <Page title={t(item.labelKey)}>
-      <div className="rounded-md border border-dashed border-line bg-surface p-6" data-testid="unavailable">
+      {/* mã task chỉ ở data-task (đối chiếu kế hoạch) — không hiện cho khách hàng (G4b-E11) */}
+      <div className="rounded-md border border-dashed border-line bg-surface p-6" data-testid="unavailable" data-task={item.task}>
         <p className="font-medium">{t("unavailable.title")}</p>
         <p className="mt-1 text-sm text-muted">
           {item.phase === "post_mvp"
-            ? t("unavailable.postMvp", { task: item.task })
-            : t("unavailable.planned", { task: item.task })}
+            ? t("unavailable.postMvp")
+            : t("unavailable.planned")}
         </p>
       </div>
     </Page>

@@ -105,8 +105,8 @@ export function DashboardPage() {
             </StatusBadge>
           </p>
           {d.instance.reason ? (
-            <p className="mt-1 text-sm">
-              {code("health.reason", d.instance.reason)} <code>{`(${d.instance.reason})`}</code>
+            <p className="mt-1 text-sm" title={d.instance.reason}>
+              {code("health.reason", d.instance.reason)}
             </p>
           ) : null}
           <ObservedAt labelKey="ui.checkedAt" iso={d.instance.checked_at} />

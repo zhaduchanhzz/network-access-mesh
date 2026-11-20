@@ -31,3 +31,21 @@ test("Tenant Portal: slug không hợp lệ ⇒ lỗi gắn với ô nhập (ari
   await expect(page).toHaveURL(/\/login/);
   await checkScreen(page, testInfo, "login-invalid");
 });
+
+// G4b-E2: slug đúng định dạng nhưng không có tenant (hoặc tenant không cho đăng nhập) ⇒ server chuyển hướng điều hướng của
+// trình duyệt về /login?error=tenant_not_found&tenant=<slug> (cùng một mã cho mọi trường hợp) ⇒ thông báo đã dịch của
+// SPA, slug điền lại, focus ô nhập — không còn JSON problem thô.
+test("Tenant Portal: slug không tồn tại ⇒ về /login của SPA với thông báo đã dịch, slug điền lại", async ({ page }, testInfo) => {
+  const lng = lngOf(testInfo);
+  const slug = `khong-co-${String(Date.now() % 100000)}`;
+  await page.goto(`${APP}/login`);
+  const input = page.getByLabel(T(lng, "login.tenantLabel"));
+  await input.fill(slug);
+  await page.getByRole("button", { name: T(lng, "login.submit") }).click();
+  await expect(page).toHaveURL(/\/login\?.*error=tenant_not_found/);
+  await expect(page.getByRole("alert")).toHaveText(T(lng, "login.errors.tenantNotFound"));
+  await expect(input).toHaveValue(slug);
+  await expect(input).toBeFocused();
+  await expect(input).toHaveAttribute("aria-invalid", "true");
+  await checkScreen(page, testInfo, "login-tenant-not-found");
+});

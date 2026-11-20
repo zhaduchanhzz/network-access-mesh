@@ -417,5 +417,6 @@ func (h *Handlers) GetEnrollmentInstructions(ctx context.Context, req gen.GetEnr
 	}
 	return gen.GetEnrollmentInstructions200JSONResponse(gen.EnrollmentInstructions{Os: gen.EnrollmentOS(in.OS),
 		LoginServer: in.LoginServer, Steps: in.Steps, WebAuthCommand: in.WebAuthCommand,
-		PreauthKeyCommand: in.PreauthKeyCommand, PrivacyNotice: in.PrivacyNotice, ManagedEnv: in.ManagedEnv}), nil
+		PreauthKeyCommand: in.PreauthKeyCommand, PrivacyNotice: in.PrivacyNotice, ManagedEnv: in.ManagedEnv,
+		SelfEnroll: in.SelfEnroll}), nil
 }

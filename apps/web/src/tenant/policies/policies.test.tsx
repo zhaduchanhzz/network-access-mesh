@@ -17,12 +17,14 @@ import {
   M_OWNER,
   OTHER_IDENTITY,
   R_DB,
+  RESOURCES,
   SHA_A,
   SOURCE,
   T_ROUTER,
   T_WEB,
   tag,
   TAGS,
+  V1,
   V2,
   V3,
   version,
@@ -90,6 +92,8 @@ describe("editor dạng form", () => {
     });
     renderApp({ path: `/t/${TENANT_A}/policies/${V2}` });
     await screen.findByRole("heading", { name: "Version 2", level: 1 });
+    // G4b-E15: "Dựa trên" hiện số version (không phải tiền tố UUID)
+    expect(await screen.findByRole("link", { name: "Version 1" })).toHaveAttribute("href", `/t/${TENANT_A}/policies/${V1}`);
     const dst = "Đích (dst) của luật 1";
     await userEvent.selectOptions(screen.getByLabelText(`Kiểu principal — ${dst}`), "cidr");
     await userEvent.type(screen.getByLabelText(`Giá trị — ${dst}`), "10.0.0.0/24");
@@ -122,6 +126,46 @@ describe("editor dạng form", () => {
     });
     expect(await screen.findByTestId("version-etag")).toHaveTextContent('"2"');
     expect(screen.queryByText("Chưa lưu")).toBeNull();
+  });
+
+  // G4b-E4: bộ chọn tài nguyên của Biểu mẫu đọc danh mục GET /resources (P4-T12) — không còn câu "chưa có API đọc"
+  it("đích kiểu tài nguyên: chọn từ danh mục GET /resources ⇒ PATCH với ref = id tài nguyên", async () => {
+    const { requests } = mockApi({
+      ...common("tenant_admin"),
+      [`GET ${base}/resources`]: json(200, RESOURCES),
+      [`GET ${vpath(V2)}`]: etagged(version(V2)),
+      [`GET ${vpath(V2)}/diff`]: diff,
+      [`PATCH ${vpath(V2)}`]: json(200, version(V2, { revision: 2 }), { ETag: '"2"' }),
+    });
+    renderApp({ path: `/t/${TENANT_A}/policies/${V2}` });
+    await screen.findByRole("heading", { name: "Version 2", level: 1 });
+    const dst = "Đích (dst) của luật 1";
+    await userEvent.selectOptions(screen.getByLabelText(`Kiểu principal — ${dst}`), "resource");
+    const value = await screen.findByLabelText(`Giá trị — ${dst}`);
+    expect(within(value).getByRole("option", { name: "db (10.20.0.5)" })).toBeInTheDocument();
+    expect(screen.queryByText(/chưa có API đọc/)).toBeNull();
+    await userEvent.selectOptions(value, R_DB);
+    await userEvent.click(screen.getByRole("button", { name: `Thêm vào ${dst}` }));
+    await userEvent.click(screen.getByRole("button", { name: "Lưu bản nháp" }));
+    await waitFor(() => expect(find(requests, "PATCH", `/policies/${V2}`)).toHaveLength(1));
+    const body = await bodyOf(find(requests, "PATCH", `/policies/${V2}`)[0]!);
+    expect(JSON.stringify(body)).toContain(JSON.stringify({ type: "resource", ref: R_DB }));
+    expect(find(requests, "GET", "/resources")).toHaveLength(1);
+  });
+
+  it.each([
+    ["danh mục rỗng", json(200, { items: [], next_cursor: null }), "Tenant chưa có tài nguyên mạng nào"],
+    ["đọc lỗi (403)", problem(403, "forbidden"), "Không đọc được danh mục tài nguyên mạng"],
+  ])("đích kiểu tài nguyên — %s ⇒ câu đúng, các danh mục khác vẫn dùng được", async (_n, response, text) => {
+    mockApi({ ...common("tenant_admin"), [`GET ${base}/resources`]: response, [`GET ${vpath(V2)}`]: etagged(version(V2)), [`GET ${vpath(V2)}/diff`]: diff });
+    renderApp({ path: `/t/${TENANT_A}/policies/${V2}` });
+    await screen.findByRole("heading", { name: "Version 2", level: 1 });
+    const dst = "Đích (dst) của luật 1";
+    await userEvent.selectOptions(screen.getByLabelText(`Kiểu principal — ${dst}`), "resource");
+    expect(await screen.findByTestId("no-choices")).toHaveTextContent(text);
+    const src = "Nguồn (src) của luật 1";
+    await userEvent.selectOptions(screen.getByLabelText(`Kiểu principal — ${src}`), "user");
+    expect(within(screen.getByLabelText(`Giá trị — ${src}`)).getByRole("option", { name: /Trần Thị B/ })).toBeInTheDocument();
   });
 
   it("địa chỉ sai và ip sai bị chặn trước khi gửi", async () => {
@@ -330,7 +374,9 @@ describe("duyệt (4-eyes / self-review)", () => {
     expect(dialog).toHaveTextContent("review_mode = self");
     await userEvent.click(within(dialog).getByRole("checkbox"));
     await userEvent.click(within(dialog).getByRole("button", { name: "Duyệt" }));
-    expect(await within(dialog).findByText(/an Owner approves it/)).toBeInTheDocument();
+    // giao diện vi: câu dịch theo code, không in `detail` tiếng Anh của 403 (G4b-E3)
+    expect(await within(dialog).findByText("Bạn không có quyền thực hiện thao tác này.")).toBeInTheDocument();
+    expect(dialog).not.toHaveTextContent("an Owner approves it");
   });
 
   it("4-eyes: gửi duyệt với If-Match", async () => {

@@ -274,7 +274,7 @@ function AuditTable({ items }: { items: AuditEvent[] }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState<string | null>(null);
   return (
-    <div className="overflow-x-auto rounded-lg border border-line bg-surface">
+    <div className="relative overflow-x-auto rounded-lg border border-line bg-surface">
       <table className="data-table">
         <caption className="sr-only">{t("audit.caption")}</caption>
         <thead>
